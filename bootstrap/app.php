@@ -7,8 +7,6 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
-use Laravel\Sanctum\Http\Middleware\CheckAbilities;
-use Laravel\Sanctum\Http\Middleware\CheckForAnyAbility;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -22,8 +20,6 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'clinique' => AppliquerContexteClinique::class,
-            'ability' => CheckForAnyAbility::class,
-            'abilities' => CheckAbilities::class,
         ]);
 
         // Le contexte clinique doit être posé AVANT la résolution des

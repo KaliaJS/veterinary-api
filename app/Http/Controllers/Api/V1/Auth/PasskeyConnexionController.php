@@ -2,17 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1\Auth;
 
-use App\Auth\DefiPasskey;
 use App\Auth\EmetteurJetons;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Auth\VerifierPasskeyRequest;
 use App\Http\Resources\V1\JetonEmisResource;
-use App\Models\User;
+use App\Services\PasskeyAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Laravel\Passkeys\Actions\GenerateVerificationOptions;
-use Laravel\Passkeys\Actions\VerifyPasskey;
-use Laravel\Passkeys\Support\WebAuthn;
 
 /**
  * Connexion passkey / WebAuthn — voie primaire (loginWithPasskey du
@@ -22,43 +18,29 @@ use Laravel\Passkeys\Support\WebAuthn;
  */
 class PasskeyConnexionController extends Controller
 {
-    public function options(
-        Request $request,
-        GenerateVerificationOptions $generer,
-        DefiPasskey $defis,
-    ): JsonResponse {
+    public function options(Request $request, PasskeyAuthService $service): JsonResponse
+    {
         $request->validate(['email' => ['sometimes', 'email']]);
 
         // E-mail fourni → credentials du compte proposés ; sinon
         // credentials découvrables (le navigateur choisit).
-        $user = $request->filled('email')
-            ? User::where('email', $request->string('email'))->first()
-            : null;
-
-        $options = $generer($user);
-
-        return response()->json([
-            'defi_id' => $defis->conserver($options),
-            'options' => WebAuthn::toBrowserArray($options),
-        ]);
+        return response()->json($service->generateOptions(
+            $request->filled('email') ? $request->string('email')->toString() : null,
+        ));
     }
 
     public function verifier(
         VerifierPasskeyRequest $request,
-        VerifyPasskey $verifier,
-        DefiPasskey $defis,
+        PasskeyAuthService $service,
         EmetteurJetons $emetteur,
     ): JetonEmisResource {
-        $passkey = $verifier(
-            $request->credential(),
-            $defis->reprendreVerification($request->string('defi_id')->toString()),
+        $passkey = $service->validate(
+            $request->credentialJson(),
+            $request->string('defi_id')->toString(),
         );
 
-        /** @var User $user */
-        $user = $passkey->user;
-
         $resultat = $emetteur->emettre(
-            $user,
+            $passkey->user,
             $request->filled('clinique_id') ? $request->integer('clinique_id') : null,
             $request->string('appareil', 'api')->toString(),
         );

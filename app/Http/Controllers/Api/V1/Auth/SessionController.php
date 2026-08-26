@@ -27,7 +27,7 @@ class SessionController extends Controller
                     'id' => $contexte->cliniqueId(),
                     'nom' => $contexte->clinique()->nom,
                 ],
-                'abilities' => $jeton->abilities,
+                'permissions' => $contexte->permissions(),
                 'expire_le' => $jeton->expires_at?->toIso8601String(),
             ],
         ]);

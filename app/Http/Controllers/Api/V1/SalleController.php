@@ -20,6 +20,8 @@ class SalleController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
+        $this->authorize('viewAny', Salle::class);
+
         return SalleResource::collection(
             Salle::query()->orderBy('nom')->paginate($this->parPage($request)),
         );
@@ -27,16 +29,22 @@ class SalleController extends Controller
 
     public function store(EnregistrerSalleRequest $request): SalleResource
     {
+        $this->authorize('create', Salle::class);
+
         return new SalleResource(Salle::create($request->validated()));
     }
 
     public function show(Salle $salle): SalleResource
     {
+        $this->authorize('view', $salle);
+
         return new SalleResource($salle);
     }
 
     public function update(ModifierSalleRequest $request, Salle $salle): SalleResource
     {
+        $this->authorize('update', $salle);
+
         $salle->update($request->validated());
 
         return new SalleResource($salle);

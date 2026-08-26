@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Auth\RolesParDefaut;
 use App\Enums\RoleLignePlanning;
 use App\Enums\StatutAbsence;
 use App\Enums\TypeAbsence;
@@ -40,6 +41,10 @@ class EquipeSeeder extends Seeder
             ['st6', $leLac, null, 'Léa Fontaine', 'LF', 'ASV', 80, 'CDD → 12.2026', '11.2024', '078 902 13 55', 'l.fontaine@laveyre.ch', 20, 13],
         ];
 
+        $organisation = $deuxRives->societe->organisation;
+        $roleVeterinaire = $organisation->roles()->where('nom', RolesParDefaut::VETERINAIRE)->firstOrFail();
+        $roleAsv = $organisation->roles()->where('nom', RolesParDefaut::ASV)->firstOrFail();
+
         $employes = [];
         foreach ($staff as [$cle, $clinique, $userId, $nom, $initiales, $role, $taux, $contrat, $entree, $tel, $mail, $droit, $pris]) {
             $employes[$cle] = Employe::create([
@@ -47,7 +52,8 @@ class EquipeSeeder extends Seeder
                 'user_id' => $userId,
                 'nom' => $nom,
                 'initiales' => $initiales,
-                'role' => $role,
+                'role_libelle' => $role,
+                'role_id' => str_starts_with($role, 'Vétérinaire') ? $roleVeterinaire->id : $roleAsv->id,
                 'taux' => $taux,
                 'contrat' => $contrat,
                 'entree_le' => Carbon::createFromFormat('m.Y', $entree)->startOfMonth(),

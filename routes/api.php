@@ -36,9 +36,10 @@ Route::prefix('v1')->group(function (): void {
 
         Route::apiResource('salles', SalleController::class)->except('destroy');
 
-        // Domaine facturation — routes à venir, toutes derrière
-        // l'ability dédiée (une ASV n'y a pas accès).
-        Route::middleware('abilities:facturation')->prefix('facturation')->group(function (): void {
+        // Domaine facturation — routes à venir, toutes derrière le
+        // Gate dédié, vérifié en base à chaque requête (une ASV n'y a
+        // pas accès).
+        Route::middleware('can:facturation')->prefix('facturation')->group(function (): void {
             //
         });
     });

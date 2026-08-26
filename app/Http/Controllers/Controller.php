@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\Request;
 
 abstract class Controller
 {
+    use AuthorizesRequests;
+
     /**
      * Convention de pagination de l'API : `per_page` (défaut 25,
      * plafonné à 100) + `page`, réponses au format paginé standard

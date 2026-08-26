@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Auth\RolesParDefaut;
 use App\Enums\TypeSalle;
 use App\Models\Clinique;
 use App\Models\HoraireOuverture;
@@ -23,6 +24,10 @@ class CliniqueSeeder extends Seeder
     public function run(): void
     {
         $organisation = Organisation::create(['nom' => 'Deux Rives Vétérinaires']);
+
+        // Le seeder coupe les événements de modèle : les rôles par
+        // défaut de l'organisation sont créés explicitement.
+        RolesParDefaut::creer($organisation);
 
         $s1 = Societe::create(['organisation_id' => $organisation->id, 'nom' => 'Deux Rives Vétérinaires SA', 'ide' => 'CHE-214.694.581']);
         $s2 = Societe::create(['organisation_id' => $organisation->id, 'nom' => 'Vet Lac Léman Sàrl', 'ide' => 'CHE-302.118.447']);

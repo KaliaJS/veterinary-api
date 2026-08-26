@@ -8,6 +8,7 @@ use App\Enums\TypeSalle;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Patient;
+use App\Models\Role;
 use App\Models\Salle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -132,6 +133,22 @@ class IsolationCliniqueTest extends TestCase
 
         app(ContexteClinique::class)->oublier();
         $this->assertSame(2, Patient::count());
+    }
+
+    public function test_les_roles_sont_isoles_par_organisation(): void
+    {
+        // Chaque organisation a ses quatre rôles par défaut ; sous le
+        // contexte de la clinique A, seuls les siens existent.
+        app(ContexteClinique::class)->definir($this->cliniqueA);
+
+        $this->assertSame(4, Role::count());
+        $this->assertSame(
+            [$this->cliniqueA->societe->organisation_id],
+            Role::pluck('organisation_id')->unique()->values()->all(),
+        );
+
+        app(ContexteClinique::class)->oublier();
+        $this->assertSame(8, Role::count());
     }
 
     public function test_un_rattachement_revoque_coupe_l_acces(): void

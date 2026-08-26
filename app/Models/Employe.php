@@ -16,8 +16,8 @@ class Employe extends Model
     use AppartientAUneClinique, HasFactory;
 
     protected $fillable = [
-        'clinique_id', 'user_id', 'nom', 'initiales', 'role', 'taux',
-        'contrat', 'entree_le', 'tel', 'email', 'conges_droit', 'conges_pris',
+        'clinique_id', 'user_id', 'nom', 'initiales', 'role_libelle', 'role_id',
+        'taux', 'contrat', 'entree_le', 'tel', 'email', 'conges_droit', 'conges_pris',
     ];
 
     protected function casts(): array
@@ -34,6 +34,21 @@ class Employe extends Model
     public function clinique(): BelongsTo
     {
         return $this->belongsTo(Clinique::class);
+    }
+
+    /** Rôle configurable portant les permissions (`role_libelle`
+     * reste le libellé affiché).
+     *
+     * @return BelongsTo<Role, $this> */
+    public function role(): BelongsTo
+    {
+        return $this->belongsTo(Role::class);
+    }
+
+    /** @return HasMany<DerogationPermission, $this> */
+    public function derogations(): HasMany
+    {
+        return $this->hasMany(DerogationPermission::class);
     }
 
     /** @return BelongsTo<User, $this> */

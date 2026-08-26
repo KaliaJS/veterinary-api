@@ -52,7 +52,7 @@ class AuthentificationTest extends TestCase
         ]);
 
         $reponse->assertOk()
-            ->assertJsonStructure(['data' => ['token', 'expire_le', 'user' => ['mail', 'first', 'last'], 'clinique' => ['id', 'nom'], 'abilities']])
+            ->assertJsonStructure(['data' => ['token', 'expire_le', 'user' => ['mail', 'first', 'last'], 'clinique' => ['id', 'nom'], 'permissions']])
             ->assertJsonPath('data.user.mail', $user->email);
 
         // Le code est à usage unique.
@@ -157,7 +157,7 @@ class AuthentificationTest extends TestCase
 
         $reponse = $this->postJson('/api/v1/auth/rafraichir', [], $this->enTetes($jeton))
             ->assertOk()
-            ->assertJsonStructure(['data' => ['token', 'expire_le', 'clinique', 'abilities']]);
+            ->assertJsonStructure(['data' => ['token', 'expire_le', 'clinique', 'permissions']]);
 
         $nouveau = $reponse->json('data.token');
 

@@ -10,10 +10,11 @@ use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\NewAccessToken;
 
 /**
- * Émission des jetons d'API : un jeton = un utilisateur + une clinique
- * + les abilities de son rôle dans cette clinique, avec expiration.
- * Le rafraîchissement recalcule les abilities (un changement de rôle
- * prend effet au prochain refresh, au plus tard à l'expiration).
+ * Émission des jetons d'API : un jeton = un utilisateur + une clinique,
+ * avec expiration. Le jeton ne porte AUCUNE permission (abilities
+ * Sanctum à ['*']) : les permissions se vérifient en base à chaque
+ * requête, via le middleware `clinique` et les Gates — un changement
+ * prend effet immédiatement, sans réémission.
  */
 class EmetteurJetons
 {
@@ -26,7 +27,7 @@ class EmetteurJetons
     {
         $employe = $this->employePour($user, $cliniqueId);
 
-        $jeton = $user->createToken($nomAppareil, Abilites::pour($employe), $this->expireLe());
+        $jeton = $user->createToken($nomAppareil, ['*'], $this->expireLe());
 
         /** @var JetonApi $modele */
         $modele = $jeton->accessToken;
@@ -36,8 +37,8 @@ class EmetteurJetons
     }
 
     /**
-     * Remplace le jeton courant par un jeton neuf (même clinique,
-     * abilities recalculées) et révoque l'ancien.
+     * Remplace le jeton courant par un jeton neuf (même clinique) et
+     * révoque l'ancien.
      *
      * @return array{jeton: NewAccessToken, employe: Employe}
      */

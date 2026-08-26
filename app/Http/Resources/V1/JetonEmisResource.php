@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\V1;
 
+use App\Auth\CalculateurPermissions;
 use App\Models\Employe;
 use App\Models\JetonApi;
 use Illuminate\Http\Request;
@@ -11,7 +12,9 @@ use Laravel\Sanctum\NewAccessToken;
 /**
  * Réponse d'émission de jeton (connexion et rafraîchissement) :
  * le jeton en clair, son expiration, l'utilisateur (contrat front),
- * la clinique de rattachement et les abilities accordées.
+ * la clinique de rattachement et les permissions effectives — un
+ * instantané informatif pour l'UI ; la vérité reste la base, vérifiée
+ * à chaque requête.
  */
 class JetonEmisResource extends JsonResource
 {
@@ -36,7 +39,9 @@ class JetonEmisResource extends JsonResource
                 'id' => $this->employe->clinique_id,
                 'nom' => $this->employe->clinique->nom,
             ],
-            'abilities' => $modele->abilities,
+            'permissions' => app(CalculateurPermissions::class)->pour(
+                $this->employe->loadMissing(['role', 'derogations']),
+            ),
         ];
     }
 }
