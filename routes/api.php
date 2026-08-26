@@ -139,7 +139,10 @@ Route::prefix('v1')->group(function (): void {
         Route::get('patients/{patient}/dents', [ReleveDentaireController::class, 'afficher']);
         Route::put('patients/{patient}/dents', [ReleveDentaireController::class, 'remplacer']);
 
-        // Compte rendu SOAP — un par rendez-vous, upsert au PUT.
+        // Compte rendu SOAP — un par rendez-vous, upsert au PUT. Comme
+        // tout le dossier médical, il est de niveau organisation : le
+        // rendez-vous est résolu parmi les cliniques de l'organisation
+        // (pas de binding implicite, qui le bornerait à la clinique).
         Route::get('rendez-vous/{rendezVous}/compte-rendu', [CompteRenduController::class, 'afficher']);
         Route::put('rendez-vous/{rendezVous}/compte-rendu', [CompteRenduController::class, 'enregistrer']);
 

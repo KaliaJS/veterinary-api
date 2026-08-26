@@ -9,8 +9,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Compte rendu SOAP d'un rendez-vous (un seul par RDV — upsert).
- * Pas de scope clinique propre : il n'est jamais résolu directement,
- * toujours atteint via le rendez-vous (lui-même scoppé clinique).
+ * Pas de scope propre : jamais résolu directement, toujours atteint
+ * via son rendez-vous — résolu au NIVEAU ORGANISATION comme tout le
+ * dossier médical (patient partagé entre les cliniques du jeton).
  */
 class CompteRendu extends Model
 {

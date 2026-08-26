@@ -18,9 +18,8 @@ use Tests\TestCase;
 /**
  * Deux niveaux d'isolation. Niveau ORGANISATION : clients et patients
  * d'une autre organisation sont introuvables (404) et irréférençables
- * (422) — mais PARTAGÉS entre les cliniques d'une même organisation.
- * Niveau CLINIQUE : le compte rendu suit son rendez-vous, scoppé
- * clinique — celui d'une clinique sœur reste introuvable.
+ * (422) — mais PARTAGÉS entre les cliniques d'une même organisation,
+ * comme tout le dossier médical, compte rendu SOAP compris.
  */
 class PatientsIsolationTest extends TestCase
 {
@@ -187,19 +186,29 @@ class PatientsIsolationTest extends TestCase
             ->assertCreated();
     }
 
-    public function test_le_compte_rendu_suit_l_isolation_clinique_de_son_rendez_vous(): void
+    public function test_le_compte_rendu_est_de_niveau_organisation_comme_le_dossier(): void
     {
         $entetes = $this->enTetes($this->jetonA);
 
-        // Rendez-vous d'une autre organisation : introuvable.
+        // Rendez-vous d'une autre organisation : introuvable, rien créé.
         $this->getJson("/api/v1/rendez-vous/{$this->rendezVousB->id}/compte-rendu", $entetes)->assertNotFound();
         $this->putJson("/api/v1/rendez-vous/{$this->rendezVousB->id}/compte-rendu", ['s' => 'x'], $entetes)->assertNotFound();
-
-        // Rendez-vous d'une clinique SŒUR (même organisation) : le RDV
-        // reste scoppé clinique — introuvable aussi.
-        $this->putJson("/api/v1/rendez-vous/{$this->rendezVousSoeur->id}/compte-rendu", ['s' => 'x'], $entetes)->assertNotFound();
-
         $this->assertSame(1, CompteRendu::count());
+
+        // Rendez-vous d'une clinique SŒUR (même organisation) : le
+        // dossier médical est partagé — le compte rendu se rédige et
+        // se lit depuis n'importe quelle clinique de l'organisation.
+        $this->putJson(
+            "/api/v1/rendez-vous/{$this->rendezVousSoeur->id}/compte-rendu",
+            ['s' => 'Consultation dans la clinique sœur.'],
+            $entetes,
+        )->assertCreated();
+
+        $this->getJson("/api/v1/rendez-vous/{$this->rendezVousSoeur->id}/compte-rendu", $entetes)
+            ->assertOk()
+            ->assertJsonPath('data.s', 'Consultation dans la clinique sœur.');
+
+        $this->assertSame(2, CompteRendu::count());
     }
 
     private function rendezVousDans(Clinique $clinique): RendezVous

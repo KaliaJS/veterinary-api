@@ -8,8 +8,9 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * Le compte rendu SOAP est du dossier médical : domaine patients pour
- * la lecture comme la rédaction. L'isolation clinique passe par le
- * rendez-vous auquel il est adossé (jamais résolu directement).
+ * la lecture comme la rédaction. L'isolation — d'ORGANISATION, comme
+ * le reste du dossier — passe par le rendez-vous auquel il est adossé
+ * (jamais résolu directement).
  */
 class CompteRenduPolicy
 {

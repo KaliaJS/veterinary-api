@@ -3,6 +3,7 @@
 namespace App\Http\Requests\V1\Concerns;
 
 use App\Auth\ContexteClinique;
+use App\Models\Clinique;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
 
@@ -23,5 +24,20 @@ trait ReglesScopees
     {
         return Rule::exists($table, 'id')
             ->where('organisation_id', app(ContexteClinique::class)->organisationId());
+    }
+
+    /**
+     * Variante pour les tables portant `clinique_id` mais référencées
+     * au niveau organisation (ex. le signataire d'une visite peut être
+     * l'employé d'une clinique sœur — le dossier médical est partagé).
+     */
+    protected function existeDansLesCliniquesDeLOrganisation(string $table): Exists
+    {
+        $cliniques = Clinique::query()
+            ->whereRelation('societe', 'organisation_id', app(ContexteClinique::class)->organisationId())
+            ->pluck('id')
+            ->all();
+
+        return Rule::exists($table, 'id')->whereIn('clinique_id', $cliniques);
     }
 }
