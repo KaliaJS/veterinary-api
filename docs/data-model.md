@@ -7,11 +7,13 @@ Deux sources, dans cet ordre d'autorité :
 1. **Les stores implémentés** (`src/stores/`) — planning, patients,
    propriétaires, factures/caisse, devis, hospitalisation, laboratoire,
    imagerie, bloc, ordonnances, dossier médical (CR, carnet, relevés),
-   produits, réglages, rappels, outils. Là où l'implémentation a tranché,
-   c'est elle qui fait foi.
+   produits, réglages, rappels, outils, **équipe, organisation/admin,
+   boutique, stocks, authentification** (portés depuis la première
+   version de ce document — relu et intégré ci-dessous). Là où
+   l'implémentation a tranché, c'est elle qui fait foi.
 2. **Le prototype** (`design_handoff_veterinary_app/Planning Veterinaire.dc.html`)
-   — pour les écrans non portés (Équipe, Organisation/admin, Boutique,
-   Stocks, espace client).
+   — pour le seul écran non porté restant : l'espace client (portail
+   propriétaire).
 
 Les noms de champs du front (camelCase) sont indiqués tels quels, avec
 une suggestion de type SQL. Convention front → base : `startsAt` →
@@ -56,9 +58,10 @@ d'imagerie). Pour l'API : `rendez_vous.praticien_id` nullable **ou**
 
 ## 1. Praticien / Équipe
 
-### Porté aujourd'hui (store `planning.staff`)
+### Porté (store `planning.staff`, consommé par l'écran Équipe)
 
-Le front n'utilise que le noyau — le reste attend l'écran Équipe :
+L'écran Équipe est implémenté (`equipe.js`) et lit le `staff` du
+planning, désormais complet avec les champs RH du proto :
 
 | Champ front | Type suggéré | Description |
 |---|---|---|
@@ -67,13 +70,20 @@ Le front n'utilise que le noyau — le reste attend l'écran Équipe :
 | `initials` | string(3) | Avatar (« AM ») |
 | `role` | string | « Vétérinaire », « ASV », « ASV · Accueil », « ASV · Bloc » |
 | `laneId` | FK nullable → ligne planning | Seuls les vétérinaires ont une colonne ; ASV = `null` |
+| `clin` | FK → clinique | Clinique de rattachement |
+| `taux` | tinyint | % d'activité (ETP dérivé : Σ taux / 100) |
+| `contrat` | string | « CDI » / « CDD → 12.2026 » |
+| `entree` | mois | Mois d'entrée (« 03.2019 ») |
+| `tel`, `mail` | string | Contact |
+| `droit`, `taken` | tinyint | Jours de congé annuels / déjà pris ; le solde affiché déduit aussi les congés validés à venir (dérivé des absences) |
 
-### À prévoir pour l'écran Équipe (proto `STAFF_SEED`, non porté)
-
-`clin` (FK clinique), `taux` (tinyint, % d'activité), `contrat`
-(« CDI » / « CDD → 12.2026 »), `entree` (mois d'entrée), `tel`, `mail`,
-`droit` / `taken` (jours de congé annuels / pris). L'embauche du proto
-rattache l'employé à une clinique.
+**Divergence à réconcilier en base** : l'écran Organisation (section
+2 bis) porte **une seconde représentation d'équipe** (`org.clinics[].team`)
+avec d'autres personnes (« Dr S. Blanc », « Dr K. Ito », « L. Perrin »…)
+et d'autres champs (accès `ok`/`sus`, contrat `signe`/`attente`/`pdf`,
+licenciement). Les deux listes ne sont pas réconciliées au front. En
+base : **une seule table `employes`**, dont l'écran Organisation et le
+planning sont deux vues.
 
 ### Ligne de planning (`lanes`)
 
@@ -97,9 +107,25 @@ Dr Meyer + Bloc — c'est un filtre de vue, pas une donnée.
 | `staffId` | FK → praticien | |
 | `type` | enum | `conge` \| `maladie` \| `formation` \| `recup` \| `garde` |
 | `d0`, `d1` | date | Premier / dernier jour. **Les seeds stockent des offsets relatifs à aujourd'hui — en base, dates absolues** |
-| `status` | enum | `ok` (validée) \| `att` (en attente) |
+| `status` | enum | `ok` (validée) \| `att` (en attente) \| `ref` (refusée) — **`ref` ajouté par l'écran Équipe**, absent de la première version de ce document |
 | `note` | text | Motif libre |
-| `by` | string → FK user | Qui a validé / saisi |
+| `by` | string → FK user | Qui a validé / saisi — texte libre au front (« Validée par Dr Meyer »), FK utilisateur en base |
+
+Cycle implémenté (écran Équipe) : demande `att` → **validation**
+(passe `ok` et vide la colonne du praticien sur la période : RDV passés
+en `annule`, audités avec motif « Absence praticien — … ») ou **refus**
+(`ref`, notification). Saisie directe admin (créée directement `ok`,
+mêmes annulations), **modification** (période/type/note) et
+**suppression** d'une absence sont permises — la suppression rouvre la
+colonne (à ajouter aux « suppressions tolérées »). Les RDV annulés ne
+sont pas restaurés par la suppression de l'absence.
+
+**Gardes de week-end** : la rotation affichée (6 week-ends à venir,
+échanges possibles) est **dérivée** (numéro de semaine modulo l'effectif
+vétérinaire + échanges mémorisés). En base, seule l'absence de type
+`garde` est une donnée ; si l'échange de rotation doit survivre à la
+session, prévoir une petite table `gardes_weekend` (date du samedi,
+employé) — sinon état d'UI.
 
 Codes couleur (`ABSENCE_TYPES`) : congés bleu `#5aa7f5`, maladie rouge
 (`--urgent`), formation violet `#a78bfa`, récupération ambre (`--warn`),
@@ -131,26 +157,66 @@ Suggestion API : une table `salles` unique — `id`, `nom`, `type`
 
 ### Clinique
 
-Implémenté aujourd'hui : la constante `CLINICS` (`c1` Deux Rives,
-`c2` Le Lac) + `BOX_COUNT` (capacité d'hospitalisation en box : 8 / 6).
-La hiérarchie complète du proto (état `org`) reste la cible :
+La hiérarchie complète est implémentée (store `org`) : sociétés
+(`id`, `n`, `ide` n° IDE « CHE-… », créables), cliniques (création par
+assistant en 3 étapes, modification, suppression — refusée s'il ne
+resterait aucune clinique), rattachement clinique → société modifiable.
+`hosp.js` garde en plus la constante `CLINICS` + `BOX_COUNT` (8 / 6),
+non branchée sur `org` — même donnée en double, à unifier en base.
 
 | Champ | Type | Description |
 |---|---|---|
 | `id` | PK | `c1`, `c2` |
 | `n` / `legal` | string | Nom court / raison sociale |
-| `soc` | FK → société | Société juridique (`id`, `n`, `ide` n° IDE « CHE-… ») |
+| `soc` | FK → société | Société juridique |
+| `logo` | fichier nullable | Logo de la clinique |
 | `street`, `npa`, `city` | string | Adresse suisse (NPA 4 chiffres) |
 | `gps` | lat/lng decimal | Position carte |
 | `tel` | string | « +41 21 … » |
 | `hSem`, `hSam`, `hDim` | horaires | Voir divergence ci-dessous |
-| `boxCount` | tinyint | Capacité d'hospitalisation (box) |
+| `boxCount` | tinyint | Capacité d'hospitalisation (box) — dans `hosp.js`, pas dans `org` |
 | `pats`, `em`, `sm` | compteurs | Ventilation d'usage des quotas SaaS |
 
-**Divergence à corriger en base** : le front n'a aujourd'hui qu'un seul
-jeu d'horaires (store `settings` global). Le proto — et le produit —
-définit les horaires **par clinique**. Les migrations doivent rattacher
-`horaires_ouverture` à la clinique ; le front suivra au branchement.
+**Divergence horaires — toujours ouverte, et désormais doublée** : le
+planning lit un seul jeu d'horaires (store `settings` global, minutes
+typées), tandis que l'écran Organisation affiche et édite des horaires
+**par clinique**… en chaînes libres (`hSem` « 08:00 – 18:30 », `hSam`,
+`hDim` « Fermé »), jamais consommées par le planning. En base : une
+seule source, `horaires_ouverture` **par clinique** et typée (heures +
+pause + jours fermés) ; les chaînes de l'écran Organisation en sont un
+rendu.
+
+### Équipe par clinique, embauche, licenciement (écran Organisation)
+
+`org.clinics[].team` : `{ n, role, acc: ok|sus (accès suspendu),
+ct: signe|attente|pdf (état du contrat), lic?: { fin } (licenciement
+notifié) }`. Gestes implémentés : suspension/rétablissement d'accès
+(plafonné par la formule), **embauche** (compte vérifié par QR ou code,
+contrat PDF déposé ou généré + signatures, poste/taux/salaire/date,
+portée une clinique ou toutes), **licenciement** (formulaire complet :
+type, motif, dates, libération, soldes vacances/heures sup/13e,
+documents de sortie, kit matériel — aboutit à `lic.fin` + PDF « archivé
+au dossier RH »). En base, ces états vivent sur `employes` (cf.
+divergence section 1) : `acces_suspendu`, `contrat_statut`,
+`licencie_le` / dossier RH.
+
+### Formule SaaS, quotas, facturation d'abonnement (niveau organisation)
+
+Implémenté (`org.js`) — n'était qu'esquissé au proto :
+
+- `plan` (`individuel` \| `cabinet` \| `hopital`, catalogue `PLANS` avec
+  limites cliniques/employés/e-mails/SMS/patients/stockage), `cycle`
+  (`mois` \| `an`), `cancelAt` (résiliation fin de mois, réactivable).
+- `usage` (e-mails, SMS, Go) + `quotaExtra` (packs achetés — catalogue
+  `PACKS`, non reportés le mois suivant sauf stockage).
+- `pm` moyen de paiement (carte), remplaçable/supprimable.
+- `orgInvoices` : factures d'abonnement et de packs (« F-2026-081 »,
+  séquence propre, distincte des factures clientes `FC-`).
+- Changement de formule bloqué si les limites cibles sont dépassées
+  (`overLims`).
+
+Tables cibles : `organisations` (plan, cycle, résiliation, moyen de
+paiement), `organisation_factures`, compteurs d'usage dérivés/journalisés.
 
 ### Multi-clinique — dimension confirmée du produit
 
@@ -164,7 +230,13 @@ de bout en bout ; l'implémentation actuelle la consomme déjà :
   box par clinique.
 - **Factures** : champ `clin` sur chaque facture — le CA par clinique
   de l'écran Caisse est calculé dessus.
-- **Plan SaaS** (`PLANS`, non porté) : plafonne le nombre de cliniques.
+- **Plan SaaS** (`PLANS`, porté — cf. section 2) : plafonne le nombre
+  de cliniques et d'employés actifs.
+- **Boutique** (portée) : caisse comptoir **par clinique** (panier borné
+  au stock de la clinique), commandes en ligne rattachées à une
+  clinique, ventes tracées avec `clin`.
+- **Stocks** (portés) : ajustements, bons de commande fournisseurs
+  (clinique de livraison `dest`) et lots de péremption par clinique.
 - **Côté client** (non porté) : carte des cliniques, RDV pris auprès
   d'une clinique précise.
 
@@ -181,7 +253,8 @@ Tables portant `clinic_id` :
 | `stocks` | pivot `produit × clinique` (quantité par clinique) |
 | `horaires_ouverture` | par clinique (cf. divergence ci-dessus) |
 | `absences` | via l'employé |
-| `commandes_boutique`, `ventes` | `clinic_id` direct (écrans non portés) |
+| `commandes_boutique`, `ventes` | `clinic_id` direct (implémenté : `orders.scope`, `sales.clin`) |
+| `commandes_fournisseur`, `lots` | `clinic_id` de livraison / de détention (implémenté : `cmds.dest`, `lots.clin`) |
 | `patients`, `clients` | **niveau organisation** (store unifié) ; le compteur `pats` par clinique est une ventilation d'usage, pas un rattachement exclusif |
 
 ---
@@ -295,9 +368,13 @@ Table `rendez_vous_audits` : `rendez_vous_id`, `user_id`, `batch_id`,
 - Champs audités : `startsAt`, `endsAt`, `laneId`, `room`, `status`,
   `arrivedAt`, `patientName`, `species`, `ownerName`, `type`, `reason`,
   `motifAnnulation` (porté par l'entrée d'audit du passage à `annule`),
-  plus une entrée « création ».
-- L'acteur est aujourd'hui « Équipe clinique (démo) » — à remplacer par
-  l'utilisateur de session (cf. todo API).
+  plus une entrée « création » et une entrée « suppression » (seul cas :
+  annulation d'une création dans la fenêtre d'undo du toast — en base,
+  suppression physique tolérée dans cette fenêtre uniquement).
+- L'acteur est l'utilisateur connecté (store `auth`) quand il existe,
+  sinon « Équipe clinique (démo) » — la vraie session API le remplace.
+  L'undo ne porte que sur le **dernier lot du même acteur** (un seul
+  niveau, pas de pile — arbitrage multi-utilisateur repoussé).
 
 ### Surcharges visuelles par type
 
@@ -439,7 +516,7 @@ Sous-collections (tables enfants) — toutes implémentées :
 | Champ front | Type suggéré | Description |
 |---|---|---|
 | `id` | PK | `o<oi>` |
-| `civ` | enum | `M.` \| `Mme` |
+| `civ` | enum nullable | `M.` \| `Mme` — vide pour un propriétaire créé à la main (le formulaire ne la demande pas) |
 | `first`, `last` | string | Prénom / nom |
 | `phone` | string | |
 | `mail` | string | |
@@ -460,13 +537,20 @@ Relations et dérivés implémentés :
   conditionne le canal d'envoi des devis (portail vs papier) et les
   notifications.
 
-### Compte espace client (portail, non porté)
+### Compte espace client (portail, non porté) & authentification
 
 Le portail du proto stocke un utilisateur et ses animaux dans un format
 simplifié. En production : **vues du même modèle patient/client**
 filtrées par le compte connecté (le `localStorage vet-espace-*` du proto
-est de la simulation, non portée). Authentification passkey/WebAuthn
-prévue (cf. todo API).
+est de la simulation, non portée).
+
+**Nouveau depuis le portage** : la frontière d'authentification existe
+(`src/api/auth.js`, mock aux signatures stables + store `auth`, session
+en mémoire). Contrat attendu de l'API : `checkEmail(email) → { known }`,
+`loginWithPasskey(email) → { user }` (WebAuthn), `sendEmailCode(email)`,
+`verifyEmailCode(email, code) → { user }` — profil `{ mail, first,
+last }`. L'utilisateur connecté sert aussi d'**acteur des audits de
+RDV** (section 3).
 
 ---
 
@@ -777,6 +861,9 @@ signataire, date. Le front ne fait que télécharger le PDF (démo).
 | `exp` | string « MM.YYYY » | Péremption (par lot en production) |
 | `supplier` | string → FK fournisseur | |
 | `stock` | pivot | **Quantité par clinique** (`{ c1, c2 }`) |
+| `ean` | string | Code-barres (recherche caisse/stocks) — ajouté au portage |
+| `promo` | tinyint % | Promotion vitrine (prix effectif dérivé) — ajouté |
+| `star` | bool | Produit vedette de la vitrine — ajouté |
 
 Mouvements de stock implémentés (décréments) : encaissement d'une ligne
 `med` (une fois par facture, flag `stocked`), signature d'ordonnance,
@@ -786,6 +873,53 @@ qui a du stock, `c1` en priorité). En production : table
 `mouvements_stock` (produit, clinique, quantité ±, motif, référence
 vers l'acte source) plutôt que des décréments silencieux — les undo du
 front (10 s) deviennent des mouvements inverses.
+
+L'écran Stocks affiche déjà un journal de mouvements par produit
+(`movements` : libellé, ± quantité, clinique) — généré en démo, enrichi
+en tête par les gestes réels : c'est la préfiguration de
+`mouvements_stock`. Les **ajustements manuels sont motivés** (enum :
+`recep` réception manuelle · `inv` correction d'inventaire · `casse` ·
+`peremp` périmé écarté · `usage` usage interne).
+
+### Commandes fournisseurs (écran Stocks, porté)
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `n` | string unique | « BC-2026-031 » — séquence |
+| `sup` | string → FK fournisseur | |
+| `dest` | FK → clinique | Clinique de livraison |
+| `st` | enum | `draft` (brouillon) → `sent` (envoyée) → `rec` (réceptionnée) |
+| `date`, `eta`, `recAt` | libellés en démo | En base : `envoyee_le`, `receptionnee_le` datetimes |
+| `lines` | table enfant | `{ prodId (FK), q, cost (prix d'achat) }` |
+
+Règles : génération automatique de brouillons groupés **par
+fournisseur** pour les articles sous seuil sans commande ouverte ;
+suppression d'une commande possible ; la **réception** incrémente le
+stock de la clinique de destination, trace les mouvements et crée un
+lot. PDF de bon de commande.
+
+### Lots & péremptions (écran Stocks, porté)
+
+`lots` : `{ prodId, lot (n°), exp « MM.YYYY », qty, clin }` —
+répartition FEFO affichée par urgence (périmé / < 3 mois / < 6 mois).
+**Écarter un lot** décrémente le stock de sa clinique (mouvement motivé
+« Péremption ») et supprime le lot. La réception d'une commande crée un
+lot. Confirme le « par lot en production » du champ `exp`.
+
+### Boutique (écran porté)
+
+- **Commandes en ligne** : `{ id « C-104 », client (nom), scope
+  (clinique de retrait), n (nb articles), sum (résumé), tot, st: prep →
+  ready → done, time }` — préparation et remise au client, notification.
+  En base : `commandes_boutique` + lignes, FK client/clinique.
+- **Caisse comptoir** : panier par clinique (quantités bornées au stock
+  local), encaissement TVA 8.1 % → décrément du stock + trace de vente.
+  En base, une vente comptoir a vocation à devenir une **facture** de
+  lignes `med`/produit (cf. section 6) plutôt qu'une entité parallèle —
+  le front la trace aujourd'hui dans `sales` `{ n, cat, q, rev, cost,
+  clin, d }` pour les chiffres 7 jours.
+- **Vitrine** : visibilité (`isShop`), promotion (`promo` %), vedette
+  (`star`) — champs du produit.
 
 ---
 
@@ -860,9 +994,11 @@ persisté `localStorage vet-navoff`), largeur de la sidebar
 (`vet-sbw`). Peuvent rester côté client ou passer dans une table
 `preferences_utilisateur` clé/valeur.
 
-Non portés (écran Organisation) : plan SaaS, quotas, moyens de paiement
-de l'abonnement — les onglets Réglages > Facturation et Utilisation en
-dépendent.
+L'écran Organisation et les onglets Réglages > Facturation /
+Utilisation sont portés (plan SaaS, quotas, packs, moyen de paiement,
+factures d'abonnement) — cf. section 2. La préférence de langue du
+header (`prefs.lang`) doublonne `settings.lang` : à unifier côté compte
+utilisateur.
 
 ---
 
@@ -892,7 +1028,7 @@ comme la démo :
 | Drapeau RDV | `ajeun`, `mord`, `iso`, `neuf` |
 | Rôle de ligne | `consult`, `bloc`, `img` |
 | Type d'absence | `conge`, `maladie`, `formation`, `recup`, `garde` |
-| Statut d'absence | `ok`, `att` |
+| Statut d'absence | `ok`, `att`, `ref` |
 | Mode de demande en ligne | `valider`, `confirme` |
 | Statut de facture | `due`, `payee` |
 | Moyen de paiement | `tpe`, `twint`, `cash` |
@@ -909,8 +1045,14 @@ comme la démo :
 | Statut d'ordonnance | `active`, `stop` |
 | État dentaire | (sain = absence), `tartre`, `gingivite`, `parodontite`, `fracture`, `absente` |
 | Catégorie de produit | `med`, `ali`, `soin`, `apara`, `phyto`, `mat` |
-| Civilité | `M.`, `Mme` |
+| Civilité | `M.`, `Mme` (nullable) |
 | Sexe animal | `Mâle`, `Femelle` |
+| Statut de commande fournisseur | `draft`, `sent`, `rec` |
+| Motif d'ajustement de stock | `recep`, `inv`, `casse`, `peremp`, `usage` |
+| Statut de commande boutique | `prep`, `ready`, `done` |
+| Accès d'un employé | `ok`, `sus` |
+| Statut de contrat | `signe`, `attente`, `pdf` |
+| Formule SaaS | `individuel`, `cabinet`, `hopital` |
 
 ---
 
@@ -940,10 +1082,20 @@ comme la démo :
   articulation avec les statuts jamais supprimés (RDV `annule`,
   no-shows, séjours clos, ordonnances clôturées, registre des
   stupéfiants) et les journaux d'audit.
+- **Deux équipes non réconciliées.** `planning.staff` (6 employés
+  seedés, liés aux lignes du planning) et `org.clinics[].team` (autres
+  noms, accès/contrats/licenciements) coexistent sans lien. La base
+  tranche : une table `employes` unique — mais le raccord des deux
+  jeux de seeds reste à faire côté front.
 - **Suppressions tolérées** — à confirmer en base : brouillon de devis
   (implémenté), ordonnance dans la fenêtre d'annulation (undo 10 s),
-  pesée erronée. Tout le reste est statutaire (annulation, clôture,
-  sortie), jamais supprimé.
+  pesée erronée, **RDV dans la fenêtre d'undo de sa création** (entrée
+  d'audit « suppression »), **absence** (rouvre la colonne),
+  **relevé ophtalmologique**, **bon de commande fournisseur**, **lot
+  écarté** (avec mouvement de stock), **clinique** (s'il en reste au
+  moins une — à discuter : une clinique avec historique devrait être
+  désactivée, pas supprimée). Tout le reste est statutaire (annulation,
+  clôture, sortie), jamais supprimé.
 - **Undo 10 s côté API.** Le front annule des gestes composés (fini +
   facture, signature + stock, renouvellement) dans les 10 s. Côté API :
   soit des transactions compensatoires (mouvements inverses,
