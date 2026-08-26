@@ -1,0 +1,213 @@
+<?php
+
+namespace App\Services;
+
+use App\Enums\StatutRendezVous;
+use App\Enums\TypeRendezVous;
+use App\Models\Absence;
+use App\Models\Patient;
+use App\Models\RendezVous;
+use App\Models\Salle;
+use App\Models\User;
+use BackedEnum;
+use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+
+/**
+ * Toute mutation de rendez-vous passe ici : application des attributs
+ * puis trace d'audit immuable — une ligne par champ modifié, un
+ * `batch_id` ULID par geste (un déplacement = startsAt + laneId dans le
+ * même lot). Les noms de champ audités sont les codes camelCase du
+ * front (docs/data-model.md §3), les datetimes sont sérialisées en
+ * ISO 8601 UTC, la salle par son nom au moment du geste.
+ */
+class MutationRendezVous
+{
+    /** Attribut modèle → champ d'audit (code du front). */
+    private const array CHAMPS_AUDITES = [
+        'starts_at' => 'startsAt',
+        'ends_at' => 'endsAt',
+        'ligne_planning_id' => 'laneId',
+        'salle_id' => 'room',
+        'status' => 'status',
+        'arrived_at' => 'arrivedAt',
+        'patient_name' => 'patientName',
+        'species' => 'species',
+        'owner_name' => 'ownerName',
+        'type' => 'type',
+        'reason' => 'reason',
+    ];
+
+    /**
+     * Prépare les attributs d'une création : bornes datetime depuis la
+     * durée, dénormalisations réalignées sur la fiche patient quand
+     * elle est référencée (la FK fait foi).
+     *
+     * @param  array<string, mixed>  $donnees
+     * @return array<string, mixed>
+     */
+    public function preparerCreation(array $donnees): array
+    {
+        $debut = CarbonImmutable::parse($donnees['starts_at']);
+
+        $attributs = [
+            'ligne_planning_id' => $donnees['ligne_planning_id'],
+            'salle_id' => $donnees['salle_id'] ?? null,
+            'patient_id' => $donnees['patient_id'] ?? null,
+            'client_id' => null,
+            'patient_name' => $donnees['patient_name'] ?? null,
+            'species' => $donnees['species'] ?? null,
+            'owner_name' => $donnees['owner_name'] ?? null,
+            'type' => $donnees['type'] ?? TypeRendezVous::Consultation,
+            'status' => $donnees['status'] ?? StatutRendezVous::Prevu,
+            'flags' => $donnees['flags'] ?? [],
+            'reason' => $donnees['reason'] ?? null,
+            'arrived_at' => $donnees['arrived_at'] ?? null,
+            'starts_at' => $debut,
+            'ends_at' => $debut->addMinutes((int) $donnees['duree_minutes']),
+        ];
+
+        if ($attributs['patient_id'] !== null) {
+            $attributs = [...$attributs, ...Patient::findOrFail($attributs['patient_id'])->denormalisation()];
+        }
+
+        return $attributs;
+    }
+
+    /** @param array<string, mixed> $attributs */
+    public function creer(array $attributs, ?User $auteur): RendezVous
+    {
+        return DB::transaction(function () use ($attributs, $auteur): RendezVous {
+            $rendezVous = RendezVous::create($attributs);
+
+            $this->tracer($rendezVous, $auteur, ['création' => [null, [
+                'laneId' => $rendezVous->ligne_planning_id,
+                'startsAt' => $rendezVous->starts_at->toISOString(),
+                'endsAt' => $rendezVous->ends_at->toISOString(),
+            ]]]);
+
+            return $rendezVous;
+        });
+    }
+
+    /**
+     * Applique un patch et audite chaque champ modifié sous un batch
+     * unique. Retourne le batch_id, ou null si rien n'a changé.
+     *
+     * @param  array<string, mixed>  $attributs
+     * @param  list<string>  $champsNonAudites  attributs modifiés sans entrée d'audit (parité front : un déplacement n'audite pas le `endsAt` qui suit le début)
+     * @param  array<string, array{mixed, mixed}>  $entreesSupplementaires  entrées hors attributs (ex. motifAnnulation)
+     */
+    public function appliquer(RendezVous $rendezVous, array $attributs, ?User $auteur, array $champsNonAudites = [], array $entreesSupplementaires = []): ?string
+    {
+        $rendezVous->fill($attributs);
+
+        $changements = [];
+        foreach (array_keys($rendezVous->getDirty()) as $attribut) {
+            $champ = self::CHAMPS_AUDITES[$attribut] ?? null;
+
+            if ($champ === null || in_array($attribut, $champsNonAudites, true)) {
+                continue;
+            }
+
+            $changements[$champ] = [
+                $this->serialiser($attribut, $rendezVous->getOriginal($attribut)),
+                $this->serialiser($attribut, $rendezVous->getAttribute($attribut)),
+            ];
+        }
+
+        $changements = [...$changements, ...$entreesSupplementaires];
+
+        if (! $rendezVous->isDirty() && $changements === []) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($rendezVous, $auteur, $changements): string {
+            $rendezVous->save();
+
+            return $this->tracer($rendezVous, $auteur, $changements);
+        });
+    }
+
+    /**
+     * Absence bloquante validée → la colonne du praticien est vidée sur
+     * la période : statut `annule` audité avec motif, jamais de
+     * suppression. Un batch d'audit par rendez-vous. Retourne le nombre
+     * de rendez-vous (hors tampons) annulés.
+     */
+    public function annulerPourAbsence(Absence $absence, ?User $auteur): int
+    {
+        if (! $absence->estBloquante()) {
+            return 0;
+        }
+
+        $motif = 'Absence praticien — '.mb_strtolower($absence->type->libelle());
+
+        $rendezVous = RendezVous::query()
+            ->whereHas('lignePlanning', fn ($requete) => $requete->where('employe_id', $absence->employe_id))
+            ->where('status', '!=', StatutRendezVous::Annule)
+            ->where('starts_at', '<', $absence->fin_le->copy()->addDay()->startOfDay())
+            ->where('ends_at', '>', $absence->debut_le->copy()->startOfDay())
+            ->get();
+
+        $annules = 0;
+
+        foreach ($rendezVous as $unRendezVous) {
+            $this->appliquer(
+                $unRendezVous,
+                ['status' => StatutRendezVous::Annule],
+                $auteur,
+                entreesSupplementaires: ['motifAnnulation' => [null, $motif]],
+            );
+
+            if (! $unRendezVous->estTampon()) {
+                $annules++;
+            }
+        }
+
+        return $annules;
+    }
+
+    /** @param array<string, array{mixed, mixed}> $changements */
+    public function tracer(RendezVous $rendezVous, ?User $auteur, array $changements): string
+    {
+        $batch = (string) Str::ulid();
+        $maintenant = now();
+
+        foreach ($changements as $champ => [$ancienne, $nouvelle]) {
+            $rendezVous->audits()->create([
+                'user_id' => $auteur?->id,
+                'batch_id' => $batch,
+                'champ' => $champ,
+                'ancienne_valeur' => $ancienne,
+                'nouvelle_valeur' => $nouvelle,
+                'created_at' => $maintenant,
+            ]);
+        }
+
+        return $batch;
+    }
+
+    private function serialiser(string $attribut, mixed $valeur): mixed
+    {
+        if ($valeur === null) {
+            return null;
+        }
+
+        if ($attribut === 'salle_id') {
+            return Salle::find($valeur)?->nom;
+        }
+
+        if ($valeur instanceof CarbonInterface) {
+            return $valeur->toISOString();
+        }
+
+        if ($valeur instanceof BackedEnum) {
+            return $valeur->value;
+        }
+
+        return $valeur;
+    }
+}

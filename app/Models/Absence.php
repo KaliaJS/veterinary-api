@@ -2,9 +2,11 @@
 
 namespace App\Models;
 
+use App\Auth\ContexteClinique;
 use App\Enums\StatutAbsence;
 use App\Enums\TypeAbsence;
 use Database\Factories\AbsenceFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,6 +15,21 @@ class Absence extends Model
 {
     /** @use HasFactory<AbsenceFactory> */
     use HasFactory;
+
+    /**
+     * Pas de `clinique_id` propre : l'isolation passe par l'employé,
+     * dont le scope global porte la clinique du contexte. Indispensable
+     * au route model binding — sans lui, une absence d'une autre
+     * clinique serait résolue.
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope('clinique', function (Builder $builder): void {
+            if (app(ContexteClinique::class)->estDefini()) {
+                $builder->whereHas('employe');
+            }
+        });
+    }
 
     protected $fillable = [
         'employe_id', 'type', 'debut_le', 'fin_le', 'statut', 'note', 'valide_par_user_id',

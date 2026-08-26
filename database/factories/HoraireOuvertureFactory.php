@@ -17,14 +17,7 @@ class HoraireOuvertureFactory extends Factory
     {
         return [
             'clinique_id' => Clinique::factory(),
-            'ouverture' => '08:00',
-            'fermeture' => '19:30',
-            'fermeture_samedi' => '15:00',
-            'samedi_ferme' => false,
-            'dimanche_ferme' => true,
-            'pause_active' => true,
-            'pause_debut' => '12:30',
-            'pause_fin' => '14:00',
+            ...HoraireOuverture::DEFAUTS,
         ];
     }
 }

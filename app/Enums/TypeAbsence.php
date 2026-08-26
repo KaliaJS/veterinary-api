@@ -13,4 +13,15 @@ enum TypeAbsence: string
     case Formation = 'formation';
     case Recuperation = 'recup';
     case Garde = 'garde';
+
+    public function libelle(): string
+    {
+        return match ($this) {
+            self::Conge => 'Congés',
+            self::Maladie => 'Maladie',
+            self::Formation => 'Formation',
+            self::Recuperation => 'Récupération',
+            self::Garde => 'Garde',
+        };
+    }
 }

@@ -13,6 +13,18 @@ class HoraireOuverture extends Model
     /** @use HasFactory<HoraireOuvertureFactory> */
     use AppartientAUneClinique, HasFactory;
 
+    /** Valeurs par défaut du front (docs/data-model.md §3 — Horaires). */
+    public const array DEFAUTS = [
+        'ouverture' => '08:00',
+        'fermeture' => '19:30',
+        'fermeture_samedi' => '15:00',
+        'samedi_ferme' => false,
+        'dimanche_ferme' => true,
+        'pause_active' => true,
+        'pause_debut' => '12:30',
+        'pause_fin' => '14:00',
+    ];
+
     protected $table = 'horaires_ouverture';
 
     protected $fillable = [

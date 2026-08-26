@@ -51,6 +51,23 @@ class Patient extends Model
         return $this->belongsTo(Client::class);
     }
 
+    /**
+     * Dénormalisations de confort portées par les rendez-vous et les
+     * files d'attente — réalignées sur la fiche dès qu'elle est
+     * référencée : la FK fait foi (docs/data-model.md).
+     *
+     * @return array{client_id: int, patient_name: string, species: Espece, owner_name: string}
+     */
+    public function denormalisation(): array
+    {
+        return [
+            'client_id' => $this->client_id,
+            'patient_name' => $this->nom,
+            'species' => $this->espece,
+            'owner_name' => $this->client->nom_affiche,
+        ];
+    }
+
     /** @return HasMany<Pesee, $this> */
     public function pesees(): HasMany
     {
