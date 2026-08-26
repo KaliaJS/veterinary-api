@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\AppartientAUneClinique;
 use Database\Factories\EmployeFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Employe extends Model
 {
     /** @use HasFactory<EmployeFactory> */
-    use HasFactory;
+    use AppartientAUneClinique, HasFactory;
 
     protected $fillable = [
         'clinique_id', 'user_id', 'nom', 'initiales', 'role', 'taux',

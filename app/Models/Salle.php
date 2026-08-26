@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\TypeSalle;
+use App\Models\Concerns\AppartientAUneClinique;
 use Database\Factories\SalleFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Salle extends Model
 {
     /** @use HasFactory<SalleFactory> */
-    use HasFactory;
+    use AppartientAUneClinique, HasFactory;
 
     protected $fillable = ['clinique_id', 'nom', 'type'];
 

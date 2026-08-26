@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\Espece;
+use App\Models\Concerns\AppartientAUneClinique;
 use Database\Factories\ListeAttenteFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ListeAttente extends Model
 {
     /** @use HasFactory<ListeAttenteFactory> */
-    use HasFactory;
+    use AppartientAUneClinique, HasFactory;
 
     protected $table = 'liste_attente';
 

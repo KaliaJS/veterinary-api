@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\Civilite;
 use App\Enums\StatutRendezVous;
+use App\Models\Concerns\AppartientAUneOrganisation;
 use Database\Factories\ClientFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Client extends Model
 {
     /** @use HasFactory<ClientFactory> */
-    use HasFactory;
+    use AppartientAUneOrganisation, HasFactory;
 
     protected $fillable = [
         'organisation_id', 'user_id', 'civilite', 'prenom', 'nom',

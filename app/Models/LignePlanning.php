@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\RoleLignePlanning;
+use App\Models\Concerns\AppartientAUneClinique;
 use Database\Factories\LignePlanningFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class LignePlanning extends Model
 {
     /** @use HasFactory<LignePlanningFactory> */
-    use HasFactory;
+    use AppartientAUneClinique, HasFactory;
 
     protected $table = 'lignes_planning';
 

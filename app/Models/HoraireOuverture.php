@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\AppartientAUneClinique;
 use Database\Factories\HoraireOuvertureFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class HoraireOuverture extends Model
 {
     /** @use HasFactory<HoraireOuvertureFactory> */
-    use HasFactory;
+    use AppartientAUneClinique, HasFactory;
 
     protected $table = 'horaires_ouverture';
 

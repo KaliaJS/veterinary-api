@@ -6,6 +6,7 @@ use App\Enums\DrapeauRendezVous;
 use App\Enums\Espece;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
+use App\Models\Concerns\AppartientAUneClinique;
 use Database\Factories\RendezVousFactory;
 use Illuminate\Database\Eloquent\Casts\AsEnumCollection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,7 +22,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class RendezVous extends Model
 {
     /** @use HasFactory<RendezVousFactory> */
-    use HasFactory;
+    use AppartientAUneClinique, HasFactory;
 
     protected $table = 'rendez_vous';
 

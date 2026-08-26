@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\Espece;
 use App\Enums\Sexe;
+use App\Models\Concerns\AppartientAUneOrganisation;
 use Database\Factories\PatientFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Patient extends Model
 {
     /** @use HasFactory<PatientFactory> */
-    use HasFactory;
+    use AppartientAUneOrganisation, HasFactory;
 
     protected $fillable = [
         'organisation_id', 'client_id', 'nom', 'espece', 'race', 'sexe',
