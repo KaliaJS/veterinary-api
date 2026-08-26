@@ -1,0 +1,952 @@
+# Modèle de données — Planning Vétérinaire
+
+Document de référence pour les migrations Laravel de l'API.
+
+Deux sources, dans cet ordre d'autorité :
+
+1. **Les stores implémentés** (`src/stores/`) — planning, patients,
+   propriétaires, factures/caisse, devis, hospitalisation, laboratoire,
+   imagerie, bloc, ordonnances, dossier médical (CR, carnet, relevés),
+   produits, réglages, rappels, outils. Là où l'implémentation a tranché,
+   c'est elle qui fait foi.
+2. **Le prototype** (`design_handoff_veterinary_app/Planning Veterinaire.dc.html`)
+   — pour les écrans non portés (Équipe, Organisation/admin, Boutique,
+   Stocks, espace client).
+
+Les noms de champs du front (camelCase) sont indiqués tels quels, avec
+une suggestion de type SQL. Convention front → base : `startsAt` →
+`starts_at`, etc.
+
+Remarque : dans la démo, patients et propriétaires sont générés
+procéduralement (RNG seedé) et les **RDV, factures et devis référencent
+le patient par nom** (champ dénormalisé). Les écrans plus récents
+(hospitalisation, laboratoire, imagerie, bloc, ordonnances) référencent
+déjà un `patientId`. En production, tout passe par de vraies clés
+étrangères ; le nom affiché reste une dénormalisation de confort.
+
+---
+
+## Vue d'ensemble des relations
+
+```
+Organisation 1──N Société 1──N Clinique     Client 1──N Patient
+Clinique 1──N Praticien (staff)             Client 0..1── Compte espace client
+Praticien 0..1── Ligne de planning          Patient 1──N Vaccination / Visite / Pesée
+Ligne de planning 1──N Rendez-vous                    / Document / Imagerie / Relevé oph
+Praticien 1──N Absence                                / Relevé dentaire / Analyse labo
+Rendez-vous N──1 Patient                              / Examen imagerie / Ordonnance
+Rendez-vous 0..1── Salle de consultation    Rendez-vous 0..1── Facture (apptId)
+Rendez-vous 1──N Entrée d'audit             Rendez-vous 0..1── Compte rendu SOAP
+Rendez-vous 0..1── Téléconsultation         Facture 1──N Ligne de facture
+Devis N──1 Patient · 0..2── Factures        Facture 0..1── Décompte assurance
+Hospitalisation N──1 Patient · N──1 Clinique · 1──N Soin / Relevé de constantes
+Intervention bloc N──1 Patient · N──1 Salle de bloc · 1──N Point de checklist
+Ordonnance N──1 Patient · 1──N Ligne (→ Produit)
+Analyse labo N──1 Patient · 1──N Résultat de paramètre
+Clôture de caisse (Z) 1──N Facture couverte
+Produit 1──N Stock par clinique · 0..N Mouvement de stupéfiant
+```
+
+La « ligne » du planning (`lane`) est soit un **praticien**
+(consultation), soit une **ressource** (bloc opératoire, salle
+d'imagerie). Pour l'API : `rendez_vous.praticien_id` nullable **ou**
+`rendez_vous.salle_id` nullable, la ligne affichée étant l'un ou l'autre.
+
+---
+
+## 1. Praticien / Équipe
+
+### Porté aujourd'hui (store `planning.staff`)
+
+Le front n'utilise que le noyau — le reste attend l'écran Équipe :
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | `st1`… |
+| `name` | string | « Dr Anna Meyer » |
+| `initials` | string(3) | Avatar (« AM ») |
+| `role` | string | « Vétérinaire », « ASV », « ASV · Accueil », « ASV · Bloc » |
+| `laneId` | FK nullable → ligne planning | Seuls les vétérinaires ont une colonne ; ASV = `null` |
+
+### À prévoir pour l'écran Équipe (proto `STAFF_SEED`, non porté)
+
+`clin` (FK clinique), `taux` (tinyint, % d'activité), `contrat`
+(« CDI » / « CDD → 12.2026 »), `entree` (mois d'entrée), `tel`, `mail`,
+`droit` / `taken` (jours de congé annuels / pris). L'embauche du proto
+rattache l'employé à une clinique.
+
+### Ligne de planning (`lanes`)
+
+| Champ | Type | Description |
+|---|---|---|
+| `id` | PK | `mey`, `sol`, `adj`, `bl1`, `img` |
+| `name` | string | « Dr Meyer », « Bloc 1 », « Radio / Écho » |
+| `sub` | string | « CONSULTATION », « CONSULT · URGENCES », « CHIRURGIE », « IMAGERIE » |
+| `role` | enum | `consult` \| `bloc` \| `img` — conditionne pause déjeuner et champs éditables |
+| `initials` | string(2) | Initiales / code affiché |
+| `group` | enum | **Consultation**, **Chirurgie**, **Imagerie** (groupes repliables) |
+
+Le mode « cabinet solo » (Réglages > Structure) filtre l'affichage à
+Dr Meyer + Bloc — c'est un filtre de vue, pas une donnée.
+
+### Absences (`absences`) — bloquent la colonne du praticien
+
+| Champ front | Type | Description |
+|---|---|---|
+| `id` | PK | `ab1`… |
+| `staffId` | FK → praticien | |
+| `type` | enum | `conge` \| `maladie` \| `formation` \| `recup` \| `garde` |
+| `d0`, `d1` | date | Premier / dernier jour. **Les seeds stockent des offsets relatifs à aujourd'hui — en base, dates absolues** |
+| `status` | enum | `ok` (validée) \| `att` (en attente) |
+| `note` | text | Motif libre |
+| `by` | string → FK user | Qui a validé / saisi |
+
+Codes couleur (`ABSENCE_TYPES`) : congés bleu `#5aa7f5`, maladie rouge
+(`--urgent`), formation violet `#a78bfa`, récupération ambre (`--warn`),
+garde vert `#22a06b`. Une absence **validée** couvre la colonne de
+l'ouverture à la fermeture (zone hachurée « TYPE — Nom · RETOUR date »)
+et interdit la création de RDV sur la ligne. La `garde` ne bloque pas :
+badge « DE GARDE » sur la ligne.
+
+---
+
+## 2. Salle et Clinique
+
+Trois notions de « salle » coexistent — confirmées par l'implémentation :
+
+1. **Lignes-ressources du planning** : `Bloc 1` (role `bloc`),
+   `Radio / Écho` (role `img`) — portent des RDV comme un praticien.
+2. **Salles de consultation** (champ `room` d'un RDV sur une ligne
+   consult) : « Consultation 1 », « Consultation 2 » (défaut UI),
+   « Consultation 3 », « Salle de soins ». Stocké `null` tant qu'aucun
+   choix explicite (le défaut est résolu à l'affichage).
+3. **Salles de bloc opératoire** (`bloc.salles`) : « Bloc 1 »,
+   « Bloc 2 » — liste gérable (ajout / renommage / suppression dans
+   l'UI, suppression refusée si des interventions non terminées y sont
+   rattachées ; le renommage se répercute sur les interventions).
+
+Suggestion API : une table `salles` unique — `id`, `nom`, `type`
+(`consultation` \| `bloc` \| `imagerie`), `clinique_id`, avec un flag
+« affichée comme ligne du planning ».
+
+### Clinique
+
+Implémenté aujourd'hui : la constante `CLINICS` (`c1` Deux Rives,
+`c2` Le Lac) + `BOX_COUNT` (capacité d'hospitalisation en box : 8 / 6).
+La hiérarchie complète du proto (état `org`) reste la cible :
+
+| Champ | Type | Description |
+|---|---|---|
+| `id` | PK | `c1`, `c2` |
+| `n` / `legal` | string | Nom court / raison sociale |
+| `soc` | FK → société | Société juridique (`id`, `n`, `ide` n° IDE « CHE-… ») |
+| `street`, `npa`, `city` | string | Adresse suisse (NPA 4 chiffres) |
+| `gps` | lat/lng decimal | Position carte |
+| `tel` | string | « +41 21 … » |
+| `hSem`, `hSam`, `hDim` | horaires | Voir divergence ci-dessous |
+| `boxCount` | tinyint | Capacité d'hospitalisation (box) |
+| `pats`, `em`, `sm` | compteurs | Ventilation d'usage des quotas SaaS |
+
+**Divergence à corriger en base** : le front n'a aujourd'hui qu'un seul
+jeu d'horaires (store `settings` global). Le proto — et le produit —
+définit les horaires **par clinique**. Les migrations doivent rattacher
+`horaires_ouverture` à la clinique ; le front suivra au branchement.
+
+### Multi-clinique — dimension confirmée du produit
+
+La hiérarchie **Organisation → Sociétés → Cliniques** structure le proto
+de bout en bout ; l'implémentation actuelle la consomme déjà :
+
+- **Stocks** : stock **par clinique** sur chaque produit
+  (`stock: { c1, c2 }`), décréments par clinique (hospitalisation
+  décrémente la clinique du séjour, ordonnances et caisse `c1`).
+- **Hospitalisation** : séjours filtrés par clinique (sélecteur UI),
+  box par clinique.
+- **Factures** : champ `clin` sur chaque facture — le CA par clinique
+  de l'écran Caisse est calculé dessus.
+- **Plan SaaS** (`PLANS`, non porté) : plafonne le nombre de cliniques.
+- **Côté client** (non porté) : carte des cliniques, RDV pris auprès
+  d'une clinique précise.
+
+Tables portant `clinic_id` :
+
+| Table | Rattachement |
+|---|---|
+| `praticiens` / `employes` | `clinic_id` direct |
+| `salles` (consultation, bloc, imagerie) | `clinic_id` direct |
+| `lignes_planning` | via la salle ou le praticien ; le planning affiché est celui d'une clinique |
+| `rendez_vous` | dérivable via la ligne, mais `clinic_id` direct recommandé |
+| `factures`, `clotures_caisse` | `clinic_id` direct (champ `clin` déjà présent au front) |
+| `hospitalisations` | `clinic_id` direct (champ `clin` au front) |
+| `stocks` | pivot `produit × clinique` (quantité par clinique) |
+| `horaires_ouverture` | par clinique (cf. divergence ci-dessus) |
+| `absences` | via l'employé |
+| `commandes_boutique`, `ventes` | `clinic_id` direct (écrans non portés) |
+| `patients`, `clients` | **niveau organisation** (store unifié) ; le compteur `pats` par clinique est une ventilation d'usage, pas un rattachement exclusif |
+
+---
+
+## 3. Rendez-vous
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | `a1`… ; générés : `n<timestamp>` |
+| `laneId` | FK → ligne (praticien ou ressource) | Colonne du planning |
+| `startsAt` | **datetime UTC** | Début (décision confirmée par l'implémentation — les minutes ne sont qu'un dérivé d'affichage) |
+| `endsAt` | **datetime UTC** | Fin ; la durée est dérivée |
+| `patientName` → `patient_id` | FK | Dénormalisé par nom dans la démo (vide pour un tampon) |
+| `species` | enum espèce | Copie dénormalisée |
+| `ownerName` → `client_id` | FK | Dénormalisé |
+| `type` | enum | Type de RDV (voir ci-dessous) |
+| `status` | enum | Statut (voir ci-dessous) |
+| `flags` | array / pivot | Drapeaux (voir ci-dessous) |
+| `reason` | string | Motif (« Boiterie postérieur droit ») |
+| `arrivedAt` | datetime UTC nullable | Renseignée au passage en statut `salle` |
+| `room` | FK nullable → salle | `null` = défaut UI « Consultation 2 » ; lignes bloc/img : imposée par la ligne |
+
+**Stockage en `starts_at` / `ends_at` datetime UTC** — décision
+entérinée et implémentée (le store convertit en minutes à l'affichage).
+Raisons : séjours et actes traversant minuit ; changement d'heure
+(l'UTC est monotone, conversion Europe/Zurich à l'affichage) ; requêtes
+sur plage (`starts_at < Y AND ends_at > X`, indexable).
+
+Champs affichés mais dérivés : origine (« Réservation en ligne » si flag
+`neuf`, sinon « Accueil — téléphone »). Le règlement et l'assurance,
+autrefois listés « à prévoir », vivent désormais sur la **facture**
+(section 6).
+
+### Types de RDV et libellés
+
+| Code | Libellé UI | Durées vues en démo |
+|---|---|---|
+| `consult` | CONSULT | 20–45 min |
+| `vaccin` | VACCIN | 20 min |
+| `chir` | CHIRURGIE | 60–90 min (ligne Bloc) |
+| `ctrl` | CONTRÔLE | 20 min |
+| `imagerie` | IMAGERIE | 30 min (ligne Radio/Écho) |
+| `urgence` | URGENCE | 20–45 min |
+| `euth` | ACCOMPAGNEMENT | 45 min |
+| `tele` | TÉLÉCONSULT | 20 min |
+| `tampon` | — (créneau réservé) | 20–45 min |
+
+Le `tampon` est un créneau sans patient : « RÉSERVÉ URGENCES » sur la
+ligne urgences, « CRÉNEAU LIBRE » ailleurs. Non déplaçable, non
+redimensionnable, jamais facturé ; cible de drop pour une urgence.
+
+### Statuts et cycle de vie
+
+Enum : `prevu` → `salle` → `cours` → `fini`, plus `noshow` et `annule`.
+
+**Annulation — implémentée comme décidé** : jamais de suppression. Le
+statut passe à `annule`, le motif est journalisé dans l'audit (champ
+`motifAnnulation` de l'entrée d'audit), le RDV disparaît de la grille
+(exclu de `dayAppointments`) et le créneau libéré est proposé à la
+liste d'attente (`offerSlot`). Raccourcis clavier 1–4 =
+prevu/salle/cours/fini sur le RDV sélectionné.
+
+| Statut | Libellé | Rendu du bloc planning | Chip « Ma journée » |
+|---|---|---|---|
+| `prevu` | Prévu | fond verre (`--glass`), bord `--line-strong`, liseré `--text-3` | PRÉVU — neutre |
+| `salle` | Arrivé | fond `--warn-soft`, bord `--warn-bd`, liseré `--warn` | EN SALLE — ambre |
+| `cours` | En cours | fond `--glass-3`, bord `--accent-bd`, liseré `--accent` + point « live » | EN CONSULT. — accent |
+| `fini` | Terminé | transparent, bord `--line`, opacité .62 | TERMINÉ — vert `#22a06b` |
+| `noshow` | Non venu | hachures rouges, bord pointillé `--urgent-bd` | — |
+
+Règles de transition implémentées :
+
+- Bouton principal contextuel : Prévu → « Marquer arrivé » ; Arrivé →
+  « Démarrer la consultation » ; En cours → « Terminer » ; Terminé →
+  « Rouvrir » (retour `cours`).
+- Passage à `salle` : mémorise `arrivedAt` (audité).
+- **Passage à `fini` — trois chemins de facturation** :
+  1. **Statut « Terminé »** (fiche RDV, raccourci 4) : crée une facture
+     d'un acte dérivé du type (`TYPE_ACTE` → catalogue `ACTES`) et ouvre
+     l'encaissement. Annulable 10 s (statut restauré + facture créée
+     supprimée ; une facture rouverte est conservée). Si une facture
+     liée au RDV existe déjà (`apptId`), elle est rouverte, pas
+     dupliquée.
+  2. **Fin de consultation** (« Ma journée », modale `fcO`) : actes
+     cochés (catalogue propre, cf. décision ouverte « catalogue
+     unique »), vaccin inscrit au carnet + rappel, médicaments prescrits
+     → **ordonnance créée au registre** + sortie de stock + prescription
+     jointe à la facture ; passe le RDV en `fini` sans repasser par le
+     chemin 1. Annulable 10 s (tout est restauré : statut, facture,
+     ordonnance, stock, carnet).
+  3. **Fin de téléconsultation** : clôt le RDV via le chemin 1 puis
+     ouvre le compte rendu SOAP.
+- `noshow` : depuis `prevu` ou `salle` uniquement, hors tampon ;
+  incrémente le **compteur de no-show du propriétaire** et propose le
+  créneau à la liste d'attente. Au front le compteur est indexé par nom
+  de propriétaire — en base : `clients.no_show_count` ou dérivé des RDV
+  `noshow` du client.
+- `annule` : statut terminal (voir ci-dessus).
+
+### Audit des mutations de RDV — implémenté
+
+Toute mutation passe par le store et produit ses entrées d'audit.
+Forme confirmée :
+
+Table `rendez_vous_audits` : `rendez_vous_id`, `user_id`, `batch_id`,
+`champ`, `ancienne_valeur`, `nouvelle_valeur`, `created_at`.
+
+- **`batch_id` groupe les champs d'un même geste** (un déplacement =
+  `startsAt` + `laneId` dans le même lot) — l'historique de la fiche RDV
+  s'affiche par geste, l'undo d'un toast annule un lot entier.
+- Champs audités : `startsAt`, `endsAt`, `laneId`, `room`, `status`,
+  `arrivedAt`, `patientName`, `species`, `ownerName`, `type`, `reason`,
+  `motifAnnulation` (porté par l'entrée d'audit du passage à `annule`),
+  plus une entrée « création ».
+- L'acteur est aujourd'hui « Équipe clinique (démo) » — à remplacer par
+  l'utilisateur de session (cf. todo API).
+
+### Surcharges visuelles par type
+
+- `urgence` (non terminée) : liseré + bord + fond rouges (`--urgent*`).
+- `euth` : bloc transparent à bord pointillé discret, texte `--text-2`.
+- `tampon` : bord tireté, fond transparent, texte `--text-3`.
+- Sélection : bord `--accent` + halo `--accent-soft`.
+
+### Drapeaux (`flags`) — pastilles sur le bloc
+
+| Code | Pastille | Libellé complet | Couleur |
+|---|---|---|---|
+| `ajeun` | AJ | À JEUN | ambre (`--warn`) |
+| `mord` | !! | MANIPULATION PRUDENTE | rouge (`--urgent`) |
+| `iso` | IS | ISOLEMENT | ambre (`--warn`) |
+| `neuf` | N | NOUVEAU CLIENT | accent — vaut « réservation en ligne » |
+
+### Contraintes de placement (drag & drop / clavier)
+
+- **Échelle du jour (UI)** : timeline en minutes 0–1440, RDV borné à sa
+  journée — contrainte de la vue jour, pas du stockage.
+- **Aimant** : placement libre au pas de **1 min** (divergence assumée
+  avec le proto qui arrondit à 5) ; aimant activable à
+  **5 / 10 / 15 / 25 / 30 min** (défaut 15). Le resize suit le même pas.
+- **Durée minimale : 10 min** (souris et clavier ⇧←/⇧→ pas de 5).
+- **Création rapide** (clic droit) : RDV de **20 min**, type `consult`,
+  statut `prevu`. Refusée sur une colonne bloquée par absence.
+- **Placement d'une urgence / demande** : au prochain trou libre ;
+  statut initial `salle` (urgence, `arrivedAt` = maintenant) ou `prevu`
+  + flag `neuf` (demande en ligne).
+- **Chevauchement autorisé — décision produit confirmée et
+  implémentée** : jamais refusé, résolu uniquement à l'affichage par
+  empilement en sous-lignes. **Aucune contrainte d'exclusivité en
+  base** ; l'API accepte des intervalles qui se recouvrent.
+- **Changement de ligne** : drag vertical (ou ↑/↓) libre ; le praticien
+  est aussi éditable dans le panneau latéral (entre lignes `consult`).
+- **Créneaux libres** : trous ≥ **15 min** entre RDV (tampons exclus),
+  hors pause ; pour aujourd'hui, à partir de max(ouverture, maintenant).
+
+### Horaires d'ouverture (réglages, valeurs par défaut)
+
+- Semaine : **08:00 – 19:30** (`openM` 480, `closeM` 1170).
+- Samedi : fermeture **15:00** (`satM` 900) ; dimanche **fermé** (option).
+- Pause déjeuner : **12:30 – 14:00**, appliquée **uniquement aux lignes
+  consultation** ; bloc et imagerie continuent.
+- Zones « FERMÉ » hachurées hors horaires (placement pas physiquement
+  bloqué).
+- Réglages au pas de **15 min**, invariants : fermeture ≥ ouverture +
+  2 h ; pause ≥ 30 min après l'ouverture et finissant ≥ 30 min avant la
+  fermeture ; durée ≥ 15 min.
+- Divergence corrigée au portage : samedi/dimanche suivent les réglages
+  quel que soit le jour affiché (le proto forçait les horaires de
+  semaine sur « aujourd'hui »).
+
+### Files alimentant le planning (entités liées)
+
+**Urgence en attente** : `id`, `patientName`, `species`, `ownerName`,
+`reason`, `since` (heure d'arrivée), `triage` (**1–3**, 3 = plus
+critique), `durationMin`. Se glisse sur le planning ou sur un tampon.
+
+**Demande de RDV en ligne** : `id`, `patientName`, `species`,
+`ownerName`, `reason`, `want` (souhait horaire libre), `mode` =
+`valider` (à placer manuellement) \| `confirme` (créneau déjà choisi),
+`durationMin`.
+
+**Liste d'attente** : `id`, `patientName`, `species`, `ownerName`,
+`tel`, `reason`, `pref` (préférence libre), `vet` (`any` ou id de
+ligne), `durationMin` (20 / 30 / 45), `since`. Reçoit les offres de
+créneau libéré (annulation, no-show) — l'offre elle-même
+(`slotOffer`) est un état transitoire d'UI, pas une entité.
+
+Une file « traitées à l'instant » (`traitees`) garde la trace des
+urgences casées et demandes validées — journal de séance, dérivable des
+RDV créés, pas une table.
+
+---
+
+## 4. Patient
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | `p0`… |
+| `name` | string | Nom de l'animal (clé de liaison de la démo — ne pas reproduire) |
+| `species` | enum espèce | Codes ci-dessous |
+| `breed` | string | Race |
+| `sex` | enum | `Mâle` \| `Femelle` |
+| `years` | tinyint | Âge (mieux : date de naissance en base) |
+| `ownerIndex` / `ownerName` | FK → client | Propriétaire (dénormalisé) |
+| `phone`, `mail` | string | Dénormalisés depuis le propriétaire |
+| `alerts` | codes dérivés | `agressif` (!! rouge) · `allergies` (AL ambre) · `solde` (€ accent, dérivé de `debt`) |
+| `debt` | decimal | Solde dû en CHF |
+| `sterilized` | enum/bool | STÉRILISÉ(E) \| NON STÉRILISÉ |
+| `chip` | string(15) | Puce format suisse AMICUS « 756 09X XXX XXX XXX » — modifiable depuis le carnet |
+| `since` | year | Client depuis |
+| `treatment` | string | Traitement en cours (texte libre) |
+| `nextVisit` | dérivé | Prochain RDV — dérivable des RDV |
+| `lastVisitAgo` | dérivé | Dernière visite — dérivable |
+
+Sous-collections (tables enfants) — toutes implémentées :
+
+- **Pesées** (`weighings`) : `{ kg, d }` — historique **daté**, éditable
+  (ajout du jour, correction, suppression). Le seed en génère 8 espacées
+  de 3 mois. Table `pesees` : `patient_id`, `kg` decimal, `date`.
+- **Vaccinations** (`vaccinations`) : `{ name (maladies), brand
+  (marque), lot, vet, ago, due }`. `ago`/`due` sont des jours relatifs
+  de démo — en base : `injectee_le` date, `echeance_le` date. Le
+  catalogue (`VACCINE_CATALOG` par espèce) porte marque, maladies
+  couvertes et périodicité `years` (1 an, rage 3 ans). Une injection du
+  jour génère un n° de lot et écrase la ligne du même vaccin. Statut
+  d'échéance affiché : **ÉCHU** / **BIENTÔT** / **À JOUR**.
+- **Visites** (`visits`) : `{ ago → date, reason, vet, note }`.
+- **Documents** (`documents`) : `{ name (PDF), ago → date }`. Les
+  certificats et consentements générés s'y archivent (voir sections 13
+  et 15).
+- **Imageries** (`imagings`) : `{ type thorax|abdomen|membre, ago →
+  date, seed }` — le `seed` génère le cliché procédural de la
+  visionneuse DICOM (démo, non persisté tel quel ; en prod : fichier
+  DICOM stocké).
+- **Relevés ophtalmologiques** (`ophRecords`) : `{ d date, sOD, sOG
+  (Schirmer OD/OG), pOD, pOG (PIO OD/OG), fluo pos|neg, notes }`.
+- **Relevé dentaire** (`tools.dentPatMaps`) : odontogramme Triadan —
+  map `{ n° de dent (Triadan) : état }` avec état ∈ `tartre`,
+  `gingivite`, `parodontite`, `fracture`, `absente` (absence de clé =
+  sain). Table `releves_dentaires` : `patient_id`, `dent` smallint,
+  `etat` enum, ou un relevé daté avec lignes si l'historique compte.
+- **Rappels coupés** (`remOff`) : booléen par patient — coupe les
+  rappels automatiques pour ce patient (colonne
+  `patients.rappels_coupes`).
+
+### Codes espèce
+
+`CH` Chien · `CT` Chat · `LP` Lapin · `FU` Furet · `RG` Rongeur ·
+`OI` Oiseau · `RP` Reptile
+
+---
+
+## 5. Client / Propriétaire
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | `o<oi>` |
+| `civ` | enum | `M.` \| `Mme` |
+| `first`, `last` | string | Prénom / nom |
+| `phone` | string | |
+| `mail` | string | |
+| `street` | string | Rue + n° |
+| `npa`, `loc` | string | NPA suisse (4 chiffres) + localité |
+| `since` | year | Dérivé : min des `since` de ses animaux |
+
+Relations et dérivés implémentés :
+
+- **1 client — N patients** (liste triable par nom / localité / nombre
+  d'animaux). La modification d'une fiche propriétaire se répercute sur
+  les fiches patients du foyer (nom, téléphone, mail) — disparaît avec
+  de vraies FK.
+- **Solde dû** = somme des `debt` de ses animaux.
+- **Compteur de no-show** (badge « NO-SHOW ×N ») — cf. section 3.
+- **Compte espace client** : au front, simulé par un hash du nom
+  (`hasAccount`) ; en base, relation réelle `clients 0..1 comptes` —
+  conditionne le canal d'envoi des devis (portail vs papier) et les
+  notifications.
+
+### Compte espace client (portail, non porté)
+
+Le portail du proto stocke un utilisateur et ses animaux dans un format
+simplifié. En production : **vues du même modèle patient/client**
+filtrées par le compte connecté (le `localStorage vet-espace-*` du proto
+est de la simulation, non portée). Authentification passkey/WebAuthn
+prévue (cf. todo API).
+
+---
+
+## 6. Facturation & caisse (store `invoices`)
+
+### Facture
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | `ci1`… |
+| `n` | string unique | « FC-2026-0341 » — séquence annuelle (voir Numérotations) |
+| `date`, `time` | datetime | Émission (au front « JJ.MM.AAAA » + « HH:MM » — en base un datetime) |
+| `pat`, `sp`, `ow` | dénormalisés → `patient_id` | Patient, espèce, propriétaire |
+| `lane` | FK → ligne / praticien | Praticien facturant |
+| `clin` | FK → clinique | Clinique d'émission |
+| `apptId` | FK nullable → RDV | Facture issue d'un RDV (unique par RDV — la réouverture retrouve la facture) |
+| `st` | enum | `due` (à encaisser) \| `payee` |
+| `pm` | enum nullable | `tpe` \| `twint` \| `cash` |
+| `paidAt` | date nullable | Date d'encaissement |
+| `ins` | string nullable | Assureur (« Animalia », « Epona », « SantéVet ») |
+| `stocked` | bool | Sortie de stock des lignes `med` déjà effectuée (évite le double décrément) |
+
+### Lignes de facture
+
+`{ t (libellé), qty, chf (prix unitaire TTC), kind: acte | med,
+prodId? }` — table `facture_lignes` : `facture_id`, `libelle`,
+`quantite`, `prix_chf`, `type`, `produit_id` nullable. Le total est
+dérivé (`Σ qty × chf`), la TVA extraite au taux normal **8.1 %**
+(`ht = ttc / 1.081`).
+
+### Prescription jointe (`rx`)
+
+`{ n (nom), dose, mode: stock (délivré par la clinique) | pharma
+(à retirer en pharmacie) }` — imprimable depuis l'encaissement.
+**Recouvrement avec le registre Ordonnances** (section 12) : la fin de
+consultation crée les deux. Décision ouverte : à terme, l'ordonnance
+est l'entité de référence et la facture la référence
+(`facture.ordonnance_id` nullable) plutôt que de dupliquer les lignes.
+
+### Encaissement
+
+État transitoire d'UI (`enc`), pas une entité : choix du moyen de
+paiement (TPE Stripe Terminal / TWINT simulés avec latence, espèces
+avec rendu calculé), ajout d'actes (catalogue `ACTES`) et de
+médicaments (stock → ligne + prescription ; rupture → prescription
+pharmacie sans ligne), « payer plus tard » (la facture reste `due`,
+**le stock sort quand même**).
+
+### Catalogue d'actes (`ACTES`)
+
+11 prestations avec prix CHF (consultation 85, suivi 55, urgence 140,
+vaccination 48, contrôle 45, chirurgie 420, radio 2 clichés 120, télé
+55, fin de vie 180, labo 96, détartrage 260) + mapping type de RDV →
+acte (`TYPE_ACTE`). **Attention** : la fin de consultation utilise un
+second catalogue aux prix différents — cf. Décisions ouvertes.
+
+### Décomptes d'assurance
+
+Sur une facture : affectation d'un assureur (`ins`) + PDF de décompte
+(part remboursable estimée 80 %), puis suivi de la demande
+(`claimStatus` : `todo` À ENVOYER → `sent` ENVOYÉE → `paid`
+REMBOURSÉE). Table `decomptes_assurance` : `facture_id`, `assureur`,
+`statut`, horodatages.
+
+### Clôture de caisse (Z)
+
+| Champ front | Type | Description |
+|---|---|---|
+| `n` | string | « Z-2026-041 » — séquence |
+| `date`, `time`, `by` | datetime + FK user | Arrêtée par |
+| `tpe`, `twint`, `cash` | decimal | Totaux encaissés par moyen depuis la dernière clôture |
+| `fond` | decimal | Fond de caisse initial |
+| `counted` | decimal | Espèces comptées (comptage par coupures — billets 200/100/50/20/10, pièces 5/2/1/½) |
+| `ecart` | decimal | `counted − (fond + cash)` — justification obligatoire si ≠ 0 |
+| `depot`, `newFond` | decimal | Dépôt en banque, nouveau fond |
+| `nInv`, `invIds` | int + pivot | Factures couvertes par cette clôture |
+| `note` | text | |
+
+Règles implémentées : rapprochement TPE et TWINT obligatoires (cases à
+cocher) avant clôture ; une facture payée n'est « à clôturer » que si
+aucune clôture ne la couvre. Exports : Z PDF, décompte TVA mensuel PDF,
+journal des ventes CSV (séparateur `;`, BOM UTF-8, compatible
+Banana / Abacus).
+
+---
+
+## 7. Devis (store `devis`)
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | |
+| `n` | string unique | « DV-2026-018 » |
+| `date` | date | |
+| `pat`, `sp`, `ow` | dénormalisés → `patient_id` | |
+| `motif` | string | « Ostéosynthèse fémur droit » |
+| `lines` | table enfant | Même forme que les lignes de facture |
+| `remise` | tinyint % | Remise commerciale |
+| `alea` | tinyint % | Aléa affiché (fourchette haute) — informatif |
+| `validDays` / `validUntil` | int + date | Validité (30 j par défaut) ; `validUntil` posée à l'envoi |
+| `acomptePct` | tinyint % | Acompte demandé |
+| `cond` | text | Conditions libres |
+| `st` | enum | `brouillon` → `envoye` → `accepte` \| `refuse` ; `expire` est **dérivé** (envoyé + validité dépassée), pas stocké |
+| `canal` | enum nullable | `portail` (espace client) \| `papier` — choisi automatiquement selon le compte du propriétaire |
+| `signedAt`, `signedBy` | datetime + string | Acceptation (signature électronique portail ou « bon pour accord » papier) |
+| `acompteInv`, `factureInv` | FK nullable → factures | Acompte facturé / facture finale (la finale déduit remise et acompte en lignes négatives) |
+
+Cycle implémenté : brouillon (seul supprimable) → envoi (canal selon
+compte) → acceptation (portail ou papier) / refus / expiration dérivée ;
+relance ; duplication (repart en brouillon) ; PDF.
+
+---
+
+## 8. Hospitalisation (store `hosp`)
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | |
+| `clin` | FK → clinique | |
+| `box` | tinyint | N° de box (capacité par clinique : `boxCount`) |
+| `patientId` | FK → patient | **Vraie FK** (pas de liaison par nom) |
+| `motif` | string | |
+| `st` | enum | `stable` \| `surv` (surveillance) \| `critique` |
+| `vet` | string → FK praticien | Vétérinaire référent |
+| `inD` / `outL` | texte libre en démo | **En base : `admis_le` datetime, `sortie_prevue` texte ou datetime, `sorti_le` datetime nullable** |
+| `perf` | string nullable | Perfusion en cours (« Ringer lactate · 45 ml/h ») |
+| `note` | text | |
+
+Tables enfants :
+
+- **Soins** (`cares`) : `{ t (minutes du jour → heure), act (libellé),
+  med (FK produit nullable), done }`. « Soin fait » décrémente le stock
+  **de la clinique du séjour** si un produit est lié. Soins planifiables
+  à la volée.
+- **Constantes** (`consts`) : `[heure, T°, FC, FR]` — table
+  `releves_constantes` : `sejour_id`, `heure`, `temperature`, `fc`,
+  `fr`.
+
+**Sortie — jamais de suppression (implémenté)** : la sortie renseigne
+`outAt` (→ `sorti_le` datetime en base) et le séjour est conservé ;
+les écrans ne listent que les séjours en cours (`outAt` null), le box
+est libéré. Même principe que les RDV annulés — l'historique
+d'hospitalisation d'un patient a de la valeur. (Le proto supprimait le
+séjour : divergence assumée.)
+
+Facturation du séjour à la sortie : forfait journalier selon le statut
+(stable 65 / surveillance 95 / critique 140 CHF/j), perfusion 38 CHF/j,
+soins réalisés 15 CHF/soin — facture créée en caisse + encaissement.
+Le nombre de jours est estimé du libellé d'entrée en démo ; en base il
+se calcule des dates réelles.
+
+---
+
+## 9. Laboratoire (store `labs`)
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | string unique | « A-26-0141 » — séquence |
+| `patientId` | FK → patient | |
+| `status` | enum | `attente` (prélevé) → `cours` (analyse) → `valid` (à valider) → `ok` (validé signé) |
+| `when` | texte relatif en démo | **En base : `preleve_le` datetime** |
+| `panels` | array → pivot | Panels demandés (catalogue ci-dessous) |
+| `prio` | enum | `std` \| `urg` |
+| `by` | FK praticien | Prescripteur |
+| `results` | table enfant | Par panel, liste de `{ n (paramètre), u (unité), lo, hi (bornes), v (valeur), flag '' \| H \| L }` |
+| `note` | text | |
+| `validatedBy` | FK praticien nullable | Signataire de la validation |
+
+Catalogue de panels (`LAB_PANELS`) : `nfs` (EDTA), `bioch` (SEC),
+`iono` (HÉPARINE), `t4` (SEC), `urine` (URINE), `coag` (CITRATE) — avec
+paramètres, unités et bornes de référence. En base : tables
+`panels_labo` et `panel_parametres` (référentiel), `analyses`,
+`analyse_panels`, `analyse_resultats`. Les tubes affichés dérivent des
+panels.
+
+---
+
+## 10. Imagerie (store `imaging`)
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | |
+| `patientId` | FK → patient | |
+| `ix` | int | Index du cliché dans la fiche patient (−1 pour US/ES) — artefact de démo, remplacé par une FK vers le fichier |
+| `mod` | enum | `DX` (radio) \| `US` (écho) \| `ES` (endoscopie) |
+| `label` | string | « Radiographie thorax » |
+| `inc` | string | Incidence / sonde (« Profil droit · Face ») |
+| `ago` | jours relatifs → date | `realise_le` |
+| `by` | FK praticien | Prescripteur / opérateur |
+| `done` | bool | Compte rendu signé |
+| `f` | text | Constatations |
+| `c` | text | Conclusion |
+| `vby` | FK praticien nullable | Signataire |
+
+Trames de compte rendu par modalité (`REPORT_TEMPLATES`) — gabarits,
+côté référentiel applicatif. La visionneuse DICOM du front génère des
+clichés procéduraux (démo) ou charge un `.dcm` réel ; en production les
+fichiers DICOM sont stockés et rattachés à l'examen.
+
+---
+
+## 11. Bloc opératoire (store `bloc`)
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | |
+| `t` | minutes → datetime | Heure de début programmée |
+| `dur` | int min | Durée prévue (min 10) |
+| `patientId` | FK → patient | **Vraie FK** |
+| `proc` | string | Procédure (« Ovariohystérectomie de convenance ») |
+| `surgeon` | FK praticien | |
+| `salle` | FK → salle de bloc | Liste gérable (cf. section 2) |
+| `st` | enum | `prevu` → `prep` → `cours` → `reveil` → `fini` |
+| `ck` | map → table enfant | Checklist de sécurité — 6 points de base : `jeun`, `consent`, `premed`, `iv`, `atb`, `mat` |
+| `ckx` | array | Points de checklist **ajoutés** à la volée |
+| `anesth` | array text | Protocole anesthésique (4 lignes : prémed, induction, maintien, analgésie) |
+| `log` | table enfant | Journal des transitions `{ st, at }` — audit du cycle |
+| `t0` | minutes nullable | Heure réelle d'incision (chrono) |
+| `note` | text | |
+
+Règles implémentées : **le passage en `cours` (incision) est bloqué
+tant que la checklist n'est pas complète** ; le point `consent` ne se
+coche que par la **signature du consentement éclairé** (dessinée à
+l'écran, « archivée au dossier » → en base : document rattaché au
+patient + horodatage). Suppression d'une salle refusée si des
+interventions non terminées y sont rattachées.
+
+---
+
+## 12. Ordonnances (store `ordos`)
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | |
+| `n` | string unique | « RX-2026-058 » — séquence |
+| `patientId` | FK → patient | **Vraie FK** |
+| `date` | date | Datée du jour à la signature |
+| `by` | FK praticien | Signataire (« Dr Meyer ») |
+| `lines` | table enfant | `{ pr (FK produit), poso (texte), dur (texte, défaut « Selon besoin ») }` |
+| `renew` | tinyint | Renouvellements restants (0–3) |
+| `st` | enum | `active` (EN COURS) \| `stop` (CLÔTURÉE) |
+| `note` | text | Note pour le propriétaire |
+
+Règles implémentées :
+
+- **Signature** = création + **sortie de stock immédiate** (une unité
+  par ligne, clinique `c1` au front — en base : clinique de l'acte),
+  annulable (l'annulation supprime l'ordonnance et restaure le stock —
+  seul cas de suppression, dans la fenêtre d'undo).
+- **Renouvellement** = nouvelle ordonnance datée du jour avec
+  `renew − 1`, l'ancienne passe à `stop`. Jamais de modification d'une
+  ordonnance signée.
+- **Clôture** manuelle possible (`stop`) — l'ordonnance n'est plus
+  délivrable en boutique/stocks.
+- Créée aussi par la **fin de consultation** (médicaments prescrits) —
+  même entité, `renew` 0.
+- Les produits `isRx` (« sur ordonnance ») ne sont délivrables que sur
+  prescription active.
+
+---
+
+## 13. Dossier médical transverse (store `records`)
+
+### Compte rendu SOAP
+
+`crMap` : un CR par RDV — `{ s (motif & anamnèse), o (examen clinique),
+a (diagnostic), p (traitement & plan) }`. Table `comptes_rendus` :
+`rendez_vous_id` unique, quatre champs texte, signataire, horodatage.
+La présence d'un CR est affichée sur le RDV (badge « CR à rédiger » /
+rédigé dans « Ma journée »). PDF signé.
+
+### Carnet de santé & vaccination (modale carnet)
+
+**Artefact de démo à ne pas reproduire** : la modale carnet est indexée
+par la clé « nom|propriétaire » (`carnetKey`) avec des maps parallèles
+(`carnetMap` lignes de vaccination, `chipMap` puce, `amicus` statut) et
+des valeurs par défaut générées par hash quand la fiche patient
+n'existe pas (RDV de patients hors référentiel). En base, **tout vit
+sur le patient** : la puce (`patients.chip`), les vaccinations
+(section 4), le statut AMICUS (ci-dessous). La saisie de puce (15
+chiffres, format « 756 … ») et la déclaration AMICUS écrivent déjà sur
+la fiche quand elle existe.
+
+### Certificats et documents générés
+
+Certificat de vaccination (carnet), certificats officiels (bonne santé
+avec validité 10/30/90 j, antirabique, voyage avec pays de destination,
+attestation d'euthanasie avec motif), consentement de bloc signé,
+comptes rendus PDF : tous « archivés au dossier » d'après l'UI —
+en base : table `documents` du patient (section 4) avec type, fichier,
+signataire, date. Le front ne fait que télécharger le PDF (démo).
+
+---
+
+## 14. Produits & stocks (store `products`)
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | `pr01`… |
+| `name` | string | « Meloxicam 1,5 mg/ml · 100 ml » |
+| `cat` | enum | `med` \| `ali` \| `soin` \| `apara` \| `phyto` \| `mat` |
+| `ref` | string | Référence interne (« MED-0114 ») |
+| `price` | decimal | Prix de vente TTC CHF |
+| `cost` | decimal | Prix d'achat |
+| `unit` | string | flacon / boîte / dose / sac / kit / pièce / carton |
+| `min` | int | Seuil d'alerte de stock |
+| `isShop` | bool | Visible en boutique |
+| `isRx` | bool | Sur ordonnance — délivrable uniquement sur prescription active |
+| `exp` | string « MM.YYYY » | Péremption (par lot en production) |
+| `supplier` | string → FK fournisseur | |
+| `stock` | pivot | **Quantité par clinique** (`{ c1, c2 }`) |
+
+Mouvements de stock implémentés (décréments) : encaissement d'une ligne
+`med` (une fois par facture, flag `stocked`), signature d'ordonnance,
+soin d'hospitalisation avec produit lié, vaccin de fin de consultation
+(`pr04`), prescription phyto de la fiche patient (`takeOne` : clinique
+qui a du stock, `c1` en priorité). En production : table
+`mouvements_stock` (produit, clinique, quantité ±, motif, référence
+vers l'acte source) plutôt que des décréments silencieux — les undo du
+front (10 s) deviennent des mouvements inverses.
+
+---
+
+## 15. Rappels automatiques & messages
+
+Pas d'entité « rappel » au front : l'écran Rappels **dérive** tout des
+échéances vaccinales (≤ 45 jours) et des réglages. En production, il
+faut journaliser les envois :
+
+- **Réglages de clinique** (store `settings`) : `remMail`, `remSms`
+  (canaux), `remDelay` (`j7` \| `j3` \| `j1` — délai avant échéance),
+  `remVac` (rappels de vaccins), `remCtrl` (contrôles post-op),
+  `remNoShow` (relance après no-show), `msgIn` (réception des messages
+  clients), `msgReplyOnly` (réponses uniquement).
+- **Coupure par patient** : `patients.rappels_coupes` (section 4).
+- **Journal d'envois** (à créer) : `rappels_envoyes` — patient, vaccin/
+  échéance, canal, envoyé_le, statut de délivrance. L'écran affiche
+  « PROGRAMMÉ / ENVOYÉ / COUPÉ / SUSPENDU » ; programmé = dérivé,
+  envoyé = journalisé.
+- Le carnet permet aussi un **rappel manuel** par ligne de vaccination
+  (« Rappeler le propriétaire », flag `sent`) — même journal.
+
+---
+
+## 16. Registres réglementaires
+
+### AMICUS (chiens, banque de données suisse)
+
+Statut de déclaration par chien — au front une map « nom|propriétaire »
+→ `reg`, partagée entre le carnet et le registre de l'écran Outils
+(défaut simulé par hash). En base : `patients.amicus_declare_le`
+datetime nullable (+ éventuellement le n° de dossier AMICUS). La
+déclaration exige une puce. Obligation légale : annonce sous 10 jours
+(LFE / OI-BDTA) — la déclaration du front est une simulation, la vraie
+intégration AMICUS est un chantier API.
+
+### Registre des stupéfiants (OCStup, art. 62)
+
+| Champ front | Type suggéré | Description |
+|---|---|---|
+| `id` | PK | |
+| `d` | datetime | Date + heure du mouvement |
+| `sub` | FK → produit stupéfiant | Méthadone 10 mg/ml, Kétamine 100 mg/ml, Buprénorphine 0,3 mg/ml, Diazépam 5 mg/ml |
+| `mv` | decimal signé | Quantité (+ entrée / − sortie), unité ml |
+| `pat` | string → FK patient nullable | Obligatoire pour une sortie ; « — » pour une réception |
+| `by` | FK praticien | Signataire du mouvement |
+| `motif` | string | « Induction anesthésie », « Réception grossiste — lot … » |
+
+Solde par substance = base + Σ mouvements (alerte « STOCK BAS » < 10 ml).
+Export PDF pour les contrôles cantonaux. En production, ces mouvements
+devraient être un sous-ensemble signé de `mouvements_stock` (section
+14) plutôt qu'un registre parallèle.
+
+---
+
+## 17. Réglages de clinique vs préférences d'interface
+
+À séparer en base — le front mélange les deux dans `settings` :
+
+**Réglages de clinique** (partagés, versionnés, canal temps réel au
+branchement) : horaires (`openM`, `closeM`, `satM`, `sunOff`,
+`pause*`) — **à rattacher par clinique**, mode structure
+(`clinique` \| `solo`), rappels & messages (section 15), langue/région/
+format de date (`lang`, `region`, `dateFmt` — démo, l'i18n réelle
+viendra avec).
+
+**Préférences utilisateur** (par compte, pas des données métier) :
+thème et couleurs du logo, échelle du planning (`ppm`), ancrage,
+aimant (`snapOn`/`snapMin`/`snapScroll`), groupes de lignes repliés,
+menus visibles (`navOff` — sections masquées de la barre latérale,
+persisté `localStorage vet-navoff`), largeur de la sidebar
+(`vet-sbw`). Peuvent rester côté client ou passer dans une table
+`preferences_utilisateur` clé/valeur.
+
+Non portés (écran Organisation) : plan SaaS, quotas, moyens de paiement
+de l'abonnement — les onglets Réglages > Facturation et Utilisation en
+dépendent.
+
+---
+
+## 18. Numérotations
+
+Toutes les pièces sont numérotées par séquence annuelle — en base, des
+séquences par type (et par organisation), pas des `length + offset`
+comme la démo :
+
+| Pièce | Format | Exemple |
+|---|---|---|
+| Facture | `FC-YYYY-NNNN` | FC-2026-0345 |
+| Devis | `DV-YYYY-NNN` | DV-2026-018 |
+| Ordonnance | `RX-YYYY-NNN` | RX-2026-058 |
+| Analyse labo | `A-YY-NNNN` | A-26-0141 |
+| Clôture de caisse | `Z-YYYY-NNN` | Z-2026-041 |
+
+---
+
+## Annexe — récapitulatif des enums
+
+| Enum | Valeurs |
+|---|---|
+| Espèce | `CH`, `CT`, `LP`, `FU`, `RG`, `OI`, `RP` |
+| Type de RDV | `consult`, `vaccin`, `chir`, `ctrl`, `imagerie`, `urgence`, `euth`, `tele`, `tampon` |
+| Statut de RDV | `prevu`, `salle`, `cours`, `fini`, `noshow`, `annule` (jamais de suppression) |
+| Drapeau RDV | `ajeun`, `mord`, `iso`, `neuf` |
+| Rôle de ligne | `consult`, `bloc`, `img` |
+| Type d'absence | `conge`, `maladie`, `formation`, `recup`, `garde` |
+| Statut d'absence | `ok`, `att` |
+| Mode de demande en ligne | `valider`, `confirme` |
+| Statut de facture | `due`, `payee` |
+| Moyen de paiement | `tpe`, `twint`, `cash` |
+| Type de ligne de facture | `acte`, `med` |
+| Mode de prescription | `stock`, `pharma` |
+| Statut de décompte assurance | `todo`, `sent`, `paid` |
+| Statut de devis | `brouillon`, `envoye`, `accepte`, `refuse` (+ `expire` dérivé) |
+| Canal de devis | `portail`, `papier` |
+| Statut de séjour | `stable`, `surv`, `critique` — la sortie est portée par `sorti_le` (null = en cours) |
+| Statut d'analyse labo | `attente`, `cours`, `valid`, `ok` |
+| Priorité labo | `std`, `urg` |
+| Modalité d'imagerie | `DX`, `US`, `ES` |
+| Statut d'intervention bloc | `prevu`, `prep`, `cours`, `reveil`, `fini` |
+| Statut d'ordonnance | `active`, `stop` |
+| État dentaire | (sain = absence), `tartre`, `gingivite`, `parodontite`, `fracture`, `absente` |
+| Catégorie de produit | `med`, `ali`, `soin`, `apara`, `phyto`, `mat` |
+| Civilité | `M.`, `Mme` |
+| Sexe animal | `Mâle`, `Femelle` |
+
+---
+
+## Décisions ouvertes
+
+- **Catalogue de prestations unique.** Deux catalogues d'actes
+  coexistent avec des prix différents : `ACTES` (caisse — vaccination
+  48, chirurgie 420, fin de vie 180, radio 2 clichés 120) et
+  `FC_CATALOG` (fin de consultation — vaccination 42, chirurgie 380,
+  euthanasie 160, radio 1 cliché 95, plus injection SC 25, NFS 88,
+  coupe de griffes 18). Fidèle au proto, mais en base il faut **une
+  table `prestations` unique** (avec éventuellement des variantes),
+  sinon le même acte a deux prix selon l'écran.
+- **Prescription : ordonnance vs facture.** La fin de consultation crée
+  l'ordonnance au registre **et** duplique les lignes en `facture.rx`.
+  Cible : l'ordonnance est l'entité de référence, la facture la
+  référence (impression depuis l'encaissement conservée).
+- **Rôles et permissions** : à décider. Le proto esquisse quatre
+  profils (Admin/Organisateur, Vétérinaire, AMV, Client) avec menus
+  masqués par profil (`navHidden` : le vétérinaire ne voit pas caisse/
+  boutique/stocks, l'AMV pas le bloc). Contrainte connue : **une
+  assistante ne voit pas la facturation**. Question ouverte : rôles
+  figés en dur ou configurables par l'organisateur ? À ne pas confondre
+  avec « Menus visibles » (préférence personnelle, implémentée).
+- **Rétention des données (nLPD)** : non traitée. Durées de
+  conservation, anonymisation des clients/patients inactifs,
+  articulation avec les statuts jamais supprimés (RDV `annule`,
+  no-shows, séjours clos, ordonnances clôturées, registre des
+  stupéfiants) et les journaux d'audit.
+- **Suppressions tolérées** — à confirmer en base : brouillon de devis
+  (implémenté), ordonnance dans la fenêtre d'annulation (undo 10 s),
+  pesée erronée. Tout le reste est statutaire (annulation, clôture,
+  sortie), jamais supprimé.
+- **Undo 10 s côté API.** Le front annule des gestes composés (fini +
+  facture, signature + stock, renouvellement) dans les 10 s. Côté API :
+  soit des transactions compensatoires (mouvements inverses,
+  suppression dans la fenêtre), soit un délai de commit — à trancher
+  avant les migrations car cela conditionne les contraintes
+  d'intégrité (ex. `facture_lignes` immuables ou non).
