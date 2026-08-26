@@ -11,15 +11,22 @@ class DatabaseSeeder extends Seeder
     use WithoutModelEvents;
 
     /**
-     * Seed the application's database.
+     * Jeu de démo aligné sur le front (../veterinary-web) : mêmes
+     * cliniques, même équipe, mêmes rendez-vous du jour — le front,
+     * complet sur données seedées, doit retrouver son planning.
      */
     public function run(): void
     {
-        // User::factory(10)->create();
-
         User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+            'name' => 'Anna Meyer',
+            'email' => 'a.meyer@deuxrives.ch',
+        ]);
+
+        $this->call([
+            CliniqueSeeder::class,
+            EquipeSeeder::class,
+            PatientSeeder::class,
+            RendezVousSeeder::class,
         ]);
     }
 }
