@@ -1,0 +1,192 @@
+<?php
+
+namespace Tests\Feature\Patients;
+
+use App\Models\Client;
+use App\Models\Clinique;
+use App\Models\Patient;
+use App\Models\Pesee;
+use App\Models\Vaccination;
+use App\Models\Visite;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\EmetDesJetonsApi;
+use Tests\TestCase;
+
+/**
+ * Fiche patient : alertes dérivées (agressif, allergies, solde),
+ * filtres et tris de l'écran Patients, dossier complet au show.
+ * Jamais de suppression de fiche.
+ */
+class PatientTest extends TestCase
+{
+    use EmetDesJetonsApi;
+    use RefreshDatabase;
+
+    private Clinique $clinique;
+
+    private Client $client;
+
+    private string $jeton;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->clinique = Clinique::factory()->create();
+        $this->client = Client::factory()->create([
+            'organisation_id' => $this->clinique->societe->organisation_id,
+        ]);
+
+        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+    }
+
+    public function test_les_alertes_sont_derivees_de_la_fiche(): void
+    {
+        Patient::factory()->for($this->client)->create([
+            'nom' => 'Loki',
+            'est_agressif' => true,
+            'a_allergies' => false,
+            'dette' => 85,
+        ]);
+
+        $this->getJson('/api/v1/patients', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.0.alertes', ['agressif', 'solde'])
+            ->assertJsonPath('data.0.client.id', $this->client->id);
+    }
+
+    public function test_les_filtres_de_l_ecran_patients(): void
+    {
+        $chien = Patient::factory()->for($this->client)->create(['espece' => 'CH', 'nom' => 'Rex', 'est_agressif' => false, 'a_allergies' => false, 'dette' => 0]);
+        $chat = Patient::factory()->for($this->client)->create(['espece' => 'CT', 'nom' => 'Mimi', 'est_agressif' => false, 'a_allergies' => false, 'dette' => 0]);
+        $lapin = Patient::factory()->for($this->client)->create(['espece' => 'LP', 'nom' => 'Pixel', 'est_agressif' => false, 'a_allergies' => true, 'dette' => 0]);
+
+        Vaccination::factory()->for($chat)->create(['echeance_le' => today()->addDays(10)]);
+        Vaccination::factory()->for($chien)->create(['echeance_le' => today()->addDays(300)]);
+
+        $attendus = [
+            'chien' => [$chien->id],
+            'chat' => [$chat->id],
+            'nac' => [$lapin->id],
+            'alertes' => [$lapin->id],
+            'rappels' => [$chat->id],
+        ];
+
+        foreach ($attendus as $filtre => $ids) {
+            $reponse = $this->getJson("/api/v1/patients?filtre={$filtre}", $this->enTetes($this->jeton))->assertOk();
+
+            $this->assertSame($ids, array_column($reponse->json('data'), 'id'), "Filtre {$filtre}");
+        }
+    }
+
+    public function test_le_tri_par_rappels_met_la_plus_proche_echeance_d_abord(): void
+    {
+        $sansVaccin = Patient::factory()->for($this->client)->create(['nom' => 'Aramis']);
+        $urgent = Patient::factory()->for($this->client)->create(['nom' => 'Zoé']);
+        $tranquille = Patient::factory()->for($this->client)->create(['nom' => 'Bianca']);
+
+        Vaccination::factory()->for($urgent)->create(['echeance_le' => today()->addDays(5)]);
+        Vaccination::factory()->for($tranquille)->create(['echeance_le' => today()->addDays(200)]);
+
+        $reponse = $this->getJson('/api/v1/patients?tri=rappels', $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertSame(
+            [$urgent->id, $tranquille->id, $sansVaccin->id],
+            array_column($reponse->json('data'), 'id'),
+        );
+    }
+
+    public function test_la_recherche_couvre_nom_puce_et_proprietaire(): void
+    {
+        $patient = Patient::factory()->for($this->client)->create([
+            'nom' => 'Gribouille',
+            'puce' => '756 091 234 567 890',
+        ]);
+        Patient::factory()->for(Client::factory()->create([
+            'organisation_id' => $this->clinique->societe->organisation_id,
+            'nom' => 'Delacroix',
+        ]))->create(['nom' => 'Ombre']);
+
+        foreach (['gribouille', '756 091', $this->client->nom] as $q) {
+            $reponse = $this->getJson('/api/v1/patients?q='.urlencode($q), $this->enTetes($this->jeton))->assertOk();
+
+            $this->assertContains($patient->id, array_column($reponse->json('data'), 'id'), "Recherche {$q}");
+        }
+    }
+
+    public function test_une_fiche_se_cree_avec_les_defauts_du_metier(): void
+    {
+        $reponse = $this->postJson('/api/v1/patients', [
+            'client_id' => $this->client->id,
+            'nom' => 'Noisette',
+            'espece' => 'CH',
+            'sexe' => 'Femelle',
+            'puce' => '756091234567890',
+        ], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.nom', 'Noisette')
+            ->assertJsonPath('data.puce', '756 091 234 567 890')
+            ->assertJsonPath('data.client_depuis', now()->year)
+            ->assertJsonPath('data.dette', fn (mixed $dette): bool => (float) $dette === 0.0)
+            ->assertJsonPath('data.alertes', []);
+
+        $this->assertDatabaseHas('patients', [
+            'id' => $reponse->json('data.id'),
+            'organisation_id' => $this->clinique->societe->organisation_id,
+        ]);
+    }
+
+    public function test_le_proprietaire_est_requis_a_la_creation(): void
+    {
+        $this->postJson('/api/v1/patients', [
+            'nom' => 'Perdu',
+            'espece' => 'CH',
+            'sexe' => 'Mâle',
+        ], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('client_id');
+    }
+
+    public function test_le_dossier_complet_sort_au_show(): void
+    {
+        $patient = Patient::factory()->for($this->client)->create();
+        Pesee::factory()->for($patient)->create(['pesee_le' => today()->subMonths(3), 'poids_kg' => 11.2]);
+        Pesee::factory()->for($patient)->create(['pesee_le' => today(), 'poids_kg' => 11.8]);
+        Vaccination::factory()->for($patient)->create();
+        Visite::factory()->for($patient)->create();
+
+        $reponse = $this->getJson("/api/v1/patients/{$patient->id}", $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(2, 'data.pesees')
+            ->assertJsonCount(1, 'data.vaccinations')
+            ->assertJsonCount(1, 'data.visites')
+            ->assertJsonPath('data.dents', [])
+            ->assertJsonPath('data.releves_ophtalmologiques', []);
+
+        // Pesées en ordre chronologique — la courbe de poids du front.
+        $this->assertSame([11.2, 11.8], array_column($reponse->json('data.pesees'), 'poids_kg'));
+    }
+
+    public function test_la_fiche_se_modifie_sans_toucher_a_la_dette(): void
+    {
+        $patient = Patient::factory()->for($this->client)->create(['dette' => 40]);
+
+        $this->patchJson("/api/v1/patients/{$patient->id}", [
+            'nom' => 'Rebaptisé',
+            'est_sterilise' => true,
+            'dette' => 0,
+        ], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.nom', 'Rebaptisé')
+            ->assertJsonPath('data.est_sterilise', true)
+            ->assertJsonPath('data.dette', fn (mixed $dette): bool => (float) $dette === 40.0);
+    }
+
+    public function test_aucune_route_de_suppression_de_patient(): void
+    {
+        $patient = Patient::factory()->for($this->client)->create();
+
+        $this->deleteJson("/api/v1/patients/{$patient->id}", [], $this->enTetes($this->jeton))
+            ->assertStatus(405);
+    }
+}

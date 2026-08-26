@@ -6,18 +6,29 @@ use App\Http\Controllers\Api\V1\Auth\EmailConnuController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyConnexionController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
+use App\Http\Controllers\Api\V1\CarnetSanteController;
+use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\CompteClientController;
+use App\Http\Controllers\Api\V1\CompteRenduController;
 use App\Http\Controllers\Api\V1\DemandeRendezVousController;
 use App\Http\Controllers\Api\V1\DisponibiliteController;
+use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\HoraireOuvertureController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
+use App\Http\Controllers\Api\V1\PatientController;
+use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
+use App\Http\Controllers\Api\V1\ReleveDentaireController;
+use App\Http\Controllers\Api\V1\ReleveOphtalmologiqueController;
 use App\Http\Controllers\Api\V1\RendezVousAuditController;
 use App\Http\Controllers\Api\V1\RendezVousController;
 use App\Http\Controllers\Api\V1\RendezVousPlacementController;
 use App\Http\Controllers\Api\V1\RendezVousStatutController;
 use App\Http\Controllers\Api\V1\SalleController;
 use App\Http\Controllers\Api\V1\UrgenceAttenteController;
+use App\Http\Controllers\Api\V1\VaccinationController;
+use App\Http\Controllers\Api\V1\VisiteController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -90,6 +101,47 @@ Route::prefix('v1')->group(function (): void {
         Route::post('liste-attente', [ListeAttenteController::class, 'store']);
         Route::post('liste-attente/{inscription}/placer', [ListeAttenteController::class, 'placer']);
         Route::delete('liste-attente/{inscription}', [ListeAttenteController::class, 'destroy']);
+
+        // Domaine patients & dossier médical. Clients et patients sont
+        // de NIVEAU ORGANISATION (partagés entre les cliniques du
+        // jeton) ; jamais de suppression de fiche. Les enfants du
+        // dossier se résolvent toujours via le patient.
+        Route::apiResource('clients', ClientController::class)->except('destroy');
+        Route::post('clients/{client}/compte', [CompteClientController::class, 'creer']);
+        Route::delete('clients/{client}/compte', [CompteClientController::class, 'supprimer']);
+
+        Route::apiResource('patients', PatientController::class)->except('destroy');
+
+        // Carnet de santé : puce (15 chiffres, format AMICUS) et
+        // déclaration AMICUS (chiens pucés uniquement).
+        Route::put('patients/{patient}/puce', [CarnetSanteController::class, 'modifierPuce']);
+        Route::post('patients/{patient}/amicus', [CarnetSanteController::class, 'declarerAmicus']);
+
+        Route::post('patients/{patient}/pesees', [PeseeController::class, 'store']);
+        Route::patch('patients/{patient}/pesees/{pesee}', [PeseeController::class, 'update']);
+        Route::delete('patients/{patient}/pesees/{pesee}', [PeseeController::class, 'destroy']);
+
+        Route::get('patients/{patient}/vaccinations', [VaccinationController::class, 'index']);
+        Route::post('patients/{patient}/vaccinations', [VaccinationController::class, 'store']);
+
+        Route::get('patients/{patient}/visites', [VisiteController::class, 'index']);
+        Route::post('patients/{patient}/visites', [VisiteController::class, 'store']);
+
+        Route::get('patients/{patient}/documents', [DocumentController::class, 'index']);
+        Route::post('patients/{patient}/documents', [DocumentController::class, 'store']);
+
+        Route::get('patients/{patient}/releves-ophtalmologiques', [ReleveOphtalmologiqueController::class, 'index']);
+        Route::post('patients/{patient}/releves-ophtalmologiques', [ReleveOphtalmologiqueController::class, 'store']);
+        Route::patch('patients/{patient}/releves-ophtalmologiques/{releve}', [ReleveOphtalmologiqueController::class, 'update']);
+        Route::delete('patients/{patient}/releves-ophtalmologiques/{releve}', [ReleveOphtalmologiqueController::class, 'destroy']);
+
+        // Odontogramme Triadan — map complète, remplacée d'un bloc.
+        Route::get('patients/{patient}/dents', [ReleveDentaireController::class, 'afficher']);
+        Route::put('patients/{patient}/dents', [ReleveDentaireController::class, 'remplacer']);
+
+        // Compte rendu SOAP — un par rendez-vous, upsert au PUT.
+        Route::get('rendez-vous/{rendezVous}/compte-rendu', [CompteRenduController::class, 'afficher']);
+        Route::put('rendez-vous/{rendezVous}/compte-rendu', [CompteRenduController::class, 'enregistrer']);
 
         // Domaine facturation — routes à venir, toutes derrière le
         // Gate dédié, vérifié en base à chaque requête (une ASV n'y a

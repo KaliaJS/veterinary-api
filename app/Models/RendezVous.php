@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Jamais supprimé : l'annulation est le statut `annule` (auteur,
@@ -79,6 +80,13 @@ class RendezVous extends Model
     public function audits(): HasMany
     {
         return $this->hasMany(RendezVousAudit::class, 'rendez_vous_id');
+    }
+
+    /** Compte rendu SOAP (0..1 — docs/data-model.md §13).
+     * @return HasOne<CompteRendu, $this> */
+    public function compteRendu(): HasOne
+    {
+        return $this->hasOne(CompteRendu::class, 'rendez_vous_id');
     }
 
     /** Créneau réservé sans patient — jamais facturé, non déplaçable. */

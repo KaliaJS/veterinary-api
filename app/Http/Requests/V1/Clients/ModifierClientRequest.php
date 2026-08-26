@@ -1,0 +1,25 @@
+<?php
+
+namespace App\Http\Requests\V1\Clients;
+
+use App\Enums\Civilite;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class ModifierClientRequest extends FormRequest
+{
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        return [
+            'civilite' => ['sometimes', 'nullable', Rule::enum(Civilite::class)],
+            'prenom' => ['sometimes', 'string', 'max:255'],
+            'nom' => ['sometimes', 'string', 'max:255'],
+            'tel' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'email' => ['sometimes', 'nullable', 'email', 'max:255'],
+            'rue' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'npa' => ['sometimes', 'nullable', 'digits:4'],
+            'localite' => ['sometimes', 'nullable', 'string', 'max:255'],
+        ];
+    }
+}
