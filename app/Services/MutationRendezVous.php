@@ -145,11 +145,18 @@ class MutationRendezVous
 
         $motif = 'Absence praticien — '.mb_strtolower($absence->type->libelle());
 
+        // Les jours d'absence sont des jours calendaires de la
+        // clinique : les bornes se posent à minuit local, puis se
+        // comparent aux datetimes UTC des rendez-vous.
+        $fuseau = $absence->employe->clinique->fuseau_horaire ?? 'Europe/Zurich';
+        $debut = CarbonImmutable::parse($absence->debut_le->toDateString(), $fuseau);
+        $fin = CarbonImmutable::parse($absence->fin_le->copy()->addDay()->toDateString(), $fuseau);
+
         $rendezVous = RendezVous::query()
             ->whereHas('lignePlanning', fn ($requete) => $requete->where('employe_id', $absence->employe_id))
             ->where('status', '!=', StatutRendezVous::Annule)
-            ->where('starts_at', '<', $absence->fin_le->copy()->addDay()->startOfDay())
-            ->where('ends_at', '>', $absence->debut_le->copy()->startOfDay())
+            ->where('starts_at', '<', $fin->utc())
+            ->where('ends_at', '>', $debut->utc())
             ->get();
 
         $annules = 0;

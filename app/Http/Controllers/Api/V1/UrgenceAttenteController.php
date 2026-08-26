@@ -69,7 +69,7 @@ class UrgenceAttenteController extends Controller
             $ligneId = (int) $donnees['ligne_planning_id'];
             $debut = CarbonImmutable::parse($donnees['starts_at']);
         } else {
-            $creneau = $calculateur->prochainCreneau(CarbonImmutable::today(), $urgence->duree_minutes);
+            $creneau = $calculateur->prochainCreneau($calculateur->aujourdHui(), $urgence->duree_minutes);
 
             if ($creneau === null) {
                 throw ValidationException::withMessages(['starts_at' => 'Aucun créneau libre aujourd’hui.']);

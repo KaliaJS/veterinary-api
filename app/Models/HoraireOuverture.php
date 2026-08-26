@@ -8,6 +8,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Les heures sont des heures LOCALES (fuseau de la clinique,
+ * `cliniques.fuseau_horaire`), pas des instants : « ouvre à 08:00 »
+ * vaut été comme hiver. Seuls les rendez-vous sont des datetimes UTC.
+ */
 class HoraireOuverture extends Model
 {
     /** @use HasFactory<HoraireOuvertureFactory> */

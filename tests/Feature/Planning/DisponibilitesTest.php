@@ -76,14 +76,21 @@ class DisponibilitesTest extends TestCase
 
     public function test_les_creneaux_evitent_les_rendez_vous_et_la_pause_mais_ni_les_tampons_ni_les_annules(): void
     {
+        // Les horaires sont des heures LOCALES : tout se pose et
+        // s'attend en heure de Zurich, convertie en UTC (le stockage
+        // des rendez-vous).
+        $local = fn (int $minutes): CarbonImmutable => CarbonImmutable::parse($this->lundi->toDateString(), 'Europe/Zurich')
+            ->setTime(intdiv($minutes, 60), $minutes % 60)
+            ->utc();
+
         $rendezVous = fn (int $debutMin, int $finMin) => [
             'clinique_id' => $this->clinique->id,
             'ligne_planning_id' => $this->ligne->id,
-            'starts_at' => $this->lundi->addMinutes($debutMin),
-            'ends_at' => $this->lundi->addMinutes($finMin),
+            'starts_at' => $local($debutMin),
+            'ends_at' => $local($finMin),
         ];
 
-        RendezVous::factory()->create($rendezVous(540, 600)); // 09:00 – 10:00, occupe
+        RendezVous::factory()->create($rendezVous(540, 600)); // 09:00 – 10:00 locales, occupe
         RendezVous::factory()->annule()->create($rendezVous(600, 660)); // annulé : libre
         RendezVous::factory()->tampon()->create($rendezVous(900, 960)); // tampon : libre
 
@@ -96,13 +103,32 @@ class DisponibilitesTest extends TestCase
             ->map(fn (array $creneau): array => [$creneau['debut'], $creneau['fin']])
             ->all();
 
-        $iso = fn (int $minutes): string => $this->lundi->addMinutes($minutes)->toISOString();
+        $iso = fn (int $minutes): string => $local($minutes)->toISOString();
 
         $this->assertSame([
-            [$iso(480), $iso(540)],   // 08:00 – 09:00
+            [$iso(480), $iso(540)],   // 08:00 – 09:00 locales
             [$iso(600), $iso(750)],   // 10:00 – 12:30 (pause ensuite)
             [$iso(840), $iso(1170)],  // 14:00 – 19:30
         ], $creneaux);
+    }
+
+    public function test_les_horaires_sont_des_heures_locales_du_fuseau_de_la_clinique(): void
+    {
+        $this->clinique->update(['fuseau_horaire' => 'America/New_York']);
+
+        $reponse = $this->getJson(
+            '/api/v1/planning/disponibilites?date='.$this->lundi->toDateString(),
+            $this->enTetes($this->jeton),
+        )->assertOk()
+            ->assertJsonPath('data.fuseau_horaire', 'America/New_York')
+            ->assertJsonPath('data.ouverture', '08:00');
+
+        // « Ouvre à 08:00 » vaut en heure de New York — le créneau est
+        // rendu à l'instant UTC correspondant, pas à 08:00Z.
+        $this->assertSame(
+            CarbonImmutable::parse($this->lundi->toDateString().' 08:00', 'America/New_York')->utc()->toISOString(),
+            $reponse->json('data.creneaux.0.debut'),
+        );
     }
 
     public function test_les_creneaux_d_aujourd_hui_commencent_a_l_heure_courante(): void

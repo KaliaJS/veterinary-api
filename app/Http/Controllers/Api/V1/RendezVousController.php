@@ -109,9 +109,10 @@ class RendezVousController extends Controller
 
     /**
      * Seule suppression tolérée : annuler une création dans sa fenêtre
-     * d'undo (docs/data-model.md — arbitrage : 60 s, même auteur, aucun
-     * autre geste depuis). Tout le reste passe par l'annulation
-     * statutaire.
+     * d'undo (docs/data-model.md — arbitrage : 20 s, assez pour couvrir
+     * l'undo de 10 s du front et la latence, sans laisser un trou hors
+     * interface ; même auteur, aucun autre geste depuis). Tout le reste
+     * passe par l'annulation statutaire.
      */
     public function destroy(Request $request, RendezVous $rendezVous): Response
     {
@@ -124,7 +125,7 @@ class RendezVousController extends Controller
             && $creation->champ === 'création'
             && $audits->pluck('batch_id')->unique()->count() === 1
             && $creation->user_id === $request->user()->id
-            && $creation->created_at->gt(now()->subMinute());
+            && $creation->created_at->gt(now()->subSeconds(20));
 
         if (! $estDansLaFenetre) {
             throw ValidationException::withMessages([

@@ -27,7 +27,7 @@ class ProchainCreneauController extends Controller
         $donnees = $request->validated();
         $jour = isset($donnees['date'])
             ? CarbonImmutable::parse($donnees['date'])->startOfDay()
-            : CarbonImmutable::today();
+            : $calculateur->aujourdHui();
         $duree = (int) ($donnees['duree_minutes'] ?? 20);
 
         $creneau = $calculateur->prochainCreneau($jour, $duree);

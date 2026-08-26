@@ -25,6 +25,7 @@ class CliniqueFactory extends Factory
             'latitude' => fake()->randomFloat(5, 46.1, 47.5),
             'longitude' => fake()->randomFloat(5, 6.1, 9.5),
             'tel' => '+41 21 '.fake()->numerify('### ## ##'),
+            'fuseau_horaire' => 'Europe/Zurich',
             'nombre_boxes' => fake()->numberBetween(4, 10),
         ];
     }

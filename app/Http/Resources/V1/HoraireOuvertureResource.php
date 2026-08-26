@@ -7,8 +7,10 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * Heures rendues « HH:MM » (les colonnes `time` remontent avec les
- * secondes).
+ * Heures LOCALES rendues « HH:MM » (les colonnes `time` remontent avec
+ * les secondes) ; le fuseau de la clinique accompagne la réponse pour
+ * que le front situe la grille par rapport aux datetimes UTC des
+ * rendez-vous.
  *
  * @mixin HoraireOuverture
  */
@@ -20,6 +22,7 @@ class HoraireOuvertureResource extends JsonResource
         $heure = fn (?string $valeur): ?string => $valeur === null ? null : substr($valeur, 0, 5);
 
         return [
+            'fuseau_horaire' => $this->clinique->fuseau_horaire,
             'ouverture' => $heure($this->ouverture),
             'fermeture' => $heure($this->fermeture),
             'fermeture_samedi' => $heure($this->fermeture_samedi),

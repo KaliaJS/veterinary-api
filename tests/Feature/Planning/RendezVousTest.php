@@ -330,7 +330,8 @@ class RendezVousTest extends TestCase
         ['jeton' => $autreJeton] = $this->employeAvecJeton($this->clinique);
         $this->deleteJson("/api/v1/rendez-vous/{$id}", [], $this->enTetes($autreJeton))->assertUnprocessable();
 
-        $this->travel(2)->minutes();
+        // La fenêtre est de 20 s : 30 s plus tard, c'est refusé.
+        $this->travel(30)->seconds();
         $this->deleteJson("/api/v1/rendez-vous/{$id}", [], $this->enTetes($this->jeton))->assertUnprocessable();
         $this->assertDatabaseHas('rendez_vous', ['id' => $id]);
     }

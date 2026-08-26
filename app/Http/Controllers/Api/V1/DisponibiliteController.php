@@ -35,6 +35,7 @@ class DisponibiliteController extends Controller
 
         return response()->json(['data' => [
             'date' => $jour->toDateString(),
+            'fuseau_horaire' => $calculateur->fuseau(),
             'fermee' => $bornes['fermee'],
             'ouverture' => $bornes['fermee'] ? null : $enHeure($bornes['ouverture']),
             'fermeture' => $bornes['fermee'] ? null : $enHeure($bornes['fermeture']),
