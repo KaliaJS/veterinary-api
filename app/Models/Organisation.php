@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Auth\RolesParDefaut;
 use App\Enums\FormuleSaas;
+use App\Services\PanelsLaboParDefaut;
 use App\Services\PrestationsParDefaut;
 use Database\Factories\OrganisationFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -49,15 +50,17 @@ class Organisation extends Model
     }
 
     /**
-     * Les rôles par défaut et le catalogue de prestations naissent avec
-     * l'organisation (les seeders, qui coupent les événements de
-     * modèle, les appellent explicitement).
+     * Les rôles par défaut, le catalogue de prestations et le
+     * référentiel de panels labo naissent avec l'organisation (les
+     * seeders, qui coupent les événements de modèle, les appellent
+     * explicitement).
      */
     protected static function booted(): void
     {
         static::created(function (Organisation $organisation): void {
             RolesParDefaut::creer($organisation);
             PrestationsParDefaut::creer($organisation);
+            PanelsLaboParDefaut::creer($organisation);
         });
     }
 

@@ -110,6 +110,15 @@ class Patient extends Model
         return $this->hasMany(RendezVous::class);
     }
 
+    /** Demandes d'analyses labo — scopées clinique : la fiche patient
+     * les lit toutes cliniques via withoutGlobalScope('clinique').
+     *
+     * @return HasMany<Analyse, $this> */
+    public function analyses(): HasMany
+    {
+        return $this->hasMany(Analyse::class);
+    }
+
     /** Alerte « solde » (€) — dérivée de la dette, jamais stockée. */
     public function aSoldeDu(): bool
     {

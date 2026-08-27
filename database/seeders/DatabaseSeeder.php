@@ -34,6 +34,7 @@ class DatabaseSeeder extends Seeder
             BoutiqueSeeder::class,
             HospitalisationSeeder::class,
             BlocSeeder::class,
+            LaboratoireSeeder::class,
         ]);
     }
 }

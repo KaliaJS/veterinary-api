@@ -11,6 +11,7 @@ use App\Models\Organisation;
 use App\Models\Salle;
 use App\Models\SequenceNumerotation;
 use App\Models\Societe;
+use App\Services\PanelsLaboParDefaut;
 use App\Services\PrestationsParDefaut;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -39,10 +40,11 @@ class CliniqueSeeder extends Seeder
         ]);
 
         // Le seeder coupe les événements de modèle : les rôles par
-        // défaut et le catalogue de prestations de l'organisation sont
-        // créés explicitement.
+        // défaut, le catalogue de prestations et le référentiel de
+        // panels labo de l'organisation sont créés explicitement.
         RolesParDefaut::creer($organisation);
         PrestationsParDefaut::creer($organisation);
+        PanelsLaboParDefaut::creer($organisation);
 
         $s1 = Societe::create(['organisation_id' => $organisation->id, 'nom' => 'Deux Rives Vétérinaires SA', 'ide' => 'CHE-214.694.581']);
         $s2 = Societe::create(['organisation_id' => $organisation->id, 'nom' => 'Vet Lac Léman Sàrl', 'ide' => 'CHE-302.118.447']);

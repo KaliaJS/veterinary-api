@@ -4,6 +4,8 @@ use App\Http\Controllers\Api\V1\AbonnementController;
 use App\Http\Controllers\Api\V1\AbsenceController;
 use App\Http\Controllers\Api\V1\AccesEmployeController;
 use App\Http\Controllers\Api\V1\AjustementStockController;
+use App\Http\Controllers\Api\V1\AnalyseController;
+use App\Http\Controllers\Api\V1\AnalysePatientController;
 use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
 use App\Http\Controllers\Api\V1\Auth\EmailConnuController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyConnexionController;
@@ -17,8 +19,9 @@ use App\Http\Controllers\Api\V1\CommandeBoutiqueController;
 use App\Http\Controllers\Api\V1\CommandeFournisseurController;
 use App\Http\Controllers\Api\V1\CompteClientController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
-use App\Http\Controllers\Api\V1\ConstanteSejourController;
 use App\Http\Controllers\Api\V1\ConsentementInterventionController;
+use App\Http\Controllers\Api\V1\ConstanteSejourController;
+use App\Http\Controllers\Api\V1\CycleAnalyseController;
 use App\Http\Controllers\Api\V1\CycleDevisController;
 use App\Http\Controllers\Api\V1\CycleInterventionController;
 use App\Http\Controllers\Api\V1\CycleOrdonnanceController;
@@ -49,6 +52,7 @@ use App\Http\Controllers\Api\V1\OrganisationCliniqueController;
 use App\Http\Controllers\Api\V1\OrganisationController;
 use App\Http\Controllers\Api\V1\OrganisationFactureController;
 use App\Http\Controllers\Api\V1\PackQuotaController;
+use App\Http\Controllers\Api\V1\PanelLaboController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PrestationController;
@@ -61,6 +65,7 @@ use App\Http\Controllers\Api\V1\RendezVousAuditController;
 use App\Http\Controllers\Api\V1\RendezVousController;
 use App\Http\Controllers\Api\V1\RendezVousPlacementController;
 use App\Http\Controllers\Api\V1\RendezVousStatutController;
+use App\Http\Controllers\Api\V1\ResultatAnalyseController;
 use App\Http\Controllers\Api\V1\SalleController;
 use App\Http\Controllers\Api\V1\SejourController;
 use App\Http\Controllers\Api\V1\SocieteController;
@@ -183,6 +188,11 @@ Route::prefix('v1')->group(function (): void {
         Route::post('patients/{patient}/releves-ophtalmologiques', [ReleveOphtalmologiqueController::class, 'store']);
         Route::patch('patients/{patient}/releves-ophtalmologiques/{releve}', [ReleveOphtalmologiqueController::class, 'update']);
         Route::delete('patients/{patient}/releves-ophtalmologiques/{releve}', [ReleveOphtalmologiqueController::class, 'destroy']);
+
+        // Analyses du dossier patient — toutes cliniques de
+        // l'organisation (le dossier médical est partagé), borné par
+        // le patient, scope clinique levé.
+        Route::get('patients/{patient}/analyses', AnalysePatientController::class);
 
         // Odontogramme Triadan — map complète, remplacée d'un bloc.
         Route::get('patients/{patient}/dents', [ReleveDentaireController::class, 'afficher']);
@@ -336,6 +346,24 @@ Route::prefix('v1')->group(function (): void {
 
             Route::get('sejours/{sejour}/facture', [SortieSejourController::class, 'apercu']);
             Route::post('sejours/{sejour}/sortie', [SortieSejourController::class, 'sortir']);
+        });
+
+        // Domaine laboratoire — rattaché au domaine patients (dossier
+        // médical : l'ASV tient la paillasse). Demandes PAR CLINIQUE
+        // (worklist du labo physique), numérotées A-YY-NNNN, cycle
+        // attente → cours → valid → ok un cran à la fois ; résultats
+        // aux bornes instantanées, figés par la validation signée.
+        // Jamais de suppression.
+        Route::middleware('can:patients')->prefix('laboratoire')->group(function (): void {
+            Route::get('panels', [PanelLaboController::class, 'index']);
+
+            Route::get('analyses', [AnalyseController::class, 'index']);
+            Route::post('analyses', [AnalyseController::class, 'store']);
+            Route::get('analyses/{analyse}', [AnalyseController::class, 'show']);
+            Route::patch('analyses/{analyse}', [AnalyseController::class, 'update']);
+
+            Route::post('analyses/{analyse}/avancer', CycleAnalyseController::class);
+            Route::put('analyses/{analyse}/resultats', ResultatAnalyseController::class);
         });
 
         // Domaine bloc opératoire — son propre domaine de permission
