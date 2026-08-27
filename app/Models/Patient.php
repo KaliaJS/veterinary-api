@@ -119,6 +119,15 @@ class Patient extends Model
         return $this->hasMany(Analyse::class);
     }
 
+    /** Examens d'imagerie — scopés clinique : la fiche patient les lit
+     * toutes cliniques via withoutGlobalScope('clinique').
+     *
+     * @return HasMany<ExamenImagerie, $this> */
+    public function examensImagerie(): HasMany
+    {
+        return $this->hasMany(ExamenImagerie::class);
+    }
+
     /** Alerte « solde » (€) — dérivée de la dette, jamais stockée. */
     public function aSoldeDu(): bool
     {

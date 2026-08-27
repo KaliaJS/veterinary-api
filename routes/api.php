@@ -13,12 +13,14 @@ use App\Http\Controllers\Api\V1\Auth\PasskeyController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
 use App\Http\Controllers\Api\V1\CarnetSanteController;
 use App\Http\Controllers\Api\V1\ChecklistInterventionController;
+use App\Http\Controllers\Api\V1\ClicheDicomController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClotureCaisseController;
 use App\Http\Controllers\Api\V1\CommandeBoutiqueController;
 use App\Http\Controllers\Api\V1\CommandeFournisseurController;
 use App\Http\Controllers\Api\V1\CompteClientController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
+use App\Http\Controllers\Api\V1\CompteRenduImagerieController;
 use App\Http\Controllers\Api\V1\ConsentementInterventionController;
 use App\Http\Controllers\Api\V1\ConstanteSejourController;
 use App\Http\Controllers\Api\V1\CycleAnalyseController;
@@ -32,6 +34,7 @@ use App\Http\Controllers\Api\V1\DisponibiliteController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\EncaissementController;
 use App\Http\Controllers\Api\V1\EquipeEmployeController;
+use App\Http\Controllers\Api\V1\ExamenImagerieController;
 use App\Http\Controllers\Api\V1\FactureController;
 use App\Http\Controllers\Api\V1\FactureDevisController;
 use App\Http\Controllers\Api\V1\FactureLigneController;
@@ -39,6 +42,7 @@ use App\Http\Controllers\Api\V1\FacturePrescriptionController;
 use App\Http\Controllers\Api\V1\FinConsultationController;
 use App\Http\Controllers\Api\V1\GardeWeekendController;
 use App\Http\Controllers\Api\V1\HoraireOuvertureController;
+use App\Http\Controllers\Api\V1\ImageriePatientController;
 use App\Http\Controllers\Api\V1\InterventionController;
 use App\Http\Controllers\Api\V1\LicenciementEmployeController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
@@ -73,6 +77,7 @@ use App\Http\Controllers\Api\V1\SoinSejourController;
 use App\Http\Controllers\Api\V1\SortieSejourController;
 use App\Http\Controllers\Api\V1\StatistiquesBoutiqueController;
 use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
+use App\Http\Controllers\Api\V1\TrameImagerieController;
 use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
 use App\Http\Controllers\Api\V1\VenteComptoirController;
@@ -189,10 +194,11 @@ Route::prefix('v1')->group(function (): void {
         Route::patch('patients/{patient}/releves-ophtalmologiques/{releve}', [ReleveOphtalmologiqueController::class, 'update']);
         Route::delete('patients/{patient}/releves-ophtalmologiques/{releve}', [ReleveOphtalmologiqueController::class, 'destroy']);
 
-        // Analyses du dossier patient — toutes cliniques de
-        // l'organisation (le dossier médical est partagé), borné par
-        // le patient, scope clinique levé.
+        // Analyses et imagerie du dossier patient — toutes cliniques
+        // de l'organisation (le dossier médical est partagé), borné
+        // par le patient, scope clinique levé.
         Route::get('patients/{patient}/analyses', AnalysePatientController::class);
+        Route::get('patients/{patient}/imagerie', ImageriePatientController::class);
 
         // Odontogramme Triadan — map complète, remplacée d'un bloc.
         Route::get('patients/{patient}/dents', [ReleveDentaireController::class, 'afficher']);
@@ -364,6 +370,25 @@ Route::prefix('v1')->group(function (): void {
 
             Route::post('analyses/{analyse}/avancer', CycleAnalyseController::class);
             Route::put('analyses/{analyse}/resultats', ResultatAnalyseController::class);
+        });
+
+        // Domaine imagerie — rattaché au domaine patients (dossier
+        // médical). Examens PAR CLINIQUE (worklist de la modalité
+        // physique), même patron que le bloc : l'examen est le dossier
+        // maître, le RDV `imagerie` lié n'est que sa projection
+        // planning — la signature du compte rendu fige l'examen, clôt
+        // le RDV et facture l'acte. Flux DICOM idempotent par SOP
+        // Instance UID. Jamais de suppression.
+        Route::middleware('can:patients')->prefix('imagerie')->group(function (): void {
+            Route::get('trames', TrameImagerieController::class);
+
+            Route::get('examens', [ExamenImagerieController::class, 'index']);
+            Route::post('examens', [ExamenImagerieController::class, 'store']);
+            Route::get('examens/{examen}', [ExamenImagerieController::class, 'show']);
+            Route::patch('examens/{examen}', [ExamenImagerieController::class, 'update']);
+
+            Route::post('examens/{examen}/compte-rendu', CompteRenduImagerieController::class);
+            Route::post('examens/{examen}/cliches', ClicheDicomController::class);
         });
 
         // Domaine bloc opératoire — son propre domaine de permission

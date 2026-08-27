@@ -35,6 +35,7 @@ class DatabaseSeeder extends Seeder
             HospitalisationSeeder::class,
             BlocSeeder::class,
             LaboratoireSeeder::class,
+            ImagerieSeeder::class,
         ]);
     }
 }
