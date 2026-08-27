@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AbsenceController;
+use App\Http\Controllers\Api\V1\AccesEmployeController;
 use App\Http\Controllers\Api\V1\AjustementStockController;
 use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
 use App\Http\Controllers\Api\V1\Auth\EmailConnuController;
@@ -21,12 +22,15 @@ use App\Http\Controllers\Api\V1\DevisController;
 use App\Http\Controllers\Api\V1\DisponibiliteController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\EncaissementController;
+use App\Http\Controllers\Api\V1\EquipeEmployeController;
 use App\Http\Controllers\Api\V1\FactureController;
 use App\Http\Controllers\Api\V1\FactureDevisController;
 use App\Http\Controllers\Api\V1\FactureLigneController;
 use App\Http\Controllers\Api\V1\FacturePrescriptionController;
 use App\Http\Controllers\Api\V1\FinConsultationController;
+use App\Http\Controllers\Api\V1\GardeWeekendController;
 use App\Http\Controllers\Api\V1\HoraireOuvertureController;
+use App\Http\Controllers\Api\V1\LicenciementEmployeController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
 use App\Http\Controllers\Api\V1\LotController;
@@ -211,6 +215,26 @@ Route::prefix('v1')->group(function (): void {
             Route::post('devis/{devis}/facturer-acompte', [FactureDevisController::class, 'acompte']);
             Route::post('devis/{devis}/facturer-finale', [FactureDevisController::class, 'finale']);
             Route::apiResource('devis', DevisController::class)->parameters(['devis' => 'devis']);
+        });
+
+        // Domaine équipe — fiches RH. La liste est celle de la clinique
+        // du jeton (écran Équipe) ; les gestes (fiche, embauche,
+        // suspension, licenciement) sont bornés à l'ORGANISATION :
+        // l'écran Organisation pilote aussi les cliniques sœurs, la
+        // résolution se fait sans binding implicite. Les absences,
+        // elles, restent aux routes planning/équipe existantes.
+        Route::middleware('can:equipe')->prefix('equipe')->group(function (): void {
+            Route::get('employes', [EquipeEmployeController::class, 'index']);
+            Route::post('employes', [EquipeEmployeController::class, 'store']);
+            Route::get('employes/{employe}', [EquipeEmployeController::class, 'show'])->whereNumber('employe');
+            Route::patch('employes/{employe}', [EquipeEmployeController::class, 'update'])->whereNumber('employe');
+            Route::post('employes/{employe}/suspendre', [AccesEmployeController::class, 'suspendre'])->whereNumber('employe');
+            Route::post('employes/{employe}/retablir', [AccesEmployeController::class, 'retablir'])->whereNumber('employe');
+            Route::post('employes/{employe}/licencier', [LicenciementEmployeController::class, 'licencier'])->whereNumber('employe');
+            Route::post('employes/{employe}/annuler-licenciement', [LicenciementEmployeController::class, 'annuler'])->whereNumber('employe');
+
+            Route::get('gardes', [GardeWeekendController::class, 'index']);
+            Route::put('gardes', [GardeWeekendController::class, 'modifier']);
         });
 
         // Domaine stocks. Catalogue d'organisation, quantités par

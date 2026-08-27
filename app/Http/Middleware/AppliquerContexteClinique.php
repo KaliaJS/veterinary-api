@@ -47,6 +47,12 @@ class AppliquerContexteClinique
             abort(403, 'Rattachement à la clinique révoqué.');
         }
 
+        // Suspension d'accès (écran Organisation) : effet immédiat, le
+        // jeton reste valide mais la porte est fermée.
+        if ($employe->acces_suspendu) {
+            abort(403, 'Accès suspendu par l’organisation.');
+        }
+
         $this->contexte->definir($jeton->clinique, $employe, $this->calculateur->pour($employe));
 
         return $next($request);

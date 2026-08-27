@@ -4,6 +4,7 @@ namespace App\Http\Requests\V1\Concerns;
 
 use App\Auth\ContexteClinique;
 use App\Models\Clinique;
+use App\Models\Societe;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
 
@@ -39,5 +40,20 @@ trait ReglesScopees
             ->all();
 
         return Rule::exists($table, 'id')->whereIn('clinique_id', $cliniques);
+    }
+
+    /**
+     * Une clinique de l'organisation du jeton (la table `cliniques` n'a
+     * pas de `clinique_id` : la borne passe par la société) — cible des
+     * gestes RH et de l'écran Organisation.
+     */
+    protected function estUneCliniqueDeLOrganisation(): Exists
+    {
+        $societes = Societe::query()
+            ->where('organisation_id', app(ContexteClinique::class)->organisationId())
+            ->pluck('id')
+            ->all();
+
+        return Rule::exists('cliniques', 'id')->whereIn('societe_id', $societes);
     }
 }
