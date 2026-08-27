@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\AbsenceController;
+use App\Http\Controllers\Api\V1\AjustementStockController;
 use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
 use App\Http\Controllers\Api\V1\Auth\EmailConnuController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyConnexionController;
@@ -8,6 +9,7 @@ use App\Http\Controllers\Api\V1\Auth\PasskeyController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
 use App\Http\Controllers\Api\V1\CarnetSanteController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\CommandeFournisseurController;
 use App\Http\Controllers\Api\V1\CompteClientController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
 use App\Http\Controllers\Api\V1\DemandeRendezVousController;
@@ -16,9 +18,12 @@ use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\HoraireOuvertureController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
+use App\Http\Controllers\Api\V1\LotController;
+use App\Http\Controllers\Api\V1\MouvementStockController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
+use App\Http\Controllers\Api\V1\ProduitController;
 use App\Http\Controllers\Api\V1\ReleveDentaireController;
 use App\Http\Controllers\Api\V1\ReleveOphtalmologiqueController;
 use App\Http\Controllers\Api\V1\RendezVousAuditController;
@@ -151,6 +156,28 @@ Route::prefix('v1')->group(function (): void {
         // pas accès).
         Route::middleware('can:facturation')->prefix('facturation')->group(function (): void {
             //
+        });
+
+        // Domaine stocks. Catalogue d'organisation, quantités par
+        // clinique : la lecture montre la ventilation de toutes les
+        // cliniques, les écritures (ajustements, réceptions, lots) ne
+        // touchent que la clinique du jeton.
+        Route::middleware('can:stocks')->prefix('stocks')->group(function (): void {
+            Route::get('produits', [ProduitController::class, 'index']);
+            Route::post('produits', [ProduitController::class, 'store']);
+            Route::get('produits/{produit}', [ProduitController::class, 'show']);
+            Route::post('produits/{produit}/ajuster', AjustementStockController::class);
+            Route::get('produits/{produit}/mouvements', [MouvementStockController::class, 'index']);
+
+            Route::get('commandes', [CommandeFournisseurController::class, 'index']);
+            Route::post('commandes', [CommandeFournisseurController::class, 'store']);
+            Route::post('commandes/generer', [CommandeFournisseurController::class, 'generer']);
+            Route::post('commandes/{commande}/envoyer', [CommandeFournisseurController::class, 'envoyer']);
+            Route::post('commandes/{commande}/receptionner', [CommandeFournisseurController::class, 'receptionner']);
+            Route::delete('commandes/{commande}', [CommandeFournisseurController::class, 'destroy']);
+
+            Route::get('lots', [LotController::class, 'index']);
+            Route::post('lots/{lot}/ecarter', [LotController::class, 'ecarter']);
         });
     });
 });

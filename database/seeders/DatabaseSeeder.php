@@ -27,6 +27,7 @@ class DatabaseSeeder extends Seeder
             EquipeSeeder::class,
             PatientSeeder::class,
             RendezVousSeeder::class,
+            ProduitSeeder::class,
         ]);
     }
 }

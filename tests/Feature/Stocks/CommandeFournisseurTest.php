@@ -1,0 +1,198 @@
+<?php
+
+namespace Tests\Feature\Stocks;
+
+use App\Enums\StatutCommandeFournisseur;
+use App\Models\Clinique;
+use App\Models\CommandeFournisseur;
+use App\Models\CommandeFournisseurLigne;
+use App\Models\Lot;
+use App\Models\Produit;
+use App\Models\Stock;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\EmetDesJetonsApi;
+use Tests\TestCase;
+
+/**
+ * Cycle d'un bon de commande : brouillon → envoyée → réceptionnée. La
+ * réception incrémente le stock de la clinique de livraison, trace les
+ * mouvements et crée un lot par article périssable ; la génération
+ * automatique regroupe le stock bas par fournisseur.
+ */
+class CommandeFournisseurTest extends TestCase
+{
+    use EmetDesJetonsApi;
+    use RefreshDatabase;
+
+    private Clinique $clinique;
+
+    private string $jeton;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->clinique = Clinique::factory()->create();
+
+        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+    }
+
+    private function produit(array $attributs = []): Produit
+    {
+        return Produit::factory()->create([
+            'organisation_id' => $this->clinique->societe->organisation_id,
+            ...$attributs,
+        ]);
+    }
+
+    public function test_creer_une_commande_numerote_et_fige_le_prix_d_achat(): void
+    {
+        $produit = $this->produit(['cout' => 13.4]);
+
+        $reponse = $this->postJson('/api/v1/stocks/commandes', [
+            'fournisseur' => 'Vetopharm SA',
+            'lignes' => [['produit_id' => $produit->id, 'quantite' => 12]],
+        ], $this->enTetes($this->jeton));
+
+        $annee = now()->year;
+
+        $reponse->assertCreated()
+            ->assertJsonPath('data.numero', "BC-{$annee}-001")
+            ->assertJsonPath('data.statut', 'draft')
+            ->assertJsonPath('data.lignes.0.cout', 13.4);
+    }
+
+    public function test_envoyer_un_brouillon_horodate_et_change_le_statut(): void
+    {
+        $commande = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
+        CommandeFournisseurLigne::factory()->create([
+            'commande_fournisseur_id' => $commande->id,
+            'produit_id' => $this->produit()->id,
+        ]);
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/envoyer", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'sent');
+
+        $this->assertNotNull($commande->fresh()->envoyee_le);
+    }
+
+    public function test_envoyer_une_commande_sans_ligne_est_refuse(): void
+    {
+        $commande = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/envoyer", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('lignes');
+    }
+
+    public function test_la_reception_incremente_le_stock_journalise_et_cree_un_lot(): void
+    {
+        $produit = $this->produit(['peremption_le' => now()->addYear()->startOfMonth()]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 2]);
+
+        $commande = CommandeFournisseur::factory()->envoyee()->create(['clinique_id' => $this->clinique->id]);
+        CommandeFournisseurLigne::factory()->create([
+            'commande_fournisseur_id' => $commande->id,
+            'produit_id' => $produit->id,
+            'quantite' => 10,
+        ]);
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'rec');
+
+        $this->assertSame(12, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->where('clinique_id', $this->clinique->id)->sole()->quantite);
+        $this->assertDatabaseHas('mouvements_stock', [
+            'produit_id' => $produit->id,
+            'quantite' => 10,
+            'libelle' => 'Réception '.$commande->numero,
+        ]);
+        $this->assertDatabaseHas('lots', [
+            'produit_id' => $produit->id,
+            'clinique_id' => $this->clinique->id,
+            'quantite' => 10,
+        ]);
+    }
+
+    public function test_un_article_sans_peremption_ne_cree_pas_de_lot_a_la_reception(): void
+    {
+        $produit = $this->produit(['peremption_le' => null]);
+        $commande = CommandeFournisseur::factory()->envoyee()->create(['clinique_id' => $this->clinique->id]);
+        CommandeFournisseurLigne::factory()->create([
+            'commande_fournisseur_id' => $commande->id,
+            'produit_id' => $produit->id,
+            'quantite' => 5,
+        ]);
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertSame(0, Lot::withoutGlobalScopes()->count());
+    }
+
+    public function test_receptionner_un_brouillon_est_refuse(): void
+    {
+        $commande = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('statut');
+    }
+
+    public function test_generer_regroupe_le_stock_bas_par_fournisseur_en_brouillons(): void
+    {
+        $bas1 = $this->produit(['fournisseur' => 'Vetopharm SA', 'seuil_alerte' => 6]);
+        Stock::factory()->create(['produit_id' => $bas1->id, 'clinique_id' => $this->clinique->id, 'quantite' => 2]);
+
+        $bas2 = $this->produit(['fournisseur' => 'Zoevet AG', 'seuil_alerte' => 4]);
+        Stock::factory()->create(['produit_id' => $bas2->id, 'clinique_id' => $this->clinique->id, 'quantite' => 0]);
+
+        $sain = $this->produit(['fournisseur' => 'Vetopharm SA', 'seuil_alerte' => 3]);
+        Stock::factory()->create(['produit_id' => $sain->id, 'clinique_id' => $this->clinique->id, 'quantite' => 20]);
+
+        $reponse = $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton));
+
+        $reponse->assertOk()->assertJsonCount(2, 'data');
+
+        // Remonter à deux fois le seuil : 6 × 2 − 2 = 10.
+        $commande = CommandeFournisseur::query()->where('fournisseur', 'Vetopharm SA')->sole();
+        $this->assertSame(StatutCommandeFournisseur::Brouillon, $commande->statut);
+        $this->assertSame(10, $commande->lignes()->sole()->quantite);
+    }
+
+    public function test_generer_ignore_les_articles_deja_couverts_par_une_commande_ouverte(): void
+    {
+        $produit = $this->produit(['fournisseur' => 'Vetopharm SA', 'seuil_alerte' => 6]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 1]);
+
+        $ouverte = CommandeFournisseur::factory()->envoyee()->create(['clinique_id' => $this->clinique->id]);
+        CommandeFournisseurLigne::factory()->create([
+            'commande_fournisseur_id' => $ouverte->id,
+            'produit_id' => $produit->id,
+        ]);
+
+        $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('commandes');
+    }
+
+    public function test_supprimer_un_brouillon_est_tolere(): void
+    {
+        $commande = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
+
+        $this->deleteJson("/api/v1/stocks/commandes/{$commande->id}", [], $this->enTetes($this->jeton))
+            ->assertNoContent();
+
+        $this->assertDatabaseMissing('commandes_fournisseur', ['id' => $commande->id]);
+    }
+
+    public function test_supprimer_une_commande_receptionnee_est_refuse(): void
+    {
+        $commande = CommandeFournisseur::factory()->receptionnee()->create(['clinique_id' => $this->clinique->id]);
+
+        $this->deleteJson("/api/v1/stocks/commandes/{$commande->id}", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable();
+
+        $this->assertDatabaseHas('commandes_fournisseur', ['id' => $commande->id]);
+    }
+}

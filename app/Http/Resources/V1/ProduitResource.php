@@ -1,0 +1,52 @@
+<?php
+
+namespace App\Http\Resources\V1;
+
+use App\Models\Produit;
+use App\Models\Stock;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * La fiche est d'organisation, les quantités par clinique : `stocks`
+ * expose la ventilation complète (parité front — l'écran affiche les
+ * deux cliniques), `stock_total` et `sous_seuil` sont dérivés, jamais
+ * stockés. La péremption sort au format du front « MM.YYYY ».
+ *
+ * @mixin Produit
+ */
+class ProduitResource extends JsonResource
+{
+    /** @return array<string, mixed> */
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'nom' => $this->nom,
+            'categorie' => $this->categorie,
+            'reference' => $this->reference,
+            'prix' => (float) $this->prix,
+            'cout' => (float) $this->cout,
+            'unite' => $this->unite,
+            'seuil_alerte' => $this->seuil_alerte,
+            'est_boutique' => $this->est_boutique,
+            'est_sur_ordonnance' => $this->est_sur_ordonnance,
+            'peremption' => $this->peremptionAffichee(),
+            'fournisseur' => $this->fournisseur,
+            'ean' => $this->ean,
+            'promo_pct' => $this->promo_pct,
+            'est_vedette' => $this->est_vedette,
+            'stocks' => $this->whenLoaded(
+                'stocks',
+                fn () => $this->stocks
+                    ->map(fn (Stock $stock): array => [
+                        'clinique_id' => $stock->clinique_id,
+                        'quantite' => $stock->quantite,
+                    ])
+                    ->values(),
+            ),
+            'stock_total' => $this->whenLoaded('stocks', fn (): int => $this->stockTotal()),
+            'sous_seuil' => $this->whenLoaded('stocks', fn (): bool => $this->estSousLeSeuil()),
+        ];
+    }
+}
