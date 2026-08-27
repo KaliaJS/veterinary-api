@@ -14,6 +14,7 @@ enum PieceNumerotee: string
     case Ordonnance = 'RX';
     case ClotureCaisse = 'Z';
     case CommandeFournisseur = 'BC';
+    case FactureAbonnement = 'F';
 
     /** Largeur du compteur dans le numéro formaté. */
     public function chiffres(): int

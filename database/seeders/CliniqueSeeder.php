@@ -3,11 +3,13 @@
 namespace Database\Seeders;
 
 use App\Auth\RolesParDefaut;
+use App\Enums\PieceNumerotee;
 use App\Enums\TypeSalle;
 use App\Models\Clinique;
 use App\Models\HoraireOuverture;
 use App\Models\Organisation;
 use App\Models\Salle;
+use App\Models\SequenceNumerotation;
 use App\Models\Societe;
 use App\Services\PrestationsParDefaut;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
@@ -24,7 +26,17 @@ class CliniqueSeeder extends Seeder
 
     public function run(): void
     {
-        $organisation = Organisation::create(['nom' => 'Deux Rives Vétérinaires']);
+        // Abonnement SaaS du front (org.js) : formule Cabinet, usage du
+        // mois, carte enregistrée.
+        $organisation = Organisation::create([
+            'nom' => 'Deux Rives Vétérinaires',
+            'plan' => 'cabinet',
+            'cycle' => 'mois',
+            'moyen_paiement' => 'Visa •••• 4242',
+            'usage_emails' => 3412,
+            'usage_sms' => 1000,
+            'usage_stockage_go' => 18.4,
+        ]);
 
         // Le seeder coupe les événements de modèle : les rôles par
         // défaut et le catalogue de prestations de l'organisation sont
@@ -91,5 +103,34 @@ class CliniqueSeeder extends Seeder
         foreach ($salles as [$clinique, $nom, $type]) {
             Salle::create(['clinique_id' => $clinique->id, 'nom' => $nom, 'type' => $type]);
         }
+
+        // Factures d'abonnement du front (orgInvoices) — abonnements au
+        // premier du mois, packs en cours de mois ; la séquence « F- »
+        // repart après les numéros seedés.
+        $annee = now()->year;
+        $factures = [
+            [81, now()->startOfMonth(), 'Abonnement mensuel', 249.00],
+            [78, now()->subMonth()->startOfMonth()->addDays(18), 'Quota SMS +1 000', 20.00],
+            [70, now()->subMonth()->startOfMonth(), 'Abonnement mensuel', 249.00],
+            [64, now()->subMonths(2)->startOfMonth()->addDays(13), 'Quota e-mails +5 000', 15.00],
+            [59, now()->subMonths(2)->startOfMonth(), 'Abonnement mensuel', 249.00],
+            [48, now()->subMonths(3)->startOfMonth(), 'Abonnement mensuel', 249.00],
+        ];
+
+        foreach ($factures as [$numero, $date, $libelle, $montant]) {
+            $organisation->facturesAbonnement()->create([
+                'numero' => sprintf('F-%d-%03d', $annee, $numero),
+                'emise_le' => $date,
+                'libelle' => $libelle,
+                'montant' => $montant,
+            ]);
+        }
+
+        SequenceNumerotation::create([
+            'organisation_id' => $organisation->id,
+            'piece' => PieceNumerotee::FactureAbonnement,
+            'annee' => $annee,
+            'prochain' => 82,
+        ]);
     }
 }

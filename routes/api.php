@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AbonnementController;
 use App\Http\Controllers\Api\V1\AbsenceController;
 use App\Http\Controllers\Api\V1\AccesEmployeController;
 use App\Http\Controllers\Api\V1\AjustementStockController;
@@ -35,7 +36,12 @@ use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
 use App\Http\Controllers\Api\V1\LotController;
 use App\Http\Controllers\Api\V1\MouvementStockController;
+use App\Http\Controllers\Api\V1\MoyenPaiementController;
 use App\Http\Controllers\Api\V1\OrdonnanceController;
+use App\Http\Controllers\Api\V1\OrganisationCliniqueController;
+use App\Http\Controllers\Api\V1\OrganisationController;
+use App\Http\Controllers\Api\V1\OrganisationFactureController;
+use App\Http\Controllers\Api\V1\PackQuotaController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PrestationController;
@@ -48,6 +54,7 @@ use App\Http\Controllers\Api\V1\RendezVousController;
 use App\Http\Controllers\Api\V1\RendezVousPlacementController;
 use App\Http\Controllers\Api\V1\RendezVousStatutController;
 use App\Http\Controllers\Api\V1\SalleController;
+use App\Http\Controllers\Api\V1\SocieteController;
 use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
 use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
@@ -215,6 +222,32 @@ Route::prefix('v1')->group(function (): void {
             Route::post('devis/{devis}/facturer-acompte', [FactureDevisController::class, 'acompte']);
             Route::post('devis/{devis}/facturer-finale', [FactureDevisController::class, 'finale']);
             Route::apiResource('devis', DevisController::class)->parameters(['devis' => 'devis']);
+        });
+
+        // Domaine organisation — structure et abonnement SaaS, réservé
+        // au rôle qui porte le domaine `organisation` (l'Administrateur
+        // par défaut). Les modèles de STRUCTURE (organisation, sociétés,
+        // cliniques) sont l'arbre au-dessus des global scopes : ils se
+        // résolvent explicitement depuis l'organisation du jeton, jamais
+        // par binding implicite.
+        Route::middleware('can:organisation')->prefix('organisation')->group(function (): void {
+            Route::get('/', [OrganisationController::class, 'afficher']);
+
+            Route::get('societes', [SocieteController::class, 'index']);
+            Route::post('societes', [SocieteController::class, 'store']);
+
+            Route::get('cliniques', [OrganisationCliniqueController::class, 'index']);
+            Route::post('cliniques', [OrganisationCliniqueController::class, 'store']);
+            Route::patch('cliniques/{clinique}', [OrganisationCliniqueController::class, 'update'])->whereNumber('clinique');
+            Route::delete('cliniques/{clinique}', [OrganisationCliniqueController::class, 'destroy'])->whereNumber('clinique');
+
+            Route::post('abonnement', [AbonnementController::class, 'changer']);
+            Route::post('abonnement/resilier', [AbonnementController::class, 'resilier']);
+            Route::post('abonnement/reactiver', [AbonnementController::class, 'reactiver']);
+            Route::post('packs', [PackQuotaController::class, 'acheter']);
+            Route::put('moyen-paiement', [MoyenPaiementController::class, 'enregistrer']);
+            Route::delete('moyen-paiement', [MoyenPaiementController::class, 'supprimer']);
+            Route::get('factures', [OrganisationFactureController::class, 'index']);
         });
 
         // Domaine équipe — fiches RH. La liste est celle de la clinique

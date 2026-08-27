@@ -91,6 +91,13 @@ class Organisation extends Model
         return $this->hasMany(Patient::class);
     }
 
+    /** Factures d'abonnement et de packs (« F- »).
+     * @return HasMany<OrganisationFacture, $this> */
+    public function facturesAbonnement(): HasMany
+    {
+        return $this->hasMany(OrganisationFacture::class);
+    }
+
     /**
      * Employés ACTIFS (accès non suspendu), toutes cliniques de
      * l'organisation — la grandeur plafonnée par la formule.

@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Models;
+
+use Database\Factories\OrganisationFactureFactory;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+/**
+ * Facture d'abonnement ou de pack de quota (« F-2026-081 ») — émise par
+ * l'éditeur à l'organisation, jamais modifiée ni supprimée. Sans scope
+ * propre : elle se résout toujours via l'organisation du jeton.
+ */
+class OrganisationFacture extends Model
+{
+    /** @use HasFactory<OrganisationFactureFactory> */
+    use HasFactory;
+
+    protected $fillable = ['organisation_id', 'numero', 'emise_le', 'libelle', 'montant'];
+
+    protected function casts(): array
+    {
+        return [
+            'emise_le' => 'date',
+            'montant' => 'decimal:2',
+        ];
+    }
+
+    /** @return BelongsTo<Organisation, $this> */
+    public function organisation(): BelongsTo
+    {
+        return $this->belongsTo(Organisation::class);
+    }
+}

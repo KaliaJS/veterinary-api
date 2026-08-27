@@ -15,6 +15,7 @@ enum DomainePermission: string
     case Stocks = 'stocks';
     case Bloc = 'bloc';
     case Equipe = 'equipe';
+    case Organisation = 'organisation';
 
     /** @return list<string> */
     public static function valeurs(): array

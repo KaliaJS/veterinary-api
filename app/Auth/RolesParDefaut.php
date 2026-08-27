@@ -10,7 +10,9 @@ use App\Models\Role;
  * Rôles créés à l'inscription d'une organisation — un point de départ
  * modifiable, pas une liste figée. Contrainte connue
  * (docs/data-model.md) : une assistante ne voit pas la facturation ;
- * l'assistant (AMV du proto) n'a pas non plus le bloc.
+ * l'assistant (AMV du proto) n'a pas non plus le bloc. Le domaine
+ * `organisation` (structure, abonnement SaaS) est réservé à
+ * l'Administrateur — l'écran Organisation du proto est le sien.
  */
 class RolesParDefaut
 {
@@ -34,9 +36,9 @@ class RolesParDefaut
 
         $roles = [
             self::ADMINISTRATEUR => $tous,
-            self::VETERINAIRE => $tous,
-            self::ASV => $sauf(DomainePermission::Facturation),
-            self::ASSISTANT => $sauf(DomainePermission::Facturation, DomainePermission::Bloc),
+            self::VETERINAIRE => $sauf(DomainePermission::Organisation),
+            self::ASV => $sauf(DomainePermission::Facturation, DomainePermission::Organisation),
+            self::ASSISTANT => $sauf(DomainePermission::Facturation, DomainePermission::Bloc, DomainePermission::Organisation),
         ];
 
         foreach ($roles as $nom => $domaines) {
