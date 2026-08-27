@@ -32,6 +32,7 @@ class DatabaseSeeder extends Seeder
             OrdonnanceSeeder::class,
             FacturationSeeder::class,
             BoutiqueSeeder::class,
+            HospitalisationSeeder::class,
         ]);
     }
 }

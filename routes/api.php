@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\CommandeBoutiqueController;
 use App\Http\Controllers\Api\V1\CommandeFournisseurController;
 use App\Http\Controllers\Api\V1\CompteClientController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
+use App\Http\Controllers\Api\V1\ConstanteSejourController;
 use App\Http\Controllers\Api\V1\CycleDevisController;
 use App\Http\Controllers\Api\V1\CycleOrdonnanceController;
 use App\Http\Controllers\Api\V1\DecompteAssuranceController;
@@ -57,7 +58,10 @@ use App\Http\Controllers\Api\V1\RendezVousController;
 use App\Http\Controllers\Api\V1\RendezVousPlacementController;
 use App\Http\Controllers\Api\V1\RendezVousStatutController;
 use App\Http\Controllers\Api\V1\SalleController;
+use App\Http\Controllers\Api\V1\SejourController;
 use App\Http\Controllers\Api\V1\SocieteController;
+use App\Http\Controllers\Api\V1\SoinSejourController;
+use App\Http\Controllers\Api\V1\SortieSejourController;
 use App\Http\Controllers\Api\V1\StatistiquesBoutiqueController;
 use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
 use App\Http\Controllers\Api\V1\UrgenceAttenteController;
@@ -307,6 +311,25 @@ Route::prefix('v1')->group(function (): void {
             Route::post('mouvements', [MouvementStupefiantController::class, 'store']);
             Route::get('soldes', [RegistreStupefiantController::class, 'soldes']);
             Route::get('registre', [RegistreStupefiantController::class, 'exporter']);
+        });
+
+        // Domaine hospitalisation — rattaché au domaine patients (soins
+        // au chevet : l'ASV le tient autant que le vétérinaire). Séjours
+        // PAR CLINIQUE (le box est un lit physique), enfants (soins,
+        // constantes) résolus via le séjour. Jamais de suppression : la
+        // sortie clôt le séjour et facture (effet système).
+        Route::middleware('can:patients')->prefix('hospitalisation')->group(function (): void {
+            Route::get('sejours', [SejourController::class, 'index']);
+            Route::post('sejours', [SejourController::class, 'store']);
+            Route::get('sejours/{sejour}', [SejourController::class, 'show']);
+            Route::patch('sejours/{sejour}', [SejourController::class, 'update']);
+
+            Route::post('sejours/{sejour}/soins', [SoinSejourController::class, 'store']);
+            Route::post('sejours/{sejour}/soins/{soin}/faire', [SoinSejourController::class, 'faire']);
+            Route::post('sejours/{sejour}/constantes', [ConstanteSejourController::class, 'store']);
+
+            Route::get('sejours/{sejour}/facture', [SortieSejourController::class, 'apercu']);
+            Route::post('sejours/{sejour}/sortie', [SortieSejourController::class, 'sortir']);
         });
 
         // Boutique — domaine stocks (arbitrage : l'ASV la tient, c'est
