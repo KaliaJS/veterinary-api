@@ -28,6 +28,7 @@ class DatabaseSeeder extends Seeder
             PatientSeeder::class,
             RendezVousSeeder::class,
             ProduitSeeder::class,
+            StupefiantSeeder::class,
             OrdonnanceSeeder::class,
             FacturationSeeder::class,
             BoutiqueSeeder::class,

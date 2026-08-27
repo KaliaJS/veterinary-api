@@ -24,7 +24,8 @@ class Produit extends Model
     protected $fillable = [
         'organisation_id', 'nom', 'categorie', 'reference', 'prix', 'cout',
         'unite', 'seuil_alerte', 'est_boutique', 'est_sur_ordonnance',
-        'peremption_le', 'fournisseur', 'ean', 'promo_pct', 'est_vedette',
+        'est_stupefiant', 'peremption_le', 'fournisseur', 'ean',
+        'promo_pct', 'est_vedette',
     ];
 
     protected function casts(): array
@@ -36,6 +37,7 @@ class Produit extends Model
             'seuil_alerte' => 'integer',
             'est_boutique' => 'boolean',
             'est_sur_ordonnance' => 'boolean',
+            'est_stupefiant' => 'boolean',
             'peremption_le' => 'date',
             'promo_pct' => 'integer',
             'est_vedette' => 'boolean',
@@ -64,6 +66,12 @@ class Produit extends Model
     public function lots(): HasMany
     {
         return $this->hasMany(Lot::class);
+    }
+
+    /** Registre des stupéfiants. @return HasMany<MouvementStupefiant, $this> */
+    public function mouvementsStupefiants(): HasMany
+    {
+        return $this->hasMany(MouvementStupefiant::class);
     }
 
     /**

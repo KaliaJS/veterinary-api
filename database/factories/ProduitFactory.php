@@ -64,6 +64,20 @@ class ProduitFactory extends Factory
         ]);
     }
 
+    /** Substance du registre des stupéfiants — quantités suivies en ml. */
+    public function stupefiant(): static
+    {
+        return $this->state(fn (): array => [
+            'categorie' => CategorieProduit::Medicament,
+            'nom' => fake()->randomElement(['Méthadone 10 mg/ml', 'Kétamine 100 mg/ml', 'Buprénorphine 0,3 mg/ml', 'Diazépam 5 mg/ml']),
+            'reference' => 'MED-'.fake()->unique()->numerify('####'),
+            'unite' => 'ml',
+            'est_boutique' => false,
+            'est_sur_ordonnance' => true,
+            'est_stupefiant' => true,
+        ]);
+    }
+
     public function sansPeremption(): static
     {
         return $this->state(fn (): array => ['peremption_le' => null]);

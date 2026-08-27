@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
 use App\Http\Controllers\Api\V1\LotController;
 use App\Http\Controllers\Api\V1\MouvementStockController;
+use App\Http\Controllers\Api\V1\MouvementStupefiantController;
 use App\Http\Controllers\Api\V1\MoyenPaiementController;
 use App\Http\Controllers\Api\V1\OrdonnanceController;
 use App\Http\Controllers\Api\V1\OrganisationCliniqueController;
@@ -48,6 +49,7 @@ use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
 use App\Http\Controllers\Api\V1\ProduitController;
+use App\Http\Controllers\Api\V1\RegistreStupefiantController;
 use App\Http\Controllers\Api\V1\ReleveDentaireController;
 use App\Http\Controllers\Api\V1\ReleveOphtalmologiqueController;
 use App\Http\Controllers\Api\V1\RendezVousAuditController;
@@ -294,6 +296,17 @@ Route::prefix('v1')->group(function (): void {
 
             Route::get('lots', [LotController::class, 'index']);
             Route::post('lots/{lot}/ecarter', [LotController::class, 'ecarter']);
+        });
+
+        // Registre des stupéfiants — domaine stocks, tenu PAR CLINIQUE
+        // (art. 62 OCStup) : journal immuable en création seule (une
+        // erreur se corrige par un mouvement inverse), soldes et export
+        // pour les contrôles cantonaux.
+        Route::middleware('can:stocks')->prefix('stupefiants')->group(function (): void {
+            Route::get('mouvements', [MouvementStupefiantController::class, 'index']);
+            Route::post('mouvements', [MouvementStupefiantController::class, 'store']);
+            Route::get('soldes', [RegistreStupefiantController::class, 'soldes']);
+            Route::get('registre', [RegistreStupefiantController::class, 'exporter']);
         });
 
         // Boutique — domaine stocks (arbitrage : l'ASV la tient, c'est
