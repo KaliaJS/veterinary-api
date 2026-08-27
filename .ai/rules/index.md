@@ -6,7 +6,9 @@ Before planning or editing, find the row whose globs match the file's path and r
 | --- | --- |
 | app/Http/Controllers/Api/V1/{Patient,Client,Pesee,Vaccination,Visite,Document,Releve,Carnet,Compte}*.php | .ai/rules/api-v1.md |
 | app/Auth/**, app/Services/Passkey*.php, app/Policies/** | .ai/rules/auth.md |
+| app/Models/{Intervention,InterventionChecklistPoint,InterventionTransition}*.php,app/Services/ProjectionPlanningBloc.php,app/Http/Controllers/Api/V1/{Intervention,CycleIntervention,ChecklistIntervention,ConsentementIntervention,Salle}*.php,app/Http/Requests/V1/Bloc/** | .ai/rules/bloc.md |
 | app/Models/{Produit,Stock,MouvementStock,Lot,CommandeFournisseur}*.php,app/Services/GestionnaireStock.php,app/Http/Controllers/Api/V1/{Produit,MouvementStock,AjustementStock,CommandeFournisseur,Lot}*.php, app/Models/{Facture,Devis,ClotureCaisse,Ordonnance,Prestation}*.php,app/Services/{CreationFacture,EncaissementFacture,PrestationsParDefaut}.php,app/Http/Controllers/Api/V1/{Facture,Devis,CycleDevis,Encaissement,DecompteAssurance,ClotureCaisse,FinConsultation,Ordonnance,CycleOrdonnance,RendezVousStatut}*.php | .ai/rules/controllers-api-v1.md |
+| app/Models/{Sejour,SejourSoin,SejourConstante}*.php,app/Services/FactureSejour.php,app/Http/Controllers/Api/V1/{Sejour,SoinSejour,ConstanteSejour,SortieSejour}*.php,app/Http/Requests/V1/Hospitalisation/** | .ai/rules/hospitalisation.md |
 | routes/api.php,app/Http/** | .ai/rules/http.md |
 | database/migrations/** | .ai/rules/migrations.md |
 | app/Models/** | .ai/rules/models.md |

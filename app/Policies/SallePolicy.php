@@ -33,4 +33,10 @@ class SallePolicy
     {
         return Gate::allows(DomainePermission::Planning->value);
     }
+
+    /** Réservé aux salles de bloc — les gardes métier sont au contrôleur. */
+    public function delete(User $user, Salle $salle): bool
+    {
+        return Gate::allows(DomainePermission::Planning->value);
+    }
 }

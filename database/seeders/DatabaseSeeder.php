@@ -33,6 +33,7 @@ class DatabaseSeeder extends Seeder
             FacturationSeeder::class,
             BoutiqueSeeder::class,
             HospitalisationSeeder::class,
+            BlocSeeder::class,
         ]);
     }
 }

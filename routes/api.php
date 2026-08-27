@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\Auth\PasskeyConnexionController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
 use App\Http\Controllers\Api\V1\CarnetSanteController;
+use App\Http\Controllers\Api\V1\ChecklistInterventionController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClotureCaisseController;
 use App\Http\Controllers\Api\V1\CommandeBoutiqueController;
@@ -17,7 +18,9 @@ use App\Http\Controllers\Api\V1\CommandeFournisseurController;
 use App\Http\Controllers\Api\V1\CompteClientController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
 use App\Http\Controllers\Api\V1\ConstanteSejourController;
+use App\Http\Controllers\Api\V1\ConsentementInterventionController;
 use App\Http\Controllers\Api\V1\CycleDevisController;
+use App\Http\Controllers\Api\V1\CycleInterventionController;
 use App\Http\Controllers\Api\V1\CycleOrdonnanceController;
 use App\Http\Controllers\Api\V1\DecompteAssuranceController;
 use App\Http\Controllers\Api\V1\DemandeRendezVousController;
@@ -33,6 +36,7 @@ use App\Http\Controllers\Api\V1\FacturePrescriptionController;
 use App\Http\Controllers\Api\V1\FinConsultationController;
 use App\Http\Controllers\Api\V1\GardeWeekendController;
 use App\Http\Controllers\Api\V1\HoraireOuvertureController;
+use App\Http\Controllers\Api\V1\InterventionController;
 use App\Http\Controllers\Api\V1\LicenciementEmployeController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
@@ -97,7 +101,9 @@ Route::prefix('v1')->group(function (): void {
             Route::delete('passkeys/{passkey}', [PasskeyController::class, 'supprimer']);
         });
 
-        Route::apiResource('salles', SalleController::class)->except('destroy');
+        // Le destroy n'existe que pour les salles de bloc (l'écran du
+        // bloc gère sa liste) — gardes métier dans le contrôleur.
+        Route::apiResource('salles', SalleController::class);
 
         // Domaine planning. Les permissions se vérifient dans les
         // contrôleurs (Policies) ; l'isolation clinique par le scope
@@ -330,6 +336,24 @@ Route::prefix('v1')->group(function (): void {
 
             Route::get('sejours/{sejour}/facture', [SortieSejourController::class, 'apercu']);
             Route::post('sejours/{sejour}/sortie', [SortieSejourController::class, 'sortir']);
+        });
+
+        // Domaine bloc opératoire — son propre domaine de permission
+        // (l'Assistant par défaut ne l'a pas). L'intervention est le
+        // dossier maître ; le RDV `chir` lié n'est que sa projection
+        // planning. Cycle un cran à la fois, checklist bloquante avant
+        // l'incision, consentement coché par sa seule signature.
+        Route::middleware('can:bloc')->prefix('bloc')->group(function (): void {
+            Route::get('interventions', [InterventionController::class, 'index']);
+            Route::post('interventions', [InterventionController::class, 'store']);
+            Route::get('interventions/{intervention}', [InterventionController::class, 'show']);
+            Route::patch('interventions/{intervention}', [InterventionController::class, 'update']);
+
+            Route::post('interventions/{intervention}/avancer', CycleInterventionController::class);
+            Route::post('interventions/{intervention}/checklist', [ChecklistInterventionController::class, 'ajouter']);
+            Route::put('interventions/{intervention}/checklist/{code}', [ChecklistInterventionController::class, 'cocher']);
+            Route::delete('interventions/{intervention}/checklist/{code}', [ChecklistInterventionController::class, 'retirer']);
+            Route::post('interventions/{intervention}/consentement', ConsentementInterventionController::class);
         });
 
         // Boutique — domaine stocks (arbitrage : l'ASV la tient, c'est
