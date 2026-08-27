@@ -11,7 +11,10 @@ use App\Models\Prestation;
  * ouverte de docs/data-model.md tranchée) : les onze actes de la caisse
  * (ACTES) font foi sur les prix, complétés des quatre actes propres à
  * la fin de consultation (FC_CATALOG). Les huit actes liés à un type de
- * RDV portent le code du type.
+ * RDV portent le code du type. Les tarifs de séjour d'hospitalisation
+ * (forfaits journaliers par état clinique, perfusion, soin) vivent ici
+ * aussi : deux catalogues divergents ont déjà produit deux prix pour
+ * les mêmes actes, on ne recrée pas le cas avec des constantes PHP.
  */
 class PrestationsParDefaut
 {
@@ -32,6 +35,11 @@ class PrestationsParDefaut
         'nfs' => ['Analyse sanguine — NFS', 88],
         'radio1' => ['Radiographie — 1 cliché', 95],
         'griffes' => ['Coupe de griffes', 18],
+        'hosp_stable' => ['Hospitalisation — journée, surveillance simple', 65],
+        'hosp_surv' => ['Hospitalisation — journée, surveillance rapprochée', 95],
+        'hosp_critique' => ['Hospitalisation — journée, soins intensifs', 140],
+        'hosp_perfusion' => ['Perfusion continue — journée d\'hospitalisation', 38],
+        'hosp_soin' => ['Soin infirmier — hospitalisation', 15],
     ];
 
     public static function creer(Organisation $organisation): void

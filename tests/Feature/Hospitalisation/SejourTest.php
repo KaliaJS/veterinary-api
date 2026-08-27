@@ -9,6 +9,7 @@ use App\Models\Employe;
 use App\Models\Facture;
 use App\Models\MouvementStock;
 use App\Models\Patient;
+use App\Models\Prestation;
 use App\Models\Produit;
 use App\Models\Sejour;
 use App\Models\Stock;
@@ -246,6 +247,25 @@ class SejourTest extends TestCase
             ->assertOk()
             ->assertJsonCount(0, 'data');
         $this->assertDatabaseCount('sejours', 1);
+    }
+
+    public function test_les_tarifs_de_sejour_viennent_du_catalogue_de_prestations(): void
+    {
+        // Un prix modifié au catalogue de l'organisation fait foi —
+        // les forfaits ne sont plus des constantes PHP.
+        Prestation::withoutGlobalScopes()
+            ->where('organisation_id', $this->clinique->societe->organisation_id)
+            ->where('code', 'hosp_surv')
+            ->sole()
+            ->update(['prix' => 110]);
+
+        $sejour = $this->sejour(['statut' => StatutSejour::Surveillance, 'admis_le' => now()]);
+
+        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/sortie", [], $this->enTetes($this->jeton))
+            ->assertOk();
+
+        $facture = Facture::withoutGlobalScopes()->sole();
+        $this->assertSame(110.0, (float) $facture->lignes()->sole()->prix_chf);
     }
 
     public function test_l_apercu_de_facture_ne_cree_rien(): void

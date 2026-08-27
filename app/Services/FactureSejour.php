@@ -4,24 +4,23 @@ namespace App\Services;
 
 use App\Enums\TypeLigneFacture;
 use App\Models\Facture;
+use App\Models\Prestation;
 use App\Models\Sejour;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Facture du séjour à la sortie (docs/data-model.md §8, hospBill du
- * front) : forfait journalier selon l'état clinique (65 / 95 /
- * 140 CHF/j), perfusion continue 38 CHF/j, soins réalisés 15 CHF/soin.
- * Tarifs de parité front — constants comme au front, hors catalogue
- * `prestations` (divergence signalée, pas absorbée). Les jours sont
- * les jours calendaires locaux couverts par le séjour.
+ * front) : forfait journalier selon l'état clinique, perfusion
+ * continue et soins réalisés. Les prix viennent du catalogue
+ * `prestations` de l'organisation (hosp_stable / hosp_surv /
+ * hosp_critique / hosp_perfusion / hosp_soin) — plus jamais de
+ * constantes PHP : deux catalogues divergents ont déjà produit deux
+ * prix pour les mêmes actes. Les jours sont les jours calendaires
+ * locaux couverts par le séjour.
  */
 class FactureSejour
 {
-    public const float TARIF_PERFUSION = 38.0;
-
-    public const float TARIF_SOIN = 15.0;
-
     public function __construct(private CreationFacture $creationFacture) {}
 
     /**
@@ -44,7 +43,7 @@ class FactureSejour
                 $jours > 1 ? 's' : '',
             ),
             'quantite' => $jours,
-            'prix_chf' => $sejour->statut->tarifJournalier(),
+            'prix_chf' => $this->prix($sejour->statut->codePrestation()),
             'type' => TypeLigneFacture::Acte,
         ]];
 
@@ -52,7 +51,7 @@ class FactureSejour
             $lignes[] = [
                 'libelle' => 'Perfusion continue — '.$sejour->perfusion,
                 'quantite' => $jours,
-                'prix_chf' => self::TARIF_PERFUSION,
+                'prix_chf' => $this->prix('hosp_perfusion'),
                 'type' => TypeLigneFacture::Acte,
             ];
         }
@@ -63,7 +62,7 @@ class FactureSejour
             $lignes[] = [
                 'libelle' => 'Soins infirmiers réalisés durant le séjour',
                 'quantite' => $soinsFaits,
-                'prix_chf' => self::TARIF_SOIN,
+                'prix_chf' => $this->prix('hosp_soin'),
                 'type' => TypeLigneFacture::Acte,
             ];
         }
@@ -93,5 +92,11 @@ class FactureSejour
 
             return $facture;
         });
+    }
+
+    /** Prix courant de l'acte au catalogue de l'organisation. */
+    private function prix(string $code): float
+    {
+        return (float) Prestation::where('code', $code)->firstOrFail()->prix;
     }
 }

@@ -3,9 +3,10 @@
 namespace App\Enums;
 
 /**
- * État clinique d'un séjour d'hospitalisation (STC du front). Il porte
- * aussi le forfait journalier facturé à la sortie (docs/data-model.md
- * §8) — tarifs de parité front (hospBill).
+ * État clinique d'un séjour d'hospitalisation (STC du front). Il
+ * détermine le forfait journalier facturé à la sortie (docs/
+ * data-model.md §8) — le prix vit au catalogue `prestations` de
+ * l'organisation, jamais en constante PHP.
  */
 enum StatutSejour: string
 {
@@ -22,13 +23,13 @@ enum StatutSejour: string
         };
     }
 
-    /** Forfait journalier en CHF. */
-    public function tarifJournalier(): float
+    /** Code de la prestation du forfait journalier au catalogue. */
+    public function codePrestation(): string
     {
         return match ($this) {
-            self::Stable => 65.0,
-            self::Surveillance => 95.0,
-            self::Critique => 140.0,
+            self::Stable => 'hosp_stable',
+            self::Surveillance => 'hosp_surv',
+            self::Critique => 'hosp_critique',
         };
     }
 }
