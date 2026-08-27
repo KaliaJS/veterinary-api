@@ -9,6 +9,8 @@ use Illuminate\Validation\Rule;
 /**
  * Seuls les statuts du cycle actif passent ici — `noshow` et `annule`
  * ont leurs endpoints dédiés (compteur no-show, motif d'annulation).
+ * Le passage à `fini` facture l'acte dérivé du type, sauf demande
+ * explicite (`sans_facture` — « Terminer sans générer »).
  */
 class ChangerStatutRequest extends FormRequest
 {
@@ -22,6 +24,7 @@ class ChangerStatutRequest extends FormRequest
                 StatutRendezVous::Cours->value,
                 StatutRendezVous::Fini->value,
             ])],
+            'sans_facture' => ['sometimes', 'boolean'],
         ];
     }
 }

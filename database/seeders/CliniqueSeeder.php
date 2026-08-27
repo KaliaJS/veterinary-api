@@ -9,6 +9,7 @@ use App\Models\HoraireOuverture;
 use App\Models\Organisation;
 use App\Models\Salle;
 use App\Models\Societe;
+use App\Services\PrestationsParDefaut;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -26,8 +27,10 @@ class CliniqueSeeder extends Seeder
         $organisation = Organisation::create(['nom' => 'Deux Rives Vétérinaires']);
 
         // Le seeder coupe les événements de modèle : les rôles par
-        // défaut de l'organisation sont créés explicitement.
+        // défaut et le catalogue de prestations de l'organisation sont
+        // créés explicitement.
         RolesParDefaut::creer($organisation);
+        PrestationsParDefaut::creer($organisation);
 
         $s1 = Societe::create(['organisation_id' => $organisation->id, 'nom' => 'Deux Rives Vétérinaires SA', 'ide' => 'CHE-214.694.581']);
         $s2 = Societe::create(['organisation_id' => $organisation->id, 'nom' => 'Vet Lac Léman Sàrl', 'ide' => 'CHE-302.118.447']);

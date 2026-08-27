@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Auth\RolesParDefaut;
+use App\Services\PrestationsParDefaut;
 use Database\Factories\OrganisationFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -17,14 +18,15 @@ class Organisation extends Model
     protected $fillable = ['nom'];
 
     /**
-     * Les rôles par défaut naissent avec l'organisation (les seeders,
-     * qui coupent les événements de modèle, appellent RolesParDefaut
-     * explicitement).
+     * Les rôles par défaut et le catalogue de prestations naissent avec
+     * l'organisation (les seeders, qui coupent les événements de
+     * modèle, les appellent explicitement).
      */
     protected static function booted(): void
     {
         static::created(function (Organisation $organisation): void {
             RolesParDefaut::creer($organisation);
+            PrestationsParDefaut::creer($organisation);
         });
     }
 

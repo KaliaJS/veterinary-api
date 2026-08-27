@@ -9,13 +9,23 @@ use App\Http\Controllers\Api\V1\Auth\PasskeyController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
 use App\Http\Controllers\Api\V1\CarnetSanteController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\ClotureCaisseController;
 use App\Http\Controllers\Api\V1\CommandeFournisseurController;
 use App\Http\Controllers\Api\V1\CompteClientController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
+use App\Http\Controllers\Api\V1\CycleDevisController;
 use App\Http\Controllers\Api\V1\CycleOrdonnanceController;
+use App\Http\Controllers\Api\V1\DecompteAssuranceController;
 use App\Http\Controllers\Api\V1\DemandeRendezVousController;
+use App\Http\Controllers\Api\V1\DevisController;
 use App\Http\Controllers\Api\V1\DisponibiliteController;
 use App\Http\Controllers\Api\V1\DocumentController;
+use App\Http\Controllers\Api\V1\EncaissementController;
+use App\Http\Controllers\Api\V1\FactureController;
+use App\Http\Controllers\Api\V1\FactureDevisController;
+use App\Http\Controllers\Api\V1\FactureLigneController;
+use App\Http\Controllers\Api\V1\FacturePrescriptionController;
+use App\Http\Controllers\Api\V1\FinConsultationController;
 use App\Http\Controllers\Api\V1\HoraireOuvertureController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
@@ -24,6 +34,7 @@ use App\Http\Controllers\Api\V1\MouvementStockController;
 use App\Http\Controllers\Api\V1\OrdonnanceController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
+use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
 use App\Http\Controllers\Api\V1\ProduitController;
 use App\Http\Controllers\Api\V1\ReleveDentaireController;
@@ -33,6 +44,7 @@ use App\Http\Controllers\Api\V1\RendezVousController;
 use App\Http\Controllers\Api\V1\RendezVousPlacementController;
 use App\Http\Controllers\Api\V1\RendezVousStatutController;
 use App\Http\Controllers\Api\V1\SalleController;
+use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
 use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
 use App\Http\Controllers\Api\V1\VisiteController;
@@ -83,6 +95,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('rendez-vous/{rendezVous}/statut', [RendezVousStatutController::class, 'changer']);
         Route::post('rendez-vous/{rendezVous}/non-venu', [RendezVousStatutController::class, 'nonVenu']);
         Route::post('rendez-vous/{rendezVous}/annuler', [RendezVousStatutController::class, 'annuler']);
+        // Fin de consultation (« Ma journée ») — le geste composé :
+        // facture + carnet + ordonnance + stock, RDV passé en fini.
+        Route::post('rendez-vous/{rendezVous}/fin-de-consultation', FinConsultationController::class);
         Route::post('rendez-vous/{rendezVous}/deplacer', [RendezVousPlacementController::class, 'deplacer']);
         Route::post('rendez-vous/{rendezVous}/redimensionner', [RendezVousPlacementController::class, 'redimensionner']);
         Route::get('rendez-vous/{rendezVous}/audits', RendezVousAuditController::class);
@@ -165,11 +180,37 @@ Route::prefix('v1')->group(function (): void {
         Route::post('ordonnances/{ordonnance}/renouveler', [CycleOrdonnanceController::class, 'renouveler']);
         Route::post('ordonnances/{ordonnance}/cloturer', [CycleOrdonnanceController::class, 'cloturer']);
 
-        // Domaine facturation — routes à venir, toutes derrière le
-        // Gate dédié, vérifié en base à chaque requête (une ASV n'y a
-        // pas accès).
+        // Domaine facturation — toutes les routes derrière le Gate
+        // dédié, vérifié en base à chaque requête (une ASV n'y a pas
+        // accès). Les factures et devis suivent le patient (niveau
+        // organisation) ; les gestes de caisse (lignes, encaissement,
+        // clôture) se font depuis la clinique d'émission.
         Route::middleware('can:facturation')->prefix('facturation')->group(function (): void {
-            //
+            Route::get('prestations', [PrestationController::class, 'index']);
+            Route::get('statistiques', StatistiquesCaisseController::class);
+
+            Route::get('factures', [FactureController::class, 'index']);
+            Route::post('factures', [FactureController::class, 'store']);
+            Route::get('factures/{facture}', [FactureController::class, 'show']);
+            Route::delete('factures/{facture}', [FactureController::class, 'destroy']);
+            Route::post('factures/{facture}/lignes', [FactureLigneController::class, 'store']);
+            Route::post('factures/{facture}/prescriptions', [FacturePrescriptionController::class, 'store']);
+            Route::post('factures/{facture}/encaisser', [EncaissementController::class, 'encaisser']);
+            Route::post('factures/{facture}/payer-plus-tard', [EncaissementController::class, 'payerPlusTard']);
+            Route::put('factures/{facture}/decompte', [DecompteAssuranceController::class, 'enregistrer']);
+            Route::post('factures/{facture}/decompte/avancer', [DecompteAssuranceController::class, 'avancer']);
+
+            Route::get('clotures-caisse', [ClotureCaisseController::class, 'index']);
+            Route::post('clotures-caisse', [ClotureCaisseController::class, 'store']);
+            Route::get('clotures-caisse/{cloture}', [ClotureCaisseController::class, 'show']);
+
+            Route::post('devis/{devis}/envoyer', [CycleDevisController::class, 'envoyer']);
+            Route::post('devis/{devis}/accepter', [CycleDevisController::class, 'accepter']);
+            Route::post('devis/{devis}/refuser', [CycleDevisController::class, 'refuser']);
+            Route::post('devis/{devis}/dupliquer', [CycleDevisController::class, 'dupliquer']);
+            Route::post('devis/{devis}/facturer-acompte', [FactureDevisController::class, 'acompte']);
+            Route::post('devis/{devis}/facturer-finale', [FactureDevisController::class, 'finale']);
+            Route::apiResource('devis', DevisController::class)->parameters(['devis' => 'devis']);
         });
 
         // Domaine stocks. Catalogue d'organisation, quantités par

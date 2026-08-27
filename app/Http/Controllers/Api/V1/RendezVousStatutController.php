@@ -6,10 +6,13 @@ use App\Enums\StatutRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\RendezVous\AnnulerRendezVousRequest;
 use App\Http\Requests\V1\RendezVous\ChangerStatutRequest;
+use App\Http\Resources\V1\FactureResource;
 use App\Http\Resources\V1\RendezVousResource;
 use App\Models\RendezVous;
+use App\Services\CreationFacture;
 use App\Services\MutationRendezVous;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -17,10 +20,19 @@ use Illuminate\Validation\ValidationException;
  * suppression, jamais de retour en arrière ; le passage en `salle`
  * mémorise l'heure d'arrivée ; le no-show ne part que de `prevu` ou
  * `salle`, hors tampon. Chaque geste est audité en un lot.
+ *
+ * Le passage à `fini` FACTURE l'acte dérivé du type (une seule facture
+ * par RDV — la réouverture retrouve l'existante), sauf tampon (jamais
+ * facturé) ou `sans_facture` (« Terminer sans générer »). La facture
+ * est un effet système : elle naît même sans le domaine facturation,
+ * mais la réponse ne l'expose qu'à qui peut la voir.
  */
 class RendezVousStatutController extends Controller
 {
-    public function __construct(private MutationRendezVous $mutation) {}
+    public function __construct(
+        private MutationRendezVous $mutation,
+        private CreationFacture $creationFacture,
+    ) {}
 
     public function changer(ChangerStatutRequest $request, RendezVous $rendezVous): RendezVousResource
     {
@@ -40,7 +52,17 @@ class RendezVousStatutController extends Controller
 
         $this->mutation->appliquer($rendezVous, $attributs, $request->user());
 
-        return new RendezVousResource($rendezVous);
+        $facture = $statut === StatutRendezVous::Fini && ! $request->boolean('sans_facture')
+            ? $this->creationFacture->depuisRendezVous($rendezVous, $request->user())
+            : null;
+
+        $resource = new RendezVousResource($rendezVous);
+
+        if ($facture !== null && Gate::allows('facturation')) {
+            $resource->additional(['facture' => new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']))]);
+        }
+
+        return $resource;
     }
 
     public function nonVenu(Request $request, RendezVous $rendezVous): RendezVousResource

@@ -29,6 +29,7 @@ class DatabaseSeeder extends Seeder
             RendezVousSeeder::class,
             ProduitSeeder::class,
             OrdonnanceSeeder::class,
+            FacturationSeeder::class,
         ]);
     }
 }

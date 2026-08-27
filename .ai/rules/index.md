@@ -6,6 +6,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | --- | --- |
 | app/Http/Controllers/Api/V1/{Patient,Client,Pesee,Vaccination,Visite,Document,Releve,Carnet,Compte}*.php | .ai/rules/api-v1.md |
 | app/Auth/**, app/Services/Passkey*.php, app/Policies/** | .ai/rules/auth.md |
+| app/Models/{Produit,Stock,MouvementStock,Lot,CommandeFournisseur}*.php,app/Services/GestionnaireStock.php,app/Http/Controllers/Api/V1/{Produit,MouvementStock,AjustementStock,CommandeFournisseur,Lot}*.php, app/Models/{Facture,Devis,ClotureCaisse,Ordonnance,Prestation}*.php,app/Services/{CreationFacture,EncaissementFacture,PrestationsParDefaut}.php,app/Http/Controllers/Api/V1/{Facture,Devis,CycleDevis,Encaissement,DecompteAssurance,ClotureCaisse,FinConsultation,Ordonnance,CycleOrdonnance,RendezVousStatut}*.php | .ai/rules/controllers-api-v1.md |
 | routes/api.php,app/Http/** | .ai/rules/http.md |
 | database/migrations/** | .ai/rules/migrations.md |
 | app/Models/** | .ai/rules/models.md |
