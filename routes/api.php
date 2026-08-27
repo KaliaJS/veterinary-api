@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\Auth\SessionController;
 use App\Http\Controllers\Api\V1\CarnetSanteController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClotureCaisseController;
+use App\Http\Controllers\Api\V1\CommandeBoutiqueController;
 use App\Http\Controllers\Api\V1\CommandeFournisseurController;
 use App\Http\Controllers\Api\V1\CompteClientController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
@@ -55,10 +56,13 @@ use App\Http\Controllers\Api\V1\RendezVousPlacementController;
 use App\Http\Controllers\Api\V1\RendezVousStatutController;
 use App\Http\Controllers\Api\V1\SalleController;
 use App\Http\Controllers\Api\V1\SocieteController;
+use App\Http\Controllers\Api\V1\StatistiquesBoutiqueController;
 use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
 use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
+use App\Http\Controllers\Api\V1\VenteComptoirController;
 use App\Http\Controllers\Api\V1\VisiteController;
+use App\Http\Controllers\Api\V1\VitrineController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -290,6 +294,21 @@ Route::prefix('v1')->group(function (): void {
 
             Route::get('lots', [LotController::class, 'index']);
             Route::post('lots/{lot}/ecarter', [LotController::class, 'ecarter']);
+        });
+
+        // Boutique — domaine stocks (arbitrage : l'ASV la tient, c'est
+        // le stock de la clinique qui bouge). La vente comptoir crée sa
+        // facture payée comme effet système ; la remise d'une commande
+        // en ligne sort le stock de la clinique de retrait.
+        Route::middleware('can:stocks')->prefix('boutique')->group(function (): void {
+            Route::get('commandes', [CommandeBoutiqueController::class, 'index']);
+            Route::post('commandes', [CommandeBoutiqueController::class, 'store']);
+            Route::post('commandes/{commande}/preparer', [CommandeBoutiqueController::class, 'preparer']);
+            Route::post('commandes/{commande}/retirer', [CommandeBoutiqueController::class, 'retirer']);
+
+            Route::post('vente', VenteComptoirController::class);
+            Route::patch('produits/{produit}/vitrine', [VitrineController::class, 'modifier']);
+            Route::get('statistiques', StatistiquesBoutiqueController::class);
         });
     });
 });

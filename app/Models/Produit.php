@@ -89,4 +89,10 @@ class Produit extends Model
     {
         return $this->peremption_le?->format('m.Y');
     }
+
+    /** Prix vitrine, promotion déduite — le prix vendu en boutique. */
+    public function prixEffectif(): float
+    {
+        return round((float) $this->prix * (1 - $this->promo_pct / 100), 2);
+    }
 }

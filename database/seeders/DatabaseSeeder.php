@@ -30,6 +30,7 @@ class DatabaseSeeder extends Seeder
             ProduitSeeder::class,
             OrdonnanceSeeder::class,
             FacturationSeeder::class,
+            BoutiqueSeeder::class,
         ]);
     }
 }

@@ -11,4 +11,5 @@ Before planning or editing, find the row whose globs match the file's path and r
 | database/migrations/** | .ai/rules/migrations.md |
 | app/Models/** | .ai/rules/models.md |
 | app/Models/Absence.php,app/Policies/AbsencePolicy.php,app/Services/CalculateurCreneaux.php | .ai/rules/services.md |
+| app/Http/Controllers/Api/V1/{EquipeEmploye,AccesEmploye,LicenciementEmploye,GardeWeekend,Organisation,Societe,Abonnement,PackQuota,MoyenPaiement,CommandeBoutique,VenteComptoir,Vitrine}*.php,app/Models/{Employe,Organisation,GardeWeekend,CommandeBoutique}.php | .ai/rules/v1-models.md |
 | app/Services/**,app/Http/Controllers/Api/V1/RendezVous*.php | .ai/rules/v1.md |

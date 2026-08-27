@@ -15,6 +15,7 @@ enum PieceNumerotee: string
     case ClotureCaisse = 'Z';
     case CommandeFournisseur = 'BC';
     case FactureAbonnement = 'F';
+    case CommandeBoutique = 'C';
 
     /** Largeur du compteur dans le numéro formaté. */
     public function chiffres(): int
@@ -22,8 +23,16 @@ enum PieceNumerotee: string
         return $this === self::Facture ? 4 : 3;
     }
 
+    /** La commande boutique s'affiche sans année (« C-104 »). */
+    public function avecAnnee(): bool
+    {
+        return $this !== self::CommandeBoutique;
+    }
+
     public function formater(int $annee, int $compteur): string
     {
-        return sprintf('%s-%d-%0'.$this->chiffres().'d', $this->value, $annee, $compteur);
+        return $this->avecAnnee()
+            ? sprintf('%s-%d-%0'.$this->chiffres().'d', $this->value, $annee, $compteur)
+            : sprintf('%s-%0'.$this->chiffres().'d', $this->value, $compteur);
     }
 }
