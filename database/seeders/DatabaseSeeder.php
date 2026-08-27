@@ -28,6 +28,7 @@ class DatabaseSeeder extends Seeder
             PatientSeeder::class,
             RendezVousSeeder::class,
             ProduitSeeder::class,
+            OrdonnanceSeeder::class,
         ]);
     }
 }

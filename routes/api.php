@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\CommandeFournisseurController;
 use App\Http\Controllers\Api\V1\CompteClientController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
+use App\Http\Controllers\Api\V1\CycleOrdonnanceController;
 use App\Http\Controllers\Api\V1\DemandeRendezVousController;
 use App\Http\Controllers\Api\V1\DisponibiliteController;
 use App\Http\Controllers\Api\V1\DocumentController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
 use App\Http\Controllers\Api\V1\LotController;
 use App\Http\Controllers\Api\V1\MouvementStockController;
+use App\Http\Controllers\Api\V1\OrdonnanceController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
@@ -150,6 +152,18 @@ Route::prefix('v1')->group(function (): void {
         // (pas de binding implicite, qui le bornerait à la clinique).
         Route::get('rendez-vous/{rendezVous}/compte-rendu', [CompteRenduController::class, 'afficher']);
         Route::put('rendez-vous/{rendezVous}/compte-rendu', [CompteRenduController::class, 'enregistrer']);
+
+        // Registre des ordonnances — du dossier médical : domaine
+        // patients (Policies), niveau organisation. La signature sort
+        // le stock de la clinique du jeton ; jamais de modification
+        // après signature — renouvellement, clôture, ou annulation
+        // immédiate d'une signature (fenêtre d'undo, stock restauré).
+        Route::get('ordonnances', [OrdonnanceController::class, 'index']);
+        Route::post('ordonnances', [OrdonnanceController::class, 'store']);
+        Route::get('ordonnances/{ordonnance}', [OrdonnanceController::class, 'show']);
+        Route::delete('ordonnances/{ordonnance}', [OrdonnanceController::class, 'destroy']);
+        Route::post('ordonnances/{ordonnance}/renouveler', [CycleOrdonnanceController::class, 'renouveler']);
+        Route::post('ordonnances/{ordonnance}/cloturer', [CycleOrdonnanceController::class, 'cloturer']);
 
         // Domaine facturation — routes à venir, toutes derrière le
         // Gate dédié, vérifié en base à chaque requête (une ASV n'y a
