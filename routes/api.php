@@ -40,6 +40,7 @@ use App\Http\Controllers\Api\V1\FactureDevisController;
 use App\Http\Controllers\Api\V1\FactureLigneController;
 use App\Http\Controllers\Api\V1\FacturePrescriptionController;
 use App\Http\Controllers\Api\V1\FinConsultationController;
+use App\Http\Controllers\Api\V1\FinTeleconsultationController;
 use App\Http\Controllers\Api\V1\GardeWeekendController;
 use App\Http\Controllers\Api\V1\HoraireOuvertureController;
 use App\Http\Controllers\Api\V1\ImageriePatientController;
@@ -72,6 +73,7 @@ use App\Http\Controllers\Api\V1\RendezVousStatutController;
 use App\Http\Controllers\Api\V1\ResultatAnalyseController;
 use App\Http\Controllers\Api\V1\SalleController;
 use App\Http\Controllers\Api\V1\SejourController;
+use App\Http\Controllers\Api\V1\SessionTeleconsultationController;
 use App\Http\Controllers\Api\V1\SocieteController;
 use App\Http\Controllers\Api\V1\SoinSejourController;
 use App\Http\Controllers\Api\V1\SortieSejourController;
@@ -407,6 +409,19 @@ Route::prefix('v1')->group(function (): void {
             Route::put('interventions/{intervention}/checklist/{code}', [ChecklistInterventionController::class, 'cocher']);
             Route::delete('interventions/{intervention}/checklist/{code}', [ChecklistInterventionController::class, 'retirer']);
             Route::post('interventions/{intervention}/consentement', ConsentementInterventionController::class);
+        });
+
+        // Domaine téléconsultation — rattaché au domaine planning (la
+        // session pilote les statuts du RDV). La session est le
+        // dossier maître de l'appel, le RDV `tele` lié n'est que sa
+        // projection : démarrage → cours, « Terminer » → fini +
+        // facture (effet système), « Quitter » ne touche à rien. La
+        // durée est servie par le serveur. Jamais de suppression.
+        Route::middleware('can:planning')->prefix('tele')->group(function (): void {
+            Route::get('sessions', [SessionTeleconsultationController::class, 'index']);
+            Route::post('sessions', [SessionTeleconsultationController::class, 'store']);
+            Route::get('sessions/{session}', [SessionTeleconsultationController::class, 'show']);
+            Route::post('sessions/{session}/terminer', FinTeleconsultationController::class);
         });
 
         // Boutique — domaine stocks (arbitrage : l'ASV la tient, c'est
