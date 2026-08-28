@@ -10,6 +10,7 @@ use App\Http\Resources\V1\CommandeBoutiqueResource;
 use App\Models\Client;
 use App\Models\CommandeBoutique;
 use App\Models\Produit;
+use App\Models\Stock;
 use App\Services\GestionnaireStock;
 use App\Services\Numeroteur;
 use Illuminate\Http\Request;
@@ -102,12 +103,32 @@ class CommandeBoutiqueController extends Controller
         }
 
         DB::transaction(function () use ($request, $commande): void {
+            $lignes = $commande->lignes()->with('produit')->get();
+
+            // La commande en ligne ne réserve pas le stock : la rupture
+            // se constate à la remise et refuse le geste (422 par ligne,
+            // comme la vente comptoir) — jamais de sortie partielle.
+            foreach ($lignes->values() as $index => $ligne) {
+                $stockLocal = (int) Stock::query()
+                    ->where('produit_id', $ligne->produit_id)
+                    ->where('clinique_id', $commande->clinique_id)
+                    ->value('quantite');
+
+                if ($stockLocal < $ligne->quantite) {
+                    throw ValidationException::withMessages([
+                        "lignes.{$index}.quantite" => $stockLocal === 0
+                            ? 'Rupture de stock — '.$ligne->produit->nom.'.'
+                            : 'Stock insuffisant — '.$stockLocal.' en rayon pour '.$ligne->produit->nom.' ('.$ligne->quantite.' commandés).',
+                    ]);
+                }
+            }
+
             $commande->update([
                 'statut' => StatutCommandeBoutique::Retiree,
                 'retiree_le' => now(),
             ]);
 
-            foreach ($commande->lignes()->with('produit')->get() as $ligne) {
+            foreach ($lignes as $ligne) {
                 $this->stock->sortir(
                     $ligne->produit,
                     $ligne->quantite,

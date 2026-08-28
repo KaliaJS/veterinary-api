@@ -8,6 +8,7 @@ use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
 use App\Models\Concerns\AppartientAUneClinique;
 use Database\Factories\RendezVousFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\AsEnumCollection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -93,5 +94,40 @@ class RendezVous extends Model
     public function estTampon(): bool
     {
         return $this->type === TypeRendezVous::Tampon;
+    }
+
+    /**
+     * Dérivés d'affichage servis avec la liste (une requête pour toute
+     * la page) : compte rendu rédigé, compteur de no-shows du client —
+     * dérivé, jamais stocké, toutes cliniques de l'organisation (le
+     * client est d'organisation), homonymes distingués par la FK.
+     *
+     * @param  Builder<RendezVous>  $query
+     * @return Builder<RendezVous>
+     */
+    public function scopeAvecDerives(Builder $query): Builder
+    {
+        return $query
+            ->withExists('compteRendu')
+            ->addSelect(['no_shows_client' => RendezVous::query()
+                ->withoutGlobalScope('clinique')
+                ->from('rendez_vous as no_shows')
+                ->selectRaw('count(*)')
+                ->whereColumn('no_shows.client_id', 'rendez_vous.client_id')
+                ->where('no_shows.status', StatutRendezVous::Noshow),
+            ]);
+    }
+
+    /** Compteur de no-shows du client — même dérivé, pour un modèle isolé. */
+    public function noShowsDuClient(): int
+    {
+        if ($this->client_id === null) {
+            return 0;
+        }
+
+        return RendezVous::withoutGlobalScope('clinique')
+            ->where('client_id', $this->client_id)
+            ->where('status', StatutRendezVous::Noshow)
+            ->count();
     }
 }

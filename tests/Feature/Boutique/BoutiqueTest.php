@@ -128,6 +128,28 @@ class BoutiqueTest extends TestCase
         $this->postJson("/api/v1/boutique/commandes/{$commande->id}/retirer", [], $entetes)->assertUnprocessable();
     }
 
+    public function test_la_remise_refuse_la_rupture_de_stock_sans_sortie_partielle(): void
+    {
+        $produit = $this->produitEnRayon(1);
+        $commande = CommandeBoutique::factory()->create(['clinique_id' => $this->clinique->id]);
+        CommandeBoutiqueLigne::factory()->create([
+            'commande_boutique_id' => $commande->id,
+            'produit_id' => $produit->id,
+            'quantite' => 2,
+        ]);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->postJson("/api/v1/boutique/commandes/{$commande->id}/preparer", [], $entetes)->assertOk();
+
+        $this->postJson("/api/v1/boutique/commandes/{$commande->id}/retirer", [], $entetes)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['lignes.0.quantite']);
+
+        $this->assertSame(1, $this->stockDe($produit));
+        $this->assertSame('ready', $commande->fresh()->statut->value);
+        $this->assertDatabaseMissing('mouvements_stock', ['produit_id' => $produit->id]);
+    }
+
     public function test_la_vente_comptoir_est_une_facture_payee_qui_sort_le_stock(): void
     {
         $produit = $this->produitEnRayon(5, ['promo_pct' => 10]);

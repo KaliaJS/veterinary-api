@@ -30,6 +30,11 @@ class RendezVousResource extends JsonResource
             'starts_at' => $this->starts_at,
             'ends_at' => $this->ends_at,
             'arrived_at' => $this->arrived_at,
+            // Dérivés (scope avecDerives sur la liste ; recalculés pour
+            // un modèle isolé) : compte rendu SOAP rédigé, no-shows du
+            // client toutes cliniques — « NO-SHOW ×N » de la fiche.
+            'a_compte_rendu' => (bool) ($this->compte_rendu_exists ?? $this->compteRendu()->exists()),
+            'no_shows_client' => (int) ($this->no_shows_client ?? $this->noShowsDuClient()),
         ];
     }
 }

@@ -13,6 +13,7 @@ use App\Models\ListeAttente;
 use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\UrgenceAttente;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -23,7 +24,9 @@ use Illuminate\Database\Seeder;
  * patient existe, le RDV la référence (patient_id/client_id) et les
  * dénormalisations sont réalignées dessus, comme la migration du front.
  * Alimente aussi les files : urgences, demandes en ligne, liste
- * d'attente.
+ * d'attente. Les minutes du front sont des heures LOCALES de la
+ * clinique (fuseau de la clinique) : elles sont converties en UTC à
+ * l'enregistrement, comme tout datetime.
  */
 class RendezVousSeeder extends Seeder
 {
@@ -93,6 +96,7 @@ class RendezVousSeeder extends Seeder
     {
         $deuxRives = Clinique::where('nom', 'Deux Rives')->firstOrFail();
         $lignes = LignePlanning::where('clinique_id', $deuxRives->id)->get()->keyBy('nom');
+        $jour = $this->minuitLocal($deuxRives);
 
         foreach (self::RENDEZ_VOUS as [$ligne, $debut, $duree, $nomPatient, $espece, $proprietaire, $type, $statut, $drapeaux, $motif, $arrivee]) {
             $patient = $nomPatient
@@ -112,16 +116,22 @@ class RendezVousSeeder extends Seeder
                 'status' => StatutRendezVous::from($statut),
                 'flags' => $drapeaux,
                 'reason' => $motif,
-                'starts_at' => today()->addMinutes($debut),
-                'ends_at' => today()->addMinutes($debut + $duree),
-                'arrived_at' => $arrivee !== null ? today()->addMinutes($arrivee) : null,
+                'starts_at' => $jour->addMinutes($debut)->utc(),
+                'ends_at' => $jour->addMinutes($debut + $duree)->utc(),
+                'arrived_at' => $arrivee !== null ? $jour->addMinutes($arrivee)->utc() : null,
             ]);
         }
 
-        $this->seedFiles($deuxRives, $lignes->get('Dr Meyer'));
+        $this->seedFiles($deuxRives, $lignes->get('Dr Meyer'), $jour);
     }
 
-    private function seedFiles(Clinique $clinique, LignePlanning $ligneMeyer): void
+    /** Minuit du jour courant dans le fuseau de la clinique. */
+    private function minuitLocal(Clinique $clinique): CarbonImmutable
+    {
+        return CarbonImmutable::today($clinique->fuseau_horaire ?? 'Europe/Zurich');
+    }
+
+    private function seedFiles(Clinique $clinique, LignePlanning $ligneMeyer, CarbonImmutable $jour): void
     {
         $urgences = [
             ['Filou', 'CH', 'M. Rebours', 'Abdomen distendu, tentatives de vomissement improductives', 3, 45, '11:08'],
@@ -137,7 +147,7 @@ class RendezVousSeeder extends Seeder
                 'reason' => $motif,
                 'triage' => $triage,
                 'duree_minutes' => $duree,
-                'arrivee_le' => today()->setTimeFromTimeString($heure),
+                'arrivee_le' => $jour->setTimeFromTimeString($heure)->utc(),
             ]);
         }
 
@@ -160,9 +170,9 @@ class RendezVousSeeder extends Seeder
         }
 
         $listeAttente = [
-            ['Caramel', 'CH', 'Mme Weber', '079 640 22 18', 'Boiterie patte avant qui s’aggrave', 'Dès que possible', null, 20, today()->subDay()->setTime(17, 40)],
-            ['Sushi', 'CT', 'M. Da Costa', '076 118 39 90', 'Vomissements récurrents le matin', 'Le matin de préférence', $ligneMeyer->id, 30, today()->setTime(8, 12)],
-            ['Praline', 'LP', 'Mme Guex', '078 455 71 03', 'Contrôle dents + griffes', 'Cette semaine', null, 20, today()->setTime(9, 5)],
+            ['Caramel', 'CH', 'Mme Weber', '079 640 22 18', 'Boiterie patte avant qui s’aggrave', 'Dès que possible', null, 20, $jour->subDay()->setTime(17, 40)->utc()],
+            ['Sushi', 'CT', 'M. Da Costa', '076 118 39 90', 'Vomissements récurrents le matin', 'Le matin de préférence', $ligneMeyer->id, 30, $jour->setTime(8, 12)->utc()],
+            ['Praline', 'LP', 'Mme Guex', '078 455 71 03', 'Contrôle dents + griffes', 'Cette semaine', null, 20, $jour->setTime(9, 5)->utc()],
         ];
         foreach ($listeAttente as [$nom, $espece, $proprietaire, $tel, $motif, $preference, $ligneId, $duree, $inscrit]) {
             ListeAttente::create([

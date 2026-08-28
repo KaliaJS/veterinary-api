@@ -3,8 +3,10 @@
 namespace Tests\Feature\Planning;
 
 use App\Enums\StatutRendezVous;
+use App\Enums\TypeRendezVous;
 use App\Models\Client;
 use App\Models\Clinique;
+use App\Models\CompteRendu;
 use App\Models\LignePlanning;
 use App\Models\Patient;
 use App\Models\RendezVous;
@@ -288,6 +290,54 @@ class RendezVousTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonMissing(['id' => $horsPlage->id]);
+    }
+
+    public function test_la_liste_sert_le_compte_rendu_redige_et_les_no_shows_du_client(): void
+    {
+        $organisation = $this->clinique->societe->organisation_id;
+        $client = Client::factory()->create(['organisation_id' => $organisation]);
+        $autreClinique = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+
+        // Un no-show dans une clinique sœur compte aussi : le client est d'organisation.
+        RendezVous::factory()->create([
+            'clinique_id' => $autreClinique->id,
+            'client_id' => $client->id,
+            'status' => StatutRendezVous::Noshow,
+        ]);
+        $this->rendezVous(['client_id' => $client->id, 'status' => StatutRendezVous::Noshow]);
+        $avecCompteRendu = $this->rendezVous(['client_id' => $client->id]);
+        CompteRendu::factory()->create(['rendez_vous_id' => $avecCompteRendu->id]);
+        $sansClient = $this->rendezVous(['client_id' => null]);
+
+        $reponse = $this->getJson('/api/v1/rendez-vous?per_page=100', $this->enTetes($this->jeton))->assertOk();
+
+        $parId = collect($reponse->json('data'))->keyBy('id');
+
+        $this->assertTrue($parId[$avecCompteRendu->id]['a_compte_rendu']);
+        $this->assertSame(2, $parId[$avecCompteRendu->id]['no_shows_client']);
+        $this->assertFalse($parId[$sansClient->id]['a_compte_rendu']);
+        $this->assertSame(0, $parId[$sansClient->id]['no_shows_client']);
+
+        // Un modèle isolé (fiche, mutation) recalcule les mêmes dérivés.
+        $this->getJson("/api/v1/rendez-vous/{$avecCompteRendu->id}", $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.a_compte_rendu', true)
+            ->assertJsonPath('data.no_shows_client', 2);
+    }
+
+    public function test_le_filtre_actifs_ecarte_annules_et_tampons(): void
+    {
+        $this->rendezVous();
+        $this->rendezVous(['status' => StatutRendezVous::Annule]);
+        $this->rendezVous(['type' => TypeRendezVous::Tampon, 'patient_name' => null]);
+
+        $this->getJson('/api/v1/rendez-vous?actifs=1&per_page=1', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1);
+
+        $this->getJson('/api/v1/rendez-vous?per_page=1', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('meta.total', 3);
     }
 
     public function test_la_suppression_est_toleree_dans_la_fenetre_d_undo_de_la_creation(): void

@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\StatutRendezVous;
+use App\Enums\TypeRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\RendezVous\EnregistrerRendezVousRequest;
 use App\Http\Requests\V1\RendezVous\ModifierRendezVousRequest;
@@ -32,11 +34,17 @@ class RendezVousController extends Controller
         $this->authorize('viewAny', RendezVous::class);
 
         // Les annulés restent dans la réponse (jamais supprimés) : le
-        // front les écarte de la grille mais en garde la trace.
+        // front les écarte de la grille mais en garde la trace. `actifs`
+        // ne garde que ce qui occupe la colonne (ni annulé, ni tampon) —
+        // le bilan d'impact d'une absence lit `meta.total`.
         $rendezVous = RendezVous::query()
+            ->avecDerives()
             ->when($request->date('du'), fn ($requete, $du) => $requete->where('ends_at', '>', $du))
             ->when($request->date('au'), fn ($requete, $au) => $requete->where('starts_at', '<', $au))
             ->when($request->integer('ligne_planning_id'), fn ($requete, $ligne) => $requete->where('ligne_planning_id', $ligne))
+            ->when($request->boolean('actifs'), fn ($requete) => $requete
+                ->where('status', '!=', StatutRendezVous::Annule)
+                ->where('type', '!=', TypeRendezVous::Tampon))
             ->orderBy('starts_at')
             ->orderBy('id')
             ->paginate($this->parPage($request, 100));
