@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\AccesEmployeController;
 use App\Http\Controllers\Api\V1\AjustementStockController;
 use App\Http\Controllers\Api\V1\AnalyseController;
 use App\Http\Controllers\Api\V1\AnalysePatientController;
+use App\Http\Controllers\Api\V1\Auth\ChangementCliniqueController;
 use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
 use App\Http\Controllers\Api\V1\Auth\EmailConnuController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyConnexionController;
@@ -105,6 +106,7 @@ Route::prefix('v1')->group(function (): void {
         Route::prefix('auth')->group(function (): void {
             Route::get('moi', [SessionController::class, 'moi']);
             Route::post('rafraichir', [SessionController::class, 'rafraichir']);
+            Route::post('clinique', ChangementCliniqueController::class);
             Route::post('deconnexion', [SessionController::class, 'deconnexion']);
 
             Route::get('passkeys', [PasskeyController::class, 'index']);

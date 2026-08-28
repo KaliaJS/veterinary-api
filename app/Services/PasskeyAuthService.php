@@ -13,6 +13,7 @@ use Throwable;
 use Webauthn\AuthenticatorAssertionResponse;
 use Webauthn\AuthenticatorAssertionResponseValidator;
 use Webauthn\AuthenticatorSelectionCriteria;
+use Webauthn\CredentialRecord;
 use Webauthn\PublicKeyCredential;
 use Webauthn\PublicKeyCredentialRequestOptions;
 
@@ -26,7 +27,9 @@ use Webauthn\PublicKeyCredentialRequestOptions;
  * l'import erroné `PHPUnit\Event\Code\Throwable`, qui n'attrapait
  * rien), défi de 32 octets, options en cache au format JSON avec 422
  * explicite quand le défi est expiré, vérification utilisateur
- * exigée.
+ * exigée. Contrôle (controler) et consommation (consommer) du défi
+ * sont séparés pour que le rattachement clinique soit résolu entre
+ * les deux.
  */
 class PasskeyAuthService
 {
@@ -50,7 +53,7 @@ class PasskeyAuthService
         );
 
         Cache::put(
-            "passkey-authentication-options-{$defiId}",
+            $this->cleDefi($defiId),
             PasskeyJsonSerializer::serialize($options),
             now()->addMinutes((int) config('passkey.defi_validite_minutes')),
         );
@@ -61,12 +64,20 @@ class PasskeyAuthService
         ];
     }
 
-    /** @throws ValidationException */
-    public function validate(string $credentialJson, string $defiId): Passkey
+    /**
+     * Contrôle l'assertion sans consommer le défi : la voie de connexion
+     * résout le rattachement clinique avant de consommer(). Une
+     * assertion invalide brûle le défi (usage unique face à une
+     * tentative ratée) ; une assertion valide le laisse en place.
+     *
+     * @return array{passkey: Passkey, credentialRecord: CredentialRecord}
+     *
+     * @throws ValidationException
+     */
+    public function controler(string $credentialJson, string $defiId): array
     {
-        // Le défi d'abord (consommé — à usage unique) : un défi
-        // expiré se signale comme tel, quel que soit le credential.
-        $optionsJson = Cache::pull("passkey-authentication-options-{$defiId}");
+        $cle = $this->cleDefi($defiId);
+        $optionsJson = Cache::get($cle);
 
         if (! is_string($optionsJson)) {
             throw ValidationException::withMessages([
@@ -74,49 +85,82 @@ class PasskeyAuthService
             ]);
         }
 
-        $publicKeyCredential = $this->deserialiser($credentialJson);
-
-        if (! $publicKeyCredential->response instanceof AuthenticatorAssertionResponse) {
-            throw ValidationException::withMessages([
-                'credential' => 'Réponse d’assertion attendue.',
-            ]);
-        }
-
-        $passkey = Passkey::firstWhere(
-            'credential_id',
-            Base64UrlSafe::encodeUnpadded($publicKeyCredential->rawId),
-        );
-
-        if (! $passkey) {
-            throw ValidationException::withMessages([
-                'credential' => 'Passkey inconnue — elle a peut-être été révoquée.',
-            ]);
-        }
-
         try {
-            $credentialRecord = AuthenticatorAssertionResponseValidator::create(CeremonieWebauthn::assertion())->check(
-                credentialRecord: $passkey->donnees,
-                authenticatorAssertionResponse: $publicKeyCredential->response,
-                publicKeyCredentialRequestOptions: PasskeyJsonSerializer::deserialize($optionsJson, PublicKeyCredentialRequestOptions::class),
-                host: config('passkey.rp_id'),
-                userHandle: null,
-            );
-        } catch (Throwable $exception) {
-            report($exception);
+            $publicKeyCredential = $this->deserialiser($credentialJson);
 
-            throw ValidationException::withMessages([
-                'credential' => 'Échec de la vérification de la passkey.',
-            ]);
+            if (! $publicKeyCredential->response instanceof AuthenticatorAssertionResponse) {
+                throw ValidationException::withMessages([
+                    'credential' => 'Réponse d’assertion attendue.',
+                ]);
+            }
+
+            $passkey = Passkey::firstWhere(
+                'credential_id',
+                Base64UrlSafe::encodeUnpadded($publicKeyCredential->rawId),
+            );
+
+            if (! $passkey) {
+                throw ValidationException::withMessages([
+                    'credential' => 'Passkey inconnue — elle a peut-être été révoquée.',
+                ]);
+            }
+
+            try {
+                $credentialRecord = AuthenticatorAssertionResponseValidator::create(CeremonieWebauthn::assertion())->check(
+                    credentialRecord: $passkey->donnees,
+                    authenticatorAssertionResponse: $publicKeyCredential->response,
+                    publicKeyCredentialRequestOptions: PasskeyJsonSerializer::deserialize($optionsJson, PublicKeyCredentialRequestOptions::class),
+                    host: config('passkey.rp_id'),
+                    userHandle: null,
+                );
+            } catch (Throwable $exception) {
+                report($exception);
+
+                throw ValidationException::withMessages([
+                    'credential' => 'Échec de la vérification de la passkey.',
+                ]);
+            }
+        } catch (ValidationException $exception) {
+            Cache::forget($cle);
+
+            throw $exception;
         }
 
-        // Compteur de signatures et métadonnées mis à jour (détection
-        // de clonage par le validateur au prochain passage).
+        return ['passkey' => $passkey, 'credentialRecord' => $credentialRecord];
+    }
+
+    /**
+     * Consomme le défi et enregistre le compteur de signatures et les
+     * métadonnées (détection de clonage par le validateur au prochain
+     * passage).
+     */
+    public function consommer(string $defiId, Passkey $passkey, CredentialRecord $credentialRecord): void
+    {
+        Cache::forget($this->cleDefi($defiId));
+
         $passkey->update([
             'donnees' => $credentialRecord,
             'dernier_usage_le' => now(),
         ]);
+    }
+
+    /**
+     * Contrôle puis consommation en un temps (hors choix de clinique).
+     *
+     * @throws ValidationException
+     */
+    public function validate(string $credentialJson, string $defiId): Passkey
+    {
+        ['passkey' => $passkey, 'credentialRecord' => $credentialRecord] = $this->controler($credentialJson, $defiId);
+
+        $this->consommer($defiId, $passkey, $credentialRecord);
 
         return $passkey;
+    }
+
+    private function cleDefi(string $defiId): string
+    {
+        return "passkey-authentication-options-{$defiId}";
     }
 
     /** @throws ValidationException */

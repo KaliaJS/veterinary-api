@@ -108,6 +108,17 @@ class Employe extends Model
         ];
     }
 
+    /**
+     * Titre porté par le nom (« Dr », « Dre », « Pr »…) — le modèle de
+     * données ne le sépare pas du nom (« Dr Anna Meyer »), il est dérivé.
+     */
+    public function titre(): ?string
+    {
+        return preg_match('/^(Dre?|Pre?|Prof)\.?\s+\S/u', $this->nom, $correspondance) === 1
+            ? $correspondance[1]
+            : null;
+    }
+
     /** Compte dans la limite d'employés actifs de la formule. */
     public function estActif(): bool
     {

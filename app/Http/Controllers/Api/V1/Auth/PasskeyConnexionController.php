@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api\V1\Auth;
 
 use App\Auth\EmetteurJetons;
+use App\Http\Controllers\Api\V1\Auth\Concerns\ConnecteAvecChoixDeClinique;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Auth\VerifierPasskeyRequest;
+use App\Http\Resources\V1\ChoixCliniqueResource;
 use App\Http\Resources\V1\JetonEmisResource;
 use App\Services\PasskeyAuthService;
 use Illuminate\Http\JsonResponse;
@@ -18,6 +20,8 @@ use Illuminate\Http\Request;
  */
 class PasskeyConnexionController extends Controller
 {
+    use ConnecteAvecChoixDeClinique;
+
     public function options(Request $request, PasskeyAuthService $service): JsonResponse
     {
         $request->validate(['email' => ['sometimes', 'email']]);
@@ -29,22 +33,29 @@ class PasskeyConnexionController extends Controller
         ));
     }
 
+    /**
+     * L'assertion est contrôlée, le rattachement résolu, puis seulement
+     * le défi consommé (et le compteur de signatures enregistré) : un
+     * compte multi-clinique reçoit la liste des cliniques et rejoue la
+     * même assertion avec `clinique_id`.
+     */
     public function verifier(
         VerifierPasskeyRequest $request,
         PasskeyAuthService $service,
         EmetteurJetons $emetteur,
-    ): JetonEmisResource {
-        $passkey = $service->validate(
+    ): JetonEmisResource|ChoixCliniqueResource {
+        $defiId = $request->string('defi_id')->toString();
+
+        ['passkey' => $passkey, 'credentialRecord' => $credentialRecord] = $service->controler(
             $request->credentialJson(),
-            $request->string('defi_id')->toString(),
+            $defiId,
         );
 
-        $resultat = $emetteur->emettre(
+        return $this->connecter(
+            $request,
+            $emetteur,
             $passkey->user,
-            $request->filled('clinique_id') ? $request->integer('clinique_id') : null,
-            $request->string('appareil', 'api')->toString(),
+            fn () => $service->consommer($defiId, $passkey, $credentialRecord),
         );
-
-        return new JetonEmisResource($resultat['jeton'], $resultat['employe']);
     }
 }

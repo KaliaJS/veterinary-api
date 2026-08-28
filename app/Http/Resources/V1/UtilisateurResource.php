@@ -7,7 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * Forme attendue par le front (api/auth.js) : { mail, first, last }.
+ * Forme attendue par le front (api/auth.js) : { mail, first, last },
+ * plus l'identifiant du compte.
  *
  * @mixin User
  */
@@ -17,6 +18,7 @@ class UtilisateurResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
+            'id' => $this->id,
             'mail' => $this->email,
             'first' => $this->prenom(),
             'last' => $this->nomFamille(),

@@ -54,6 +54,23 @@ Constats transversaux qui conditionnent tout le plan :
   l'e-mail. Le mock accepte n'importe quel code à 6 chiffres et
   renvoie `demoCode` — la vraie API ne le fait pas (hachage, usage
   unique).
+- Session servie (`GET /auth/moi`, corps de toute émission de
+  jeton) : `user { id, mail, first, last }`, `employe { id, nom,
+  initiales, titre, role_libelle, role_id }` — l'auteur des gestes,
+  à substituer au « Dr A. Meyer » codé en dur —, `clinique`,
+  `cliniques` (tous les rattachements) et `permissions` effectives.
+  `titre` (« Dr ») est dérivé du nom, le modèle ne le sépare pas.
+- Multi-clinique : sans `clinique_id`, `POST /auth/code-email/verifier`
+  et `POST /auth/passkey/verifier` répondent 200 `{ choix_clinique:
+  true, cliniques: [{ id, nom }] }` sans jeton ; le code (ou le défi
+  passkey) n'est **pas** consommé — le front rejoue la même requête
+  avec `clinique_id`. Un `clinique_id` étranger au compte reste un 422.
+- Changement de clinique : `POST /auth/clinique { clinique_id }` ré-émet
+  un jeton vers un autre rattachement (réponse = session complète avec
+  `token`) et révoque l'ancien.
+- Passkeys en dev : WebAuthn est lié au domaine du **front** (RP ID et
+  origines déduits de `FRONTEND_URL` côté API, défaut
+  `http://localhost:5173`) — voir `.env.example`.
 
 ### 1.3 Organisation, équipe, réglages
 

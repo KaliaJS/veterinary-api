@@ -1,0 +1,66 @@
+<?php
+
+namespace App\Http\Resources\V1;
+
+use App\Auth\CalculateurPermissions;
+use App\Auth\EmetteurJetons;
+use App\Models\Employe;
+use App\Models\JetonApi;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+/**
+ * Profil de session (GET /auth/moi, et corps des émissions de jeton) :
+ * l'utilisateur, l'employé de la clinique du jeton — l'auteur des
+ * gestes côté front : id, nom, initiales, titre, poste —, la clinique
+ * courante, les autres rattachements (changement de clinique) et les
+ * permissions effectives. Un instantané informatif pour l'UI ; la
+ * vérité reste la base, vérifiée à chaque requête.
+ */
+class SessionResource extends JsonResource
+{
+    /** @param  list<string>|null  $permissions  Calculées en base si absentes. */
+    public function __construct(
+        private readonly User $user,
+        private readonly Employe $employe,
+        private readonly JetonApi $jeton,
+        private readonly ?array $permissions = null,
+    ) {
+        parent::__construct($employe);
+    }
+
+    /** @return array<string, mixed> */
+    public function toArray(Request $request): array
+    {
+        return [
+            'expire_le' => $this->jeton->expires_at?->toIso8601String(),
+            'user' => new UtilisateurResource($this->user),
+            'employe' => [
+                'id' => $this->employe->id,
+                'nom' => $this->employe->nom,
+                'initiales' => $this->employe->initiales,
+                'titre' => $this->employe->titre(),
+                'role_libelle' => $this->employe->role_libelle,
+                'role_id' => $this->employe->role_id,
+            ],
+            'clinique' => $this->clinique($this->employe),
+            'cliniques' => app(EmetteurJetons::class)->rattachements($this->user)
+                ->map(fn (Employe $rattachement): array => $this->clinique($rattachement))
+                ->values()
+                ->all(),
+            'permissions' => $this->permissions ?? app(CalculateurPermissions::class)->pour(
+                $this->employe->loadMissing(['role', 'derogations']),
+            ),
+        ];
+    }
+
+    /** @return array{id: int, nom: string} */
+    private function clinique(Employe $employe): array
+    {
+        return [
+            'id' => $employe->clinique_id,
+            'nom' => $employe->clinique->nom,
+        ];
+    }
+}

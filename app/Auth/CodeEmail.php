@@ -14,6 +14,10 @@ use Illuminate\Validation\ValidationException;
  * Le code est haché en cache, à usage unique, valable 10 minutes,
  * 5 essais de vérification par période. La vraie API n'expose jamais
  * le code (le `demoCode` du front est un artefact de démo).
+ *
+ * Contrôle et consommation sont séparés : la voie de connexion
+ * contrôle le code, résout le rattachement clinique, puis seulement
+ * consomme — un rattachement multiple sans choix ne brûle pas le code.
  */
 class CodeEmail
 {
@@ -37,10 +41,15 @@ class CodeEmail
         $user->notify(new CodeEmailNotification($code, self::VALIDITE_MINUTES));
     }
 
-    /** @throws ValidationException */
-    public function verifier(string $email, string $code): User
+    /**
+     * Contrôle le code sans le consommer : un essai raté compte dans la
+     * limite, un essai réussi laisse le code en place jusqu'à consommer().
+     *
+     * @throws ValidationException
+     */
+    public function controler(string $email, string $code): User
     {
-        $limiteur = 'code-email:'.mb_strtolower($email);
+        $limiteur = $this->limiteur($email);
 
         if (RateLimiter::tooManyAttempts($limiteur, self::ESSAIS_MAX)) {
             throw ValidationException::withMessages([
@@ -59,10 +68,33 @@ class CodeEmail
             ]);
         }
 
+        return $user;
+    }
+
+    /** Usage unique : le code disparaît et le compteur d'essais repart. */
+    public function consommer(string $email): void
+    {
         Cache::forget($this->cle($email));
-        RateLimiter::clear($limiteur);
+        RateLimiter::clear($this->limiteur($email));
+    }
+
+    /**
+     * Contrôle puis consommation en un temps (hors choix de clinique).
+     *
+     * @throws ValidationException
+     */
+    public function verifier(string $email, string $code): User
+    {
+        $user = $this->controler($email, $code);
+
+        $this->consommer($email);
 
         return $user;
+    }
+
+    private function limiteur(string $email): string
+    {
+        return 'code-email:'.mb_strtolower($email);
     }
 
     private function cle(string $email): string

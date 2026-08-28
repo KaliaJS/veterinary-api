@@ -6,31 +6,25 @@ use App\Auth\ContexteClinique;
 use App\Auth\EmetteurJetons;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\JetonEmisResource;
-use App\Http\Resources\V1\UtilisateurResource;
+use App\Http\Resources\V1\SessionResource;
 use App\Models\JetonApi;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
 class SessionController extends Controller
 {
-    /** Profil de session : utilisateur, clinique du jeton, abilities. */
-    public function moi(Request $request, ContexteClinique $contexte): JsonResponse
+    /**
+     * Profil de session : utilisateur, employé de la clinique du jeton
+     * (auteur des gestes), clinique, autres rattachements, permissions
+     * effectives — celles du contexte, déjà lues en base par le
+     * middleware `clinique`.
+     */
+    public function moi(Request $request, ContexteClinique $contexte): SessionResource
     {
         /** @var JetonApi $jeton */
         $jeton = $request->user()->currentAccessToken();
 
-        return response()->json([
-            'data' => [
-                'user' => new UtilisateurResource($request->user()),
-                'clinique' => [
-                    'id' => $contexte->cliniqueId(),
-                    'nom' => $contexte->clinique()->nom,
-                ],
-                'permissions' => $contexte->permissions(),
-                'expire_le' => $jeton->expires_at?->toIso8601String(),
-            ],
-        ]);
+        return new SessionResource($request->user(), $contexte->employe(), $jeton, $contexte->permissions());
     }
 
     /**
