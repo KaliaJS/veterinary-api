@@ -7,6 +7,7 @@ use App\Models\Clinique;
 use App\Models\CommandeFournisseur;
 use App\Models\CommandeFournisseurLigne;
 use App\Models\Lot;
+use App\Models\MouvementStock;
 use App\Models\Produit;
 use App\Models\Stock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -174,6 +175,117 @@ class CommandeFournisseurTest extends TestCase
         $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('commandes');
+    }
+
+    public function test_une_commande_livree_a_une_clinique_soeur_credite_son_stock_et_ses_lots_a_la_reception(): void
+    {
+        $cliniqueSoeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $produit = $this->produit(['peremption_le' => today()->addYear()]);
+
+        $id = $this->postJson('/api/v1/stocks/commandes', [
+            'fournisseur' => 'Vetopharm SA',
+            'clinique_id' => $cliniqueSoeur->id,
+            'lignes' => [['produit_id' => $produit->id, 'quantite' => 6]],
+        ], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.clinique_id', $cliniqueSoeur->id)
+            ->json('data.id');
+
+        $this->postJson("/api/v1/stocks/commandes/{$id}/envoyer", [], $this->enTetes($this->jeton))->assertOk();
+        $this->postJson("/api/v1/stocks/commandes/{$id}/receptionner", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'rec');
+
+        $this->assertSame(
+            [$cliniqueSoeur->id => 6],
+            Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->pluck('quantite', 'clinique_id')->all(),
+        );
+        $this->assertSame([$cliniqueSoeur->id], MouvementStock::withoutGlobalScopes()->pluck('clinique_id')->all());
+        $this->assertSame([$cliniqueSoeur->id], Lot::withoutGlobalScopes()->pluck('clinique_id')->all());
+    }
+
+    public function test_generer_livre_a_la_clinique_soeur_demandee(): void
+    {
+        $cliniqueSoeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $this->produit(['seuil_alerte' => 10, 'fournisseur' => 'Vetopharm SA']);
+
+        $this->postJson('/api/v1/stocks/commandes/generer', ['clinique_id' => $cliniqueSoeur->id], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.clinique_id', $cliniqueSoeur->id);
+
+        // Un article couvert par un brouillon d'une clinique sœur ne se
+        // regénère pas — le seuil est celui de l'organisation.
+        $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('commandes');
+    }
+
+    public function test_les_lignes_d_un_brouillon_s_ajoutent_se_modifient_et_se_retirent(): void
+    {
+        $a = $this->produit(['cout' => 4.5]);
+        $b = $this->produit(['cout' => 12]);
+        $commande = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
+
+        $ligneA = $this->postJson("/api/v1/stocks/commandes/{$commande->id}/lignes", ['produit_id' => $a->id, 'quantite' => 3], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(1, 'data.lignes')
+            ->assertJsonPath('data.lignes.0.produit_id', $a->id)
+            ->assertJsonPath('data.lignes.0.quantite', 3)
+            ->assertJsonPath('data.lignes.0.cout', 4.5)
+            ->json('data.lignes.0.id');
+
+        // Un article déjà présent : pas de doublon.
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/lignes", ['produit_id' => $a->id, 'quantite' => 1], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('produit_id');
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/lignes", ['produit_id' => $b->id, 'quantite' => 2], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(2, 'data.lignes');
+
+        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}/lignes/{$ligneA}", ['quantite' => 9], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.lignes.0.quantite', 9);
+
+        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}/lignes/{$ligneA}", ['quantite' => 0], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('quantite');
+
+        $this->deleteJson("/api/v1/stocks/commandes/{$commande->id}/lignes/{$ligneA}", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(1, 'data.lignes')
+            ->assertJsonPath('data.lignes.0.produit_id', $b->id);
+
+        $this->assertDatabaseMissing('commande_fournisseur_lignes', ['id' => $ligneA]);
+    }
+
+    public function test_les_lignes_d_une_commande_envoyee_sont_figees(): void
+    {
+        $produit = $this->produit();
+        $commande = CommandeFournisseur::factory()->envoyee()->create(['clinique_id' => $this->clinique->id]);
+        $ligne = CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $commande->id, 'quantite' => 2]);
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/lignes", ['produit_id' => $produit->id, 'quantite' => 1], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('statut');
+        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}/lignes/{$ligne->id}", ['quantite' => 5], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('statut');
+        $this->deleteJson("/api/v1/stocks/commandes/{$commande->id}/lignes/{$ligne->id}", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('statut');
+
+        $this->assertSame(2, $ligne->fresh()->quantite);
+    }
+
+    public function test_une_ligne_d_une_autre_commande_est_introuvable_via_ce_brouillon(): void
+    {
+        $brouillon = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
+        $autre = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
+        $ligneAutre = CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $autre->id]);
+
+        $this->patchJson("/api/v1/stocks/commandes/{$brouillon->id}/lignes/{$ligneAutre->id}", ['quantite' => 5], $this->enTetes($this->jeton))
+            ->assertNotFound();
+        $this->deleteJson("/api/v1/stocks/commandes/{$brouillon->id}/lignes/{$ligneAutre->id}", [], $this->enTetes($this->jeton))
+            ->assertNotFound();
     }
 
     public function test_supprimer_un_brouillon_est_tolere(): void

@@ -14,9 +14,16 @@ class EnregistrerCommandeFournisseurRequest extends FormRequest
     {
         return [
             'fournisseur' => ['required', 'string', 'max:255'],
+            // Clinique de livraison (celle du jeton sinon).
+            'clinique_id' => ['sometimes', 'nullable', 'integer', $this->estUneCliniqueDeLOrganisation()],
             'lignes' => ['required', 'array', 'min:1'],
             'lignes.*.produit_id' => ['required', $this->existeDansLOrganisation('produits')],
             'lignes.*.quantite' => ['required', 'integer', 'min:1', 'max:99999'],
         ];
+    }
+
+    public function cliniqueId(): ?int
+    {
+        return $this->filled('clinique_id') ? (int) $this->validated('clinique_id') : null;
     }
 }

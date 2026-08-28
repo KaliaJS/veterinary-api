@@ -4,10 +4,13 @@ namespace Tests\Feature\Stocks;
 
 use App\Models\Clinique;
 use App\Models\CommandeFournisseur;
+use App\Models\CommandeFournisseurLigne;
 use App\Models\Lot;
 use App\Models\MouvementStock;
 use App\Models\Produit;
 use App\Models\Stock;
+use App\Services\GestionnaireStock;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -15,9 +18,10 @@ use Tests\TestCase;
 /**
  * Tranches de scope du domaine (docs/data-model.md §14) : le catalogue
  * est d'ORGANISATION — invisible d'une organisation étrangère ; les
- * quantités et le journal se LISENT toutes cliniques de l'organisation
- * confondues, mais les écritures (ajustements, commandes, lots) sont
- * bornées à la CLINIQUE du jeton.
+ * quantités, le journal et les commandes se LISENT toutes cliniques de
+ * l'organisation confondues ; les écritures visent la clinique du jeton
+ * ou une clinique SŒUR explicite — jamais une autre organisation. Les
+ * lots restent à la clinique du jeton.
  */
 class StocksIsolationTest extends TestCase
 {
@@ -81,19 +85,89 @@ class StocksIsolationTest extends TestCase
         );
     }
 
-    public function test_les_commandes_d_une_clinique_soeur_sont_invisibles_et_intouchables(): void
+    public function test_les_commandes_de_l_organisation_sont_visibles_et_pilotables_pas_celles_d_une_autre(): void
     {
         $commandeSoeur = CommandeFournisseur::factory()->create(['clinique_id' => $this->cliniqueSoeur->id]);
+        $commandeEtrangere = CommandeFournisseur::factory()->create(['clinique_id' => $this->cliniqueEtrangere->id]);
+        CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $commandeSoeur->id]);
 
         $this->getJson('/api/v1/stocks/commandes', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $commandeSoeur->id)
+            ->assertJsonPath('data.0.clinique_id', $this->cliniqueSoeur->id);
+
+        $this->getJson("/api/v1/stocks/commandes?clinique_id={$this->clinique->id}", $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonCount(0, 'data');
 
         $this->postJson("/api/v1/stocks/commandes/{$commandeSoeur->id}/envoyer", [], $this->enTetes($this->jeton))
-            ->assertNotFound();
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'sent');
 
-        $this->deleteJson("/api/v1/stocks/commandes/{$commandeSoeur->id}", [], $this->enTetes($this->jeton))
+        $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+
+        foreach (['envoyer', 'receptionner', 'lignes'] as $geste) {
+            $this->postJson("/api/v1/stocks/commandes/{$commandeEtrangere->id}/{$geste}", ['produit_id' => $produit->id, 'quantite' => 1], $this->enTetes($this->jeton))
+                ->assertNotFound();
+        }
+        $this->deleteJson("/api/v1/stocks/commandes/{$commandeEtrangere->id}", [], $this->enTetes($this->jeton))
             ->assertNotFound();
+    }
+
+    public function test_l_ajustement_et_le_stock_initial_atteignent_une_clinique_soeur_jamais_une_etrangere(): void
+    {
+        $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+
+        $this->postJson("/api/v1/stocks/produits/{$produit->id}/ajuster", [
+            'quantite' => 4,
+            'motif' => 'recep',
+            'clinique_id' => $this->cliniqueSoeur->id,
+        ], $this->enTetes($this->jeton))->assertOk();
+
+        $this->postJson("/api/v1/stocks/produits/{$produit->id}/ajuster", [
+            'quantite' => 4,
+            'motif' => 'recep',
+            'clinique_id' => $this->cliniqueEtrangere->id,
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('clinique_id');
+
+        $quantites = Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->pluck('quantite', 'clinique_id');
+        $this->assertSame(4, $quantites[$this->cliniqueSoeur->id]);
+        $this->assertArrayNotHasKey($this->clinique->id, $quantites);
+        $this->assertArrayNotHasKey($this->cliniqueEtrangere->id, $quantites);
+        $this->assertSame([$this->cliniqueSoeur->id], MouvementStock::withoutGlobalScopes()->pluck('clinique_id')->all());
+
+        $this->postJson('/api/v1/stocks/produits', [
+            'nom' => 'Article livré chez la sœur',
+            'categorie' => 'mat',
+            'prix' => 10,
+            'quantite_initiale' => 7,
+            'clinique_id' => $this->cliniqueEtrangere->id,
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('clinique_id');
+
+        $id = $this->postJson('/api/v1/stocks/produits', [
+            'nom' => 'Article livré chez la sœur',
+            'categorie' => 'mat',
+            'prix' => 10,
+            'quantite_initiale' => 7,
+            'clinique_id' => $this->cliniqueSoeur->id,
+        ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
+
+        $this->assertSame(
+            [$this->cliniqueSoeur->id => 7],
+            Stock::withoutGlobalScopes()->where('produit_id', $id)->pluck('quantite', 'clinique_id')->all(),
+        );
+    }
+
+    public function test_le_gestionnaire_refuse_une_ecriture_hors_de_l_organisation_meme_sans_passer_par_http(): void
+    {
+        $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($this->jeton))->assertOk();
+
+        $this->expectException(AuthorizationException::class);
+
+        app(GestionnaireStock::class)->entrer($produit, 1, 'Intrusion', cliniqueId: $this->cliniqueEtrangere->id);
     }
 
     public function test_les_lots_d_une_clinique_soeur_sont_invisibles_et_intouchables(): void

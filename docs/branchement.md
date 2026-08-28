@@ -397,6 +397,22 @@ Côté Vue :
   heures locales de la clinique — le front doit convertir avec le
   fuseau servi, pas avec celui du navigateur.
 
+### 2.4 bis Stocks : ventilation transversale, écritures vers une clinique sœur
+
+Le catalogue est d'organisation et la ventilation des quantités se lit
+toutes cliniques ; les **écritures** visent la clinique du jeton par
+défaut, ou une clinique sœur explicite (`clinique_id` sur
+`POST /stocks/produits/{id}/ajuster`, sur le stock initial de
+`POST /stocks/produits`, et comme clinique de livraison de
+`POST /stocks/commandes` et `/commandes/generer`) — jamais une autre
+organisation. Les commandes fournisseur se lisent et se pilotent depuis
+toute clinique de l'organisation (`GET /stocks/commandes?clinique_id=`
+pour filtrer) ; la réception crédite la clinique de livraison. Les
+lignes d'un **brouillon** se modifient (`POST/PATCH/DELETE
+/stocks/commandes/{id}/lignes[/{ligne}]`), une commande envoyée est
+figée. Les noms des cliniques viennent de l'annuaire `GET /cliniques`
+(id, nom, boxes — tout employé, sans le domaine `organisation`).
+
 ### 2.5 Liaisons par nom
 
 L'API référence tout par clé étrangère ; le nom n'est qu'une

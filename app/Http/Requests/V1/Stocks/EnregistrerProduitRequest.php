@@ -3,6 +3,7 @@
 namespace App\Http\Requests\V1\Stocks;
 
 use App\Enums\CategorieProduit;
+use App\Http\Requests\V1\Concerns\ReglesScopees;
 use App\Http\Requests\V1\Stocks\Concerns\ChampPeremption;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Http\FormRequest;
@@ -11,6 +12,7 @@ use Illuminate\Validation\Rule;
 class EnregistrerProduitRequest extends FormRequest
 {
     use ChampPeremption;
+    use ReglesScopees;
 
     public function peremptionValidee(): ?CarbonImmutable
     {
@@ -33,6 +35,13 @@ class EnregistrerProduitRequest extends FormRequest
             'fournisseur' => ['nullable', 'string', 'max:255'],
             'ean' => ['nullable', 'string', 'max:20'],
             'quantite_initiale' => ['sometimes', 'integer', 'min:0', 'max:99999'],
+            // Clinique qui reçoit le stock initial (celle du jeton sinon).
+            'clinique_id' => ['sometimes', 'nullable', 'integer', $this->estUneCliniqueDeLOrganisation()],
         ];
+    }
+
+    public function cliniqueId(): ?int
+    {
+        return $this->filled('clinique_id') ? (int) $this->validated('clinique_id') : null;
     }
 }

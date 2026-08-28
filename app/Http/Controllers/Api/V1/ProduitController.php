@@ -16,8 +16,8 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 /**
  * Catalogue d'organisation, quantités par clinique : la lecture expose
  * la ventilation de toutes les cliniques (parité front), les écritures
- * de stock ne touchent que la clinique du jeton. Le stock initial d'un
- * article créé entre au journal comme une réception.
+ * visent la clinique du jeton ou une clinique sœur explicite. Le stock
+ * initial d'un article créé entre au journal comme une réception.
  */
 class ProduitController extends Controller
 {
@@ -66,7 +66,7 @@ class ProduitController extends Controller
         $quantiteInitiale = (int) ($donnees['quantite_initiale'] ?? 0);
 
         if ($quantiteInitiale > 0) {
-            $stock->appliquer($produit, $quantiteInitiale, 'Stock initial', $request->user(), MotifAjustementStock::Reception);
+            $stock->appliquer($produit, $quantiteInitiale, 'Stock initial', $request->user(), MotifAjustementStock::Reception, cliniqueId: $request->cliniqueId());
         }
 
         return new ProduitResource(

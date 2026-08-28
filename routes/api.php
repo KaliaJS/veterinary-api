@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\AccesEmployeController;
 use App\Http\Controllers\Api\V1\AjustementStockController;
 use App\Http\Controllers\Api\V1\AnalyseController;
 use App\Http\Controllers\Api\V1\AnalysePatientController;
+use App\Http\Controllers\Api\V1\AnnuaireCliniqueController;
 use App\Http\Controllers\Api\V1\AnnuaireEmployeController;
 use App\Http\Controllers\Api\V1\Auth\ChangementCliniqueController;
 use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClotureCaisseController;
 use App\Http\Controllers\Api\V1\CommandeBoutiqueController;
 use App\Http\Controllers\Api\V1\CommandeFournisseurController;
+use App\Http\Controllers\Api\V1\CommandeFournisseurLigneController;
 use App\Http\Controllers\Api\V1\CompteClientController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
 use App\Http\Controllers\Api\V1\CompteRenduImagerieController;
@@ -116,6 +118,10 @@ Route::prefix('v1')->group(function (): void {
             Route::post('passkeys', [PasskeyController::class, 'enregistrer']);
             Route::delete('passkeys/{passkey}', [PasskeyController::class, 'supprimer']);
         });
+
+        // Annuaire des cliniques de l'organisation (id, nom, boxes) :
+        // tout employé — le domaine organisation garde la gestion.
+        Route::get('cliniques', AnnuaireCliniqueController::class);
 
         // Le destroy n'existe que pour les salles de bloc (l'écran du
         // bloc gère sa liste) — gardes métier dans le contrôleur.
@@ -330,9 +336,15 @@ Route::prefix('v1')->group(function (): void {
             Route::get('commandes', [CommandeFournisseurController::class, 'index']);
             Route::post('commandes', [CommandeFournisseurController::class, 'store']);
             Route::post('commandes/generer', [CommandeFournisseurController::class, 'generer']);
-            Route::post('commandes/{commande}/envoyer', [CommandeFournisseurController::class, 'envoyer']);
-            Route::post('commandes/{commande}/receptionner', [CommandeFournisseurController::class, 'receptionner']);
-            Route::delete('commandes/{commande}', [CommandeFournisseurController::class, 'destroy']);
+            // Commandes résolues sans binding : toutes cliniques de
+            // l'organisation (livraison à une clinique sœur possible).
+            Route::post('commandes/{commande}/envoyer', [CommandeFournisseurController::class, 'envoyer'])->whereNumber('commande');
+            Route::post('commandes/{commande}/receptionner', [CommandeFournisseurController::class, 'receptionner'])->whereNumber('commande');
+            Route::delete('commandes/{commande}', [CommandeFournisseurController::class, 'destroy'])->whereNumber('commande');
+            // Lignes d'un brouillon, avant envoi.
+            Route::post('commandes/{commande}/lignes', [CommandeFournisseurLigneController::class, 'store'])->whereNumber('commande');
+            Route::patch('commandes/{commande}/lignes/{ligne}', [CommandeFournisseurLigneController::class, 'update'])->whereNumber('commande')->whereNumber('ligne');
+            Route::delete('commandes/{commande}/lignes/{ligne}', [CommandeFournisseurLigneController::class, 'destroy'])->whereNumber('commande')->whereNumber('ligne');
 
             Route::get('lots', [LotController::class, 'index']);
             Route::post('lots/{lot}/ecarter', [LotController::class, 'ecarter']);

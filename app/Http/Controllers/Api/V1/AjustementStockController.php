@@ -11,9 +11,11 @@ use App\Services\GestionnaireStock;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Ajustement manuel motivé du stock de la clinique du jeton
- * (docs/data-model.md §14). Une sortie sur un stock déjà à zéro ne
- * laisse aucune trace — elle est refusée, comme au front.
+ * Ajustement manuel motivé du stock d'une clinique de l'organisation —
+ * celle du jeton par défaut, une clinique sœur sur demande (l'écran
+ * règle toute la ventilation) (docs/data-model.md §14). Une sortie sur
+ * un stock déjà à zéro ne laisse aucune trace — elle est refusée,
+ * comme au front.
  */
 class AjustementStockController extends Controller
 {
@@ -29,6 +31,7 @@ class AjustementStockController extends Controller
             $motif->libelle(),
             $request->user(),
             $motif,
+            cliniqueId: $request->cliniqueId(),
         );
 
         if ($reel === 0) {

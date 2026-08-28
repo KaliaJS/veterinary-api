@@ -4,6 +4,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 
 | Applies to | Rule file |
 | --- | --- |
+| app/Services/GestionnaireStock.php,app/Http/Controllers/Api/V1/{AjustementStock,CommandeFournisseur,CommandeFournisseurLigne,Produit,AnnuaireClinique}*.php,app/Models/CommandeFournisseur.php | .ai/rules/api-v1-models.md |
 | app/Http/Controllers/Api/V1/{Patient,Client,Pesee,Vaccination,Visite,Document,Releve,Carnet,Compte}*.php | .ai/rules/api-v1.md |
 | app/Auth/**, app/Services/Passkey*.php, app/Policies/** | .ai/rules/auth.md |
 | app/Models/{Intervention,InterventionChecklistPoint,InterventionTransition}*.php,app/Services/ProjectionPlanningBloc.php,app/Http/Controllers/Api/V1/{Intervention,CycleIntervention,ChecklistIntervention,ConsentementIntervention,Salle}*.php,app/Http/Requests/V1/Bloc/** | .ai/rules/bloc.md |
