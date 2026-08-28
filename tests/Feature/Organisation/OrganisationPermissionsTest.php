@@ -61,6 +61,8 @@ class OrganisationPermissionsTest extends TestCase
             ['putJson', '/api/v1/organisation/moyen-paiement', []],
             ['deleteJson', '/api/v1/organisation/moyen-paiement', []],
             ['getJson', '/api/v1/organisation/factures', []],
+            ['getJson', "/api/v1/organisation/cliniques/{$this->clinique->id}/horaires", []],
+            ['putJson', "/api/v1/organisation/cliniques/{$this->clinique->id}/horaires", ['ouverture' => '08:00', 'fermeture' => '19:30', 'pause_active' => false]],
         ];
 
         foreach ($appels as [$methode, $uri, $charge]) {
@@ -85,6 +87,7 @@ class OrganisationPermissionsTest extends TestCase
         $this->getJson('/api/v1/organisation', $this->enTetes($jeton))->assertOk();
         $this->getJson('/api/v1/organisation/cliniques', $this->enTetes($jeton))->assertOk();
         $this->getJson('/api/v1/organisation/factures', $this->enTetes($jeton))->assertOk();
+        $this->getJson("/api/v1/organisation/cliniques/{$this->clinique->id}/horaires", $this->enTetes($jeton))->assertOk();
     }
 
     public function test_une_derogation_accorde_le_domaine_a_un_veterinaire(): void

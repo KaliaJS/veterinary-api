@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\AccesEmployeController;
 use App\Http\Controllers\Api\V1\AjustementStockController;
 use App\Http\Controllers\Api\V1\AnalyseController;
 use App\Http\Controllers\Api\V1\AnalysePatientController;
+use App\Http\Controllers\Api\V1\AnnuaireEmployeController;
 use App\Http\Controllers\Api\V1\Auth\ChangementCliniqueController;
 use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
 use App\Http\Controllers\Api\V1\Auth\EmailConnuController;
@@ -57,6 +58,7 @@ use App\Http\Controllers\Api\V1\OrdonnanceController;
 use App\Http\Controllers\Api\V1\OrganisationCliniqueController;
 use App\Http\Controllers\Api\V1\OrganisationController;
 use App\Http\Controllers\Api\V1\OrganisationFactureController;
+use App\Http\Controllers\Api\V1\OrganisationHoraireController;
 use App\Http\Controllers\Api\V1\PackQuotaController;
 use App\Http\Controllers\Api\V1\PanelLaboController;
 use App\Http\Controllers\Api\V1\PatientController;
@@ -129,6 +131,10 @@ Route::prefix('v1')->group(function (): void {
 
         Route::get('horaires', [HoraireOuvertureController::class, 'afficher']);
         Route::put('horaires', [HoraireOuvertureController::class, 'modifier']);
+
+        // Annuaire de la clinique pour la grille (identité, ligne,
+        // poste) — domaine planning, sans les données RH d'/equipe.
+        Route::get('planning/employes', AnnuaireEmployeController::class);
 
         Route::get('planning/disponibilites', DisponibiliteController::class);
 
@@ -276,6 +282,10 @@ Route::prefix('v1')->group(function (): void {
             Route::post('cliniques', [OrganisationCliniqueController::class, 'store']);
             Route::patch('cliniques/{clinique}', [OrganisationCliniqueController::class, 'update'])->whereNumber('clinique');
             Route::delete('cliniques/{clinique}', [OrganisationCliniqueController::class, 'destroy'])->whereNumber('clinique');
+            // Horaires d'une clinique de l'organisation (créée ou
+            // sœur) — /horaires ne vise que la clinique du jeton.
+            Route::get('cliniques/{clinique}/horaires', [OrganisationHoraireController::class, 'afficher'])->whereNumber('clinique');
+            Route::put('cliniques/{clinique}/horaires', [OrganisationHoraireController::class, 'modifier'])->whereNumber('clinique');
 
             Route::post('abonnement', [AbonnementController::class, 'changer']);
             Route::post('abonnement/resilier', [AbonnementController::class, 'resilier']);

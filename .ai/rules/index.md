@@ -15,6 +15,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Models/{Analyse,AnalysePanel,AnalyseResultat,PanelLabo,PanelParametre}*.php,app/Http/Controllers/Api/V1/{Analyse,CycleAnalyse,ResultatAnalyse,PanelLabo}*.php,app/Http/Requests/V1/Laboratoire/**,app/Services/PanelsLaboParDefaut.php | .ai/rules/laboratoire-services.md |
 | database/migrations/** | .ai/rules/migrations.md |
 | app/Models/** | .ai/rules/models.md |
+| app/Http/Controllers/Api/V1/{OrganisationHoraire,AnnuaireEmploye}*.php,app/Policies/EmployePolicy.php | .ai/rules/policies.md |
 | app/Models/Absence.php,app/Policies/AbsencePolicy.php,app/Services/CalculateurCreneaux.php | .ai/rules/services.md |
 | app/Models/MouvementStupefiant.php,app/Http/Controllers/Api/V1/{MouvementStupefiant,RegistreStupefiant}*.php,app/Http/Requests/V1/Stupefiants/** | .ai/rules/stupefiants.md |
 | app/Models/SessionTeleconsultation.php,app/Services/ProjectionPlanningTele.php,app/Http/Controllers/Api/V1/{SessionTeleconsultation,FinTeleconsultation}*.php,app/Http/Requests/V1/Tele/** | .ai/rules/tele.md |

@@ -374,7 +374,13 @@ local ne peut plus être restauré par closure.
 
 L'API a une source unique : `horaires_ouverture` **par clinique**,
 typée, en **heures locales** avec `fuseau_horaire` par clinique
-(`GET/PUT /horaires`). Côté Vue :
+(`GET/PUT /horaires` pour la clinique du jeton ; `GET/PUT
+/organisation/cliniques/{id}/horaires`, domaine `organisation`, pour
+une clinique créée ou sœur depuis l'écran Organisation). La grille
+lit l'annuaire de la clinique par `GET /planning/employes` (identité,
+ligne, poste — domaine `planning`, sans les données RH d'`/equipe`)
+pour dessiner les zones d'absence même sans le domaine `equipe`.
+Côté Vue :
 
 - `settings.js` cesse d'être un jeu d'horaires global : chargé depuis
   l'API pour la clinique du jeton, sauvegardé par `PUT /horaires`. Le

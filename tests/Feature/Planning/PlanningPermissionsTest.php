@@ -119,6 +119,7 @@ class PlanningPermissionsTest extends TestCase
         $this->getJson('/api/v1/rendez-vous', $this->enTetes($jeton))->assertOk();
         $this->getJson('/api/v1/lignes-planning', $this->enTetes($jeton))->assertOk();
         $this->getJson('/api/v1/horaires', $this->enTetes($jeton))->assertOk();
+        $this->getJson('/api/v1/planning/employes', $this->enTetes($jeton))->assertOk();
     }
 
     /**
@@ -140,6 +141,7 @@ class PlanningPermissionsTest extends TestCase
             ['getJson', "/api/v1/lignes-planning/{$this->ligne->id}", []],
             ['patchJson', "/api/v1/lignes-planning/{$this->ligne->id}", []],
             ['getJson', '/api/v1/horaires', []],
+            ['getJson', '/api/v1/planning/employes', []],
             ['putJson', '/api/v1/horaires', ['ouverture' => '08:00', 'fermeture' => '19:30', 'pause_active' => false]],
             ['getJson', '/api/v1/planning/disponibilites?date='.today()->toDateString(), []],
             ['getJson', '/api/v1/rendez-vous', []],
