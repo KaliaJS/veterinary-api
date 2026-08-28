@@ -69,6 +69,110 @@ class EncaissementTest extends TestCase
             ->quantite;
     }
 
+    public function test_une_ligne_se_corrige_et_se_retire_tant_que_la_facture_est_due(): void
+    {
+        $facture = $this->factureDue();
+        $acte = FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => 50, 'quantite' => 1]);
+        $autre = FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => 10, 'quantite' => 1]);
+
+        $this->patchJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$acte->id}", ['quantite' => 3], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.total_ttc', 160)
+            ->assertJsonFragment(['id' => $acte->id, 'quantite' => 3]);
+
+        $this->patchJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$acte->id}", ['quantite' => 0], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('quantite');
+
+        $this->deleteJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$acte->id}", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(1, 'data.lignes')
+            ->assertJsonPath('data.lignes.0.id', $autre->id)
+            ->assertJsonPath('data.total_ttc', 10);
+
+        $this->assertDatabaseMissing('facture_lignes', ['id' => $acte->id]);
+
+        // La dernière ligne reste : une facture vide se supprime, elle ne s'encaisse pas.
+        $this->deleteJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$autre->id}", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('ligne');
+    }
+
+    public function test_retirer_une_ligne_medicament_retire_sa_prescription_jointe(): void
+    {
+        $facture = $this->factureDue();
+        FactureLigne::factory()->create(['facture_id' => $facture->id]);
+        $produit = $this->medicamentEnStock(5);
+
+        $reponse = $this->postJson("/api/v1/facturation/factures/{$facture->id}/lignes", [
+            'produit_id' => $produit->id,
+            'posologie' => '1 cp matin et soir',
+        ], $this->enTetes($this->jeton))->assertOk();
+
+        $ligneMed = collect($reponse->json('data.lignes'))->firstWhere('produit_id', $produit->id)['id'];
+        $this->assertCount(1, $reponse->json('data.prescriptions'));
+
+        $this->deleteJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$ligneMed}", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(1, 'data.lignes')
+            ->assertJsonCount(0, 'data.prescriptions');
+
+        // Rien n'est sorti du stock : la sortie n'a lieu qu'au paiement.
+        $this->assertSame(5, $this->stockDe($produit));
+        $this->assertSame(0, MouvementStock::withoutGlobalScopes()->count());
+    }
+
+    public function test_une_ligne_medicament_au_stock_deja_sorti_est_figee(): void
+    {
+        $facture = $this->factureDue();
+        FactureLigne::factory()->create(['facture_id' => $facture->id]);
+        $produit = $this->medicamentEnStock(5);
+
+        $reponse = $this->postJson("/api/v1/facturation/factures/{$facture->id}/lignes", ['produit_id' => $produit->id], $this->enTetes($this->jeton))->assertOk();
+        $ligneMed = collect($reponse->json('data.lignes'))->firstWhere('produit_id', $produit->id)['id'];
+        $ligneActe = collect($reponse->json('data.lignes'))->firstWhere('produit_id', null)['id'];
+
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/payer-plus-tard", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.stock_sorti', true);
+
+        $this->patchJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$ligneMed}", ['quantite' => 2], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('ligne');
+        $this->deleteJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$ligneMed}", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('ligne');
+
+        // Un acte, lui, se corrige encore : la facture reste due.
+        $this->patchJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$ligneActe}", ['quantite' => 2], $this->enTetes($this->jeton))
+            ->assertOk();
+        $this->assertSame(4, $this->stockDe($produit));
+    }
+
+    public function test_les_lignes_d_une_facture_payee_ou_d_une_autre_clinique_ne_se_corrigent_pas(): void
+    {
+        $payee = Facture::factory()->payee()->create(['clinique_id' => $this->clinique->id]);
+        $lignePayee = FactureLigne::factory()->create(['facture_id' => $payee->id]);
+
+        $this->patchJson("/api/v1/facturation/factures/{$payee->id}/lignes/{$lignePayee->id}", ['quantite' => 2], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('facture');
+        $this->deleteJson("/api/v1/facturation/factures/{$payee->id}/lignes/{$lignePayee->id}", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('facture');
+
+        $cliniqueSoeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $soeur = Facture::factory()->create(['clinique_id' => $cliniqueSoeur->id, 'organisation_id' => $this->clinique->societe->organisation_id]);
+        $ligneSoeur = FactureLigne::factory()->create(['facture_id' => $soeur->id]);
+
+        $this->patchJson("/api/v1/facturation/factures/{$soeur->id}/lignes/{$ligneSoeur->id}", ['quantite' => 2], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('facture');
+
+        // Une ligne d'une autre facture est introuvable via celle-ci.
+        $facture = $this->factureDue();
+        FactureLigne::factory()->count(2)->create(['facture_id' => $facture->id]);
+        $this->deleteJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$lignePayee->id}", [], $this->enTetes($this->jeton))
+            ->assertNotFound();
+
+        $this->assertSame(1, $lignePayee->fresh()->quantite);
+    }
+
     public function test_un_acte_s_ajoute_au_prix_du_catalogue(): void
     {
         $facture = $this->factureDue();

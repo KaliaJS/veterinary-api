@@ -9,8 +9,9 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * `statut` est le statut stocké, `statut_effectif` la valeur affichée
- * (un envoyé hors validité sort `expire`) ; totaux dérivés des lignes
- * et de la remise.
+ * (un envoyé hors validité sort `expire`) ; totaux et TVA (8.1 %,
+ * extraite du TTC remisé comme sur la facture) dérivés des lignes et de
+ * la remise.
  *
  * @mixin Devis
  */
@@ -40,6 +41,7 @@ class DevisResource extends JsonResource
             'facture_finale_id' => $this->facture_finale_id,
             'sous_total' => $this->whenLoaded('lignes', fn (): float => $this->sousTotal()),
             'total_ttc' => $this->whenLoaded('lignes', fn (): float => $this->totalTtc()),
+            'montant_tva' => $this->whenLoaded('lignes', fn (): float => $this->montantTva()),
             'lignes' => $this->whenLoaded(
                 'lignes',
                 fn () => $this->lignes->map(fn (DevisLigne $ligne): array => [

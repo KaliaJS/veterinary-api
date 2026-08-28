@@ -438,6 +438,12 @@ dénormalisation d'affichage. Inventaire des points front à convertir :
   le carnet) est remplacée par les ressources du patient (`patient_id`).
 - **Factures et devis** : `pat`/`ow` par nom → `patient_id` ; lien
   devis → factures par numéro texte → par id.
+  Une erreur de saisie sur une facture **due** se corrige depuis la
+  clinique d'émission : `PATCH /facturation/factures/{id}/lignes/{ligne}`
+  (quantité) et `DELETE …/lignes/{ligne}` (la prescription jointe d'un
+  médicament part avec la ligne ; la dernière ligne reste ; une ligne
+  médicament au stock déjà sorti est figée). Le devis sert
+  `montant_tva` comme la facture.
 - **Hospitalisation → vétérinaire** et **bloc → chirurgien/salle** :
   par nom aujourd'hui — à convertir en `employe_id`/`salle_id` quand
   ces domaines auront une API.

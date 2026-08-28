@@ -17,6 +17,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | database/migrations/** | .ai/rules/migrations.md |
 | app/Models/** | .ai/rules/models.md |
 | app/Http/Controllers/Api/V1/{OrganisationHoraire,AnnuaireEmploye}*.php,app/Policies/EmployePolicy.php | .ai/rules/policies.md |
+| app/Http/Controllers/Api/V1/FactureLigne*.php,app/Http/Resources/V1/DevisResource.php,app/Models/Devis.php | .ai/rules/resources-v1-models.md |
 | app/Http/Controllers/Api/V1/{Patient,Client}*.php,app/Http/Resources/V1/{Patient,Client,AnnuaireEmploye}Resource.php | .ai/rules/resources-v1.md |
 | app/Models/Absence.php,app/Policies/AbsencePolicy.php,app/Services/CalculateurCreneaux.php | .ai/rules/services.md |
 | app/Models/MouvementStupefiant.php,app/Http/Controllers/Api/V1/{MouvementStupefiant,RegistreStupefiant}*.php,app/Http/Requests/V1/Stupefiants/** | .ai/rules/stupefiants.md |

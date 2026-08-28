@@ -70,7 +70,9 @@ class DevisTest extends TestCase
             ->assertJsonPath('data.statut', 'brouillon')
             ->assertJsonPath('data.statut_effectif', 'brouillon')
             ->assertJsonPath('data.sous_total', 660)
-            ->assertJsonPath('data.total_ttc', 594);
+            ->assertJsonPath('data.total_ttc', 594)
+            // TVA 8.1 % extraite du TTC remisé, comme sur la facture.
+            ->assertJsonPath('data.montant_tva', 44.51);
     }
 
     public function test_l_envoi_pose_la_validite_et_choisit_le_portail_quand_le_proprietaire_a_un_compte(): void

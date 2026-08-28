@@ -125,6 +125,8 @@ class FacturationPermissionsTest extends TestCase
             ['getJson', "/api/v1/facturation/factures/{$facture}", []],
             ['deleteJson', "/api/v1/facturation/factures/{$facture}", []],
             ['postJson', "/api/v1/facturation/factures/{$facture}/lignes", []],
+            ['patchJson', "/api/v1/facturation/factures/{$facture}/lignes/1", ['quantite' => 1]],
+            ['deleteJson', "/api/v1/facturation/factures/{$facture}/lignes/1", []],
             ['postJson', "/api/v1/facturation/factures/{$facture}/prescriptions", []],
             ['postJson', "/api/v1/facturation/factures/{$facture}/encaisser", []],
             ['postJson', "/api/v1/facturation/factures/{$facture}/payer-plus-tard", []],

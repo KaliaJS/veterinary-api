@@ -98,6 +98,14 @@ class Devis extends Model
         return round($this->sousTotal() * (1 - $this->remise_pct / 100), 2);
     }
 
+    /** TVA extraite du total TTC remisé, au taux des factures. */
+    public function montantTva(): float
+    {
+        $total = $this->totalTtc();
+
+        return round($total - $total / (1 + Facture::TAUX_TVA), 2);
+    }
+
     public function montantAcompte(): float
     {
         return round($this->totalTtc() * $this->acompte_pct / 100, 2);

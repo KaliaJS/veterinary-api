@@ -253,6 +253,8 @@ Route::prefix('v1')->group(function (): void {
             Route::get('factures/{facture}', [FactureController::class, 'show']);
             Route::delete('factures/{facture}', [FactureController::class, 'destroy']);
             Route::post('factures/{facture}/lignes', [FactureLigneController::class, 'store']);
+            Route::patch('factures/{facture}/lignes/{ligne}', [FactureLigneController::class, 'update'])->whereNumber('ligne');
+            Route::delete('factures/{facture}/lignes/{ligne}', [FactureLigneController::class, 'destroy'])->whereNumber('ligne');
             Route::post('factures/{facture}/prescriptions', [FacturePrescriptionController::class, 'store']);
             Route::post('factures/{facture}/encaisser', [EncaissementController::class, 'encaisser']);
             Route::post('factures/{facture}/payer-plus-tard', [EncaissementController::class, 'payerPlusTard']);
