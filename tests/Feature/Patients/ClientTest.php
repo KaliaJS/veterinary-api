@@ -142,6 +142,26 @@ class ClientTest extends TestCase
             ->assertJsonPath('data.localite', 'Pully');
     }
 
+    public function test_la_liste_sert_les_noms_des_animaux_du_foyer(): void
+    {
+        Patient::factory()->for($this->client)->create(['nom' => 'Rex']);
+        Patient::factory()->for($this->client)->create(['nom' => 'Mimi']);
+        $sansAnimal = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+
+        $reponse = $this->getJson('/api/v1/clients', $this->enTetes($this->jeton))->assertOk();
+
+        $parId = collect($reponse->json('data'))->keyBy('id');
+
+        $this->assertSame(['Mimi', 'Rex'], $parId[$this->client->id]['noms_patients']);
+        $this->assertSame(2, $parId[$this->client->id]['nombre_patients']);
+        $this->assertSame([], $parId[$sansAnimal->id]['noms_patients']);
+        $this->assertArrayNotHasKey('patients', $parId[$this->client->id]);
+
+        $this->getJson("/api/v1/clients/{$this->client->id}", $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.noms_patients', ['Mimi', 'Rex']);
+    }
+
     public function test_la_fiche_detaillee_liste_les_animaux_du_foyer(): void
     {
         $patients = Patient::factory()->count(2)->for($this->client)->create();

@@ -26,6 +26,7 @@ class ClientController extends Controller
         $this->authorize('viewAny', Client::class);
 
         $clients = Client::query()
+            ->with('patientsParNom')
             ->tap(fn (Builder $requete) => $this->avecAgregats($requete))
             ->when($request->string('q')->isNotEmpty(), function (Builder $requete) use ($request): void {
                 $q = '%'.$request->string('q')->lower().'%';

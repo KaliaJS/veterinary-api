@@ -31,6 +31,13 @@ class ClientResource extends JsonResource
             'localite' => $this->localite,
             'a_un_compte' => $this->user_id !== null,
             'nombre_patients' => $this->whenHas('patients_count'),
+            'noms_patients' => $this->when(
+                $this->relationLoaded('patientsParNom') || $this->relationLoaded('patients'),
+                fn (): array => ($this->relationLoaded('patientsParNom') ? $this->patientsParNom : $this->patients->sortBy('nom'))
+                    ->pluck('nom')
+                    ->values()
+                    ->all(),
+            ),
             'solde_du' => $this->whenHas('patients_sum_dette', fn () => (float) ($this->patients_sum_dette ?? 0)),
             'no_shows' => $this->whenHas('no_shows_count'),
             'client_depuis' => $this->whenHas('patients_min_client_depuis'),

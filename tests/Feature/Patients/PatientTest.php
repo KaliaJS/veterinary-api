@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Patient;
 use App\Models\Pesee;
+use App\Models\RendezVous;
 use App\Models\Vaccination;
 use App\Models\Visite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -77,6 +78,99 @@ class PatientTest extends TestCase
 
             $this->assertSame($ids, array_column($reponse->json('data'), 'id'), "Filtre {$filtre}");
         }
+    }
+
+    public function test_la_liste_sert_le_dernier_poids_et_la_courbe_des_douze_dernieres_pesees(): void
+    {
+        $patient = Patient::factory()->for($this->client)->create(['nom' => 'Rex']);
+        $sansPesee = Patient::factory()->for($this->client)->create(['nom' => 'Zéro']);
+
+        // Quatorze pesées : la courbe n'en garde que douze, dans l'ordre
+        // chronologique ; le dernier poids est celui de la date la plus
+        // récente, pas de l'id le plus grand.
+        foreach (range(1, 14) as $i) {
+            Pesee::factory()->for($patient)->create(['poids_kg' => 10 + $i, 'pesee_le' => today()->subDays(30 - $i)]);
+        }
+        Pesee::factory()->for($patient)->create(['poids_kg' => 5, 'pesee_le' => today()->subDays(100)]);
+
+        $reponse = $this->getJson('/api/v1/patients', $this->enTetes($this->jeton))->assertOk();
+
+        $parId = collect($reponse->json('data'))->keyBy('id');
+
+        $this->assertEquals(24.0, $parId[$patient->id]['dernier_poids_kg']);
+        $this->assertEquals(range(13, 24), $parId[$patient->id]['courbe_poids']);
+        $this->assertNull($parId[$sansPesee->id]['dernier_poids_kg']);
+        $this->assertSame([], $parId[$sansPesee->id]['courbe_poids']);
+
+        $this->getJson("/api/v1/patients/{$patient->id}", $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.dernier_poids_kg', 24)
+            ->assertJsonCount(15, 'data.pesees');
+    }
+
+    public function test_la_liste_porte_les_facettes_des_filtres_sur_la_recherche_courante(): void
+    {
+        // La recherche couvre aussi race, puce et propriétaire : neutralisés.
+        $this->client->update(['nom' => 'Dupont']);
+        $neutre = ['race' => null, 'puce' => null, 'est_agressif' => false, 'a_allergies' => false, 'dette' => 0];
+
+        $chien = Patient::factory()->for($this->client)->create([...$neutre, 'espece' => 'CH', 'nom' => 'Rex', 'est_agressif' => true]);
+        Patient::factory()->for($this->client)->create([...$neutre, 'espece' => 'CH', 'nom' => 'Rocky', 'dette' => 12]);
+        $chat = Patient::factory()->for($this->client)->create([...$neutre, 'espece' => 'CT', 'nom' => 'Mimi']);
+        Patient::factory()->for($this->client)->create([...$neutre, 'espece' => 'LP', 'nom' => 'Pixel', 'a_allergies' => true]);
+
+        Vaccination::factory()->for($chat)->create(['echeance_le' => today()->addDays(10)]);
+        Vaccination::factory()->for($chat)->create(['echeance_le' => today()->addDays(20)]);
+        Vaccination::factory()->for($chien)->create(['echeance_le' => today()->addDays(300)]);
+
+        // Les facettes ignorent le filtre actif : chaque onglet affiche son compteur.
+        $this->getJson('/api/v1/patients?filtre=chat', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('meta.facettes', [
+                'tous' => 4, 'chien' => 2, 'chat' => 1, 'nac' => 1, 'alertes' => 3, 'rappels' => 1,
+            ]);
+
+        // … mais suivent la recherche.
+        $this->getJson('/api/v1/patients?q=r', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('meta.facettes.tous', 2)
+            ->assertJsonPath('meta.facettes.chien', 2)
+            ->assertJsonPath('meta.facettes.chat', 0)
+            ->assertJsonPath('meta.facettes.alertes', 2)
+            ->assertJsonPath('meta.facettes.rappels', 0);
+    }
+
+    public function test_le_prochain_rendez_vous_sort_en_liste_et_en_fiche_toutes_cliniques_confondues(): void
+    {
+        $patient = Patient::factory()->for($this->client)->create(['nom' => 'Rex']);
+        $sansRendezVous = Patient::factory()->for($this->client)->create(['nom' => 'Zéro']);
+        $cliniqueSoeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+
+        // Passé, annulé, no-show : ignorés. Le plus proche à venir gagne,
+        // même dans une clinique sœur.
+        RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->subDay(), 'ends_at' => now()->subDay()->addMinutes(30)]);
+        RendezVous::factory()->pourPatient($patient)->annule()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addDay(), 'ends_at' => now()->addDay()->addMinutes(30)]);
+        RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $this->clinique->id, 'status' => 'noshow', 'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(2)->addMinutes(30)]);
+        $prochain = RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $cliniqueSoeur->id, 'starts_at' => now()->addDays(3), 'ends_at' => now()->addDays(3)->addMinutes(30), 'reason' => 'Contrôle']);
+        RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addDays(10), 'ends_at' => now()->addDays(10)->addMinutes(30)]);
+
+        $reponse = $this->getJson('/api/v1/patients', $this->enTetes($this->jeton))->assertOk();
+
+        $parId = collect($reponse->json('data'))->keyBy('id');
+
+        $this->assertSame($prochain->id, $parId[$patient->id]['prochain_rendez_vous']['id']);
+        $this->assertSame($cliniqueSoeur->id, $parId[$patient->id]['prochain_rendez_vous']['clinique_id']);
+        $this->assertSame('Contrôle', $parId[$patient->id]['prochain_rendez_vous']['reason']);
+        $this->assertSame(
+            ['id', 'clinique_id', 'ligne_planning_id', 'type', 'status', 'reason', 'starts_at', 'ends_at'],
+            array_keys($parId[$patient->id]['prochain_rendez_vous']),
+        );
+        $this->assertNull($parId[$sansRendezVous->id]['prochain_rendez_vous']);
+
+        $this->getJson("/api/v1/patients/{$patient->id}", $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.prochain_rendez_vous.id', $prochain->id);
     }
 
     public function test_le_tri_par_rappels_met_la_plus_proche_echeance_d_abord(): void

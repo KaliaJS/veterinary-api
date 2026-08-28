@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\Espece;
 use App\Enums\Sexe;
+use App\Enums\StatutRendezVous;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use Database\Factories\PatientFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -13,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Patient extends Model
 {
+    public const int POINTS_COURBE_POIDS = 12;
+
     /** @use HasFactory<PatientFactory> */
     use AppartientAUneOrganisation, HasFactory;
 
@@ -108,6 +111,40 @@ class Patient extends Model
     public function rendezVous(): HasMany
     {
         return $this->hasMany(RendezVous::class);
+    }
+
+    /**
+     * Prochain rendez-vous à venir (au plus un, chargé en liste comme
+     * en fiche) : toutes cliniques de l'organisation — le patient est
+     * de niveau organisation, ses RDV aussi — hors annulés, no-shows
+     * et finis.
+     *
+     * @return HasMany<RendezVous, $this>
+     */
+    public function rendezVousAVenir(): HasMany
+    {
+        return $this->hasMany(RendezVous::class)
+            ->withoutGlobalScope('clinique')
+            ->where('starts_at', '>=', now())
+            ->whereIn('status', [StatutRendezVous::Prevu, StatutRendezVous::Salle, StatutRendezVous::Cours])
+            ->orderBy('starts_at')
+            ->orderBy('id')
+            ->limit(1);
+    }
+
+    /**
+     * Courbe de poids de la liste (sparkline) : les douze dernières
+     * pesées, la plus récente d'abord — le dossier complet (show)
+     * charge `pesees` en entier.
+     *
+     * @return HasMany<Pesee, $this>
+     */
+    public function courbePoids(): HasMany
+    {
+        return $this->hasMany(Pesee::class)
+            ->orderByDesc('pesee_le')
+            ->orderByDesc('id')
+            ->limit(self::POINTS_COURBE_POIDS);
     }
 
     /** Demandes d'analyses labo — scopées clinique : la fiche patient

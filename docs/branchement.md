@@ -408,6 +408,13 @@ dénormalisation d'affichage. Inventaire des points front à convertir :
   fragile de `finconsult.open` (`name + ownerName`, qui, en cas
   d'échec, faisait silencieusement disparaître ordonnance et sortie
   de stock), la liste `DOGS_TODAY` du seed.
+  Dans l'autre sens, la fiche et la liste patients servent
+  `prochain_rendez_vous` (le plus proche à venir, toutes cliniques de
+  l'organisation, hors annulés/no-shows/finis) — plus de recherche du
+  prochain RDV côté front. La liste sert aussi `dernier_poids_kg`,
+  `courbe_poids` (douze dernières pesées, sparkline) et
+  `meta.facettes` (compteurs des filtres sur la recherche courante) ;
+  la liste clients sert `noms_patients`.
 - **No-shows** : le compteur indexé par nom de propriétaire devient
   un dérivé servi par client (homonymes enfin distingués).
 - **Carnet/puce/AMICUS** (`records.js`) : la clé composite

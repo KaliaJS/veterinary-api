@@ -3,6 +3,7 @@
 namespace App\Http\Resources\V1;
 
 use App\Models\Patient;
+use App\Models\Pesee;
 use App\Models\ReleveDentaire;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -11,7 +12,9 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * Les alertes sont dérivées (`agressif`, `allergies`, `solde` si dette)
  * comme au front — jamais stockées. Les sous-collections du dossier ne
  * sortent que chargées (show) ; l'odontogramme est rendu en map
- * « n° Triadan → état », l'absence de clé vaut sain.
+ * « n° Triadan → état », l'absence de clé vaut sain. La liste porte
+ * le dernier poids, la courbe des douze dernières pesées (sparkline)
+ * et le prochain rendez-vous, toutes cliniques de l'organisation.
  *
  * @mixin Patient
  */
@@ -40,6 +43,28 @@ class PatientResource extends JsonResource
             'client_depuis' => $this->client_depuis,
             'derniere_visite_le' => $this->whenHas('visites_max_visite_le'),
             'echeance_vaccinale' => $this->whenHas('vaccinations_min_echeance_le'),
+            'dernier_poids_kg' => $this->whenLoaded('courbePoids', fn (): ?float => $this->courbePoids->first()?->poids_kg === null
+                ? null
+                : (float) $this->courbePoids->first()->poids_kg),
+            'courbe_poids' => $this->whenLoaded('courbePoids', fn (): array => $this->courbePoids
+                ->reverse()
+                ->map(fn (Pesee $pesee): float => (float) $pesee->poids_kg)
+                ->values()
+                ->all()),
+            'prochain_rendez_vous' => $this->whenLoaded('rendezVousAVenir', function (): ?array {
+                $rendezVous = $this->rendezVousAVenir->first();
+
+                return $rendezVous === null ? null : [
+                    'id' => $rendezVous->id,
+                    'clinique_id' => $rendezVous->clinique_id,
+                    'ligne_planning_id' => $rendezVous->ligne_planning_id,
+                    'type' => $rendezVous->type,
+                    'status' => $rendezVous->status,
+                    'reason' => $rendezVous->reason,
+                    'starts_at' => $rendezVous->starts_at,
+                    'ends_at' => $rendezVous->ends_at,
+                ];
+            }),
             'client' => new ClientResource($this->whenLoaded('client')),
             'pesees' => PeseeResource::collection($this->whenLoaded('pesees')),
             'vaccinations' => VaccinationResource::collection($this->whenLoaded('vaccinations')),

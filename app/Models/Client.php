@@ -48,6 +48,17 @@ class Client extends Model
         return $this->hasMany(Patient::class);
     }
 
+    /**
+     * Animaux du foyer par nom, pour la liste des propriétaires (qui
+     * n'affiche que les noms) — la fiche charge `patients` en entier.
+     *
+     * @return HasMany<Patient, $this>
+     */
+    public function patientsParNom(): HasMany
+    {
+        return $this->hasMany(Patient::class)->orderBy('nom')->orderBy('id');
+    }
+
     /** @return HasMany<RendezVous, $this> */
     public function rendezVous(): HasMany
     {

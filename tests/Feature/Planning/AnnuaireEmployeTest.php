@@ -61,7 +61,7 @@ class AnnuaireEmployeTest extends TestCase
             ->assertJsonPath('data.1.ligne_planning_id', $ligne->id);
 
         $this->assertEqualsCanonicalizing(
-            ['id', 'clinique_id', 'nom', 'initiales', 'titre', 'role_libelle', 'ligne_planning_id'],
+            ['id', 'clinique_id', 'nom', 'initiales', 'titre', 'role_libelle', 'ligne_planning_id', 'acces_suspendu'],
             array_keys($reponse->json('data.1')),
         );
         $this->assertStringNotContainsString('9800', $reponse->getContent());
@@ -83,6 +83,20 @@ class AnnuaireEmployeTest extends TestCase
         $this->getJson('/api/v1/absences', $this->enTetes($jeton))
             ->assertOk()
             ->assertJsonFragment(['id' => $absence->id]);
+    }
+
+    public function test_l_annuaire_porte_l_etat_de_suspension_pour_retirer_la_colonne(): void
+    {
+        ['jeton' => $jeton] = $this->employeAvecJetonAsv();
+        $suspendu = Employe::factory()->create(['clinique_id' => $this->clinique->id, 'acces_suspendu' => true]);
+        $actif = Employe::factory()->create(['clinique_id' => $this->clinique->id, 'acces_suspendu' => false]);
+
+        $reponse = $this->getJson('/api/v1/planning/employes', $this->enTetes($jeton))->assertOk();
+
+        $parId = collect($reponse->json('data'))->keyBy('id');
+
+        $this->assertTrue($parId[$suspendu->id]['acces_suspendu']);
+        $this->assertFalse($parId[$actif->id]['acces_suspendu']);
     }
 
     public function test_l_annuaire_est_celui_de_la_clinique_du_jeton(): void

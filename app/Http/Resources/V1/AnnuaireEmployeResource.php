@@ -25,6 +25,9 @@ class AnnuaireEmployeResource extends JsonResource
             'titre' => $this->titre(),
             'role_libelle' => $this->role_libelle,
             'ligne_planning_id' => $this->lignePlanning?->id,
+            // État d'affichage (colonne retirée de la grille), pas une
+            // donnée RH : le geste de suspension reste sous /equipe.
+            'acces_suspendu' => $this->acces_suspendu,
         ];
     }
 }
