@@ -14,7 +14,8 @@ use Illuminate\Http\Request;
  * pas consommé. Le rattachement clinique est résolu D'ABORD — un
  * compte multi-clinique sans `clinique_id` reçoit la liste des
  * cliniques et garde son secret pour rejouer la requête —, puis le
- * secret est consommé et le jeton émis.
+ * secret est consommé et le jeton émis. Un compte sans rattachement
+ * (inscription publique) reçoit une session sans clinique.
  */
 trait ConnecteAvecChoixDeClinique
 {
@@ -25,19 +26,26 @@ trait ConnecteAvecChoixDeClinique
         User $user,
         Closure $consommerLeSecret,
     ): JetonEmisResource|ChoixCliniqueResource {
-        $employe = $emetteur->employePour(
-            $user,
+        $appareil = $request->string('appareil', 'api')->toString();
+        $rattachements = $emetteur->rattachements($user);
+
+        if ($rattachements->isEmpty()) {
+            $consommerLeSecret();
+
+            return new JetonEmisResource($emetteur->emettreSansClinique($user, $appareil), null);
+        }
+
+        $employe = $emetteur->employeParmi(
+            $rattachements,
             $request->filled('clinique_id') ? $request->integer('clinique_id') : null,
         );
 
         if ($employe === null) {
-            return new ChoixCliniqueResource($emetteur->rattachements($user));
+            return new ChoixCliniqueResource($rattachements);
         }
 
         $consommerLeSecret();
 
-        $jeton = $emetteur->emettrePour($user, $employe, $request->string('appareil', 'api')->toString());
-
-        return new JetonEmisResource($jeton, $employe);
+        return new JetonEmisResource($emetteur->emettrePour($user, $employe, $appareil), $employe);
     }
 }

@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\AnnuaireEmployeController;
 use App\Http\Controllers\Api\V1\Auth\ChangementCliniqueController;
 use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
 use App\Http\Controllers\Api\V1\Auth\EmailConnuController;
+use App\Http\Controllers\Api\V1\Auth\InscriptionPasskeyController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyConnexionController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
@@ -104,21 +105,28 @@ Route::prefix('v1')->group(function (): void {
         Route::post('code-email/verifier', [CodeEmailController::class, 'verifier']);
         Route::post('passkey/options', [PasskeyConnexionController::class, 'options']);
         Route::post('passkey/verifier', [PasskeyConnexionController::class, 'verifier']);
+
+        // Inscription publique (e-mail inconnu) : compte sans clinique,
+        // créé avec sa première passkey.
+        Route::post('inscription/passkey/options', [InscriptionPasskeyController::class, 'options']);
+        Route::post('inscription/passkey', [InscriptionPasskeyController::class, 'inscrire']);
+    });
+
+    // La session elle-même : ouverte aussi aux jetons sans clinique
+    // (comptes inscrits, sans rattachement) — `clinique:facultatif`.
+    Route::prefix('auth')->middleware(['auth:sanctum', 'clinique:facultatif'])->group(function (): void {
+        Route::get('moi', [SessionController::class, 'moi']);
+        Route::post('rafraichir', [SessionController::class, 'rafraichir']);
+        Route::post('clinique', ChangementCliniqueController::class);
+        Route::post('deconnexion', [SessionController::class, 'deconnexion']);
+
+        Route::get('passkeys', [PasskeyController::class, 'index']);
+        Route::post('passkeys/options', [PasskeyController::class, 'options']);
+        Route::post('passkeys', [PasskeyController::class, 'enregistrer']);
+        Route::delete('passkeys/{passkey}', [PasskeyController::class, 'supprimer']);
     });
 
     Route::middleware(['auth:sanctum', 'clinique'])->group(function (): void {
-        Route::prefix('auth')->group(function (): void {
-            Route::get('moi', [SessionController::class, 'moi']);
-            Route::post('rafraichir', [SessionController::class, 'rafraichir']);
-            Route::post('clinique', ChangementCliniqueController::class);
-            Route::post('deconnexion', [SessionController::class, 'deconnexion']);
-
-            Route::get('passkeys', [PasskeyController::class, 'index']);
-            Route::post('passkeys/options', [PasskeyController::class, 'options']);
-            Route::post('passkeys', [PasskeyController::class, 'enregistrer']);
-            Route::delete('passkeys/{passkey}', [PasskeyController::class, 'supprimer']);
-        });
-
         // Annuaire des cliniques de l'organisation (id, nom, boxes) :
         // tout employé — le domaine organisation garde la gestion.
         Route::get('cliniques', AnnuaireCliniqueController::class);

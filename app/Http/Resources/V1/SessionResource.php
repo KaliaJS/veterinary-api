@@ -16,18 +16,20 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * gestes côté front : id, nom, initiales, titre, poste —, la clinique
  * courante, les autres rattachements (changement de clinique) et les
  * permissions effectives. Un instantané informatif pour l'UI ; la
- * vérité reste la base, vérifiée à chaque requête.
+ * vérité reste la base, vérifiée à chaque requête. Session sans
+ * clinique (compte sans rattachement) : `employe` et `clinique` à
+ * null, permissions vides.
  */
 class SessionResource extends JsonResource
 {
     /** @param  list<string>|null  $permissions  Calculées en base si absentes. */
     public function __construct(
         private readonly User $user,
-        private readonly Employe $employe,
+        private readonly ?Employe $employe,
         private readonly JetonApi $jeton,
         private readonly ?array $permissions = null,
     ) {
-        parent::__construct($employe);
+        parent::__construct($employe ?? $user);
     }
 
     /** @return array<string, mixed> */
@@ -36,22 +38,22 @@ class SessionResource extends JsonResource
         return [
             'expire_le' => $this->jeton->expires_at?->toIso8601String(),
             'user' => new UtilisateurResource($this->user),
-            'employe' => [
+            'employe' => $this->employe ? [
                 'id' => $this->employe->id,
                 'nom' => $this->employe->nom,
                 'initiales' => $this->employe->initiales,
                 'titre' => $this->employe->titre(),
                 'role_libelle' => $this->employe->role_libelle,
                 'role_id' => $this->employe->role_id,
-            ],
-            'clinique' => $this->clinique($this->employe),
+            ] : null,
+            'clinique' => $this->employe ? $this->clinique($this->employe) : null,
             'cliniques' => app(EmetteurJetons::class)->rattachements($this->user)
                 ->map(fn (Employe $rattachement): array => $this->clinique($rattachement))
                 ->values()
                 ->all(),
-            'permissions' => $this->permissions ?? app(CalculateurPermissions::class)->pour(
+            'permissions' => $this->permissions ?? ($this->employe ? app(CalculateurPermissions::class)->pour(
                 $this->employe->loadMissing(['role', 'derogations']),
-            ),
+            ) : []),
         ];
     }
 

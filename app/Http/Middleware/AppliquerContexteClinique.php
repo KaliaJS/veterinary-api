@@ -18,7 +18,9 @@ use Symfony\Component\HttpFoundation\Response;
  * requête et conservées dans le contexte pour la durée de celle-ci :
  * un changement de permission prend effet immédiatement, sans
  * réémission de jeton. Refuse un jeton sans clinique ou dont le
- * rattachement employé a disparu.
+ * rattachement employé a disparu — sauf en mode `clinique:facultatif`
+ * (routes de la session elle-même : profil, passkeys, déconnexion),
+ * où un jeton sans clinique passe sans contexte.
  */
 class AppliquerContexteClinique
 {
@@ -27,10 +29,14 @@ class AppliquerContexteClinique
         private CalculateurPermissions $calculateur,
     ) {}
 
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next, ?string $mode = null): Response
     {
         $user = $request->user();
         $jeton = $user?->currentAccessToken();
+
+        if ($jeton instanceof JetonApi && $jeton->clinique_id === null && $mode === 'facultatif') {
+            return $next($request);
+        }
 
         if (! $jeton instanceof JetonApi || $jeton->clinique_id === null) {
             abort(403, 'Jeton non rattaché à une clinique.');

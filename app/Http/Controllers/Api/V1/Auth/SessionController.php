@@ -17,7 +17,8 @@ class SessionController extends Controller
      * Profil de session : utilisateur, employé de la clinique du jeton
      * (auteur des gestes), clinique, autres rattachements, permissions
      * effectives — celles du contexte, déjà lues en base par le
-     * middleware `clinique`.
+     * middleware `clinique`. Jeton sans clinique : contexte vide,
+     * employé et clinique à null.
      */
     public function moi(Request $request, ContexteClinique $contexte): SessionResource
     {

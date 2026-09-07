@@ -13,9 +13,10 @@ use App\Http\Resources\V1\JetonEmisResource;
 use Illuminate\Http\JsonResponse;
 
 /**
- * Connexion par code e-mail (sendEmailCode / verifyEmailCode du
- * contrat front). La réponse d'envoi est identique que l'e-mail soit
- * connu ou non ; le code lui-même n'est jamais exposé par l'API.
+ * Connexion — et inscription — par code e-mail (sendEmailCode /
+ * verifyEmailCode du contrat front) : un e-mail inconnu reçoit un code
+ * et sa vérification crée le compte. Le code lui-même n'est jamais
+ * exposé par l'API.
  */
 class CodeEmailController extends Controller
 {
@@ -25,7 +26,7 @@ class CodeEmailController extends Controller
     {
         $codeEmail->envoyer($request->string('email')->toString());
 
-        return response()->json(['message' => 'Si ce compte existe, un code a été envoyé.'], 202);
+        return response()->json(['message' => 'Un code a été envoyé.'], 202);
     }
 
     /**

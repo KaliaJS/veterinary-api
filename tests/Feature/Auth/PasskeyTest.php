@@ -7,6 +7,8 @@ use App\Models\Employe;
 use App\Models\Passkey;
 use App\Models\User;
 use App\Services\PasskeyAuthService;
+use App\Services\PasskeyRegisterService;
+use App\Services\PasskeyService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Mockery;
@@ -157,21 +159,138 @@ class PasskeyTest extends TestCase
             ->assertJsonPath('data.employe.id', $employeB->id);
     }
 
-    public function test_un_compte_sans_rattachement_ne_consomme_pas_son_defi(): void
+    public function test_un_compte_sans_rattachement_recoit_une_session_sans_clinique(): void
     {
         $user = User::factory()->create();
         $passkey = Passkey::make(['user_id' => $user->id, 'nom' => 'Clé', 'credential_id' => 'abc']);
         $passkey->setRelation('user', $user);
+        $credentialRecord = Mockery::mock(CredentialRecord::class);
 
         $service = $this->mock(PasskeyAuthService::class);
         $service->shouldReceive('controler')->once()
-            ->andReturn(['passkey' => $passkey, 'credentialRecord' => Mockery::mock(CredentialRecord::class)]);
-        $service->shouldReceive('consommer')->never();
+            ->andReturn(['passkey' => $passkey, 'credentialRecord' => $credentialRecord]);
+        $service->shouldReceive('consommer')->once()->with('defi', $passkey, $credentialRecord);
 
         $this->postJson('/api/v1/auth/passkey/verifier', [
             'defi_id' => 'defi',
             'credential' => self::CREDENTIAL_BIDON,
+        ])
+            ->assertOk()
+            ->assertJsonStructure(['data' => ['token']])
+            ->assertJsonPath('data.user.id', $user->id)
+            ->assertJsonPath('data.employe', null)
+            ->assertJsonPath('data.clinique', null)
+            ->assertJsonPath('data.permissions', []);
+    }
+
+    /* ---------- Inscription publique ---------- */
+
+    public function test_les_options_d_inscription_sont_des_options_de_creation_pour_un_email_inconnu(): void
+    {
+        $reponse = $this->postJson('/api/v1/auth/inscription/passkey/options', ['email' => 'nouveau@exemple.ch'])
+            ->assertOk()
+            ->assertJsonStructure(['defi_id', 'options' => ['challenge', 'rp' => ['id', 'name'], 'user' => ['id', 'name', 'displayName'], 'pubKeyCredParams', 'authenticatorSelection']])
+            ->assertJsonPath('options.user.name', 'nouveau@exemple.ch')
+            ->assertJsonPath('options.excludeCredentials', []);
+
+        $this->assertTrue(Cache::has('passkey-registration-options-'.$reponse->json('defi_id')));
+        $this->assertDatabaseMissing('users', ['email' => 'nouveau@exemple.ch']);
+    }
+
+    public function test_les_options_d_inscription_refusent_un_email_deja_inscrit(): void
+    {
+        User::factory()->create(['email' => 'a.meyer@deuxrives.ch']);
+
+        $this->postJson('/api/v1/auth/inscription/passkey/options', ['email' => 'a.meyer@deuxrives.ch'])
+            ->assertUnprocessable()->assertJsonValidationErrors('email');
+
+        $this->postJson('/api/v1/auth/inscription/passkey', [
+            'email' => 'a.meyer@deuxrives.ch',
+            'defi_id' => 'defi',
+            'credential' => self::CREDENTIAL_BIDON,
         ])->assertUnprocessable()->assertJsonValidationErrors('email');
+    }
+
+    public function test_une_inscription_au_defi_expire_ou_d_une_autre_adresse_est_refusee(): void
+    {
+        $defiId = $this->postJson('/api/v1/auth/inscription/passkey/options', ['email' => 'nouveau@exemple.ch'])->json('defi_id');
+
+        // Le défi a été émis pour une autre adresse : refusé, et consommé.
+        $this->postJson('/api/v1/auth/inscription/passkey', [
+            'email' => 'autre@exemple.ch',
+            'defi_id' => $defiId,
+            'credential' => self::CREDENTIAL_BIDON,
+        ])->assertUnprocessable()->assertJsonValidationErrors('defi_id');
+
+        $this->postJson('/api/v1/auth/inscription/passkey', [
+            'email' => 'nouveau@exemple.ch',
+            'defi_id' => $defiId,
+            'credential' => self::CREDENTIAL_BIDON,
+        ])->assertUnprocessable()->assertJsonValidationErrors('defi_id');
+
+        $this->assertDatabaseMissing('users', ['email' => 'nouveau@exemple.ch']);
+    }
+
+    public function test_une_attestation_invalide_ne_cree_pas_de_compte(): void
+    {
+        $defiId = $this->postJson('/api/v1/auth/inscription/passkey/options', ['email' => 'nouveau@exemple.ch'])->json('defi_id');
+
+        $this->postJson('/api/v1/auth/inscription/passkey', [
+            'email' => 'nouveau@exemple.ch',
+            'defi_id' => $defiId,
+            'credential' => self::CREDENTIAL_BIDON,
+        ])->assertUnprocessable()->assertJsonValidationErrors('credential');
+
+        $this->assertDatabaseMissing('users', ['email' => 'nouveau@exemple.ch']);
+    }
+
+    /**
+     * Attestation validée (la cryptographie relève de la lib) : le
+     * compte naît avec sa passkey, la session est sans clinique.
+     */
+    public function test_l_inscription_cree_le_compte_avec_sa_passkey_et_ouvre_une_session_sans_clinique(): void
+    {
+        $credentialRecord = Mockery::mock(CredentialRecord::class);
+
+        $this->mock(PasskeyRegisterService::class)
+            ->shouldReceive('validate')->once()
+            ->with(Mockery::type('string'), 'defi', 'nouveau@exemple.ch')
+            ->andReturn($credentialRecord);
+
+        $this->mock(PasskeyService::class)
+            ->shouldReceive('save')->once()
+            ->with(Mockery::on(fn (User $user): bool => $user->exists && $user->email === 'nouveau@exemple.ch'), 'MacBook', $credentialRecord)
+            ->andReturn(new Passkey);
+
+        $jeton = $this->postJson('/api/v1/auth/inscription/passkey', [
+            'email' => 'nouveau@exemple.ch',
+            'defi_id' => 'defi',
+            'nom' => 'MacBook',
+            'appareil' => 'web',
+            'credential' => self::CREDENTIAL_BIDON,
+        ])
+            ->assertCreated()
+            ->assertJsonStructure(['data' => ['token', 'expire_le', 'user' => ['id', 'mail', 'first', 'last']]])
+            ->assertJsonPath('data.user.mail', 'nouveau@exemple.ch')
+            ->assertJsonPath('data.user.first', 'nouveau')
+            ->assertJsonPath('data.employe', null)
+            ->assertJsonPath('data.clinique', null)
+            ->assertJsonPath('data.cliniques', [])
+            ->assertJsonPath('data.permissions', [])
+            ->json('data.token');
+
+        $this->assertDatabaseHas('users', ['email' => 'nouveau@exemple.ch', 'name' => 'nouveau']);
+        $this->assertDatabaseHas('personal_access_tokens', ['name' => 'web', 'clinique_id' => null]);
+
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))
+            ->assertOk()
+            ->assertJsonPath('data.user.mail', 'nouveau@exemple.ch')
+            ->assertJsonPath('data.clinique', null);
+
+        // Inscrit : la voie de connexion le connaît, l'inscription le refuse.
+        $this->postJson('/api/v1/auth/email', ['email' => 'nouveau@exemple.ch'])->assertJson(['known' => true]);
+        $this->postJson('/api/v1/auth/inscription/passkey/options', ['email' => 'nouveau@exemple.ch'])
+            ->assertUnprocessable()->assertJsonValidationErrors('email');
     }
 
     public function test_les_options_d_enregistrement_exigent_une_session(): void

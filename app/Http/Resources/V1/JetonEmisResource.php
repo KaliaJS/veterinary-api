@@ -10,14 +10,15 @@ use Laravel\Sanctum\NewAccessToken;
 
 /**
  * Réponse d'émission de jeton (connexion, rafraîchissement, changement
- * de clinique) : le jeton en clair suivi du profil de session complet
- * (SessionResource) — même forme que GET /auth/moi.
+ * de clinique, inscription) : le jeton en clair suivi du profil de
+ * session complet (SessionResource) — même forme que GET /auth/moi.
+ * Sans employé : session sans clinique.
  */
 class JetonEmisResource extends JsonResource
 {
     public function __construct(
         private readonly NewAccessToken $jeton,
-        private readonly Employe $employe,
+        private readonly ?Employe $employe,
     ) {
         parent::__construct($jeton);
     }

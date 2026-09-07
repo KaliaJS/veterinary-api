@@ -12,7 +12,11 @@ use Laravel\Sanctum\NewAccessToken;
 
 /**
  * Émission des jetons d'API : un jeton = un utilisateur + une clinique,
- * avec expiration. Le jeton ne porte AUCUNE permission (abilities
+ * avec expiration — ou un utilisateur seul (jeton « sans clinique »)
+ * pour un compte sans rattachement : inscription publique, ou employé
+ * dont tous les rattachements ont disparu. Une telle session n'ouvre
+ * que la session elle-même (profil, passkeys, déconnexion), jamais une
+ * route clinique. Le jeton ne porte AUCUNE permission (abilities
  * Sanctum à ['*']) : les permissions se vérifient en base à chaque
  * requête, via le middleware `clinique` et les Gates — un changement
  * prend effet immédiatement, sans réémission.
@@ -55,14 +59,25 @@ class EmetteurJetons
     }
 
     /**
-     * Remplace le jeton courant par un jeton neuf (même clinique) et
-     * révoque l'ancien.
+     * Jeton sans clinique — compte sans rattachement. Le middleware
+     * `clinique` ferme toute route de domaine à ce jeton.
+     */
+    public function emettreSansClinique(User $user, string $nomAppareil = 'api'): NewAccessToken
+    {
+        return $user->createToken($nomAppareil, ['*'], $this->expireLe());
+    }
+
+    /**
+     * Remplace le jeton courant par un jeton neuf (même clinique, ou
+     * sans clinique s'il n'en portait pas) et révoque l'ancien.
      *
-     * @return array{jeton: NewAccessToken, employe: Employe}
+     * @return array{jeton: NewAccessToken, employe: Employe|null}
      */
     public function rafraichir(User $user, JetonApi $jetonCourant): array
     {
-        $resultat = $this->emettre($user, $jetonCourant->clinique_id, $jetonCourant->name);
+        $resultat = $jetonCourant->clinique_id === null
+            ? ['jeton' => $this->emettreSansClinique($user, $jetonCourant->name), 'employe' => null]
+            : $this->emettre($user, $jetonCourant->clinique_id, $jetonCourant->name);
 
         $jetonCourant->delete();
 
@@ -114,14 +129,25 @@ class EmetteurJetons
      * rattachement de l'utilisateur, ou `null` s'il en a plusieurs (le
      * front doit faire choisir parmi rattachements()). Un choix qui ne
      * correspond à aucun rattachement, ou un compte sans rattachement,
-     * sont refusés.
+     * sont refusés — les voies de connexion HTTP testent d'abord
+     * rattachements() et émettent un jeton sans clinique dans ce cas.
      *
      * @throws ValidationException
      */
     public function employePour(User $user, ?int $cliniqueId): ?Employe
     {
-        $employes = $this->rattachements($user);
+        return $this->employeParmi($this->rattachements($user), $cliniqueId);
+    }
 
+    /**
+     * Même résolution, sur des rattachements déjà chargés.
+     *
+     * @param  Collection<int, Employe>  $employes
+     *
+     * @throws ValidationException
+     */
+    public function employeParmi(Collection $employes, ?int $cliniqueId): ?Employe
+    {
         if ($employes->isEmpty()) {
             throw ValidationException::withMessages([
                 'email' => 'Ce compte n’est rattaché à aucune clinique.',

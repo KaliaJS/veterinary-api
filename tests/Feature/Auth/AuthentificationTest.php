@@ -10,6 +10,7 @@ use App\Models\Employe;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Support\Facades\Notification;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -65,14 +66,45 @@ class AuthentificationTest extends TestCase
         ])->assertUnprocessable();
     }
 
-    public function test_l_envoi_de_code_reste_muet_pour_un_email_inconnu(): void
+    /** Inscription par code e-mail : l'adresse inconnue reçoit un code, sa vérification crée le compte. */
+    public function test_le_code_email_inscrit_un_email_inconnu(): void
     {
         Notification::fake();
 
-        $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'inconnu@exemple.ch'])
+        $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'nouveau@exemple.ch'])
             ->assertStatus(202);
 
-        Notification::assertNothingSent();
+        $code = null;
+        Notification::assertSentOnDemand(CodeEmailNotification::class, function (CodeEmailNotification $notification, array $canaux, AnonymousNotifiable $destinataire) use (&$code): bool {
+            $code = $notification->code;
+
+            return $destinataire->routes['mail'] === 'nouveau@exemple.ch';
+        });
+
+        $this->assertDatabaseMissing('users', ['email' => 'nouveau@exemple.ch']);
+
+        // Un mauvais code ne crée rien.
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => 'nouveau@exemple.ch', 'code' => '000000'])
+            ->assertUnprocessable()->assertJsonValidationErrors('code');
+        $this->assertDatabaseMissing('users', ['email' => 'nouveau@exemple.ch']);
+
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => 'nouveau@exemple.ch', 'code' => $code])
+            ->assertOk()
+            ->assertJsonStructure(['data' => ['token', 'expire_le', 'user' => ['id', 'mail', 'first', 'last']]])
+            ->assertJsonPath('data.user.mail', 'nouveau@exemple.ch')
+            ->assertJsonPath('data.user.first', 'nouveau')
+            ->assertJsonPath('data.employe', null)
+            ->assertJsonPath('data.clinique', null)
+            ->assertJsonPath('data.cliniques', [])
+            ->assertJsonPath('data.permissions', []);
+
+        $this->assertDatabaseHas('users', ['email' => 'nouveau@exemple.ch']);
+        $this->assertNotNull(User::firstWhere('email', 'nouveau@exemple.ch')->email_verified_at);
+
+        // Le code est à usage unique — et le compte n'est pas recréé.
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => 'nouveau@exemple.ch', 'code' => $code])
+            ->assertUnprocessable();
+        $this->assertSame(1, User::where('email', 'nouveau@exemple.ch')->count());
     }
 
     public function test_un_mauvais_code_est_refuse(): void
@@ -90,25 +122,47 @@ class AuthentificationTest extends TestCase
         ])->assertUnprocessable();
     }
 
-    public function test_un_compte_sans_rattachement_clinique_ne_recoit_pas_de_jeton(): void
+    /** Compte sans rattachement (inscrit, ou rattachements disparus) : session sans clinique. */
+    public function test_un_compte_sans_rattachement_clinique_recoit_une_session_sans_clinique(): void
     {
         Notification::fake();
 
         $user = User::factory()->create();
+        $code = $this->envoyerEtRecupererLeCode($user);
 
-        $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => $user->email]);
-
-        $code = null;
-        Notification::assertSentTo($user, CodeEmailNotification::class, function (CodeEmailNotification $notification) use (&$code): bool {
-            $code = $notification->code;
-
-            return true;
-        });
-
-        $this->postJson('/api/v1/auth/code-email/verifier', [
+        $jeton = $this->postJson('/api/v1/auth/code-email/verifier', [
             'email' => $user->email,
             'code' => $code,
-        ])->assertUnprocessable()->assertJsonValidationErrors('email');
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.user.id', $user->id)
+            ->assertJsonPath('data.employe', null)
+            ->assertJsonPath('data.clinique', null)
+            ->assertJsonPath('data.permissions', [])
+            ->json('data.token');
+
+        // La session elle-même est ouverte…
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))
+            ->assertOk()
+            ->assertJsonPath('data.user.id', $user->id)
+            ->assertJsonPath('data.employe', null)
+            ->assertJsonPath('data.clinique', null);
+
+        $this->getJson('/api/v1/auth/passkeys', $this->enTetes($jeton))->assertOk()->assertJsonCount(0, 'data');
+
+        $nouveau = $this->postJson('/api/v1/auth/rafraichir', [], $this->enTetes($jeton))
+            ->assertOk()
+            ->assertJsonPath('data.clinique', null)
+            ->json('data.token');
+        $this->assertNotSame($jeton, $nouveau);
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertUnauthorized();
+
+        // … mais aucune route de domaine.
+        $this->getJson('/api/v1/cliniques', $this->enTetes($nouveau))->assertForbidden();
+        $this->getJson('/api/v1/patients', $this->enTetes($nouveau))->assertForbidden();
+
+        $this->postJson('/api/v1/auth/deconnexion', [], $this->enTetes($nouveau))->assertNoContent();
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($nouveau))->assertUnauthorized();
     }
 
     public function test_un_rattachement_multiple_propose_les_cliniques_sans_consommer_le_code(): void
@@ -164,7 +218,7 @@ class AuthentificationTest extends TestCase
         ])->assertUnprocessable()->assertJsonValidationErrors('code');
     }
 
-    public function test_un_compte_sans_rattachement_ne_consomme_pas_son_code(): void
+    public function test_un_compte_sans_rattachement_consomme_son_code(): void
     {
         Notification::fake();
 
@@ -172,13 +226,10 @@ class AuthentificationTest extends TestCase
         $code = $this->envoyerEtRecupererLeCode($user);
 
         $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $code])
-            ->assertUnprocessable()->assertJsonValidationErrors('email');
-
-        // Rattaché entre-temps (embauche) : le code d'origine sert encore.
-        Employe::factory()->create(['user_id' => $user->id]);
+            ->assertOk()->assertJsonStructure(['data' => ['token']])->assertJsonPath('data.clinique', null);
 
         $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $code])
-            ->assertOk()->assertJsonStructure(['data' => ['token']]);
+            ->assertUnprocessable()->assertJsonValidationErrors('code');
     }
 
     public function test_le_jeton_expire(): void

@@ -6,14 +6,17 @@ use App\Models\User;
 use App\Notifications\CodeEmailNotification;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Connexion par code e-mail à 6 chiffres (secours de la passkey).
- * Le code est haché en cache, à usage unique, valable 10 minutes,
- * 5 essais de vérification par période. La vraie API n'expose jamais
- * le code (le `demoCode` du front est un artefact de démo).
+ * Connexion par code e-mail à 6 chiffres (secours de la passkey), et
+ * inscription par la même voie : un e-mail inconnu reçoit aussi un
+ * code, et sa vérification crée le compte (sans clinique). Le code est
+ * haché en cache, à usage unique, valable 10 minutes, 5 essais de
+ * vérification par période. La vraie API n'expose jamais le code (le
+ * `demoCode` du front est un artefact de démo).
  *
  * Contrôle et consommation sont séparés : la voie de connexion
  * contrôle le code, résout le rattachement clinique, puis seulement
@@ -25,25 +28,31 @@ class CodeEmail
 
     private const int ESSAIS_MAX = 5;
 
-    /** N'envoie rien pour un e-mail inconnu — réponse identique côté HTTP. */
+    public function __construct(private CreationCompte $comptes) {}
+
+    /** Compte connu ou non : le code part vers l'adresse donnée. */
     public function envoyer(string $email): void
     {
-        $user = User::where('email', $email)->first();
-
-        if (! $user) {
-            return;
-        }
-
         $code = (string) random_int(100000, 999999);
 
         Cache::put($this->cle($email), Hash::make($code), now()->addMinutes(self::VALIDITE_MINUTES));
 
-        $user->notify(new CodeEmailNotification($code, self::VALIDITE_MINUTES));
+        $notification = new CodeEmailNotification($code, self::VALIDITE_MINUTES);
+        $user = User::where('email', $email)->first();
+
+        if ($user) {
+            $user->notify($notification);
+        } else {
+            Notification::route('mail', $email)->notify($notification);
+        }
     }
 
     /**
      * Contrôle le code sans le consommer : un essai raté compte dans la
      * limite, un essai réussi laisse le code en place jusqu'à consommer().
+     * E-mail inconnu et code juste : le compte est créé (e-mail vérifié
+     * par le code même) — sans rattachement, il n'y a pas de choix de
+     * clinique à résoudre, la voie consomme dans la foulée.
      *
      * @throws ValidationException
      */
@@ -58,9 +67,8 @@ class CodeEmail
         }
 
         $hache = Cache::get($this->cle($email));
-        $user = User::where('email', $email)->first();
 
-        if (! $hache || ! $user || ! Hash::check($code, $hache)) {
+        if (! $hache || ! Hash::check($code, $hache)) {
             RateLimiter::hit($limiteur, self::VALIDITE_MINUTES * 60);
 
             throw ValidationException::withMessages([
@@ -68,7 +76,7 @@ class CodeEmail
             ]);
         }
 
-        return $user;
+        return User::where('email', $email)->first() ?? $this->comptes->creer($email, emailVerifie: true);
     }
 
     /** Usage unique : le code disparaît et le compteur d'essais repart. */
