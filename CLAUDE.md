@@ -4,13 +4,17 @@
 # Veterinary — règles métier
 
 API JSON uniquement. Le front est dans `../veterinary-web`
-(Vue 3 + Pinia), complet sur des données seedées, en lecture
-seule depuis ce dépôt : ne jamais le modifier.
+(Vue 3 + Pinia). Les deux dépôts se travaillent ensemble : le
+plan de bascule est dans `docs/branchement.md`, et chaque dépôt
+a son `docs/todo.md`.
 
-`docs/data-model.md` fait autorité sur le modèle de données. Il a
-été extrait du prototype puis relu après le portage complet du
-front. Toute divergence entre ce document et une implémentation
-doit être signalée, pas absorbée.
+Commits séparés par dépôt — jamais un commit qui mélange les deux.
+Lire le `CLAUDE.md` de `../veterinary-web` avant d'y écrire : il a
+ses propres conventions.
+
+`docs/data-model.md` fait autorité sur le modèle de données. Toute
+divergence entre ce document et une implémentation doit être
+signalée, pas absorbée.
 
 ## Règles
 
@@ -145,6 +149,15 @@ This project has domain-specific skills available in `**/skills/**`. You MUST ac
 
 - The application is served by Laravel Herd at `https?://[kebab-case-project-dir].test`. Use the `get-absolute-url` tool to generate valid URLs. Never run commands to serve the site. It is always available.
 - Use the `herd` CLI to manage services, PHP versions, and sites (e.g. `herd sites`, `herd services:start <service>`, `herd php:list`). Run `herd list` to discover all available commands.
+
+=== tests rules ===
+
+# Test Enforcement
+
+- Test every code change by adding or updating a test.
+- Run the affected tests and ensure they pass.
+- Test the changed behavior and its important failure modes, but do not add tests beyond them.
+- Read the `testing-best-practices` skill before writing tests.
 
 === laravel/core rules ===
 
