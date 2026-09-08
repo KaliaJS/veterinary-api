@@ -230,7 +230,7 @@ class AccueilProprietaire
         }
 
         $ordonnance = Ordonnance::withoutGlobalScopes()
-            ->with(['patient', 'employe', 'clinique', 'lignes.produit'])
+            ->with(['patient', 'employe', 'clinique', 'lignes.produit', 'demandesRenouvellement'])
             ->whereIn('patient_id', $patientIds)
             ->where('statut', StatutOrdonnance::Active)
             ->orderByDesc('signee_le')
@@ -250,6 +250,8 @@ class AccueilProprietaire
             'clinique' => ['id' => $ordonnance->clinique->id, 'nom' => $ordonnance->clinique->nom],
             'signee_le' => $ordonnance->signee_le?->toDateString(),
             'renouvellements' => $ordonnance->renouvellements,
+            'renouvellement_en_attente' => $enAttente = $ordonnance->demandesRenouvellement->whereNull('traitee_le')->isNotEmpty(),
+            'peut_renouveler' => $ordonnance->renouvellements > 0 && ! $enAttente,
         ];
     }
 

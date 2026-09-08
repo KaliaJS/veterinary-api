@@ -66,6 +66,17 @@ class Ordonnance extends Model
         return $this->hasMany(OrdonnanceLigne::class);
     }
 
+    /**
+     * Demandes de renouvellement déposées par le propriétaire depuis
+     * son espace (en attente tant que `traitee_le` est nul).
+     *
+     * @return HasMany<DemandeRenouvellementOrdonnance, $this>
+     */
+    public function demandesRenouvellement(): HasMany
+    {
+        return $this->hasMany(DemandeRenouvellementOrdonnance::class);
+    }
+
     /** Ordonnance que ce renouvellement a clôturée.
      * @return BelongsTo<Ordonnance, $this> */
     public function precedente(): BelongsTo

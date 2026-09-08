@@ -42,6 +42,7 @@ use App\Http\Controllers\Api\V1\EquipeEmployeController;
 use App\Http\Controllers\Api\V1\Espace\AccueilController;
 use App\Http\Controllers\Api\V1\Espace\AnimalController;
 use App\Http\Controllers\Api\V1\Espace\CliniqueProprietaireController;
+use App\Http\Controllers\Api\V1\Espace\DocumentProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\RendezVousProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\VerificationEmailController;
 use App\Http\Controllers\Api\V1\ExamenImagerieController;
@@ -144,6 +145,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('rendez-vous/{rendezVous}/annuler', [RendezVousProprietaireController::class, 'annuler']);
         Route::post('rendez-vous/{rendezVous}/reporter', [RendezVousProprietaireController::class, 'reporter']);
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
+        Route::get('documents', [DocumentProprietaireController::class, 'index']);
+        Route::post('devis/{devis}/signer', [DocumentProprietaireController::class, 'signerDevis']);
+        Route::post('ordonnances/{ordonnance}/renouvellement', [DocumentProprietaireController::class, 'demanderRenouvellement']);
         Route::post('demandes', [CliniqueProprietaireController::class, 'deposer']);
         Route::post('email/envoyer', [VerificationEmailController::class, 'envoyer'])->middleware('throttle:auth');
         Route::post('email/verifier', [VerificationEmailController::class, 'verifier'])->middleware('throttle:auth');

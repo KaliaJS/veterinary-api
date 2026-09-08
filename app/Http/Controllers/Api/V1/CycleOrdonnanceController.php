@@ -61,6 +61,9 @@ class CycleOrdonnanceController extends Controller
 
             $ordonnance->update(['statut' => StatutOrdonnance::Cloturee]);
 
+            // La demande du propriétaire, s'il y en avait une, est traitée.
+            $ordonnance->demandesRenouvellement()->whereNull('traitee_le')->update(['traitee_le' => now()]);
+
             return $renouvellement;
         });
 
