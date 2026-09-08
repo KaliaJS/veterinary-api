@@ -40,6 +40,7 @@ use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\EncaissementController;
 use App\Http\Controllers\Api\V1\EquipeEmployeController;
 use App\Http\Controllers\Api\V1\Espace\AccueilController;
+use App\Http\Controllers\Api\V1\Espace\AnimalController;
 use App\Http\Controllers\Api\V1\Espace\VerificationEmailController;
 use App\Http\Controllers\Api\V1\ExamenImagerieController;
 use App\Http\Controllers\Api\V1\FactureController;
@@ -134,6 +135,9 @@ Route::prefix('v1')->group(function (): void {
     // requête filtre par ces fiches.
     Route::prefix('espace')->middleware(['auth:sanctum', 'proprietaire'])->group(function (): void {
         Route::get('accueil', AccueilController::class);
+        Route::get('animaux', [AnimalController::class, 'index']);
+        Route::post('animaux', [AnimalController::class, 'store']);
+        Route::get('animaux/{animal}', [AnimalController::class, 'show']);
         Route::post('email/envoyer', [VerificationEmailController::class, 'envoyer'])->middleware('throttle:auth');
         Route::post('email/verifier', [VerificationEmailController::class, 'verifier'])->middleware('throttle:auth');
     });
