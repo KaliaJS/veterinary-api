@@ -11,6 +11,7 @@ use App\Enums\StatutRendezVous;
 use App\Models\Clinique;
 use App\Models\CommandeBoutique;
 use App\Models\Devis;
+use App\Models\MessageClientele;
 use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\RendezVous;
@@ -42,10 +43,17 @@ class AccueilProprietaire
         $commandesPretes = $commandes->where('statut', StatutCommandeBoutique::Prete);
         $derniereCommande = $commandes->first();
 
+        $messagesNonLus = MessageClientele::query()
+            ->where('user_id', $contexte->user()->id)
+            ->where('auteur', 'clinique')
+            ->whereNull('lu_le')
+            ->count();
+
         return [
+            'messages_non_lus' => $messagesNonLus,
             'prochain_rendez_vous' => $prochain ? $this->rendezVous($prochain) : null,
             'rappels' => $rappels->values()->all(),
-            'a_faire' => $this->aFaire($devisASigner, $commandesPretes, $rappels),
+            'a_faire' => $this->aFaire($devisASigner, $commandesPretes, $rappels, $messagesNonLus),
             'animaux' => Patient::withoutGlobalScopes()
                 ->whereIn('client_id', $clientIds)
                 ->orderBy('nom')
@@ -175,7 +183,7 @@ class AccueilProprietaire
      * @param  Collection<int, array<string, mixed>>  $rappels
      * @return list<array<string, mixed>>
      */
-    private function aFaire(Collection $devis, Collection $commandesPretes, Collection $rappels): array
+    private function aFaire(Collection $devis, Collection $commandesPretes, Collection $rappels, int $messagesNonLus = 0): array
     {
         $items = [];
 
@@ -194,6 +202,14 @@ class AccueilProprietaire
                 'libelle' => sprintf('Commande %s prête au retrait — %s', $commande->numero, $commande->clinique->nom),
                 'cible' => 'commandes',
                 'commande_id' => $commande->id,
+            ];
+        }
+
+        if ($messagesNonLus > 0) {
+            $items[] = [
+                'type' => 'message',
+                'libelle' => $messagesNonLus > 1 ? "{$messagesNonLus} nouveaux messages de la clinique" : 'Nouveau message de la clinique',
+                'cible' => 'messages',
             ];
         }
 
