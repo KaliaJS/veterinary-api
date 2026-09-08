@@ -222,11 +222,14 @@ class AuthentificationTest extends TestCase
     {
         Notification::fake();
 
-        $user = User::factory()->create();
+        $user = User::factory()->unverified()->create();
         $code = $this->envoyerEtRecupererLeCode($user);
 
         $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $code])
             ->assertOk()->assertJsonStructure(['data' => ['token']])->assertJsonPath('data.clinique', null);
+
+        // Le code prouve l'adresse (inscription par passkey non vérifiée jusque-là).
+        $this->assertNotNull($user->fresh()->email_verified_at);
 
         $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $code])
             ->assertUnprocessable()->assertJsonValidationErrors('code');

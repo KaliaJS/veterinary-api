@@ -76,7 +76,15 @@ class CodeEmail
             ]);
         }
 
-        return User::where('email', $email)->first() ?? $this->comptes->creer($email, emailVerifie: true);
+        $user = User::where('email', $email)->first() ?? $this->comptes->creer($email, emailVerifie: true);
+
+        // Un code reçu et saisi prouve l'adresse — y compris pour un
+        // compte inscrit par passkey qui ne l'avait pas encore prouvée.
+        if ($user->email_verified_at === null) {
+            $user->forceFill(['email_verified_at' => now()])->save();
+        }
+
+        return $user;
     }
 
     /** Usage unique : le code disparaît et le compteur d'essais repart. */
