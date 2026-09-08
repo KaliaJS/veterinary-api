@@ -3,6 +3,7 @@
 namespace Tests;
 
 use App\Auth\ContexteClinique;
+use App\Auth\ContexteProprietaire;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 
 abstract class TestCase extends BaseTestCase
@@ -20,6 +21,7 @@ abstract class TestCase extends BaseTestCase
         }
 
         $this->app->make(ContexteClinique::class)->oublier();
+        $this->app->make(ContexteProprietaire::class)->oublier();
 
         return parent::call($method, $uri, $parameters, $cookies, $files, $server, $content);
     }

@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Auth\ContexteClinique;
+use App\Auth\ContexteProprietaire;
 use App\Enums\DomainePermission;
 use App\Models\JetonApi;
 use App\Models\User;
@@ -21,6 +22,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->scoped(ContexteClinique::class);
+        $this->app->scoped(ContexteProprietaire::class);
     }
 
     /**

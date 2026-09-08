@@ -39,6 +39,8 @@ use App\Http\Controllers\Api\V1\DisponibiliteController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\EncaissementController;
 use App\Http\Controllers\Api\V1\EquipeEmployeController;
+use App\Http\Controllers\Api\V1\Espace\AccueilController;
+use App\Http\Controllers\Api\V1\Espace\VerificationEmailController;
 use App\Http\Controllers\Api\V1\ExamenImagerieController;
 use App\Http\Controllers\Api\V1\FactureController;
 use App\Http\Controllers\Api\V1\FactureDevisController;
@@ -124,6 +126,16 @@ Route::prefix('v1')->group(function (): void {
         Route::post('passkeys/options', [PasskeyController::class, 'options']);
         Route::post('passkeys', [PasskeyController::class, 'enregistrer']);
         Route::delete('passkeys/{passkey}', [PasskeyController::class, 'supprimer']);
+    });
+
+    // Espace propriétaire (portail client du proto) : tout compte
+    // connecté, SANS contexte clinique — le middleware `proprietaire`
+    // charge ses fiches client, toutes organisations, et chaque
+    // requête filtre par ces fiches.
+    Route::prefix('espace')->middleware(['auth:sanctum', 'proprietaire'])->group(function (): void {
+        Route::get('accueil', AccueilController::class);
+        Route::post('email/envoyer', [VerificationEmailController::class, 'envoyer'])->middleware('throttle:auth');
+        Route::post('email/verifier', [VerificationEmailController::class, 'verifier'])->middleware('throttle:auth');
     });
 
     Route::middleware(['auth:sanctum', 'clinique'])->group(function (): void {

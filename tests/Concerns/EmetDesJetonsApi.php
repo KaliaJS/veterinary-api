@@ -41,6 +41,23 @@ trait EmetDesJetonsApi
         ];
     }
 
+    /**
+     * Compte sans rattachement clinique (inscrit) : jeton sans clinique.
+     *
+     * @return array{user: User, jeton: string}
+     */
+    protected function proprietaireAvecJeton(array $attributs = []): array
+    {
+        app(ContexteClinique::class)->oublier();
+
+        $user = User::factory()->create($attributs);
+
+        return [
+            'user' => $user,
+            'jeton' => app(EmetteurJetons::class)->emettreSansClinique($user)->plainTextToken,
+        ];
+    }
+
     /** @return array<string, string> */
     protected function enTetes(string $jeton): array
     {
