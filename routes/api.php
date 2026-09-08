@@ -41,6 +41,7 @@ use App\Http\Controllers\Api\V1\EncaissementController;
 use App\Http\Controllers\Api\V1\EquipeEmployeController;
 use App\Http\Controllers\Api\V1\Espace\AccueilController;
 use App\Http\Controllers\Api\V1\Espace\AnimalController;
+use App\Http\Controllers\Api\V1\Espace\BoutiqueProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\CliniqueProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\DocumentProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\RendezVousProprietaireController;
@@ -146,6 +147,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('rendez-vous/{rendezVous}/reporter', [RendezVousProprietaireController::class, 'reporter']);
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
         Route::get('documents', [DocumentProprietaireController::class, 'index']);
+        Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
+        Route::get('commandes', [BoutiqueProprietaireController::class, 'commandes']);
+        Route::post('commandes', [BoutiqueProprietaireController::class, 'passer']);
         Route::post('devis/{devis}/signer', [DocumentProprietaireController::class, 'signerDevis']);
         Route::post('ordonnances/{ordonnance}/renouvellement', [DocumentProprietaireController::class, 'demanderRenouvellement']);
         Route::post('demandes', [CliniqueProprietaireController::class, 'deposer']);
