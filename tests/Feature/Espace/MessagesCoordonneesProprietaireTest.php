@@ -38,7 +38,7 @@ class MessagesCoordonneesProprietaireTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data.cliniques')
             ->assertJsonPath('data.cliniques.0.nom', 'Deux Rives')
-            ->assertJsonPath('data.cliniques.0.non_lus', 1)
+            ->assertJsonPath('data.cliniques.0.non_lus', 0) // lu à l'ouverture
             ->assertJsonPath('data.clinique_id', $clinique->id)
             ->assertJsonCount(1, 'data.messages')
             ->assertJsonPath('data.messages.0.de_moi', false)

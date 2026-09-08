@@ -27,14 +27,6 @@ class MessageProprietaireController extends Controller
         $cliniqueId = $request->integer('clinique_id') ?: $cliniques->first()?->id;
         $clinique = $cliniques->firstWhere('id', $cliniqueId);
 
-        $nonLus = MessageClientele::query()
-            ->where('user_id', $contexte->user()->id)
-            ->where('auteur', 'clinique')
-            ->whereNull('lu_le')
-            ->get()
-            ->groupBy('clinique_id')
-            ->map->count();
-
         $messages = collect();
         if ($clinique) {
             MessageClientele::query()
@@ -52,6 +44,15 @@ class MessageProprietaireController extends Controller
                 ->orderBy('id')
                 ->get();
         }
+
+        // Après le marquage : le fil ouvert ne compte plus de non-lus.
+        $nonLus = MessageClientele::query()
+            ->where('user_id', $contexte->user()->id)
+            ->where('auteur', 'clinique')
+            ->whereNull('lu_le')
+            ->get()
+            ->groupBy('clinique_id')
+            ->map->count();
 
         return response()->json(['data' => [
             'cliniques' => $cliniques->map(fn (Clinique $c): array => [
