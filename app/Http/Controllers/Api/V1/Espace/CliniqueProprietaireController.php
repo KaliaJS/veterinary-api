@@ -90,29 +90,47 @@ class CliniqueProprietaireController extends Controller
     }
 
     /**
-     * Prochains créneaux libres de la clinique du contexte : les trois
-     * premiers sur les sept prochains jours, à partir de maintenant.
+     * Prochains créneaux libres de la clinique du contexte, à des heures
+     * DISTINCTES et étalés sur les jours (proto : « Auj. 14:00 »,
+     * « Dem. 09:15 »…) : les trous libres de chaque jour sont découpés
+     * au pas de la durée, on retient d'abord le premier créneau de
+     * chaque jour, puis on complète chronologiquement.
      *
      * @return list<array{debut: string, ligne_planning_id: int}>
      */
     private function creneaux(CalculateurCreneaux $calculateur): array
     {
-        $creneaux = [];
         $jour = $calculateur->aujourdHui();
+        $parJour = [];
 
-        for ($i = 0; $i < self::JOURS_EXPLORES && count($creneaux) < self::CRENEAUX_PAR_CLINIQUE; $i++) {
-            $libres = $calculateur->creneauxLibres($jour->addDays($i), self::DUREE_MINUTES)
-                ->filter(fn (array $creneau): bool => $creneau['debut']->isFuture())
-                ->sortBy(fn (array $creneau) => $creneau['debut']->timestamp);
+        for ($i = 0; $i < self::JOURS_EXPLORES; $i++) {
+            $candidats = [];
 
-            foreach ($libres as $creneau) {
-                $creneaux[] = ['debut' => $creneau['debut']->toIso8601String(), 'ligne_planning_id' => $creneau['ligne_planning_id']];
-                if (count($creneaux) >= self::CRENEAUX_PAR_CLINIQUE) {
-                    break;
+            foreach ($calculateur->creneauxLibres($jour->addDays($i), self::DUREE_MINUTES) as $trou) {
+                for ($debut = $trou['debut']; $debut->addMinutes(self::DUREE_MINUTES)->lte($trou['fin']); $debut = $debut->addMinutes(self::DUREE_MINUTES)) {
+                    if ($debut->isFuture()) {
+                        $candidats[$debut->timestamp] ??= ['debut' => $debut->toIso8601String(), 'ligne_planning_id' => $trou['ligne_planning_id']];
+                    }
                 }
+            }
+
+            if ($candidats !== []) {
+                ksort($candidats);
+                $parJour[] = array_values($candidats);
             }
         }
 
-        return $creneaux;
+        $retenus = [];
+        foreach ($parJour as $candidats) {
+            $retenus[] = array_shift($candidats);
+            if (count($retenus) >= self::CRENEAUX_PAR_CLINIQUE) {
+                return $retenus;
+            }
+        }
+
+        $restants = array_merge(...array_map(fn (array $c): array => array_slice($c, 1), $parJour ?: [[]]));
+        usort($restants, fn (array $a, array $b): int => strcmp($a['debut'], $b['debut']));
+
+        return array_slice(array_merge($retenus, $restants), 0, self::CRENEAUX_PAR_CLINIQUE);
     }
 }
