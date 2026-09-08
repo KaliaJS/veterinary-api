@@ -1,0 +1,42 @@
+<?php
+
+namespace App\Http\Requests\V1\Espace;
+
+use App\Auth\ContexteProprietaire;
+use App\Enums\Espece;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/**
+ * Demande de rendez-vous depuis la carte (proto « FINALISER ») : une
+ * clinique, un créneau souhaité, un animal du compte OU un nom libre
+ * avec son espèce, un motif, sur place ou en visio.
+ */
+class DeposerDemandeRendezVousRequest extends FormRequest
+{
+    /** @return array<string, mixed> */
+    public function rules(): array
+    {
+        $patients = app(ContexteProprietaire::class)->patientIds();
+
+        return [
+            'clinique_id' => ['required', 'integer', 'exists:cliniques,id'],
+            'debut_souhaite' => ['required', 'date', 'after:now'],
+            'mode' => ['required', Rule::in(['place', 'visio'])],
+            'patient_id' => ['nullable', 'integer', Rule::in($patients)],
+            'patient_name' => ['required_without:patient_id', 'nullable', 'string', 'max:120'],
+            'espece' => ['required_without:patient_id', 'nullable', Rule::enum(Espece::class)],
+            'motif' => ['required', 'string', 'max:120'],
+            'nom_proprietaire' => ['nullable', 'string', 'max:120'],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'patient_name.required_without' => 'Indiquez le nom de votre animal',
+            'patient_id.in' => 'Cet animal n’est pas dans votre compte.',
+        ];
+    }
+}
