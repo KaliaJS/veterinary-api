@@ -136,6 +136,15 @@ Route::prefix('v1')->group(function (): void {
         Route::delete('passkeys/{passkey}', [PasskeyController::class, 'supprimer']);
     });
 
+    // Vitrine publique (visiteur non connecté, depuis l'accueil) :
+    // boutiques des cliniques et annuaire avec créneaux. Leur contenu ne
+    // dépend d'aucun compte — mêmes actions que dans l'espace, sans
+    // jeton ; commander ou déposer une demande exige toujours une session.
+    Route::prefix('public')->middleware('throttle:60,1')->group(function (): void {
+        Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
+        Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
+    });
+
     // Espace propriétaire (portail client du proto) : tout compte
     // connecté, SANS contexte clinique — le middleware `proprietaire`
     // charge ses fiches client, toutes organisations, et chaque
