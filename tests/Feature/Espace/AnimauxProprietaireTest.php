@@ -3,6 +3,8 @@
 namespace Tests\Feature\Espace;
 
 use App\Models\Client;
+use App\Models\Clinique;
+use App\Models\DemandeRattachement;
 use App\Models\Employe;
 use App\Models\Patient;
 use App\Models\User;
@@ -13,9 +15,10 @@ use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
 /**
- * Espace propriétaire — mes animaux : liste sur toutes les fiches,
- * fiche détaillée (carnet dédupliqué par vaccin, visites), ajout sur
- * une fiche du compte, isolation.
+ * Espace propriétaire — mes animaux : liste (animaux du propriétaire et
+ * des fiches rattachées), fiche détaillée (carnet dédupliqué par
+ * vaccin, visites), ajout d'un animal appartenant au compte, réclamation
+ * par puce validée par la clinique, isolation.
  */
 class AnimauxProprietaireTest extends TestCase
 {
@@ -81,10 +84,9 @@ class AnimauxProprietaireTest extends TestCase
         $this->getJson("/api/v1/espace/animaux/{$intrus->id}", $this->enTetes($jeton))->assertNotFound();
     }
 
-    public function test_un_animal_s_ajoute_sur_la_fiche_du_compte_avec_son_poids(): void
+    public function test_un_animal_s_ajoute_au_compte_sans_clinique_avec_son_poids(): void
     {
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
-        $fiche = Client::factory()->create(['user_id' => $user->id]);
 
         $this->postJson('/api/v1/espace/animaux', [
             'nom' => 'Nala',
@@ -100,30 +102,102 @@ class AnimauxProprietaireTest extends TestCase
             ->assertJsonPath('data.espece_libelle', 'Chien')
             ->assertJsonPath('data.age_libelle', '3 ans')
             ->assertJsonPath('data.poids_kg', 12.4)
+            ->assertJsonPath('data.fiche_id', null);
+
+        $this->assertDatabaseHas('patients', ['nom' => 'Nala', 'proprietaire_id' => $user->id, 'client_id' => null, 'organisation_id' => null]);
+
+        // L'animal est bien listé, sans aucune fiche client.
+        $this->getJson('/api/v1/espace/animaux', $this->enTetes($jeton))->assertOk()->assertJsonCount(1, 'data');
+    }
+
+    public function test_l_animal_peut_aussi_etre_pose_sur_une_fiche_du_compte(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $fiche = Client::factory()->create(['user_id' => $user->id]);
+
+        $this->postJson('/api/v1/espace/animaux', ['nom' => 'Nala', 'espece' => 'CH', 'sexe' => 'Femelle', 'fiche_id' => $fiche->id], $this->enTetes($jeton))
+            ->assertCreated()
             ->assertJsonPath('data.fiche_id', $fiche->id)
             ->assertJsonPath('data.organisation.id', $fiche->organisation_id);
 
-        $this->assertDatabaseHas('patients', ['nom' => 'Nala', 'client_id' => $fiche->id, 'organisation_id' => $fiche->organisation_id]);
+        $this->assertDatabaseHas('patients', ['nom' => 'Nala', 'proprietaire_id' => $user->id, 'client_id' => $fiche->id, 'organisation_id' => $fiche->organisation_id]);
     }
 
-    public function test_l_ajout_exige_le_nom_et_une_fiche(): void
+    public function test_l_ajout_exige_le_nom_et_refuse_une_fiche_etrangere(): void
     {
-        ['jeton' => $jetonSansFiche] = $this->proprietaireAvecJeton();
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
 
-        $this->postJson('/api/v1/espace/animaux', ['nom' => 'Nala', 'espece' => 'CH', 'sexe' => 'Femelle'], $this->enTetes($jetonSansFiche))
-            ->assertUnprocessable()->assertJsonValidationErrors('fiche_id');
-
-        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
-        Client::factory()->create(['user_id' => $user->id]);
-        Client::factory()->create(['user_id' => $user->id]);
-
-        // Plusieurs fiches : il faut choisir ; une fiche étrangère est refusée.
-        $this->postJson('/api/v1/espace/animaux', ['nom' => 'Nala', 'espece' => 'CH', 'sexe' => 'Femelle'], $this->enTetes($jeton))
-            ->assertUnprocessable()->assertJsonValidationErrors('fiche_id');
         $this->postJson('/api/v1/espace/animaux', ['nom' => 'Nala', 'espece' => 'CH', 'sexe' => 'Femelle', 'fiche_id' => Client::factory()->create()->id], $this->enTetes($jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('fiche_id');
 
         $this->postJson('/api/v1/espace/animaux', ['espece' => 'CH', 'sexe' => 'Femelle'], $this->enTetes($jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('nom');
+    }
+
+    public function test_la_reclamation_par_puce_cree_une_demande_que_la_clinique_accepte(): void
+    {
+        $clinique = Clinique::factory()->create();
+        $fiche = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id]);
+        $rex = Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Rex', 'puce' => '756 098 100 234 567']);
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+
+        // Puce inconnue : 422 sur le champ.
+        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 000 000'], $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('puce');
+
+        // Demande créée, en attente ; rejouée, la même demande revient (200).
+        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756098100234567'], $this->enTetes($jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.statut', 'attente')
+            ->assertJsonPath('data.animal.nom', 'Rex')
+            ->assertJsonPath('data.organisation.id', $clinique->societe->organisation_id);
+        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567'], $this->enTetes($jeton))->assertOk();
+        $this->assertSame(1, DemandeRattachement::withoutGlobalScopes()->count());
+
+        // Rex n'est pas encore dans l'espace ; la demande, si.
+        $this->getJson('/api/v1/espace/animaux', $this->enTetes($jeton))->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson('/api/v1/espace/animaux/rattachements', $this->enTetes($jeton))->assertOk()->assertJsonCount(1, 'data');
+
+        // La clinique voit la demande et l'accepte : Rex reçoit son propriétaire, la fiche clinique reste.
+        ['jeton' => $jetonClinique] = $this->employeAvecJeton($clinique);
+        $demandeId = $this->getJson('/api/v1/patients/rattachements', $this->enTetes($jetonClinique))
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.patient.nom', 'Rex')
+            ->assertJsonPath('data.0.demandeur.email', $user->email)
+            ->json('data.0.id');
+        $this->postJson("/api/v1/patients/rattachements/{$demandeId}/accepter", [], $this->enTetes($jetonClinique))
+            ->assertOk()->assertJsonPath('data.statut', 'acceptee');
+
+        $this->assertDatabaseHas('patients', ['id' => $rex->id, 'proprietaire_id' => $user->id, 'client_id' => $fiche->id]);
+        $this->getJson('/api/v1/espace/animaux', $this->enTetes($jeton))->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.nom', 'Rex');
+        $this->getJson("/api/v1/espace/animaux/{$rex->id}", $this->enTetes($jeton))->assertOk();
+        $this->getJson('/api/v1/patients/rattachements', $this->enTetes($jetonClinique))->assertOk()->assertJsonCount(0, 'data');
+
+        // Déjà rattaché : une nouvelle réclamation (par un autre compte) est refusée.
+        ['jeton' => $jetonAutre] = $this->proprietaireAvecJeton();
+        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567'], $this->enTetes($jetonAutre))
+            ->assertUnprocessable()->assertJsonValidationErrors('puce');
+    }
+
+    public function test_la_clinique_peut_refuser_et_une_autre_clinique_ne_voit_pas_la_demande(): void
+    {
+        $clinique = Clinique::factory()->create();
+        $fiche = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id]);
+        Patient::factory()->create(['client_id' => $fiche->id, 'puce' => '756 098 100 234 567']);
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $demandeId = $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567'], $this->enTetes($jeton))->json('data.id');
+
+        ['jeton' => $jetonAutreClinique] = $this->employeAvecJeton(Clinique::factory()->create());
+        $this->getJson('/api/v1/patients/rattachements', $this->enTetes($jetonAutreClinique))->assertOk()->assertJsonCount(0, 'data');
+        $this->postJson("/api/v1/patients/rattachements/{$demandeId}/refuser", [], $this->enTetes($jetonAutreClinique))->assertNotFound();
+
+        ['jeton' => $jetonClinique] = $this->employeAvecJeton($clinique);
+        $this->postJson("/api/v1/patients/rattachements/{$demandeId}/refuser", [], $this->enTetes($jetonClinique))
+            ->assertOk()->assertJsonPath('data.statut', 'refusee');
+        $this->postJson("/api/v1/patients/rattachements/{$demandeId}/accepter", [], $this->enTetes($jetonClinique))->assertUnprocessable();
+
+        $this->getJson('/api/v1/espace/animaux/rattachements', $this->enTetes($jeton))
+            ->assertOk()->assertJsonPath('data.0.statut', 'refusee');
+        $this->getJson('/api/v1/espace/animaux', $this->enTetes($jeton))->assertOk()->assertJsonCount(0, 'data');
     }
 }

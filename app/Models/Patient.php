@@ -20,7 +20,7 @@ class Patient extends Model
     use AppartientAUneOrganisation, HasFactory;
 
     protected $fillable = [
-        'organisation_id', 'client_id', 'nom', 'espece', 'race', 'sexe',
+        'organisation_id', 'client_id', 'proprietaire_id', 'nom', 'espece', 'race', 'sexe',
         'ne_le', 'est_sterilise', 'puce', 'dette', 'est_agressif',
         'a_allergies', 'traitement_en_cours', 'rappels_coupes',
         'amicus_declare_le', 'client_depuis',
@@ -55,6 +55,18 @@ class Patient extends Model
     }
 
     /**
+     * Compte espace client propriétaire (0..1) — indépendant de la
+     * fiche client d'une clinique : un animal peut avoir l'un, l'autre
+     * ou les deux (docs/data-model.md).
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function proprietaire(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'proprietaire_id');
+    }
+
+    /**
      * Dénormalisations de confort portées par les rendez-vous et les
      * files d'attente — réalignées sur la fiche dès qu'elle est
      * référencée : la FK fait foi (docs/data-model.md).
@@ -67,7 +79,7 @@ class Patient extends Model
             'client_id' => $this->client_id,
             'patient_name' => $this->nom,
             'species' => $this->espece,
-            'owner_name' => $this->client->nom_affiche,
+            'owner_name' => $this->client?->nom_affiche ?? $this->proprietaire?->name ?? '',
         ];
     }
 

@@ -10,9 +10,9 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Nouvel animal depuis l'espace (formulaire « Nouvel animal » du
- * proto). L'animal naît sur une fiche client du compte : `fiche_id`
- * est obligatoire dès que le compte en a plusieurs.
+ * Nouvel animal depuis l'espace : il appartient au compte
+ * (proprietaire_id), sans clinique tant qu'aucune ne l'a vu.
+ * `fiche_id` reste accepté pour le poser en plus sur une fiche client.
  */
 class EnregistrerAnimalRequest extends FormRequest
 {
@@ -22,7 +22,7 @@ class EnregistrerAnimalRequest extends FormRequest
         $fiches = app(ContexteProprietaire::class)->clientIds();
 
         return [
-            'fiche_id' => [count($fiches) > 1 ? 'required' : 'sometimes', 'integer', Rule::in($fiches)],
+            'fiche_id' => ['nullable', 'integer', Rule::in($fiches)],
             'nom' => ['required', 'string', 'max:255'],
             'espece' => ['required', Rule::enum(Espece::class)],
             'race' => ['nullable', 'string', 'max:255'],
@@ -37,7 +37,6 @@ class EnregistrerAnimalRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'fiche_id.required' => 'Choisissez la clinique où rattacher cet animal.',
             'fiche_id.in' => 'Cette fiche n’appartient pas à votre compte.',
             'nom.required' => 'Le nom de l’animal est requis',
         ];

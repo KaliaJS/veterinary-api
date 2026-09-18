@@ -5,6 +5,7 @@ namespace App\Auth;
 use App\Models\Client;
 use App\Models\Patient;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -64,14 +65,31 @@ class ContexteProprietaire
     }
 
     /**
-     * Patients de toutes les fiches — lus une fois par requête.
+     * Animaux du compte : ceux dont il est le propriétaire
+     * (proprietaire_id) et ceux des fiches client rattachées.
+     *
+     * @template TModel of \Illuminate\Database\Eloquent\Model
+     *
+     * @param  Builder<TModel>  $requete  requête sur `patients`
+     * @return Builder<TModel>
+     */
+    public function filtrerAnimaux(Builder $requete): Builder
+    {
+        return $requete->where(function (Builder $q): void {
+            $q->where('proprietaire_id', $this->user()->id);
+            if ($this->clientIds() !== []) {
+                $q->orWhereIn('client_id', $this->clientIds());
+            }
+        });
+    }
+
+    /**
+     * Patients du compte (propriétaire ou fiches) — lus une fois par requête.
      *
      * @return list<int>
      */
     public function patientIds(): array
     {
-        return $this->patientIds ??= $this->clientIds() === []
-            ? []
-            : Patient::withoutGlobalScopes()->whereIn('client_id', $this->clientIds())->pluck('id')->all();
+        return $this->patientIds ??= $this->filtrerAnimaux(Patient::withoutGlobalScopes())->pluck('id')->all();
     }
 }

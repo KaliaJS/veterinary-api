@@ -28,7 +28,7 @@ class RendezVousProprietaireController extends Controller
     {
         $base = fn () => RendezVous::withoutGlobalScopes()
             ->with(['clinique', 'lignePlanning', 'patient'])
-            ->whereIn('client_id', $contexte->clientIds())
+            ->where(fn ($q) => $q->whereIn('client_id', $contexte->clientIds())->orWhereIn('patient_id', $contexte->patientIds()))
             ->where('type', '!=', 'tampon');
 
         $aVenir = $base()
@@ -100,7 +100,7 @@ class RendezVousProprietaireController extends Controller
     {
         return RendezVous::withoutGlobalScopes()
             ->with(['clinique', 'lignePlanning', 'patient'])
-            ->whereIn('client_id', $contexte->clientIds())
+            ->where(fn ($q) => $q->whereIn('client_id', $contexte->clientIds())->orWhereIn('patient_id', $contexte->patientIds()))
             ->findOrFail($rendezVousId);
     }
 }

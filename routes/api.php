@@ -74,6 +74,7 @@ use App\Http\Controllers\Api\V1\OrganisationFactureController;
 use App\Http\Controllers\Api\V1\OrganisationHoraireController;
 use App\Http\Controllers\Api\V1\PackQuotaController;
 use App\Http\Controllers\Api\V1\PanelLaboController;
+use App\Http\Controllers\Api\V1\DemandeRattachementController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PrestationController;
@@ -153,6 +154,8 @@ Route::prefix('v1')->group(function (): void {
         Route::get('accueil', AccueilController::class);
         Route::get('animaux', [AnimalController::class, 'index']);
         Route::post('animaux', [AnimalController::class, 'store']);
+        Route::post('animaux/reclamer', [AnimalController::class, 'reclamer']);
+        Route::get('animaux/rattachements', [AnimalController::class, 'rattachements']);
         Route::get('animaux/{animal}', [AnimalController::class, 'show']);
         Route::get('rendez-vous', [RendezVousProprietaireController::class, 'index']);
         Route::post('rendez-vous/{rendezVous}/annuler', [RendezVousProprietaireController::class, 'annuler']);
@@ -246,6 +249,13 @@ Route::prefix('v1')->group(function (): void {
         Route::apiResource('clients', ClientController::class)->except('destroy');
         Route::post('clients/{client}/compte', [CompteClientController::class, 'creer']);
         Route::delete('clients/{client}/compte', [CompteClientController::class, 'supprimer']);
+
+        // Demandes de rattachement (un client réclame un animal par sa
+        // puce depuis l'espace) : avant la ressource, sinon
+        // `patients/{patient}` capterait `patients/rattachements`.
+        Route::get('patients/rattachements', [DemandeRattachementController::class, 'index']);
+        Route::post('patients/rattachements/{demande}/accepter', [DemandeRattachementController::class, 'accepter']);
+        Route::post('patients/rattachements/{demande}/refuser', [DemandeRattachementController::class, 'refuser']);
 
         Route::apiResource('patients', PatientController::class)->except('destroy');
 

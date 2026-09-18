@@ -36,7 +36,7 @@ class AccueilProprietaire
         $clientIds = $contexte->clientIds();
         $patientIds = $contexte->patientIds();
 
-        $prochain = $this->prochainRendezVous($clientIds);
+        $prochain = $this->prochainRendezVous($clientIds, $patientIds);
         $rappels = $this->rappels($patientIds);
         $devisASigner = $this->devisASigner($patientIds);
         $commandes = $this->commandes($clientIds);
@@ -54,8 +54,7 @@ class AccueilProprietaire
             'prochain_rendez_vous' => $prochain ? $this->rendezVous($prochain) : null,
             'rappels' => $rappels->values()->all(),
             'a_faire' => $this->aFaire($devisASigner, $commandesPretes, $rappels, $messagesNonLus),
-            'animaux' => Patient::withoutGlobalScopes()
-                ->whereIn('client_id', $clientIds)
+            'animaux' => $contexte->filtrerAnimaux(Patient::withoutGlobalScopes())
                 ->orderBy('nom')
                 ->get()
                 ->map(fn (Patient $patient): array => $this->animal($patient))
@@ -66,16 +65,19 @@ class AccueilProprietaire
         ];
     }
 
-    /** @param  list<int>  $clientIds */
-    private function prochainRendezVous(array $clientIds): ?RendezVous
+    /**
+     * @param  list<int>  $clientIds
+     * @param  list<int>  $patientIds
+     */
+    private function prochainRendezVous(array $clientIds, array $patientIds): ?RendezVous
     {
-        if ($clientIds === []) {
+        if ($clientIds === [] && $patientIds === []) {
             return null;
         }
 
         return RendezVous::withoutGlobalScopes()
             ->with(['clinique', 'lignePlanning', 'patient'])
-            ->whereIn('client_id', $clientIds)
+            ->where(fn ($q) => $q->whereIn('client_id', $clientIds)->orWhereIn('patient_id', $patientIds))
             ->whereIn('status', [StatutRendezVous::Prevu, StatutRendezVous::Salle, StatutRendezVous::Cours])
             ->where('ends_at', '>=', now())
             ->orderBy('starts_at')
