@@ -3,7 +3,6 @@
 namespace App\Http\Middleware;
 
 use App\Auth\ContexteProprietaire;
-use App\Auth\RattachementFichesClient;
 use App\Models\Client;
 use Closure;
 use Illuminate\Http\Request;
@@ -11,23 +10,20 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Espace propriétaire : après `auth:sanctum`, sans contexte clinique.
- * Rattache les fiches en attente (e-mail vérifié), puis charge les
- * fiches client du compte — toutes organisations — dans le
- * ContexteProprietaire. Tout jeton convient : un employé est aussi,
- * parfois, propriétaire d'un animal.
+ * Charge les fiches client rattachées au compte — toutes organisations —
+ * dans le ContexteProprietaire. Aucun rattachement automatique (par
+ * e-mail ou autre) : une fiche n'est liée à un compte que par un geste
+ * de la clinique (compte ouvert depuis la fiche, demande de rattachement
+ * acceptée). Tout jeton convient : un employé est aussi, parfois,
+ * propriétaire d'un animal.
  */
 class AppliquerContexteProprietaire
 {
-    public function __construct(
-        private ContexteProprietaire $contexte,
-        private RattachementFichesClient $rattachement,
-    ) {}
+    public function __construct(private ContexteProprietaire $contexte) {}
 
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
-
-        $this->rattachement->rattacher($user);
 
         $clients = Client::withoutGlobalScopes()
             ->with('organisation')

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\V1\Espace;
 
 use App\Auth\CodeEmail;
-use App\Auth\RattachementFichesClient;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\VerifierEmailCompteRequest;
 use Illuminate\Http\JsonResponse;
@@ -12,8 +11,8 @@ use Illuminate\Http\Request;
 /**
  * Vérification de l'adresse d'un compte déjà connecté (inscrit par
  * passkey, l'adresse n'a pas été prouvée) : même code à 6 chiffres que
- * la connexion. Une fois l'adresse prouvée, les fiches client en
- * attente sont rattachées dans la foulée.
+ * la connexion. L'adresse prouvée sert aux échanges avec les cliniques ;
+ * elle ne rattache aucune fiche (le rattachement passe par la clinique).
  */
 class VerificationEmailController extends Controller
 {
@@ -31,7 +30,6 @@ class VerificationEmailController extends Controller
     public function verifier(
         VerifierEmailCompteRequest $request,
         CodeEmail $codeEmail,
-        RattachementFichesClient $rattachement,
     ): JsonResponse {
         $user = $request->user();
 
@@ -42,9 +40,6 @@ class VerificationEmailController extends Controller
             $user->forceFill(['email_verified_at' => now()])->save();
         }
 
-        return response()->json([
-            'email_verifie' => true,
-            'fiches_rattachees' => $rattachement->rattacher($user),
-        ]);
+        return response()->json(['email_verifie' => true]);
     }
 }

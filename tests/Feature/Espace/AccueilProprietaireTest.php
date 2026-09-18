@@ -52,32 +52,30 @@ class AccueilProprietaireTest extends TestCase
             ->assertJsonPath('data.urgence', null);
     }
 
-    public function test_les_fiches_a_l_email_du_compte_sont_rattachees_seulement_si_l_email_est_verifie(): void
+    public function test_une_fiche_a_l_email_du_compte_n_est_jamais_rattachee_automatiquement(): void
     {
         $fiche = Client::factory()->create(['email' => 'Anna.Meyer@exemple.ch']);
         Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Max']);
 
-        // Inscrit par passkey : adresse non prouvée, rien n'est rattaché.
-        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['email' => 'anna.meyer@exemple.ch', 'email_verified_at' => null]);
-
-        $this->getJson('/api/v1/espace/accueil', $this->enTetes($jeton))
-            ->assertOk()
-            ->assertJsonPath('data.compte.email_verifie', false)
-            ->assertJsonPath('data.compte.fiches', [])
-            ->assertJsonPath('data.animaux', []);
-        $this->assertNull($fiche->fresh()->user_id);
-
-        // Adresse prouvée par code : la fiche et ses animaux apparaissent.
-        $user->forceFill(['email_verified_at' => now()])->save();
+        // Même adresse, même prouvée : le rattachement reste un geste de la clinique.
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['email' => 'anna.meyer@exemple.ch', 'email_verified_at' => now()]);
 
         $this->getJson('/api/v1/espace/accueil', $this->enTetes($jeton))
             ->assertOk()
             ->assertJsonPath('data.compte.email_verifie', true)
+            ->assertJsonPath('data.compte.fiches', [])
+            ->assertJsonPath('data.animaux', []);
+        $this->assertNull($fiche->fresh()->user_id);
+
+        // Rattachée par la clinique (compte ouvert depuis la fiche) : elle apparaît.
+        $fiche->forceFill(['user_id' => $user->id])->save();
+
+        $this->getJson('/api/v1/espace/accueil', $this->enTetes($jeton))
+            ->assertOk()
             ->assertJsonPath('data.compte.fiches.0.id', $fiche->id)
             ->assertJsonPath('data.compte.fiches.0.organisation.id', $fiche->organisation_id)
             ->assertJsonPath('data.animaux.0.nom', 'Max')
             ->assertJsonPath('data.animaux.0.espece_libelle', fn (string $libelle): bool => $libelle !== '');
-        $this->assertSame($user->id, $fiche->fresh()->user_id);
     }
 
     public function test_l_accueil_compose_les_blocs_toutes_cliniques_confondues(): void
@@ -167,7 +165,7 @@ class AccueilProprietaireTest extends TestCase
             ->assertJsonPath('data.compte.fiches.0.id', $fiche->id);
     }
 
-    public function test_la_verification_de_l_email_rattache_les_fiches_en_attente(): void
+    public function test_la_verification_de_l_email_prouve_l_adresse_sans_rattacher_de_fiche(): void
     {
         Notification::fake();
 
@@ -190,10 +188,10 @@ class AccueilProprietaireTest extends TestCase
         $this->postJson('/api/v1/espace/email/verifier', ['code' => $code], $this->enTetes($jeton))
             ->assertOk()
             ->assertJsonPath('email_verifie', true)
-            ->assertJsonPath('fiches_rattachees', 1);
+            ->assertJsonMissingPath('fiches_rattachees');
 
         $this->assertNotNull($user->fresh()->email_verified_at);
-        $this->assertSame($user->id, $fiche->fresh()->user_id);
+        $this->assertNull($fiche->fresh()->user_id);
 
         // Déjà vérifiée : plus d'envoi.
         $this->postJson('/api/v1/espace/email/envoyer', [], $this->enTetes($jeton))->assertOk();
