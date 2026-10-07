@@ -1,0 +1,111 @@
+{{--
+    Code à usage unique (connexion, inscription, vérification d'adresse).
+    Identité de la modale de connexion du site : fond nuit, carte vitrée,
+    wordmark manuscrit en dégradé, cadre au liseré dégradé. HTML d'e-mail :
+    tableaux et styles en ligne ; images intégrées (CID), pas de SVG.
+--}}
+@php
+    $icone = $message->embed(resource_path('mail/icon.png'));
+    $wordmark = $message->embed(resource_path('mail/wordmark.png'));
+    $police = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
+@endphp
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <meta name="supported-color-schemes" content="dark">
+    <title>Votre code Veterinary</title>
+    <style>
+        @media (max-width: 480px) {
+            .carte { padding: 34px 20px 30px !important; border-radius: 22px !important; }
+            .code { font-size: 32px !important; letter-spacing: 8px !important; padding: 16px 18px 16px 26px !important; }
+            .titre { font-size: 23px !important; }
+        }
+    </style>
+</head>
+<body style="margin:0; padding:0; background-color:#08070d;">
+    <div style="display:none; max-height:0; overflow:hidden; opacity:0;">Votre code : {{ $code }} — valable {{ $validiteMinutes }} minutes.</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#08070d" style="background-color:#08070d; background-image:radial-gradient(ellipse 80% 50% at 50% 0%, #2a1740 0%, #08070d 70%);">
+        <tr>
+            <td align="center" style="padding:48px 16px 40px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;">
+                    {{-- Marque --}}
+                    <tr>
+                        <td align="center" style="padding-bottom:28px;">
+                            <img src="{{ $icone }}" width="44" height="44" alt="" style="display:block; border:0; border-radius:13px;">
+                        </td>
+                    </tr>
+
+                    {{-- Carte --}}
+                    <tr>
+                        <td class="carte" bgcolor="#13111b" style="background-color:#13111b; border:1px solid #27232f; border-radius:28px; padding:44px 40px 40px;">
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                    <td align="center" style="padding-bottom:26px;">
+                                        <img src="{{ $wordmark }}" width="150" height="39" alt="veterinary" style="display:block; border:0;">
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td class="titre" align="center" style="font-family:{{ $police }}; font-size:26px; line-height:32px; font-weight:700; letter-spacing:-0.4px; color:#ffffff;">
+                                        Votre code de connexion
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td align="center" style="padding:12px 8px 0; font-family:{{ $police }}; font-size:15px; line-height:23px; color:#a39cb4;">
+                                        Saisissez ce code dans Veterinary pour continuer.
+                                    </td>
+                                </tr>
+
+                                {{-- Code dans un cadre au liseré dégradé --}}
+                                <tr>
+                                    <td align="center" style="padding:30px 0 10px;">
+                                        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                                            <tr>
+                                                <td bgcolor="#ee42a1" style="background-color:#ee42a1; background-image:linear-gradient(92deg, #ff9d6b, #ff5fa2 48%, #a06bff); border-radius:20px; padding:2px;">
+                                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                                                        <tr>
+                                                            <td class="code" bgcolor="#0b0a10" style="background-color:#0b0a10; border-radius:18px; padding:20px 28px 20px 40px; font-family:{{ $police }}; font-size:40px; line-height:44px; font-weight:700; letter-spacing:12px; font-variant-numeric:tabular-nums; color:#ffffff;">{{ $code }}</td>
+                                                        </tr>
+                                                    </table>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+
+                                <tr>
+                                    <td align="center" style="padding:14px 8px 0; font-family:{{ $police }}; font-size:14px; line-height:21px; color:#a39cb4;">
+                                        Valable <strong style="color:#ffffff; font-weight:600;">{{ $validiteMinutes }} minutes</strong>, à usage unique.
+                                    </td>
+                                </tr>
+
+                                <tr>
+                                    <td style="padding-top:32px;">
+                                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                                            <tr>
+                                                <td style="border-top:1px solid #27232f; padding-top:22px; font-family:{{ $police }}; font-size:13px; line-height:20px; color:#7d7690; text-align:center;">
+                                                    Vous n’êtes pas à l’origine de cette demande ? Ignorez cet e-mail : personne ne peut se connecter sans ce code.
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    {{-- Pied --}}
+                    <tr>
+                        <td align="center" style="padding:26px 12px 0; font-family:{{ $police }}; font-size:12px; line-height:19px; color:#5d566e;">
+                            Veterinary · Cliniques vétérinaires en Suisse<br>
+                            E-mail automatique, merci de ne pas y répondre.
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

@@ -6,6 +6,11 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
+/**
+ * Code à usage unique (connexion, inscription, vérification d'adresse) :
+ * gabarit maison aux couleurs du site (resources/views/mail/code*),
+ * version HTML et texte.
+ */
 class CodeEmailNotification extends Notification
 {
     use Queueable;
@@ -25,9 +30,9 @@ class CodeEmailNotification extends Notification
     {
         return (new MailMessage)
             ->subject('Votre code de connexion')
-            ->greeting('Bonjour,')
-            ->line("Votre code de connexion : **{$this->code}**")
-            ->line("Il est valable {$this->validiteMinutes} minutes et à usage unique.")
-            ->line('Si vous n’êtes pas à l’origine de cette demande, ignorez cet e-mail.');
+            ->view(['html' => 'mail.code', 'text' => 'mail.code-texte'], [
+                'code' => $this->code,
+                'validiteMinutes' => $this->validiteMinutes,
+            ]);
     }
 }
