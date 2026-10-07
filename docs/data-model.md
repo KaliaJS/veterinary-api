@@ -1016,7 +1016,12 @@ l'organisation ne l'active pas.
 | `organisation_id` | FK unique | Organisation propriétaire du site |
 | `slug` | string(60) unique | Adresse publique `/site/{slug}`, tirée du nom à la création |
 | `est_publie` | bool | Servi publiquement seulement si vrai |
-| `couleur` | enum | `sauge` \| `ocean` \| `terracotta` \| `prune` \| `ardoise` (teinte du rendu) |
+| `couleur` | enum | `sauge` \| `ocean` \| `terracotta` \| `prune` \| `ardoise` \| `perso` (teinte du rendu) |
+| `couleur_perso` | `#rrggbb` nullable | Couleur libre, requise quand `couleur` = `perso` |
+| `mode` | enum | `clair` \| `sombre` |
+| `police` | enum | Style des titres : `moderne` \| `elegante` \| `douce` |
+| `coins` | enum | `arrondis` \| `droits` |
+| `logo_chemin` | string nullable | Logo de l'organisation (PNG, JPG ou WebP, 2 Mo ; pas de SVG), disque privé, servi par `/public/sites/{slug}/logo` même non publié ; exposé aussi par l'annuaire (`logo_url`) |
 | `accroche`, `presentation` | string / text | Texte d'accueil |
 | `email`, `tel_urgences` | string nullable | Contact propre au site |
 | `services` | JSON `[{titre, description}]` | Ordonné ; services de départ à la création |

@@ -8,6 +8,8 @@ use App\Models\HoraireOuverture;
 use App\Models\Role;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -208,5 +210,71 @@ class SiteWebTest extends TestCase
         $this->getJson('/api/v1/public/cliniques')
             ->assertJsonPath('data.0.site_slug', 'deux-rives-veterinaires')
             ->assertJsonPath('data.1.site_slug', 'deux-rives-veterinaires');
+    }
+
+    public function test_l_apparence_se_regle_theme_ou_manuellement(): void
+    {
+        $this->patchJson('/api/v1/site', [
+            'couleur' => 'perso',
+            'couleur_perso' => '#1F6F5C',
+            'mode' => 'sombre',
+            'police' => 'elegante',
+            'coins' => 'droits',
+        ], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.couleur', 'perso')
+            ->assertJsonPath('data.couleur_perso', '#1F6F5C')
+            ->assertJsonPath('data.mode', 'sombre')
+            ->assertJsonPath('data.police', 'elegante')
+            ->assertJsonPath('data.coins', 'droits');
+
+        $this->patchJson('/api/v1/site', ['couleur' => 'perso', 'couleur_perso' => 'vert'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('couleur_perso');
+
+        $this->patchJson('/api/v1/site', ['couleur' => 'perso', 'couleur_perso' => null], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('couleur_perso');
+
+        $this->patchJson('/api/v1/site', ['mode' => 'fluo'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('mode');
+    }
+
+    public function test_le_logo_se_televerse_se_sert_et_se_supprime(): void
+    {
+        Storage::fake('local');
+
+        $url = $this->post('/api/v1/site/logo', ['logo' => UploadedFile::fake()->image('logo.png', 256, 256)], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])
+            ->assertOk()
+            ->json('data.logo_url');
+
+        $this->assertNotNull($url);
+        $this->get($url)->assertOk()->assertHeader('Content-Type', 'image/png');
+
+        // Le site n'est pas publié : le logo est servi quand même, et l'annuaire l'expose.
+        $this->getJson('/api/v1/public/cliniques')->assertJsonPath('data.0.logo_url', $url);
+
+        $this->deleteJson('/api/v1/site/logo', [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.logo_url', null);
+
+        $this->get($url)->assertNotFound();
+        $this->assertSame([], Storage::disk('local')->allFiles('logos'));
+    }
+
+    public function test_un_logo_svg_est_refuse_et_un_veterinaire_ne_peut_pas_televerser(): void
+    {
+        Storage::fake('local');
+        $this->getJson('/api/v1/site', $this->enTetes($this->jeton));
+
+        $this->post('/api/v1/site/logo', ['logo' => UploadedFile::fake()->create('logo.svg', 4, 'image/svg+xml')], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('logo');
+
+        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+
+        $this->post('/api/v1/site/logo', ['logo' => UploadedFile::fake()->image('logo.png')], $this->enTetes($jeton) + ['Accept' => 'application/json'])
+            ->assertForbidden();
     }
 }

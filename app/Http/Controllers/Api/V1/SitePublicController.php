@@ -8,6 +8,8 @@ use App\Models\Organisation;
 use App\Models\SiteWeb;
 use App\Services\HorairesSiteWeb;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Site public d'une organisation (visiteur sans compte) : contenu
@@ -26,7 +28,7 @@ class SitePublicController extends Controller
 
         return response()->json(['data' => [
             'slug' => $site->slug,
-            'couleur' => $site->couleur,
+            ...$site->apparence(),
             'accroche' => $site->accroche,
             'presentation' => $site->presentation,
             'email' => $site->email,
@@ -47,5 +49,20 @@ class SitePublicController extends Controller
                 'horaires' => $horaires->pour($clinique),
             ])->values()->all(),
         ]]);
+    }
+
+    /**
+     * Logo de l'organisation — servi même si le site n'est pas publié
+     * (aperçu de l'éditeur, annuaire des cliniques). Mis en cache : l'URL
+     * change avec le fichier.
+     */
+    public function logo(string $slug): StreamedResponse
+    {
+        $site = SiteWeb::withoutGlobalScopes()->where('slug', $slug)->whereNotNull('logo_chemin')->firstOrFail();
+        abort_unless(Storage::disk('local')->exists($site->logo_chemin), 404);
+
+        return Storage::disk('local')->response($site->logo_chemin, null, [
+            'Cache-Control' => 'public, max-age=31536000, immutable',
+        ]);
     }
 }

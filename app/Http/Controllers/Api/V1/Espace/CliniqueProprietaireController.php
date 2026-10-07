@@ -37,8 +37,8 @@ class CliniqueProprietaireController extends Controller
             ->orderBy('id')
             ->get();
 
-        // Site web publié de l'organisation de chaque clinique (lien depuis l'annuaire).
-        $sites = SiteWeb::withoutGlobalScopes()->where('est_publie', true)->pluck('slug', 'organisation_id');
+        // Site web de l'organisation de chaque clinique : lien s'il est publié, logo dans tous les cas.
+        $sites = SiteWeb::withoutGlobalScopes()->get()->keyBy('organisation_id');
 
         return response()->json(['data' => $cliniques->map(fn (Clinique $clinique): array => [
             'id' => $clinique->id,
@@ -50,7 +50,8 @@ class CliniqueProprietaireController extends Controller
             'latitude' => $clinique->latitude === null ? null : (float) $clinique->latitude,
             'longitude' => $clinique->longitude === null ? null : (float) $clinique->longitude,
             'organisation' => ['id' => $clinique->societe->organisation->id, 'nom' => $clinique->societe->organisation->nom],
-            'site_slug' => $sites[$clinique->societe->organisation->id] ?? null,
+            'site_slug' => ($site = $sites[$clinique->societe->organisation->id] ?? null)?->est_publie ? $site->slug : null,
+            'logo_url' => $site?->logoUrl(),
             'creneaux' => $sousContexte->pour($clinique, fn (): array => $this->creneaux($calculateur)),
         ])->all()]);
     }

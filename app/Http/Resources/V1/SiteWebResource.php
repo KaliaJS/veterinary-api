@@ -24,7 +24,7 @@ class SiteWebResource extends JsonResource
         return [
             'slug' => $this->slug,
             'est_publie' => $this->est_publie,
-            'couleur' => $this->couleur,
+            ...$this->apparence(),
             'couleurs' => SiteWeb::COULEURS,
             'accroche' => $this->accroche,
             'presentation' => $this->presentation,

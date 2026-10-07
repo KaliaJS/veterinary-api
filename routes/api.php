@@ -91,6 +91,7 @@ use App\Http\Controllers\Api\V1\ResultatAnalyseController;
 use App\Http\Controllers\Api\V1\SalleController;
 use App\Http\Controllers\Api\V1\SejourController;
 use App\Http\Controllers\Api\V1\SessionTeleconsultationController;
+use App\Http\Controllers\Api\V1\SiteLogoController;
 use App\Http\Controllers\Api\V1\SitePublicController;
 use App\Http\Controllers\Api\V1\SiteWebController;
 use App\Http\Controllers\Api\V1\SocieteController;
@@ -148,6 +149,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
         // Site web publié d'une organisation et de toutes ses cliniques.
         Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
+        Route::get('sites/{slug}/logo', [SitePublicController::class, 'logo'])->where('slug', '[a-z0-9-]+')->name('site.logo')->withoutMiddleware('throttle:60,1');
     });
 
     // Espace propriétaire (portail client du proto) : tout compte
@@ -211,6 +213,8 @@ Route::prefix('v1')->group(function (): void {
         // domaine organisation, contrôlé par la Policy.
         Route::get('site', [SiteWebController::class, 'afficher']);
         Route::patch('site', [SiteWebController::class, 'modifier']);
+        Route::post('site/logo', [SiteLogoController::class, 'televerser']);
+        Route::delete('site/logo', [SiteLogoController::class, 'supprimer']);
 
         // Annuaire de la clinique pour la grille (identité, ligne,
         // poste) — domaine planning, sans les données RH d'/equipe.
