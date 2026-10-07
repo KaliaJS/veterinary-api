@@ -61,7 +61,7 @@ class AnnuaireEmployeTest extends TestCase
             ->assertJsonPath('data.1.ligne_planning_id', $ligne->id);
 
         $this->assertEqualsCanonicalizing(
-            ['id', 'clinique_id', 'nom', 'initiales', 'titre', 'role_libelle', 'ligne_planning_id', 'acces_suspendu'],
+            ['id', 'clinique_id', 'nom', 'initiales', 'titre', 'role_libelle', 'photo_url', 'ligne_planning_id', 'acces_suspendu'],
             array_keys($reponse->json('data.1')),
         );
         $this->assertStringNotContainsString('9800', $reponse->getContent());
