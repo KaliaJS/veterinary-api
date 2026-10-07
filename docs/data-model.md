@@ -1029,6 +1029,17 @@ l'organisation ne l'active pas.
 | `equipe_masquee` | JSON `[employe_id]` | L'équipe vient des **employés** présentables (accès actif, contrat non terminé) de toutes les cliniques ; le site ne retient que les personnes cachées |
 | `actualites` | JSON `[{titre, texte, date}]` | Servies de la plus récente à la plus ancienne |
 
+**Domaine personnalisé** (étape 1, domaine déjà possédé) : `domaine`
+(unique, normalisé, punycode), `domaine_statut` (`attente` \| `actif` \|
+`erreur`), `domaine_erreur`, `domaine_fournisseur_id` (Cloudflare),
+`domaine_verifie_le`. L'éditeur indique l'enregistrement DNS à créer
+(CNAME vers `SITES_CIBLE_CNAME`, ou A vers `SITES_IP` pour un domaine
+nu) ; actif dès que le domaine pointe vers nous (et, avec Cloudflare for
+SaaS, que le certificat est émis) ; revérifié toutes les 10 minutes.
+`/public/domaines/{domaine}` renvoie le slug d'un domaine actif ;
+`/public/domaines-autorises?domain=` répond 204/404 au serveur qui émet
+les certificats à la demande.
+
 Adresses, téléphones, e-mails, coordonnées GPS, **équipe** (nom, rôle,
 clinique, photo — `employes.photo_chemin`, privée, servie par
 `/public/photos/{fichier}` au nom imprévisible) et **horaires** ne sont pas

@@ -7,6 +7,9 @@ use App\Auth\ContexteProprietaire;
 use App\Enums\DomainePermission;
 use App\Models\JetonApi;
 use App\Models\User;
+use App\Services\Domaines\FournisseurCloudflare;
+use App\Services\Domaines\FournisseurDomaines;
+use App\Services\Domaines\FournisseurManuel;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -23,6 +26,11 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->scoped(ContexteClinique::class);
         $this->app->scoped(ContexteProprietaire::class);
+
+        // Domaines personnalisés des sites : fournisseur choisi par configuration
+        $this->app->bind(FournisseurDomaines::class, fn ($app) => config('sites.domaines.fournisseur') === 'cloudflare'
+            ? $app->make(FournisseurCloudflare::class)
+            : $app->make(FournisseurManuel::class));
     }
 
     /**

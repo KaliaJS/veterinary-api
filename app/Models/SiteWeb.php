@@ -51,7 +51,7 @@ class SiteWeb extends Model
     ];
 
     protected $fillable = [
-        'organisation_id', 'slug', 'est_publie', 'couleur', 'mode', 'couleur_perso', 'police', 'coins', 'logo_chemin', 'accroche', 'presentation',
+        'organisation_id', 'slug', 'domaine', 'domaine_statut', 'domaine_erreur', 'domaine_fournisseur_id', 'domaine_verifie_le', 'est_publie', 'couleur', 'mode', 'couleur_perso', 'police', 'coins', 'logo_chemin', 'accroche', 'presentation',
         'tel_urgences', 'afficher_tel', 'afficher_email', 'services', 'equipe_masquee', 'actualites',
     ];
 
@@ -59,6 +59,7 @@ class SiteWeb extends Model
     {
         return [
             'est_publie' => 'boolean',
+            'domaine_verifie_le' => 'datetime',
             'services' => 'array',
             'equipe_masquee' => 'array',
             'afficher_tel' => 'boolean',
@@ -117,6 +118,37 @@ class SiteWeb extends Model
             ])
             ->values()
             ->all();
+    }
+
+    /**
+     * Domaine personnalisé pour l'éditeur : statut et enregistrement DNS
+     * à créer chez le registraire (CNAME pour un sous-domaine, A pour un
+     * domaine nu si une IP est configurée).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function domaineInfo(): ?array
+    {
+        if (! $this->domaine) {
+            return null;
+        }
+
+        $etiquettes = explode('.', $this->domaine);
+        $estNu = count($etiquettes) === 2;
+        $ip = config('sites.domaines.ip');
+
+        $enregistrement = $estNu && $ip
+            ? ['type' => 'A', 'nom' => '@', 'valeur' => $ip]
+            : ['type' => 'CNAME', 'nom' => $estNu ? '@' : implode('.', array_slice($etiquettes, 0, -2)), 'valeur' => config('sites.domaines.cible_cname')];
+
+        return [
+            'nom' => $this->domaine,
+            'statut' => $this->domaine_statut,
+            'erreur' => $this->domaine_erreur,
+            'verifie_le' => $this->domaine_verifie_le?->toIso8601String(),
+            'est_nu' => $estNu,
+            'enregistrement' => $enregistrement,
+        ];
     }
 
     /** URL publique du logo (versionnée pour le cache), ou null. */

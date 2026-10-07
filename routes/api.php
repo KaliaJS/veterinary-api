@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\V1\DemandeRendezVousController;
 use App\Http\Controllers\Api\V1\DevisController;
 use App\Http\Controllers\Api\V1\DisponibiliteController;
 use App\Http\Controllers\Api\V1\DocumentController;
+use App\Http\Controllers\Api\V1\DomainePublicController;
 use App\Http\Controllers\Api\V1\EncaissementController;
 use App\Http\Controllers\Api\V1\EquipeEmployeController;
 use App\Http\Controllers\Api\V1\Espace\AccueilController;
@@ -92,6 +93,7 @@ use App\Http\Controllers\Api\V1\ResultatAnalyseController;
 use App\Http\Controllers\Api\V1\SalleController;
 use App\Http\Controllers\Api\V1\SejourController;
 use App\Http\Controllers\Api\V1\SessionTeleconsultationController;
+use App\Http\Controllers\Api\V1\SiteDomaineController;
 use App\Http\Controllers\Api\V1\SiteLogoController;
 use App\Http\Controllers\Api\V1\SitePublicController;
 use App\Http\Controllers\Api\V1\SiteWebController;
@@ -150,6 +152,9 @@ Route::prefix('v1')->group(function (): void {
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
         // Site web publié d'une organisation et de toutes ses cliniques.
         Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
+        // Domaines personnalisés : site d'un domaine actif ; autorisation de certificat (on-demand TLS)
+        Route::get('domaines/{domaine}', [DomainePublicController::class, 'site'])->where('domaine', '[a-z0-9.-]+');
+        Route::get('domaines-autorises', [DomainePublicController::class, 'autorise'])->withoutMiddleware('throttle:60,1');
         Route::get('photos/{fichier}', [PhotoEmployeController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('employe.photo')->withoutMiddleware('throttle:60,1');
         Route::get('sites/{slug}/logo', [SitePublicController::class, 'logo'])->where('slug', '[a-z0-9-]+')->name('site.logo')->withoutMiddleware('throttle:60,1');
     });
@@ -217,6 +222,9 @@ Route::prefix('v1')->group(function (): void {
         Route::patch('site', [SiteWebController::class, 'modifier']);
         Route::post('site/logo', [SiteLogoController::class, 'televerser']);
         Route::delete('site/logo', [SiteLogoController::class, 'supprimer']);
+        Route::put('site/domaine', [SiteDomaineController::class, 'connecter']);
+        Route::post('site/domaine/verifier', [SiteDomaineController::class, 'verifier']);
+        Route::delete('site/domaine', [SiteDomaineController::class, 'retirer']);
         Route::post('site/equipe/{employe}/photo', [PhotoEmployeController::class, 'televerser'])->whereNumber('employe');
         Route::delete('site/equipe/{employe}/photo', [PhotoEmployeController::class, 'supprimer'])->whereNumber('employe');
 
