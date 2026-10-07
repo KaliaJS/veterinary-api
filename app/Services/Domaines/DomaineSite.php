@@ -3,6 +3,7 @@
 namespace App\Services\Domaines;
 
 use App\Models\SiteWeb;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -45,8 +46,15 @@ class DomaineSite
             'domaine_fournisseur_id' => $identifiant,
             'domaine_verifie_le' => null,
         ]);
+        $this->oublierCacheCors();
 
         $this->verifier($site);
+    }
+
+    /** Les origines CORS des sites suivent les domaines reliés. */
+    private function oublierCacheCors(): void
+    {
+        Cache::forget('sites.domaines.cors');
     }
 
     public function verifier(SiteWeb $site): void
@@ -79,5 +87,6 @@ class DomaineSite
             'domaine_fournisseur_id' => null,
             'domaine_verifie_le' => null,
         ]);
+        $this->oublierCacheCors();
     }
 }

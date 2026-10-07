@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\AppliquerContexteClinique;
 use App\Http\Middleware\AppliquerContexteProprietaire;
+use App\Http\Middleware\AutoriserDomainesSites;
 use App\Http\Middleware\ForcerReponseJson;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -18,6 +19,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prependToGroup('api', ForcerReponseJson::class);
+
+        // Avant HandleCors : les domaines reliés aux sites sont des origines autorisées
+        $middleware->prepend(AutoriserDomainesSites::class);
 
         $middleware->alias([
             'clinique' => AppliquerContexteClinique::class,

@@ -177,4 +177,17 @@ class DomaineSiteTest extends TestCase
 
         $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($jeton))->assertForbidden();
     }
+
+    public function test_le_domaine_relie_devient_une_origine_cors_autorisee(): void
+    {
+        config(['cors.allowed_origins' => ['https://app.veterinary.ch', 'https://app.veterinary.test']]);
+        $origine = fn (string $o): ?string => $this->getJson('/api/v1/public/sites/deux-rives', ['Origin' => $o])->headers->get('Access-Control-Allow-Origin');
+
+        $this->assertNull($origine('https://www.ma-clinique.ch'));
+
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertSame('https://www.ma-clinique.ch', $origine('https://www.ma-clinique.ch'));
+        $this->assertNull($origine('https://inconnu.ch'));
+    }
 }
