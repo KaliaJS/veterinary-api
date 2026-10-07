@@ -36,6 +36,7 @@ class DatabaseSeeder extends Seeder
             BlocSeeder::class,
             LaboratoireSeeder::class,
             ImagerieSeeder::class,
+            SiteWebSeeder::class,
         ]);
     }
 }
