@@ -10,6 +10,7 @@ use App\Http\Requests\V1\Espace\DeposerDemandeRendezVousRequest;
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
 use App\Models\Patient;
+use App\Models\SiteClinique;
 use App\Services\CalculateurCreneaux;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -36,6 +37,9 @@ class CliniqueProprietaireController extends Controller
             ->orderBy('id')
             ->get();
 
+        // Site web publié de chaque clinique (lien depuis l'annuaire).
+        $sites = SiteClinique::withoutGlobalScopes()->where('est_publie', true)->pluck('slug', 'clinique_id');
+
         return response()->json(['data' => $cliniques->map(fn (Clinique $clinique): array => [
             'id' => $clinique->id,
             'nom' => $clinique->nom,
@@ -46,6 +50,7 @@ class CliniqueProprietaireController extends Controller
             'latitude' => $clinique->latitude === null ? null : (float) $clinique->latitude,
             'longitude' => $clinique->longitude === null ? null : (float) $clinique->longitude,
             'organisation' => ['id' => $clinique->societe->organisation->id, 'nom' => $clinique->societe->organisation->nom],
+            'site_slug' => $sites[$clinique->id] ?? null,
             'creneaux' => $sousContexte->pour($clinique, fn (): array => $this->creneaux($calculateur)),
         ])->all()]);
     }

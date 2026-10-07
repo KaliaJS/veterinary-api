@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\V1\CycleDevisController;
 use App\Http\Controllers\Api\V1\CycleInterventionController;
 use App\Http\Controllers\Api\V1\CycleOrdonnanceController;
 use App\Http\Controllers\Api\V1\DecompteAssuranceController;
+use App\Http\Controllers\Api\V1\DemandeRattachementController;
 use App\Http\Controllers\Api\V1\DemandeRendezVousController;
 use App\Http\Controllers\Api\V1\DevisController;
 use App\Http\Controllers\Api\V1\DisponibiliteController;
@@ -74,7 +75,6 @@ use App\Http\Controllers\Api\V1\OrganisationFactureController;
 use App\Http\Controllers\Api\V1\OrganisationHoraireController;
 use App\Http\Controllers\Api\V1\PackQuotaController;
 use App\Http\Controllers\Api\V1\PanelLaboController;
-use App\Http\Controllers\Api\V1\DemandeRattachementController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PrestationController;
@@ -91,6 +91,8 @@ use App\Http\Controllers\Api\V1\ResultatAnalyseController;
 use App\Http\Controllers\Api\V1\SalleController;
 use App\Http\Controllers\Api\V1\SejourController;
 use App\Http\Controllers\Api\V1\SessionTeleconsultationController;
+use App\Http\Controllers\Api\V1\SiteCliniqueController;
+use App\Http\Controllers\Api\V1\SitePublicController;
 use App\Http\Controllers\Api\V1\SocieteController;
 use App\Http\Controllers\Api\V1\SoinSejourController;
 use App\Http\Controllers\Api\V1\SortieSejourController;
@@ -144,6 +146,8 @@ Route::prefix('v1')->group(function (): void {
     Route::prefix('public')->middleware('throttle:60,1')->group(function (): void {
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
+        // Site web publié d'une clinique (accueil, services, équipe, contact).
+        Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
     });
 
     // Espace propriétaire (portail client du proto) : tout compte
@@ -202,6 +206,11 @@ Route::prefix('v1')->group(function (): void {
 
         Route::get('horaires', [HoraireOuvertureController::class, 'afficher']);
         Route::put('horaires', [HoraireOuvertureController::class, 'modifier']);
+
+        // Site web public de la clinique du jeton (éditeur) — domaine
+        // organisation, contrôlé par la Policy.
+        Route::get('site', [SiteCliniqueController::class, 'afficher']);
+        Route::patch('site', [SiteCliniqueController::class, 'modifier']);
 
         // Annuaire de la clinique pour la grille (identité, ligne,
         // poste) — domaine planning, sans les données RH d'/equipe.
