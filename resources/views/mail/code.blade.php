@@ -48,7 +48,7 @@
                                 </tr>
                                 <tr>
                                     <td align="center" style="padding:12px 8px 0; font-family:{{ $police }}; font-size:15px; line-height:23px; color:#a39cb4;">
-                                        Saisissez ce code dans Veterinary pour continuer{{ $lien ? ', ou connectez-vous en un clic.' : '.' }}
+                                        Saisissez ce code dans Veterinary pour continuer.
                                     </td>
                                 </tr>
 
@@ -70,12 +70,24 @@
                                 </tr>
 
                                 @if ($lien)
+                                    {{-- Séparateur « ou » : le code OU le bouton --}}
                                     <tr>
-                                        <td align="center" style="padding:22px 0 4px;">
+                                        <td align="center" style="padding:20px 0 0;">
+                                            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                                                <tr>
+                                                    <td width="56" valign="middle"><div style="height:1px; line-height:1px; font-size:1px; background-color:#34303f;">&nbsp;</div></td>
+                                                    <td style="padding:0 14px; font-family:{{ $police }}; font-size:13px; line-height:16px; color:#7d7690;">ou</td>
+                                                    <td width="56" valign="middle"><div style="height:1px; line-height:1px; font-size:1px; background-color:#34303f;">&nbsp;</div></td>
+                                                </tr>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td align="center" style="padding:18px 0 4px;">
                                             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                                                 <tr>
                                                     <td class="bouton" align="center" bgcolor="#ffffff" style="background-color:#ffffff; border-radius:999px;">
-                                                        <a href="{{ $lien }}" target="_blank" style="display:inline-block; padding:14px 30px; font-family:{{ $police }}; font-size:15px; line-height:20px; font-weight:700; color:#13111b; text-decoration:none; border-radius:999px;">Me connecter</a>
+                                                        <a href="{{ $lien }}" target="_blank" style="display:inline-block; padding:14px 30px; font-family:{{ $police }}; font-size:15px; line-height:20px; font-weight:700; color:#13111b; text-decoration:none; border-radius:999px;">Me connecter en un clic</a>
                                                     </td>
                                                 </tr>
                                             </table>
