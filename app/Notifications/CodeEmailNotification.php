@@ -18,6 +18,7 @@ class CodeEmailNotification extends Notification
     public function __construct(
         public string $code,
         public int $validiteMinutes,
+        public ?string $lien = null,
     ) {}
 
     /** @return list<string> */
@@ -33,6 +34,7 @@ class CodeEmailNotification extends Notification
             ->view(['html' => 'mail.code', 'text' => 'mail.code-texte'], [
                 'code' => $this->code,
                 'validiteMinutes' => $this->validiteMinutes,
+                'lien' => $this->lien,
             ]);
     }
 }

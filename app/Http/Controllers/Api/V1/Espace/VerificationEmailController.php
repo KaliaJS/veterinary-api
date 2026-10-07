@@ -22,7 +22,8 @@ class VerificationEmailController extends Controller
             return response()->json(['message' => 'Adresse déjà vérifiée.'], 200);
         }
 
-        $codeEmail->envoyer($request->user()->email);
+        // Déjà connecté : le code se saisit dans l'espace, sans lien de connexion.
+        $codeEmail->envoyer($request->user()->email, lienConnexion: false);
 
         return response()->json(['message' => 'Un code a été envoyé.'], 202);
     }

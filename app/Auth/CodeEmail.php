@@ -30,14 +30,23 @@ class CodeEmail
 
     public function __construct(private CreationCompte $comptes) {}
 
-    /** Compte connu ou non : le code part vers l'adresse donnée. */
-    public function envoyer(string $email): void
+    /**
+     * Compte connu ou non : le code part vers l'adresse donnée. Avec
+     * `$lienConnexion`, l'e-mail porte aussi un lien qui ouvre le front
+     * et vérifie le code d'un clic — adresse et code dans le fragment
+     * (#), jamais transmis à un serveur, effacés par le front à la lecture.
+     */
+    public function envoyer(string $email, bool $lienConnexion = true): void
     {
         $code = (string) random_int(100000, 999999);
 
         Cache::put($this->cle($email), Hash::make($code), now()->addMinutes(self::VALIDITE_MINUTES));
 
-        $notification = new CodeEmailNotification($code, self::VALIDITE_MINUTES);
+        $lien = $lienConnexion
+            ? rtrim((string) config('app.frontend_url'), '/').'/?connexion=1#email='.rawurlencode($email).'&code='.$code
+            : null;
+
+        $notification = new CodeEmailNotification($code, self::VALIDITE_MINUTES, $lien);
         $user = User::where('email', $email)->first();
 
         if ($user) {
