@@ -44,6 +44,9 @@ class EquipeSeeder extends Seeder
         $organisation = $deuxRives->societe->organisation;
         $roleVeterinaire = $organisation->roles()->where('nom', RolesParDefaut::VETERINAIRE)->firstOrFail();
         $roleAsv = $organisation->roles()->where('nom', RolesParDefaut::ASV)->firstOrFail();
+        // Compte de démonstration (Anna Meyer) : Administrateur, pour accéder
+        // à Organisation et au Site web depuis l'application.
+        $roleAdministrateur = $organisation->roles()->where('nom', RolesParDefaut::ADMINISTRATEUR)->firstOrFail();
 
         $employes = [];
         foreach ($staff as [$cle, $clinique, $userId, $nom, $initiales, $role, $taux, $contrat, $entree, $tel, $mail, $droit, $pris]) {
@@ -53,7 +56,11 @@ class EquipeSeeder extends Seeder
                 'nom' => $nom,
                 'initiales' => $initiales,
                 'role_libelle' => $role,
-                'role_id' => str_starts_with($role, 'Vétérinaire') ? $roleVeterinaire->id : $roleAsv->id,
+                'role_id' => match (true) {
+                    $userId !== null && $userId === $anna?->id => $roleAdministrateur->id,
+                    str_starts_with($role, 'Vétérinaire') => $roleVeterinaire->id,
+                    default => $roleAsv->id,
+                },
                 'taux' => $taux,
                 'contrat' => $contrat,
                 'entree_le' => Carbon::createFromFormat('m.Y', $entree)->startOfMonth(),
