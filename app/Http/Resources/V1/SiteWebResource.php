@@ -4,13 +4,15 @@ namespace App\Http\Resources\V1;
 
 use App\Models\Clinique;
 use App\Models\SiteWeb;
+use App\Services\HorairesSiteWeb;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * Site de l'organisation pour l'éditeur (application clinique). Les
  * actualités sortent de la plus récente à la plus ancienne ; les
- * cliniques présentées sont celles de l'organisation, lues en direct.
+ * cliniques présentées sont celles de l'organisation, lues en direct,
+ * avec leurs horaires mis en forme comme sur le site (aperçu).
  *
  * @mixin SiteWeb
  */
@@ -40,6 +42,8 @@ class SiteWebResource extends JsonResource
                     'rue' => $clinique->rue,
                     'npa' => $clinique->npa,
                     'ville' => $clinique->ville,
+                    // Pour l'aperçu de l'éditeur : mêmes horaires que le site public.
+                    'horaires' => app(HorairesSiteWeb::class)->pour($clinique),
                 ])->values()->all(),
         ];
     }

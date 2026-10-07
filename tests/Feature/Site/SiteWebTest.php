@@ -126,7 +126,10 @@ class SiteWebTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.slug', 'deux-rives-veterinaires')
             ->assertJsonPath('data.accroche', 'Deux cliniques, une équipe')
-            ->assertJsonCount(2, 'data.cliniques');
+            ->assertJsonCount(2, 'data.cliniques')
+            // Aperçu de l'éditeur : horaires de chaque clinique, sans rien écrire pour la sœur.
+            ->assertJsonCount(7, 'data.cliniques.1.horaires.jours')
+            ->assertJsonPath('data.cliniques.1.horaires.jours.6.jour', 'Dimanche');
 
         $this->assertDatabaseCount('sites_web', 1);
     }
