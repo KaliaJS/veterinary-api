@@ -4,6 +4,7 @@ namespace Tests\Feature\Site;
 
 use App\Auth\RolesParDefaut;
 use App\Models\Clinique;
+use App\Models\Employe;
 use App\Models\HoraireOuverture;
 use App\Models\Role;
 use Carbon\CarbonImmutable;
@@ -155,12 +156,11 @@ class SiteWebTest extends TestCase
 
         $this->getJson('/api/v1/public/sites/deux-rives-veterinaires')->assertNotFound();
 
-        $this->patchJson('/api/v1/site', ['est_publie' => true, 'email' => 'accueil@deuxrives.ch'], $this->enTetes($this->jeton))->assertOk();
+        $this->patchJson('/api/v1/site', ['est_publie' => true], $this->enTetes($this->jeton))->assertOk();
 
         $this->getJson('/api/v1/public/sites/deux-rives-veterinaires')
             ->assertOk()
             ->assertJsonPath('data.organisation.nom', 'Deux Rives Vétérinaires')
-            ->assertJsonPath('data.email', 'accueil@deuxrives.ch')
             ->assertJsonPath('data.cliniques.0.nom', 'Deux Rives')
             ->assertJsonCount(7, 'data.cliniques.0.horaires.jours');
     }
@@ -276,5 +276,68 @@ class SiteWebTest extends TestCase
 
         $this->post('/api/v1/site/logo', ['logo' => UploadedFile::fake()->image('logo.png')], $this->enTetes($jeton) + ['Accept' => 'application/json'])
             ->assertForbidden();
+    }
+
+    public function test_l_equipe_vient_des_employes_et_le_site_ne_fait_que_masquer(): void
+    {
+        $soeur = Clinique::factory()->create(['nom' => 'Le Lac', 'societe_id' => $this->clinique->societe_id]);
+        $lea = Employe::factory()->create(['clinique_id' => $soeur->id, 'nom' => 'Léa Fontaine', 'role_libelle' => 'ASV']);
+        Employe::factory()->create(['clinique_id' => $soeur->id, 'nom' => 'Suspendu Durand', 'acces_suspendu' => true]);
+        Employe::factory()->create(['clinique_id' => $soeur->id, 'nom' => 'Parti Martin', 'fin_contrat_le' => now()->subDay()]);
+
+        $equipe = collect($this->getJson('/api/v1/site', $this->enTetes($this->jeton))->assertOk()->json('data.equipe'));
+        $this->assertCount(2, $equipe);
+        $this->assertSame(['nom' => 'Léa Fontaine', 'role' => 'ASV', 'clinique' => 'Le Lac'], collect($equipe->firstWhere('id', $lea->id))->only(['nom', 'role', 'clinique'])->all());
+
+        $this->patchJson('/api/v1/site', ['est_publie' => true, 'equipe_masquee' => [$lea->id]], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.equipe_masquee', [$lea->id]);
+
+        $public = collect($this->getJson('/api/v1/public/sites/deux-rives-veterinaires')->json('data.equipe'));
+        $this->assertCount(1, $public);
+        $this->assertNull($public->firstWhere('nom', 'Léa Fontaine'));
+        $this->assertArrayNotHasKey('est_masque', $public->first());
+    }
+
+    public function test_les_contacts_sont_ceux_des_cliniques_et_le_site_choisit_de_les_afficher(): void
+    {
+        $this->clinique->update(['tel' => '+41 21 601 42 42', 'email' => 'deuxrives@exemple.ch']);
+        $this->publier();
+
+        $this->getJson('/api/v1/public/sites/deux-rives-veterinaires')
+            ->assertJsonPath('data.cliniques.0.tel', '+41 21 601 42 42')
+            ->assertJsonPath('data.cliniques.0.email', 'deuxrives@exemple.ch');
+
+        $this->patchJson('/api/v1/site', ['afficher_tel' => false, 'afficher_email' => false], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.cliniques.0.email', 'deuxrives@exemple.ch');
+
+        $this->getJson('/api/v1/public/sites/deux-rives-veterinaires')
+            ->assertJsonPath('data.cliniques.0.tel', null)
+            ->assertJsonPath('data.cliniques.0.email', null);
+    }
+
+    public function test_la_photo_d_un_employe_se_pose_depuis_le_site_et_sert_partout(): void
+    {
+        Storage::fake('local');
+        $soeur = Clinique::factory()->create(['nom' => 'Le Lac', 'societe_id' => $this->clinique->societe_id]);
+        $lea = Employe::factory()->create(['clinique_id' => $soeur->id, 'nom' => 'Léa Fontaine']);
+        $etranger = Employe::factory()->create(['clinique_id' => Clinique::factory()->create()->id]);
+
+        $reponse = $this->post("/api/v1/site/equipe/{$lea->id}/photo", ['photo' => UploadedFile::fake()->image('lea.jpg', 400, 400)], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])
+            ->assertOk();
+        $url = collect($reponse->json('data.equipe'))->firstWhere('id', $lea->id)['photo_url'];
+
+        $this->assertNotNull($url);
+        $this->get($url)->assertOk();
+        $this->assertSame($url, $lea->refresh()->photoUrl());
+
+        // Hors de l'organisation : introuvable.
+        $this->post("/api/v1/site/equipe/{$etranger->id}/photo", ['photo' => UploadedFile::fake()->image('x.jpg')], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])
+            ->assertNotFound();
+
+        $this->deleteJson("/api/v1/site/equipe/{$lea->id}/photo", [], $this->enTetes($this->jeton))->assertOk();
+        $this->assertNull($lea->refresh()->photo_chemin);
+        $this->get($url)->assertNotFound();
     }
 }

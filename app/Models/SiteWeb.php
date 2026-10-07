@@ -46,11 +46,13 @@ class SiteWeb extends Model
         'mode' => 'clair',
         'police' => 'moderne',
         'coins' => 'arrondis',
+        'afficher_tel' => true,
+        'afficher_email' => true,
     ];
 
     protected $fillable = [
         'organisation_id', 'slug', 'est_publie', 'couleur', 'mode', 'couleur_perso', 'police', 'coins', 'logo_chemin', 'accroche', 'presentation',
-        'email', 'tel_urgences', 'services', 'equipe', 'actualites',
+        'tel_urgences', 'afficher_tel', 'afficher_email', 'services', 'equipe_masquee', 'actualites',
     ];
 
     protected function casts(): array
@@ -58,7 +60,9 @@ class SiteWeb extends Model
         return [
             'est_publie' => 'boolean',
             'services' => 'array',
-            'equipe' => 'array',
+            'equipe_masquee' => 'array',
+            'afficher_tel' => 'boolean',
+            'afficher_email' => 'boolean',
             'actualites' => 'array',
         ];
     }
@@ -86,6 +90,35 @@ class SiteWeb extends Model
         ];
     }
 
+    /**
+     * Équipe de l'organisation telle que le site la connaît : employés
+     * présentables de toutes ses cliniques, avec l'état « masqué ».
+     *
+     * @return list<array{id: int, nom: string, role: string|null, clinique: string|null, photo_url: string|null, est_masque: bool}>
+     */
+    public function equipe(): array
+    {
+        $cliniques = $this->organisation->cliniques()->withoutGlobalScopes()->pluck('cliniques.nom', 'cliniques.id');
+        $plusieurs = $cliniques->count() > 1;
+        $masques = array_map('intval', $this->equipe_masquee ?? []);
+
+        return Employe::withoutGlobalScopes()
+            ->whereIn('clinique_id', $cliniques->keys())
+            ->orderBy('nom')
+            ->get()
+            ->filter(fn (Employe $employe): bool => $employe->estPresentable())
+            ->map(fn (Employe $employe): array => [
+                'id' => $employe->id,
+                'nom' => $employe->nom,
+                'role' => $employe->role_libelle,
+                'clinique' => $plusieurs ? $cliniques[$employe->clinique_id] : null,
+                'photo_url' => $employe->photoUrl(),
+                'est_masque' => in_array($employe->id, $masques, true),
+            ])
+            ->values()
+            ->all();
+    }
+
     /** URL publique du logo (versionnée pour le cache), ou null. */
     public function logoUrl(): ?string
     {
@@ -96,8 +129,8 @@ class SiteWeb extends Model
 
     /**
      * Site de l'organisation du jeton, créé à la première lecture (non
-     * publié, slug tiré du nom, services de départ, équipe reprise des
-     * employés actifs de toutes ses cliniques).
+     * publié, slug tiré du nom, services de départ ; l'équipe vient des
+     * employés, rien n'est recopié).
      */
     public static function courant(): self
     {
@@ -108,25 +141,11 @@ class SiteWeb extends Model
         }
 
         $organisation = Organisation::findOrFail(app(ContexteClinique::class)->organisationId());
-        $cliniques = $organisation->cliniques()->withoutGlobalScopes()->pluck('cliniques.nom', 'cliniques.id');
-        $plusieurs = $cliniques->count() > 1;
 
         $site = static::create([
             'slug' => static::slugDisponible($organisation->nom),
             'services' => static::SERVICES_DE_DEPART,
-            'equipe' => Employe::withoutGlobalScopes()
-                ->whereIn('clinique_id', $cliniques->keys())
-                ->where('acces_suspendu', false)
-                ->orderBy('nom')
-                ->get()
-                ->map(fn (Employe $employe): array => [
-                    'nom' => $employe->nom,
-                    'role' => $employe->role_libelle,
-                    'bio' => null,
-                    'clinique' => $plusieurs ? $cliniques[$employe->clinique_id] : null,
-                ])
-                ->values()
-                ->all(),
+            'equipe_masquee' => [],
             'actualites' => [],
         ]);
         $site->wasRecentlyCreated = false;

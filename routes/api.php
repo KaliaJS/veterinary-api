@@ -77,6 +77,7 @@ use App\Http\Controllers\Api\V1\PackQuotaController;
 use App\Http\Controllers\Api\V1\PanelLaboController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
+use App\Http\Controllers\Api\V1\PhotoEmployeController;
 use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
 use App\Http\Controllers\Api\V1\ProduitController;
@@ -149,6 +150,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
         // Site web publié d'une organisation et de toutes ses cliniques.
         Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
+        Route::get('photos/{fichier}', [PhotoEmployeController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('employe.photo')->withoutMiddleware('throttle:60,1');
         Route::get('sites/{slug}/logo', [SitePublicController::class, 'logo'])->where('slug', '[a-z0-9-]+')->name('site.logo')->withoutMiddleware('throttle:60,1');
     });
 
@@ -215,6 +217,8 @@ Route::prefix('v1')->group(function (): void {
         Route::patch('site', [SiteWebController::class, 'modifier']);
         Route::post('site/logo', [SiteLogoController::class, 'televerser']);
         Route::delete('site/logo', [SiteLogoController::class, 'supprimer']);
+        Route::post('site/equipe/{employe}/photo', [PhotoEmployeController::class, 'televerser'])->whereNumber('employe');
+        Route::delete('site/equipe/{employe}/photo', [PhotoEmployeController::class, 'supprimer'])->whereNumber('employe');
 
         // Annuaire de la clinique pour la grille (identité, ligne,
         // poste) — domaine planning, sans les données RH d'/equipe.

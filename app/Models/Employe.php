@@ -20,7 +20,7 @@ class Employe extends Model
 
     protected $fillable = [
         'clinique_id', 'user_id', 'nom', 'initiales', 'role_libelle', 'role_id',
-        'taux', 'contrat', 'entree_le', 'tel', 'email', 'conges_droit', 'conges_pris',
+        'taux', 'contrat', 'entree_le', 'tel', 'email', 'photo_chemin', 'conges_droit', 'conges_pris',
         'acces_suspendu', 'contrat_statut', 'salaire_mensuel',
         'licenciement_notifie_le', 'fin_contrat_le', 'licenciement_motif',
     ];
@@ -123,6 +123,18 @@ class Employe extends Model
     public function estActif(): bool
     {
         return ! $this->acces_suspendu;
+    }
+
+    /** URL publique de la photo (nom de fichier imprévisible), ou null. */
+    public function photoUrl(): ?string
+    {
+        return $this->photo_chemin ? route('employe.photo', ['fichier' => basename($this->photo_chemin)]) : null;
+    }
+
+    /** Présenté sur le site : accès actif, contrat pas encore terminé. */
+    public function estPresentable(): bool
+    {
+        return ! $this->acces_suspendu && ($this->fin_contrat_le === null || $this->fin_contrat_le->isFuture());
     }
 
     public function estLicencie(): bool

@@ -22,7 +22,7 @@ class SitePublicController extends Controller
 {
     public function afficher(string $slug, HorairesSiteWeb $horaires): JsonResponse
     {
-        $site = SiteWeb::withoutGlobalScopes()->where('slug', $slug)->where('est_publie', true)->firstOrFail();
+        $site = SiteWeb::withoutGlobalScopes()->with('organisation')->where('slug', $slug)->where('est_publie', true)->firstOrFail();
         $organisation = Organisation::findOrFail($site->organisation_id);
         $cliniques = $organisation->cliniques()->withoutGlobalScopes()->orderBy('cliniques.id')->get();
 
@@ -31,10 +31,10 @@ class SitePublicController extends Controller
             ...$site->apparence(),
             'accroche' => $site->accroche,
             'presentation' => $site->presentation,
-            'email' => $site->email,
             'tel_urgences' => $site->tel_urgences,
             'services' => array_values($site->services ?? []),
-            'equipe' => array_values($site->equipe ?? []),
+            'equipe' => collect($site->equipe())->reject(fn (array $m): bool => $m['est_masque'])
+                ->map(fn (array $m): array => collect($m)->except('est_masque')->all())->values()->all(),
             'actualites' => collect($site->actualites ?? [])->sortByDesc('date')->values()->all(),
             'organisation' => ['nom' => $organisation->nom],
             'cliniques' => $cliniques->map(fn (Clinique $clinique): array => [
@@ -43,7 +43,9 @@ class SitePublicController extends Controller
                 'rue' => $clinique->rue,
                 'npa' => $clinique->npa,
                 'ville' => $clinique->ville,
-                'tel' => $clinique->tel,
+                // Coordonnées de la clinique, affichées selon les choix du site
+                'tel' => $site->afficher_tel ? $clinique->tel : null,
+                'email' => $site->afficher_email ? $clinique->email : null,
                 'latitude' => $clinique->latitude === null ? null : (float) $clinique->latitude,
                 'longitude' => $clinique->longitude === null ? null : (float) $clinique->longitude,
                 'horaires' => $horaires->pour($clinique),

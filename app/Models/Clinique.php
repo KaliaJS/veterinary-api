@@ -16,7 +16,7 @@ class Clinique extends Model
 
     protected $fillable = [
         'societe_id', 'nom', 'raison_sociale', 'rue', 'npa', 'ville',
-        'latitude', 'longitude', 'tel', 'fuseau_horaire', 'nombre_boxes',
+        'latitude', 'longitude', 'tel', 'email', 'fuseau_horaire', 'nombre_boxes',
     ];
 
     protected function casts(): array

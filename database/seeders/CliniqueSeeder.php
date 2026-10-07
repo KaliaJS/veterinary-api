@@ -59,6 +59,7 @@ class CliniqueSeeder extends Seeder
             'latitude' => 46.516,
             'longitude' => 6.629,
             'tel' => '+41 21 601 42 42',
+            'email' => 'deuxrives@deuxrives.ch',
             'nombre_boxes' => 8,
         ]);
 
@@ -72,6 +73,7 @@ class CliniqueSeeder extends Seeder
             'latitude' => 46.207,
             'longitude' => 6.162,
             'tel' => '+41 22 736 20 20',
+            'email' => 'lelac@deuxrives.ch',
             'nombre_boxes' => 6,
         ]);
 

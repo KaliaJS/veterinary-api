@@ -29,6 +29,7 @@ class CliniqueResource extends JsonResource
             'latitude' => $this->latitude === null ? null : (float) $this->latitude,
             'longitude' => $this->longitude === null ? null : (float) $this->longitude,
             'tel' => $this->tel,
+            'email' => $this->email,
             'fuseau_horaire' => $this->fuseau_horaire,
             'nombre_boxes' => $this->nombre_boxes,
             'equipe' => EmployeResource::collection($this->whenLoaded('employes')),

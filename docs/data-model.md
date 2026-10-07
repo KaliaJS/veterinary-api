@@ -1023,12 +1023,15 @@ l'organisation ne l'active pas.
 | `coins` | enum | `arrondis` \| `droits` |
 | `logo_chemin` | string nullable | Logo de l'organisation (PNG, JPG ou WebP, 2 Mo ; pas de SVG), disque privé, servi par `/public/sites/{slug}/logo` même non publié ; exposé aussi par l'annuaire (`logo_url`) |
 | `accroche`, `presentation` | string / text | Texte d'accueil |
-| `email`, `tel_urgences` | string nullable | Contact propre au site |
+| `tel_urgences` | string nullable | Numéro d'urgence propre au site |
+| `afficher_tel`, `afficher_email` | bool | Le site affiche ou non le téléphone et l'e-mail **des cliniques** (`cliniques.tel`, `cliniques.email`) — jamais ressaisis |
 | `services` | JSON `[{titre, description}]` | Ordonné ; services de départ à la création |
-| `equipe` | JSON `[{nom, role, bio, clinique}]` | Ordonné ; reprise des employés actifs de toutes les cliniques à la création (clinique renseignée s'il y en a plusieurs), éditable ensuite — publication opt-in de chaque nom |
+| `equipe_masquee` | JSON `[employe_id]` | L'équipe vient des **employés** présentables (accès actif, contrat non terminé) de toutes les cliniques ; le site ne retient que les personnes cachées |
 | `actualites` | JSON `[{titre, texte, date}]` | Servies de la plus récente à la plus ancienne |
 
-Adresses, téléphones, coordonnées GPS et **horaires** ne sont pas
+Adresses, téléphones, e-mails, coordonnées GPS, **équipe** (nom, rôle,
+clinique, photo — `employes.photo_chemin`, privée, servie par
+`/public/photos/{fichier}` au nom imprévisible) et **horaires** ne sont pas
 recopiés : lus sur `cliniques` et `horaires_ouverture`. La route
 publique sert, pour chaque clinique, les sept jours mis en forme
 (plages « 08:00 – 12:30 ») et un statut « Ouvert · jusqu'à … » /

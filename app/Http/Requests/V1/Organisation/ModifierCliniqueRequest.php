@@ -22,6 +22,7 @@ class ModifierCliniqueRequest extends FormRequest
             'latitude' => ['sometimes', 'numeric', 'between:-90,90'],
             'longitude' => ['sometimes', 'numeric', 'between:-180,180'],
             'tel' => ['sometimes', 'nullable', 'string', 'max:30'],
+            'email' => ['sometimes', 'nullable', 'email', 'max:255'],
             'fuseau_horaire' => ['sometimes', 'timezone'],
             'nombre_boxes' => ['sometimes', 'integer', 'between:0,50'],
         ];
