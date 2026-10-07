@@ -7,11 +7,11 @@ use App\Models\User;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Le site public engage l'image de la clinique : réservé au domaine
+ * Le site public engage l'image de l'organisation : réservé au domaine
  * `organisation` (l'Administrateur par défaut, dérogation possible).
- * Une seule ressource par clinique — abilities au niveau de la classe.
+ * Une seule ressource par organisation — abilities au niveau de la classe.
  */
-class SiteCliniquePolicy
+class SiteWebPolicy
 {
     public function viewAny(User $user): bool
     {

@@ -2,20 +2,21 @@
 
 namespace App\Models;
 
-use App\Models\Concerns\AppartientAUneClinique;
+use App\Models\Concerns\AppartientAUneOrganisation;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
 
 /**
- * Site web public d'une clinique, créé à la première lecture depuis
- * l'application (non publié, services de départ, équipe reprise des
- * vétérinaires et ASV de la clinique). Adresse, téléphone et horaires
- * restent ceux de la clinique — jamais recopiés ici.
+ * Site web public d'une organisation — il présente toutes ses
+ * cliniques. Créé à la première lecture depuis l'application (non
+ * publié, services de départ, équipe reprise des employés actifs).
+ * Adresses, téléphones et horaires restent ceux des cliniques —
+ * jamais recopiés ici.
  */
-class SiteClinique extends Model
+class SiteWeb extends Model
 {
-    use AppartientAUneClinique;
+    use AppartientAUneOrganisation;
 
     /** Teintes proposées au rendu du site (le front en porte les valeurs). */
     public const array COULEURS = ['sauge', 'ocean', 'terracotta', 'prune', 'ardoise'];
@@ -28,7 +29,7 @@ class SiteClinique extends Model
         ['titre' => 'Laboratoire et imagerie', 'description' => 'Analyses sanguines, radiographie et échographie sur place.'],
     ];
 
-    protected $table = 'sites_cliniques';
+    protected $table = 'sites_web';
 
     /** Défauts connus du modèle dès la création (la base les porte aussi). */
     protected $attributes = [
@@ -37,7 +38,7 @@ class SiteClinique extends Model
     ];
 
     protected $fillable = [
-        'clinique_id', 'slug', 'est_publie', 'couleur', 'accroche', 'presentation',
+        'organisation_id', 'slug', 'est_publie', 'couleur', 'accroche', 'presentation',
         'email', 'tel_urgences', 'services', 'equipe', 'actualites',
     ];
 
@@ -51,13 +52,13 @@ class SiteClinique extends Model
         ];
     }
 
-    /** @return BelongsTo<Clinique, $this> */
-    public function clinique(): BelongsTo
+    /** @return BelongsTo<Organisation, $this> */
+    public function organisation(): BelongsTo
     {
-        return $this->belongsTo(Clinique::class);
+        return $this->belongsTo(Organisation::class);
     }
 
-    /** Slug libre dérivé du nom de la clinique (suffixe numérique au besoin). */
+    /** Slug libre dérivé du nom de l'organisation (suffixe numérique au besoin). */
     public static function slugDisponible(string $nom, ?int $saufId = null): string
     {
         $base = Str::slug($nom) ?: 'clinique';

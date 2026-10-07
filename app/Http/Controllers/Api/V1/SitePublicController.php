@@ -5,16 +5,18 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Clinique;
 use App\Models\HoraireOuverture;
-use App\Models\SiteClinique;
+use App\Models\Organisation;
+use App\Models\SiteWeb;
 use App\Services\CalculateurCreneaux;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 
 /**
- * Site public d'une clinique (visiteur sans compte) : contenu publié,
- * coordonnées et horaires lus sur la clinique. Les horaires sortent
- * mis en forme (sept jours, plages, statut « ouvert / fermé ») avec les
- * mêmes bornes que le planning — pause comprise, comme à l'accueil.
+ * Site public d'une organisation (visiteur sans compte) : contenu
+ * publié et TOUTES ses cliniques, avec coordonnées et horaires lus sur
+ * chacune. Les horaires sortent mis en forme (sept jours, plages,
+ * statut « ouvert / fermé ») avec les mêmes bornes que le planning —
+ * pause comprise, comme à l'accueil.
  */
 class SitePublicController extends Controller
 {
@@ -22,12 +24,40 @@ class SitePublicController extends Controller
 
     public function afficher(string $slug, CalculateurCreneaux $calculateur): JsonResponse
     {
-        $site = SiteClinique::withoutGlobalScopes()->where('slug', $slug)->where('est_publie', true)->firstOrFail();
-        $clinique = Clinique::withoutGlobalScopes()->findOrFail($site->clinique_id);
-        $horaires = HoraireOuverture::withoutGlobalScopes()->firstOrCreate(['clinique_id' => $clinique->id], HoraireOuverture::DEFAUTS);
+        $site = SiteWeb::withoutGlobalScopes()->where('slug', $slug)->where('est_publie', true)->firstOrFail();
+        $organisation = Organisation::findOrFail($site->organisation_id);
+        $cliniques = $organisation->cliniques()->withoutGlobalScopes()->orderBy('cliniques.id')->get();
 
-        $fuseau = $clinique->fuseau_horaire ?? 'Europe/Zurich';
-        $maintenant = CarbonImmutable::now($fuseau);
+        return response()->json(['data' => [
+            'slug' => $site->slug,
+            'couleur' => $site->couleur,
+            'accroche' => $site->accroche,
+            'presentation' => $site->presentation,
+            'email' => $site->email,
+            'tel_urgences' => $site->tel_urgences,
+            'services' => array_values($site->services ?? []),
+            'equipe' => array_values($site->equipe ?? []),
+            'actualites' => collect($site->actualites ?? [])->sortByDesc('date')->values()->all(),
+            'organisation' => ['nom' => $organisation->nom],
+            'cliniques' => $cliniques->map(fn (Clinique $clinique): array => [
+                'id' => $clinique->id,
+                'nom' => $clinique->nom,
+                'rue' => $clinique->rue,
+                'npa' => $clinique->npa,
+                'ville' => $clinique->ville,
+                'tel' => $clinique->tel,
+                'latitude' => $clinique->latitude === null ? null : (float) $clinique->latitude,
+                'longitude' => $clinique->longitude === null ? null : (float) $clinique->longitude,
+                'horaires' => $this->horaires($calculateur, $clinique),
+            ])->values()->all(),
+        ]]);
+    }
+
+    /** @return array{jours: list<array{jour: string, est_aujourdhui: bool, plages: list<string>}>, est_ouvert: bool, statut: string} */
+    private function horaires(CalculateurCreneaux $calculateur, Clinique $clinique): array
+    {
+        $horaires = HoraireOuverture::withoutGlobalScopes()->firstOrCreate(['clinique_id' => $clinique->id], HoraireOuverture::DEFAUTS);
+        $maintenant = CarbonImmutable::now($clinique->fuseau_horaire ?? 'Europe/Zurich');
         $lundi = $maintenant->startOfWeek(CarbonImmutable::MONDAY)->startOfDay();
 
         $jours = [];
@@ -40,31 +70,7 @@ class SitePublicController extends Controller
             ];
         }
 
-        return response()->json(['data' => [
-            'slug' => $site->slug,
-            'couleur' => $site->couleur,
-            'accroche' => $site->accroche,
-            'presentation' => $site->presentation,
-            'services' => array_values($site->services ?? []),
-            'equipe' => array_values($site->equipe ?? []),
-            'actualites' => collect($site->actualites ?? [])->sortByDesc('date')->values()->all(),
-            'clinique' => [
-                'id' => $clinique->id,
-                'nom' => $clinique->nom,
-                'rue' => $clinique->rue,
-                'npa' => $clinique->npa,
-                'ville' => $clinique->ville,
-                'tel' => $clinique->tel,
-                'email' => $site->email,
-                'tel_urgences' => $site->tel_urgences,
-                'latitude' => $clinique->latitude === null ? null : (float) $clinique->latitude,
-                'longitude' => $clinique->longitude === null ? null : (float) $clinique->longitude,
-            ],
-            'horaires' => [
-                'jours' => $jours,
-                ...$this->statut($calculateur, $horaires, $maintenant),
-            ],
-        ]]);
+        return ['jours' => $jours, ...$this->statut($calculateur, $horaires, $maintenant)];
     }
 
     /**

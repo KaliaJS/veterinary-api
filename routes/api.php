@@ -91,8 +91,8 @@ use App\Http\Controllers\Api\V1\ResultatAnalyseController;
 use App\Http\Controllers\Api\V1\SalleController;
 use App\Http\Controllers\Api\V1\SejourController;
 use App\Http\Controllers\Api\V1\SessionTeleconsultationController;
-use App\Http\Controllers\Api\V1\SiteCliniqueController;
 use App\Http\Controllers\Api\V1\SitePublicController;
+use App\Http\Controllers\Api\V1\SiteWebController;
 use App\Http\Controllers\Api\V1\SocieteController;
 use App\Http\Controllers\Api\V1\SoinSejourController;
 use App\Http\Controllers\Api\V1\SortieSejourController;
@@ -146,7 +146,7 @@ Route::prefix('v1')->group(function (): void {
     Route::prefix('public')->middleware('throttle:60,1')->group(function (): void {
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
-        // Site web publié d'une clinique (accueil, services, équipe, contact).
+        // Site web publié d'une organisation et de toutes ses cliniques.
         Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
     });
 
@@ -207,10 +207,10 @@ Route::prefix('v1')->group(function (): void {
         Route::get('horaires', [HoraireOuvertureController::class, 'afficher']);
         Route::put('horaires', [HoraireOuvertureController::class, 'modifier']);
 
-        // Site web public de la clinique du jeton (éditeur) — domaine
-        // organisation, contrôlé par la Policy.
-        Route::get('site', [SiteCliniqueController::class, 'afficher']);
-        Route::patch('site', [SiteCliniqueController::class, 'modifier']);
+        // Site web public de l'organisation du jeton (éditeur) —
+        // domaine organisation, contrôlé par la Policy.
+        Route::get('site', [SiteWebController::class, 'afficher']);
+        Route::patch('site', [SiteWebController::class, 'modifier']);
 
         // Annuaire de la clinique pour la grille (identité, ligne,
         // poste) — domaine planning, sans les données RH d'/equipe.

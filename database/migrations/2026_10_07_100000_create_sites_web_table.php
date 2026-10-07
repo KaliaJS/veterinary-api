@@ -5,18 +5,19 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Site web public d'une clinique (accueil avec horaires et actualités,
- * services, équipe, contact). Un site par clinique ; les blocs de
- * contenu, courts et ordonnés, vivent en JSON. Adresse, téléphone et
- * horaires ne sont pas dupliqués : lus sur la clinique.
+ * Site web public d'une organisation (accueil avec horaires de chaque
+ * clinique et actualités, services, équipe, contact) : un site par
+ * organisation, qui présente toutes ses cliniques. Les blocs de contenu,
+ * courts et ordonnés, vivent en JSON. Adresses, téléphones et horaires
+ * ne sont pas dupliqués : lus sur les cliniques.
  */
 return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('sites_cliniques', function (Blueprint $table) {
+        Schema::create('sites_web', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('clinique_id')->unique()->constrained()->cascadeOnDelete();
+            $table->foreignId('organisation_id')->unique()->constrained()->cascadeOnDelete();
             $table->string('slug', 60)->unique()->comment('Adresse publique /site/{slug}');
             $table->boolean('est_publie')->default(false);
             $table->string('couleur', 20)->default('sauge');
@@ -25,7 +26,7 @@ return new class extends Migration
             $table->string('email')->nullable();
             $table->string('tel_urgences')->nullable();
             $table->json('services')->comment('[{titre, description}]');
-            $table->json('equipe')->comment('[{nom, role, bio}]');
+            $table->json('equipe')->comment('[{nom, role, bio, clinique}]');
             $table->json('actualites')->comment('[{titre, texte, date}]');
             $table->timestamps();
         });
@@ -33,6 +34,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('sites_cliniques');
+        Schema::dropIfExists('sites_web');
     }
 };

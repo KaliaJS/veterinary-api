@@ -2,26 +2,26 @@
 
 namespace App\Http\Requests\V1\Site;
 
-use App\Models\SiteClinique;
+use App\Models\SiteWeb;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
  * Contenu du site : modification partielle (chaque bloc est remplacé
  * en entier quand il est envoyé). Slug en minuscules et tirets, unique
- * entre toutes les cliniques.
+ * entre toutes les organisations.
  */
 class ModifierSiteRequest extends FormRequest
 {
     /** @return array<string, mixed> */
     public function rules(): array
     {
-        $site = SiteClinique::query()->first();
+        $site = SiteWeb::query()->first();
 
         return [
-            'slug' => ['sometimes', 'string', 'min:3', 'max:60', 'regex:/^[a-z0-9]+(-[a-z0-9]+)*$/', Rule::unique('sites_cliniques', 'slug')->ignore($site?->id)],
+            'slug' => ['sometimes', 'string', 'min:3', 'max:60', 'regex:/^[a-z0-9]+(-[a-z0-9]+)*$/', Rule::unique('sites_web', 'slug')->ignore($site?->id)],
             'est_publie' => ['sometimes', 'boolean'],
-            'couleur' => ['sometimes', Rule::in(SiteClinique::COULEURS)],
+            'couleur' => ['sometimes', Rule::in(SiteWeb::COULEURS)],
             'accroche' => ['sometimes', 'nullable', 'string', 'max:160'],
             'presentation' => ['sometimes', 'nullable', 'string', 'max:2000'],
             'email' => ['sometimes', 'nullable', 'email', 'max:255'],
@@ -33,6 +33,7 @@ class ModifierSiteRequest extends FormRequest
             'equipe.*.nom' => ['required', 'string', 'max:80'],
             'equipe.*.role' => ['nullable', 'string', 'max:80'],
             'equipe.*.bio' => ['nullable', 'string', 'max:400'],
+            'equipe.*.clinique' => ['nullable', 'string', 'max:80'],
             'actualites' => ['sometimes', 'array', 'max:30'],
             'actualites.*.titre' => ['required', 'string', 'max:120'],
             'actualites.*.texte' => ['nullable', 'string', 'max:1500'],
@@ -45,7 +46,7 @@ class ModifierSiteRequest extends FormRequest
     {
         return [
             'slug.regex' => 'Lettres minuscules, chiffres et tirets uniquement.',
-            'slug.unique' => 'Cette adresse est déjà prise par une autre clinique.',
+            'slug.unique' => 'Cette adresse est déjà prise par une autre organisation.',
         ];
     }
 }

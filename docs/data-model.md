@@ -1002,32 +1002,35 @@ utilisateur.
 
 ---
 
-## 17 bis. Site web de la clinique (`sites_cliniques`)
+## 17 bis. Site web de l'organisation (`sites_web`)
 
-Hors prototype (demande du 07.10.2026) : chaque clinique publie un petit
-site épuré depuis l'application — accueil (horaires en tête, actualités),
-services, équipe, contact. Un site par clinique, non publié tant que la
-clinique ne l'active pas.
+Hors prototype (demande du 07.10.2026) : chaque organisation publie un
+petit site épuré depuis l'application — accueil (horaires de chaque
+clinique en tête, actualités), services, équipe, contact. **Un site par
+organisation** : il présente toutes ses cliniques (une organisation à
+une seule clinique n'en montre qu'une). Non publié tant que
+l'organisation ne l'active pas.
 
 | Champ | Type | Description |
 |---|---|---|
-| `clinique_id` | FK unique | Clinique propriétaire du site |
+| `organisation_id` | FK unique | Organisation propriétaire du site |
 | `slug` | string(60) unique | Adresse publique `/site/{slug}`, tirée du nom à la création |
 | `est_publie` | bool | Servi publiquement seulement si vrai |
 | `couleur` | enum | `sauge` \| `ocean` \| `terracotta` \| `prune` \| `ardoise` (teinte du rendu) |
 | `accroche`, `presentation` | string / text | Texte d'accueil |
 | `email`, `tel_urgences` | string nullable | Contact propre au site |
 | `services` | JSON `[{titre, description}]` | Ordonné ; services de départ à la création |
-| `equipe` | JSON `[{nom, role, bio}]` | Ordonné ; reprise des employés actifs à la création, éditable ensuite (publication opt-in de chaque nom) |
+| `equipe` | JSON `[{nom, role, bio, clinique}]` | Ordonné ; reprise des employés actifs de toutes les cliniques à la création (clinique renseignée s'il y en a plusieurs), éditable ensuite — publication opt-in de chaque nom |
 | `actualites` | JSON `[{titre, texte, date}]` | Servies de la plus récente à la plus ancienne |
 
-Adresse, téléphone, coordonnées GPS et **horaires** ne sont pas recopiés :
-lus sur `cliniques` et `horaires_ouverture`. La route publique sert les
-sept jours mis en forme (plages « 08:00 – 12:30 ») et un statut
-« Ouvert · jusqu'à … » / « Fermé · ouvre … » calculé dans le fuseau de la
-clinique, avec les mêmes bornes que le planning (pause comprise).
-Édition réservée au domaine `organisation`. L'annuaire public
-(`/public/cliniques`) expose `site_slug` des sites publiés.
+Adresses, téléphones, coordonnées GPS et **horaires** ne sont pas
+recopiés : lus sur `cliniques` et `horaires_ouverture`. La route
+publique sert, pour chaque clinique, les sept jours mis en forme
+(plages « 08:00 – 12:30 ») et un statut « Ouvert · jusqu'à … » /
+« Fermé · ouvre … » calculé dans son fuseau, avec les mêmes bornes que
+le planning (pause comprise). Édition réservée au domaine
+`organisation`. L'annuaire public (`/public/cliniques`) expose sur
+chaque clinique le `site_slug` publié de son organisation.
 
 ---
 
