@@ -14,8 +14,8 @@ use Tests\TestCase;
 /**
  * Clôture de caisse (Z — docs/data-model.md §6) : l'arrêté couvre les
  * factures payées de la clinique qu'aucune clôture ne couvre, totalise
- * par moyen côté serveur, exige le rapprochement TPE/TWINT et la
- * justification de tout écart d'espèces. Les statistiques de caisse
+ * par moyen côté serveur et exige la justification de tout écart
+ * d'espèces (pas de rapprochement TPE/TWINT manuel). Les statistiques de caisse
  * sont dérivées, rien n'est stocké.
  */
 class ClotureCaisseTest extends TestCase
@@ -59,7 +59,6 @@ class ClotureCaisseTest extends TestCase
         $reponse = $this->postJson('/api/v1/facturation/clotures-caisse', [
             'fond' => 200,
             'especes_comptees' => 245,
-            'tpe_rapproche' => true,
             'nouveau_fond' => 200,
         ], $this->enTetes($this->jeton));
 
@@ -89,17 +88,19 @@ class ClotureCaisseTest extends TestCase
         ], $this->enTetes($this->jeton))->assertUnprocessable();
     }
 
-    public function test_le_rapprochement_tpe_est_obligatoire_quand_le_tpe_a_encaisse(): void
+    public function test_aucun_rapprochement_manuel_n_est_demande_pour_le_tpe_et_twint(): void
     {
         $this->facturePayee(MoyenPaiement::Tpe, 85);
+        $this->facturePayee(MoyenPaiement::Twint, 30);
 
         $this->postJson('/api/v1/facturation/clotures-caisse', [
             'fond' => 200,
             'especes_comptees' => 200,
             'nouveau_fond' => 200,
         ], $this->enTetes($this->jeton))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('tpe_rapproche');
+            ->assertCreated()
+            ->assertJsonPath('data.total_tpe', 85)
+            ->assertJsonPath('data.total_twint', 30);
     }
 
     public function test_un_ecart_de_caisse_exige_une_justification(): void

@@ -629,9 +629,10 @@ REMBOURSÉE). Table `decomptes_assurance` : `facture_id`, `assureur`,
 | `nInv`, `invIds` | int + pivot | Factures couvertes par cette clôture |
 | `note` | text | |
 
-Règles implémentées : rapprochement TPE et TWINT obligatoires (cases à
-cocher) avant clôture ; une facture payée n'est « à clôturer » que si
-aucune clôture ne la couvre. Exports : Z PDF, décompte TVA mensuel PDF,
+Règles implémentées : une facture payée n'est « à clôturer » que si
+aucune clôture ne la couvre ; pas de rapprochement TPE / TWINT manuel
+(les cases à cocher du prototype sont retirées) — il sera automatique
+avec l'intégration Stripe (Terminal pour le TPE, TWINT via Stripe). Exports : Z PDF, décompte TVA mensuel PDF,
 journal des ventes CSV (séparateur `;`, BOM UTF-8, compatible
 Banana / Abacus).
 

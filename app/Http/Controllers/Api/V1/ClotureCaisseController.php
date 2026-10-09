@@ -20,9 +20,10 @@ use Illuminate\Validation\ValidationException;
 /**
  * Clôtures de caisse (Z) de la clinique du jeton. L'arrêté couvre
  * toutes les factures payées de la clinique qu'aucune clôture ne couvre
- * encore ; les totaux par moyen sont calculés côté serveur, le
- * rapprochement TPE/TWINT est exigé quand ces moyens ont encaissé, et
- * tout écart d'espèces doit être justifié.
+ * encore ; les totaux par moyen sont calculés côté serveur et tout
+ * écart d'espèces doit être justifié. Les totaux TPE et TWINT ne sont
+ * plus confirmés à la main (cases à cocher du prototype) : le
+ * rapprochement sera automatique avec l'intégration Stripe.
  */
 class ClotureCaisseController extends Controller
 {
@@ -77,18 +78,6 @@ class ClotureCaisseController extends Controller
         $tpe = $totalPar(MoyenPaiement::Tpe);
         $twint = $totalPar(MoyenPaiement::Twint);
         $especes = $totalPar(MoyenPaiement::Especes);
-
-        if ($tpe > 0 && ! ($donnees['tpe_rapproche'] ?? false)) {
-            throw ValidationException::withMessages([
-                'tpe_rapproche' => 'Rapprochez d’abord le total TPE avec le ticket de clôture du terminal.',
-            ]);
-        }
-
-        if ($twint > 0 && ! ($donnees['twint_rapproche'] ?? false)) {
-            throw ValidationException::withMessages([
-                'twint_rapproche' => 'Rapprochez d’abord le total TWINT.',
-            ]);
-        }
 
         $fond = round((float) $donnees['fond'], 2);
         $comptees = round((float) $donnees['especes_comptees'], 2);
