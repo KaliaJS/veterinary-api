@@ -38,6 +38,11 @@ arbitrages dans le rapport final.
 
 Commiter en fin de domaine, en français. Jamais de push.
 
+Paiements Stripe en local : lancer soi-même, en arrière-plan, le relais
+des webhooks dès qu'on touche à la caisse — `composer stripe:listen`
+(clé de `.env`, la CLI est connectée à un autre compte). Le secret
+qu'il affiche doit être celui de `STRIPE_WEBHOOK_SECRET`.
+
 === foundation rules ===
 
 # Laravel Boost Guidelines
