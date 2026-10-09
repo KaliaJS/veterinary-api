@@ -28,6 +28,16 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // Paiements en caisse (docs/data-model.md §6) : TPE via Stripe
+    // Terminal (lecteurs « smart », pilotés par le serveur) et TWINT via
+    // Stripe. Clés de test en local ; le secret de webhook vient du
+    // Dashboard (ou de `stripe listen`).
+    'stripe' => [
+        'key' => env('STRIPE_KEY'),
+        'secret' => env('STRIPE_SECRET'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

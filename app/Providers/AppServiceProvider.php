@@ -7,6 +7,8 @@ use App\Auth\ContexteProprietaire;
 use App\Enums\DomainePermission;
 use App\Models\JetonApi;
 use App\Models\User;
+use App\Paiements\PasserellePaiement;
+use App\Paiements\PasserelleStripe;
 use App\Services\Domaines\FournisseurCloudflare;
 use App\Services\Domaines\FournisseurDomaines;
 use App\Services\Domaines\FournisseurManuel;
@@ -16,6 +18,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
+use Stripe\StripeClient;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -26,6 +29,13 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->scoped(ContexteClinique::class);
         $this->app->scoped(ContexteProprietaire::class);
+
+        // Paiements en caisse : Stripe (Terminal, TWINT), remplacé par un
+        // double dans les tests
+        $this->app->singleton(PasserellePaiement::class, fn () => new PasserelleStripe(
+            new StripeClient(['api_key' => config('services.stripe.secret') ?: null]),
+            config('services.stripe.webhook_secret'),
+        ));
 
         // Domaines personnalisés des sites : fournisseur choisi par configuration
         $this->app->bind(FournisseurDomaines::class, fn ($app) => config('sites.domaines.fournisseur') === 'cloudflare'

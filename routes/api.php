@@ -75,6 +75,7 @@ use App\Http\Controllers\Api\V1\OrganisationController;
 use App\Http\Controllers\Api\V1\OrganisationFactureController;
 use App\Http\Controllers\Api\V1\OrganisationHoraireController;
 use App\Http\Controllers\Api\V1\PackQuotaController;
+use App\Http\Controllers\Api\V1\PaiementCaisseController;
 use App\Http\Controllers\Api\V1\PanelLaboController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
@@ -102,6 +103,8 @@ use App\Http\Controllers\Api\V1\SoinSejourController;
 use App\Http\Controllers\Api\V1\SortieSejourController;
 use App\Http\Controllers\Api\V1\StatistiquesBoutiqueController;
 use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
+use App\Http\Controllers\Api\V1\StripeWebhookController;
+use App\Http\Controllers\Api\V1\TerminalPaiementController;
 use App\Http\Controllers\Api\V1\TrameImagerieController;
 use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
@@ -142,6 +145,10 @@ Route::prefix('v1')->group(function (): void {
         Route::post('passkeys', [PasskeyController::class, 'enregistrer']);
         Route::delete('passkeys/{passkey}', [PasskeyController::class, 'supprimer']);
     });
+
+    // Webhook Stripe (public, vérifié par signature) : issue des
+    // paiements de caisse — terminal et TWINT.
+    Route::post('stripe/webhook', StripeWebhookController::class);
 
     // Vitrine publique (visiteur non connecté, depuis l'accueil) :
     // boutiques des cliniques et annuaire avec créneaux. Leur contenu ne
@@ -355,6 +362,15 @@ Route::prefix('v1')->group(function (): void {
             Route::post('factures/{facture}/prescriptions', [FacturePrescriptionController::class, 'store']);
             Route::post('factures/{facture}/encaisser', [EncaissementController::class, 'encaisser']);
             Route::post('factures/{facture}/payer-plus-tard', [EncaissementController::class, 'payerPlusTard']);
+
+            // Paiement par Stripe : carte sur un terminal de la clinique, ou TWINT
+            Route::post('factures/{facture}/paiements', [PaiementCaisseController::class, 'store']);
+            Route::get('paiements/{paiement}', [PaiementCaisseController::class, 'show']);
+            Route::post('paiements/{paiement}/annuler', [PaiementCaisseController::class, 'annuler']);
+            Route::post('paiements/{paiement}/simuler-carte', [PaiementCaisseController::class, 'simulerCarte']);
+            Route::get('terminaux', [TerminalPaiementController::class, 'index']);
+            Route::post('terminaux', [TerminalPaiementController::class, 'store']);
+            Route::delete('terminaux/{terminal}', [TerminalPaiementController::class, 'destroy']);
             Route::put('factures/{facture}/decompte', [DecompteAssuranceController::class, 'enregistrer']);
             Route::post('factures/{facture}/decompte/avancer', [DecompteAssuranceController::class, 'avancer']);
 

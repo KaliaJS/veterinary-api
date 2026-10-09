@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
 use App\Enums\StatutFacture;
+use App\Enums\StatutPaiement;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Facturation\EnregistrerFactureRequest;
 use App\Http\Resources\V1\FactureResource;
@@ -37,6 +38,8 @@ class FactureController extends Controller
 
         $factures = Facture::query()
             ->with(['lignes', 'decompte'])
+            // Encaissée par Stripe (terminal, TWINT) : total vérifié, rien à rapprocher
+            ->withExists(['paiements as paye_par_stripe' => fn (Builder $requete) => $requete->where('statut', StatutPaiement::Reussi)])
             ->when($request->enum('statut', StatutFacture::class), fn (Builder $requete, StatutFacture $statut) => $requete->where('statut', $statut))
             ->when($request->integer('patient_id'), fn (Builder $requete, int $patient) => $requete->where('patient_id', $patient))
             ->when($request->integer('clinique_id'), fn (Builder $requete, int $clinique) => $requete->where('clinique_id', $clinique))

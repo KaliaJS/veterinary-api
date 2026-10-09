@@ -37,6 +37,11 @@ class FactureResource extends JsonResource
             'payee_le' => $this->payee_le,
             'stock_sorti' => $this->stock_sorti,
             'cloture_caisse_id' => $this->cloture_caisse_id,
+            // Liste des factures seulement (withExists) : encaissée par Stripe
+            'paye_par_stripe' => $this->when(
+                array_key_exists('paye_par_stripe', $this->getAttributes()),
+                fn (): bool => (bool) $this->paye_par_stripe,
+            ),
             'total_ttc' => $this->whenLoaded('lignes', fn (): float => $this->totalTtc()),
             'montant_tva' => $this->whenLoaded('lignes', fn (): float => $this->montantTva()),
             'lignes' => $this->whenLoaded(

@@ -631,10 +631,46 @@ REMBOURSÉE). Table `decomptes_assurance` : `facture_id`, `assureur`,
 
 Règles implémentées : une facture payée n'est « à clôturer » que si
 aucune clôture ne la couvre ; pas de rapprochement TPE / TWINT manuel
-(les cases à cocher du prototype sont retirées) — il sera automatique
-avec l'intégration Stripe (Terminal pour le TPE, TWINT via Stripe). Exports : Z PDF, décompte TVA mensuel PDF,
-journal des ventes CSV (séparateur `;`, BOM UTF-8, compatible
-Banana / Abacus).
+(les cases à cocher du prototype sont retirées) : carte et TWINT
+encaissés par Stripe sont vérifiés d'office (voir ci-dessous). Exports :
+Z PDF, décompte TVA mensuel PDF, journal des ventes CSV (séparateur `;`,
+BOM UTF-8, compatible Banana / Abacus).
+
+### Paiements Stripe (`paiements`, `terminaux_paiement`)
+
+La carte et TWINT passent par Stripe ; les espèces restent saisies à la
+caisse.
+
+| Champ | Type | Notes |
+|---|---|---|
+| `facture_id`, `clinique_id` | FK | Une ligne par TENTATIVE |
+| `moyen` | enum | `tpe` \| `twint` |
+| `montant` | decimal | Total TTC au lancement |
+| `stripe_payment_intent_id` | string unique | Intention Stripe (CHF, `allowed_payment_method_types`) |
+| `terminal_paiement_id` | FK nullable | Terminal choisi (carte) |
+| `statut` | enum | `en_attente` → `reussi` \| `echoue` \| `annule` |
+| `erreur` | string | Message lisible (refus, terminal hors ligne…) |
+| `url_twint` | text | Page TWINT de Stripe, affichée en QR à la caisse |
+
+- **Carte** : intégration Terminal pilotée par le serveur (WisePOS E,
+  S700). L'API crée l'intention puis `process_payment_intent` sur le
+  lecteur de la clinique. Après un refus, la même intention est
+  représentée (règle Stripe contre les doubles débits) ; une nouvelle
+  tentative annule les précédentes.
+- **TWINT** : intention confirmée côté serveur avec `return_url`
+  (`FRONTEND_URL/paiement-termine`) ; la caisse affiche l'URL de
+  redirection en QR, le client la scanne.
+- **Issue** : webhook `POST /api/v1/stripe/webhook` (signé ;
+  `payment_intent.succeeded|payment_failed|canceled`,
+  `terminal.reader.action_failed`), dédupliqué par id dans
+  `evenements_stripe` ; une intention inconnue est ignorée. La caisse
+  interroge aussi `GET /facturation/paiements/{id}` (filet sans
+  webhook). Réussie, la tentative encaisse la facture une seule fois
+  (verrou) — stock et statut comme l'encaissement manuel.
+- **Terminaux** : appairage par le code du lecteur ; la clinique reçoit
+  sa *location* Stripe (`cliniques.stripe_location_id`) au premier.
+- **Clôture** : la liste des factures expose `paye_par_stripe` ; les
+  totaux carte / TWINT encaissés par Stripe sont vérifiés d'office.
 
 ---
 

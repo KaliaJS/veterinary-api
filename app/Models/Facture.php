@@ -107,6 +107,13 @@ class Facture extends Model
         return $this->hasMany(FacturePrescription::class);
     }
 
+    /** Tentatives de paiement Stripe (TPE, TWINT).
+     * @return HasMany<Paiement, $this> */
+    public function paiements(): HasMany
+    {
+        return $this->hasMany(Paiement::class);
+    }
+
     /** @return HasOne<DecompteAssurance, $this> */
     public function decompte(): HasOne
     {
