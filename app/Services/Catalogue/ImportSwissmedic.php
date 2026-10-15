@@ -154,11 +154,14 @@ final class ImportSwissmedic
                     $nouveauxVaccins[] = $produit->nom_court;
                 }
             } else {
-                $produit->fill($attributs);
-                if ($produit->isDirty(array_diff(array_keys($attributs), ['source_le']))) {
+                // Rien n a changé : aucune écriture (la date de passage du
+                // flux n est posée que sur les produits réellement modifiés)
+                $produit->fill(array_diff_key($attributs, ['source_le' => true]));
+                if ($produit->isDirty()) {
+                    $produit->source_le = $exportLe;
+                    $produit->save();
                     $modifies++;
                 }
-                $produit->save();
             }
             if ($produit->estVaccin()) {
                 $this->poserValencesDuProduit($produit, $atc[$produit->atc_code] ?? '');
