@@ -59,6 +59,7 @@ final class EtatVaccinal
                 'echeance_le' => $echeance?->toDateString(),
                 'injectee_le' => $derniere->injectee_le?->toDateString(),
                 'produit' => $derniere->marque ?: $derniere->produit?->nom_court,
+                'lot' => $derniere->lot,
                 'vaccination_id' => $derniere->id,
                 'injections' => count($injections),
                 'primo' => $primo ? ['faites' => $primo['faites'], 'attendues' => $primo['attendues']] : null,
@@ -85,16 +86,32 @@ final class EtatVaccinal
         }
         $injectee = $nouvelle->injectee_le ?? today();
         $codes = array_keys(self::valencesDe($nouvelle));
-        $fenetre = $injectee->copy()->subWeeks(max(8, 2 * ($schema->primo_intervalle_semaines ?? 4) * max(1, ($schema->primo_injections ?? 1) - 1)));
-        $faites = 1 + $anterieures
-            ->filter(fn (Vaccination $v) => $v->injectee_le && $v->injectee_le->gte($fenetre) && $v->injectee_le->lte($injectee))
+        $couvrantes = $anterieures
+            ->filter(fn (Vaccination $v) => $v->injectee_le && $v->injectee_le->lte($injectee))
             ->filter(fn (Vaccination $v) => array_intersect($codes, array_keys(self::valencesDe($v))) !== [])
-            ->count();
-        if (($schema->primo_injections ?? 1) > 1 && $faites < $schema->primo_injections) {
+            ->sortBy('injectee_le')->values();
+        // Rappel d un animal déjà protégé : une injection couvrante assez
+        // récente (moins de deux fois l intervalle de rappel, 2 ans au
+        // moins), même en retard, ne relance pas la primo-vaccination.
+        $derniere = $couvrantes->last();
+        $tolerance = max(24, 2 * ($schema->rappel_mois ?? 12));
+        if ($derniere && $derniere->injectee_le->gte($injectee->copy()->subMonths($tolerance))) {
+            $fenetre = $injectee->copy()->subWeeks(max(8, 2 * ($schema->primo_intervalle_semaines ?? 4) * max(1, ($schema->primo_injections ?? 1) - 1)));
+            $recentes = $couvrantes->filter(fn (Vaccination $v) => $v->injectee_le->gte($fenetre))->count();
+            if (($schema->primo_injections ?? 1) > 1 && $recentes > 0 && 1 + $recentes < $schema->primo_injections) {
+                return $injectee->copy()->addWeeks($schema->primo_intervalle_semaines ?? 4);
+            }
+            if ($recentes > 0 && $couvrantes->count() <= max(0, ($schema->primo_injections ?? 1) - 1) && $schema->rappel_premier_mois) {
+                return $injectee->copy()->addMonths($schema->rappel_premier_mois);
+            }
+
+            return $schema->rappel_mois ? $injectee->copy()->addMonths($schema->rappel_mois) : null;
+        }
+        // Primo-vaccination (jamais vacciné, ou protection trop ancienne)
+        if (($schema->primo_injections ?? 1) > 1) {
             return $injectee->copy()->addWeeks($schema->primo_intervalle_semaines ?? 4);
         }
-        $premiereSerie = $anterieures->filter(fn (Vaccination $v) => array_intersect($codes, array_keys(self::valencesDe($v))) !== [])->count() <= max(0, ($schema->primo_injections ?? 1) - 1);
-        if ($premiereSerie && $schema->rappel_premier_mois) {
+        if ($schema->rappel_premier_mois) {
             return $injectee->copy()->addMonths($schema->rappel_premier_mois);
         }
 
@@ -120,6 +137,13 @@ final class EtatVaccinal
         $fenetre = $derniere->injectee_le->copy()->subWeeks(2 * $intervalle * ($schema->primo_injections - 1) + 4);
         $faites = count(array_filter($injections, fn (Vaccination $v) => $v->injectee_le && $v->injectee_le->gte($fenetre)));
         if ($faites >= $schema->primo_injections) {
+            return null;
+        }
+        // Rappel d un animal déjà protégé (injection plus ancienne mais
+        // pas trop) : pas une primo-vaccination
+        $tolerance = max(24, 2 * ($schema->rappel_mois ?? 12));
+        $ancienne = array_filter($injections, fn (Vaccination $v) => $v->injectee_le && $v->injectee_le->lt($fenetre) && $v->injectee_le->gte($derniere->injectee_le->copy()->subMonths($tolerance)));
+        if ($ancienne !== []) {
             return null;
         }
         // Primo abandonnée depuis longtemps : on juge sur l échéance normale

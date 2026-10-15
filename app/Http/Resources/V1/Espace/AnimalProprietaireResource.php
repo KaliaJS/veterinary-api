@@ -91,6 +91,7 @@ class AnimalProprietaireResource extends JsonResource
             'nom' => $etat['nom'],
             'nom_court' => $etat['nom_court'],
             'produit' => $etat['produit'],
+            'lot' => $etat['lot'],
             'injectee_le' => $etat['injectee_le'],
             'echeance_le' => $etat['echeance_le'],
             'jours' => $etat['jours'],
