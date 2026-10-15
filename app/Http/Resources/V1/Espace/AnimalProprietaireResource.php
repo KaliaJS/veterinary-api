@@ -3,9 +3,8 @@
 namespace App\Http\Resources\V1\Espace;
 
 use App\Models\Patient;
-use App\Models\Vaccination;
 use App\Models\Visite;
-use App\Services\AccueilProprietaire;
+use App\Services\EtatVaccinal;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Carbon;
@@ -77,32 +76,27 @@ class AnimalProprietaireResource extends JsonResource
     }
 
     /**
-     * Carnet : dernière injection par vaccin, échéance et statut
-     * (`retard` : dépassée ; `proche` : à J+30 ; `ok` : au-delà).
+     * Carnet : état par maladie couverte (EtatVaccinal) : dernière injection,
+     * échéance, statut (`retard`, `primo`, `proche`, `ok`, `inconnu`),
+     * produit. Les clés `id`, `nom`, `injectee_le`, `echeance_le`, `jours`,
+     * `statut` restent celles du proto.
      *
      * @return list<array<string, mixed>>
      */
     private function carnet(): array
     {
-        $aujourdhui = today();
-
-        return $this->vaccinations
-            ->sortByDesc('injectee_le')
-            ->unique(fn (Vaccination $vaccination): string => mb_strtolower($vaccination->nom))
-            ->sortBy(fn (Vaccination $vaccination) => $vaccination->echeance_le?->timestamp ?? PHP_INT_MAX)
-            ->values()
-            ->map(function (Vaccination $vaccination) use ($aujourdhui): array {
-                $jours = $vaccination->echeance_le ? (int) $aujourdhui->diffInDays($vaccination->echeance_le, false) : null;
-
-                return [
-                    'id' => $vaccination->id,
-                    'nom' => $vaccination->nom,
-                    'injectee_le' => $vaccination->injectee_le?->toDateString(),
-                    'echeance_le' => $vaccination->echeance_le?->toDateString(),
-                    'jours' => $jours,
-                    'statut' => $jours === null ? 'ok' : ($jours < 0 ? 'retard' : ($jours <= AccueilProprietaire::RAPPEL_JOURS ? 'proche' : 'ok')),
-                ];
-            })
-            ->all();
+        return array_map(fn (array $etat): array => [
+            'id' => $etat['vaccination_id'],
+            'valence' => $etat['valence'],
+            'nom' => $etat['nom'],
+            'nom_court' => $etat['nom_court'],
+            'produit' => $etat['produit'],
+            'injectee_le' => $etat['injectee_le'],
+            'echeance_le' => $etat['echeance_le'],
+            'jours' => $etat['jours'],
+            'statut' => $etat['statut'],
+            'primo' => $etat['primo'],
+            'injections' => $etat['injections'],
+        ], EtatVaccinal::parValence($this->vaccinations));
     }
 }

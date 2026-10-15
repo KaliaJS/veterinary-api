@@ -18,12 +18,12 @@ use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\Prestation;
 use App\Models\Produit;
+use App\Models\ProduitVeterinaire;
 use App\Models\RendezVous;
 use App\Services\CreationFacture;
 use App\Services\GestionnaireStock;
 use App\Services\MutationRendezVous;
 use App\Services\Numeroteur;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -215,31 +215,28 @@ class FinConsultationController extends Controller
     }
 
     /**
-     * Une injection du jour ÉCRASE la ligne du même vaccin (même règle
-     * que le carnet — VaccinationController) ; le signataire est
-     * l'employé du jeton.
+     * Injection du jour inscrite au carnet (16.10.2026) : une nouvelle
+     * ligne à chaque fois (historique complet), reliée au produit du
+     * catalogue quand la marque y est, avec ses valences ; le signataire
+     * est l employé du jeton.
      *
      * @param  array<string, mixed>  $vaccination
      */
     private function inscrireAuCarnet(Patient $patient, array $vaccination): void
     {
-        $existante = $patient->vaccinations()
-            ->where(fn (Builder $clause) => $clause
-                ->where('nom', $vaccination['nom'])
-                ->when($vaccination['marque'] ?? null, fn (Builder $requete, string $marque) => $requete->orWhere('marque', $marque)))
-            ->first();
+        $produit = isset($vaccination['marque'])
+            ? ProduitVeterinaire::query()->with('valences')->where('nom_court', $vaccination['marque'])->first()
+            : null;
 
-        $attributs = [
+        $patient->vaccinations()->create([
+            'produit_id' => $produit?->id,
             'nom' => $vaccination['nom'],
             'marque' => $vaccination['marque'] ?? null,
+            'valences' => $produit?->valences->pluck('code')->all() ?: null,
             'lot' => $vaccination['lot'] ?? null,
             'injectee_le' => today(),
-            'echeance_le' => $vaccination['echeance_le'],
+            'echeance_le' => $vaccination['echeance_le'] ?? null,
             'employe_id' => app(ContexteClinique::class)->employe()?->id,
-        ];
-
-        $existante === null
-            ? $patient->vaccinations()->create($attributs)
-            : $existante->update($attributs);
+        ]);
     }
 }

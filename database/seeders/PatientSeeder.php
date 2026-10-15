@@ -9,6 +9,7 @@ use App\Models\Document;
 use App\Models\Organisation;
 use App\Models\Patient;
 use App\Models\Pesee;
+use App\Models\ProduitVeterinaire;
 use App\Models\Vaccination;
 use App\Models\Visite;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
@@ -123,10 +124,14 @@ class PatientSeeder extends Seeder
             $poids *= 1 + fake()->randomFloat(3, -0.024, 0.026);
         }
 
-        foreach (self::PROTOCOLES[$patient->espece->value] as [$maladies, $marque, $annees]) {
+        foreach (self::PROTOCOLES[$patient->espece->value] ?? [] as [$maladies, $marque, $annees]) {
             $injectee = today()->subDays(fake()->numberBetween(100, 430));
+            // (relié au catalogue Swissmedic quand il est importé et que la marque y est)
+            $produit = $marque ? ProduitVeterinaire::query()->with('valences')->where('nom_court', $marque)->first() : null;
             Vaccination::create([
                 'patient_id' => $patient->id,
+                'produit_id' => $produit?->id,
+                'valences' => $produit?->valences->pluck('code')->all() ?: null,
                 'nom' => $maladies,
                 'marque' => $marque,
                 'lot' => $marque ? 'L'.fake()->numberBetween(100, 999).'-'.strtoupper(fake()->randomLetter()).fake()->numberBetween(10, 99) : null,

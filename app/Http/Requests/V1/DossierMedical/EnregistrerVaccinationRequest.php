@@ -3,31 +3,45 @@
 namespace App\Http\Requests\V1\DossierMedical;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 /**
- * « Injection du jour » du carnet : sans date, l'injection est
- * d'aujourd'hui. L'échéance est explicite (le front la calcule du
- * catalogue — 1 an, rage 3 ans) ; le vétérinaire signataire est
- * l'employé du jeton.
+ * Injection du carnet (16.10.2026) : un produit du catalogue (`produit_id`,
+ * ou son code-barres `gtin` qui le retrouve), ou une saisie libre (`nom`,
+ * `marque`, `valences` facultatives). Sans date : aujourd hui ; sans
+ * échéance : calculée du schéma du produit. Lot, péremption du flacon,
+ * voie, site d injection, remarque et réaction sont facultatifs. Le
+ * vétérinaire signataire est l employé du jeton, sauf `employe_id`.
  */
 class EnregistrerVaccinationRequest extends FormRequest
 {
     protected function prepareForValidation(): void
     {
-        // `after:injectee_le` a besoin d'une valeur — le défaut du
-        // carnet est l'injection du jour.
         $this->mergeIfMissing(['injectee_le' => today()->toDateString()]);
+        if ($this->filled('gtin')) {
+            $this->merge(['gtin' => preg_replace('/\D/', '', (string) $this->input('gtin'))]);
+        }
     }
 
     /** @return array<string, mixed> */
     public function rules(): array
     {
         return [
-            'nom' => ['required', 'string', 'max:255'],
+            'produit_id' => ['nullable', 'integer', Rule::exists('produits_veterinaires', 'id')],
+            'gtin' => ['nullable', 'string', 'digits_between:8,14'],
+            'nom' => ['required_without_all:produit_id,gtin', 'nullable', 'string', 'max:255'],
             'marque' => ['nullable', 'string', 'max:255'],
-            'lot' => ['nullable', 'string', 'max:255'],
+            'valences' => ['nullable', 'array', 'max:12'],
+            'valences.*' => ['string', 'max:40', Rule::exists('valences', 'code')],
+            'lot' => ['nullable', 'string', 'max:60'],
+            'peremption_le' => ['nullable', 'date'],
+            'voie' => ['nullable', 'string', 'max:40'],
+            'site_injection' => ['nullable', 'string', 'max:60'],
+            'remarque' => ['nullable', 'string', 'max:2000'],
+            'reaction' => ['nullable', 'string', 'max:2000'],
+            'employe_id' => ['nullable', 'integer', Rule::exists('employes', 'id')],
             'injectee_le' => ['sometimes', 'date', 'before_or_equal:today'],
-            'echeance_le' => ['required', 'date', 'after:injectee_le'],
+            'echeance_le' => ['nullable', 'date', 'after:injectee_le'],
         ];
     }
 }

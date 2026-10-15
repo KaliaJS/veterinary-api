@@ -141,7 +141,7 @@ class FinConsultationTest extends TestCase
         $this->assertSame($ordonnance->numero, $reponse->json('ordonnance.numero'));
     }
 
-    public function test_une_injection_du_jour_ecrase_la_ligne_du_meme_vaccin(): void
+    public function test_une_injection_du_jour_s_ajoute_a_l_historique_du_carnet(): void
     {
         $this->patient->vaccinations()->create([
             'nom' => 'CHPPiL',
@@ -156,9 +156,11 @@ class FinConsultationTest extends TestCase
             'vaccination' => ['nom' => 'CHPPiL', 'echeance_le' => today()->addYear()->toDateString()],
         ], $this->enTetes($this->jeton))->assertOk();
 
-        $vaccination = $this->patient->vaccinations()->sole();
-        $this->assertSame(today()->toDateString(), $vaccination->injectee_le->toDateString());
-        $this->assertSame(today()->addYear()->toDateString(), $vaccination->echeance_le->toDateString());
+        // Historique complet (16.10.2026) : deux lignes, la dernière du jour
+        $vaccinations = $this->patient->vaccinations()->orderByDesc('injectee_le')->get();
+        $this->assertCount(2, $vaccinations);
+        $this->assertSame(today()->toDateString(), $vaccinations->first()->injectee_le->toDateString());
+        $this->assertSame(today()->addYear()->toDateString(), $vaccinations->first()->echeance_le->toDateString());
     }
 
     public function test_sans_fiche_patient_vaccin_et_medicaments_sont_refuses(): void

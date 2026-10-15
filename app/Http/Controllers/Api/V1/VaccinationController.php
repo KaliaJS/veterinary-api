@@ -7,27 +7,35 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\DossierMedical\EnregistrerVaccinationRequest;
 use App\Http\Resources\V1\VaccinationResource;
 use App\Models\Patient;
-use Illuminate\Database\Eloquent\Builder;
+use App\Models\ProduitEmballage;
+use App\Models\ProduitVeterinaire;
+use App\Models\Vaccination;
+use App\Services\EtatVaccinal;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Validation\ValidationException;
 
 /**
- * Carnet de vaccination. Une injection du jour ÉCRASE la ligne du même
- * vaccin (même marque ou mêmes maladies — règle du carnet du front) ;
- * le signataire est l'employé du jeton.
+ * Carnet de vaccination (16.10.2026) : historique complet des injections
+ * (plus d écrasement : chaque injection est une ligne), état par valence
+ * calculé (EtatVaccinal), saisie d une injection depuis le catalogue (ou
+ * son code-barres) ou en texte libre, correction et suppression.
  */
 class VaccinationController extends Controller
 {
-    public function index(Request $request, Patient $patient): AnonymousResourceCollection
+    public function index(Request $request, Patient $patient): JsonResponse
     {
         $this->authorize('view', $patient);
 
-        return VaccinationResource::collection(
-            $patient->vaccinations()
-                ->with(['employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
-                ->orderBy('echeance_le')
-                ->paginate($this->parPage($request)),
-        );
+        $vaccinations = $patient->vaccinations()
+            ->with(['produit.schema', 'produit.valences', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
+            ->orderByDesc('injectee_le')->orderByDesc('id')
+            ->get();
+
+        return response()->json([
+            'data' => VaccinationResource::collection($vaccinations)->resolve($request),
+            'etat' => EtatVaccinal::parValence($vaccinations),
+        ]);
     }
 
     public function store(EnregistrerVaccinationRequest $request, Patient $patient): VaccinationResource
@@ -35,19 +43,89 @@ class VaccinationController extends Controller
         $this->authorize('update', $patient);
 
         $donnees = $request->validated();
+        $produit = $this->produit($donnees);
+        $attributs = $this->attributs($donnees, $produit);
+        $attributs['employe_id'] = $donnees['employe_id'] ?? app(ContexteClinique::class)->employe()?->id;
 
-        $existante = $patient->vaccinations()
-            ->where(fn (Builder $clause) => $clause
-                ->where('nom', $donnees['nom'])
-                ->when($donnees['marque'] ?? null, fn (Builder $requete, string $marque) => $requete->orWhere('marque', $marque)))
-            ->first();
+        $vaccination = $patient->vaccinations()->make($attributs);
+        $vaccination->setRelation('produit', $produit);
+        if (! array_key_exists('echeance_le', $donnees) || $donnees['echeance_le'] === null) {
+            $anterieures = $patient->vaccinations()->with('produit.valences')->get();
+            $vaccination->echeance_le = EtatVaccinal::echeanceProposee($patient, $vaccination, $anterieures);
+        }
+        $vaccination->save();
 
-        $attributs = [...$donnees, 'employe_id' => app(ContexteClinique::class)->employe()?->id];
+        return new VaccinationResource($vaccination->load(['produit', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
+    }
 
-        $vaccination = $existante === null
-            ? $patient->vaccinations()->create($attributs)
-            : tap($existante)->update($attributs);
+    public function update(EnregistrerVaccinationRequest $request, Patient $patient, Vaccination $vaccination): VaccinationResource
+    {
+        $this->authorize('update', $patient);
+        abort_unless($vaccination->patient_id === $patient->id, 404);
 
-        return new VaccinationResource($vaccination);
+        $donnees = $request->validated();
+        $produit = $this->produit($donnees) ?? ($donnees['produit_id'] ?? null ? null : $vaccination->produit);
+        $vaccination->fill($this->attributs($donnees, $produit));
+        if (array_key_exists('employe_id', $donnees)) {
+            $vaccination->employe_id = $donnees['employe_id'];
+        }
+        $vaccination->save();
+
+        return new VaccinationResource($vaccination->load(['produit', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
+    }
+
+    public function destroy(Patient $patient, Vaccination $vaccination): JsonResponse
+    {
+        $this->authorize('update', $patient);
+        abort_unless($vaccination->patient_id === $patient->id, 404);
+        $vaccination->delete();
+
+        return response()->json(null, 204);
+    }
+
+    /** @param  array<string, mixed>  $donnees */
+    private function produit(array $donnees): ?ProduitVeterinaire
+    {
+        if (! empty($donnees['produit_id'])) {
+            return ProduitVeterinaire::query()->with(['valences', 'schema'])->findOrFail($donnees['produit_id']);
+        }
+        if (! empty($donnees['gtin'])) {
+            $emballage = ProduitEmballage::query()->with(['produit.valences', 'produit.schema'])->where('gtin', $donnees['gtin'])->first();
+            if ($emballage === null) {
+                throw ValidationException::withMessages(['gtin' => 'Code-barres inconnu du catalogue.']);
+            }
+
+            return $emballage->produit;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $donnees
+     * @return array<string, mixed>
+     */
+    private function attributs(array $donnees, ?ProduitVeterinaire $produit): array
+    {
+        $valences = $produit?->valences->pluck('code')->all() ?: ($donnees['valences'] ?? null) ?: null;
+        $nomValences = $produit
+            ? $produit->valences->pluck('nom_court')->implode(' · ')
+            : null;
+
+        return array_filter([
+            'produit_id' => $produit?->id,
+            'nom' => $donnees['nom'] ?? $nomValences ?? $produit?->nom_court,
+            'marque' => $donnees['marque'] ?? $produit?->nom_court,
+            'valences' => $valences,
+            'lot' => $donnees['lot'] ?? null,
+            'gtin' => $donnees['gtin'] ?? null,
+            'peremption_le' => $donnees['peremption_le'] ?? null,
+            'voie' => $donnees['voie'] ?? $produit?->schema?->voie,
+            'site_injection' => $donnees['site_injection'] ?? null,
+            'remarque' => $donnees['remarque'] ?? null,
+            'reaction' => $donnees['reaction'] ?? null,
+            'injectee_le' => $donnees['injectee_le'] ?? null,
+            'echeance_le' => $donnees['echeance_le'] ?? null,
+        ], fn ($valeur) => $valeur !== null) + ['echeance_le' => $donnees['echeance_le'] ?? null];
     }
 }

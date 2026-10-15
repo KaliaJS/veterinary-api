@@ -84,7 +84,7 @@ class DossierMedicalTest extends TestCase
         $this->assertDatabaseMissing('pesees', ['id' => $pesee->id]);
     }
 
-    public function test_l_injection_du_jour_ecrase_la_ligne_du_meme_vaccin(): void
+    public function test_l_injection_du_jour_s_ajoute_a_l_historique_du_meme_vaccin(): void
     {
         $entetes = $this->enTetes($this->jeton);
         Vaccination::factory()->for($this->patient)->create([
@@ -99,13 +99,20 @@ class DossierMedicalTest extends TestCase
             'marque' => 'Rabisin',
             'lot' => 'L204-B37',
             'echeance_le' => today()->addYears(3)->toDateString(),
-        ], $entetes)->assertOk();
+        ], $entetes)->assertCreated();
 
-        $vaccinations = $this->patient->vaccinations()->get();
-        $this->assertCount(1, $vaccinations);
+        // Historique complet (16.10.2026) : la nouvelle injection s ajoute,
+        // l ancienne reste ; l état par valence ne retient que la dernière.
+        $vaccinations = $this->patient->vaccinations()->orderByDesc('injectee_le')->get();
+        $this->assertCount(2, $vaccinations);
         $this->assertSame(today()->toDateString(), $vaccinations->first()->injectee_le->toDateString());
         $this->assertSame('L204-B37', $vaccinations->first()->lot);
         $this->assertSame($this->employe->id, $vaccinations->first()->employe_id);
+
+        $etat = $this->getJson("/api/v1/patients/{$this->patient->id}/vaccinations", $entetes)->assertOk()->json('etat');
+        $this->assertCount(1, $etat);
+        $this->assertSame('ok', $etat[0]['statut']);
+        $this->assertSame(2, $etat[0]['injections']);
     }
 
     public function test_un_nouveau_vaccin_ajoute_une_ligne_au_carnet(): void

@@ -1106,6 +1106,22 @@ comme la démo :
 
 ---
 
+## 19. Catalogue des vaccins et carnet (16.10.2026)
+
+Données de plateforme (aucune organisation, aucun scope) :
+
+- `produits_veterinaires` : les 760 médicaments vétérinaires autorisés en Suisse, importés du flux Open Government Data de Swissmedic (ZIP d'XML mensuel, sans clé). Clé : `numero_autorisation`. `categorie` : `vaccin` (code Swissmedic I), `immunologique` (AI, sérums), `medicament`. `especes` (codes `Espece`) déduit du code ATCvet et des mots du nom (« für Hunde, Katzen… ») ; `voies` : codes Swissmedic. Un produit disparu du flux est marqué `retire_le`, jamais supprimé.
+- `produit_emballages` : emballages autorisés (numéro à 8 chiffres = produit + emballage, celui des codes Swissmedic et Refdata) ; `gtin` et `nom_fr` posés par la base d'articles Refdata (ZIP d'XML quotidien, clé de souscription `REFDATA_API_KEY`, passée en paramètre `subscription-key`).
+- `valences` : maladies couvertes, en français (données curées `DonneesVaccins::VALENCES`) ; `produit_valence` : lesquelles par produit, déduites de la description ATCvet (`AGENTS`) ou curées (`PRODUITS[n]['valences']`).
+- `vaccin_schemas` : schéma d'emploi curé par produit (âge minimal, nombre d'injections et intervalle de la primo-vaccination, premier rappel, rappel courant, voie, remarques, source). Jamais écrasé par un import ; les sources « indicatives » restent à confirmer sur l'information professionnelle.
+- `catalogue_imports` : journal (source, empreinte SHA-256, date d'export, comptes, statut `reussi | identique | echec`).
+
+Commandes `catalogue:swissmedic` et `catalogue:refdata` (`--fichier`, `--force`) ; planifiées en production seulement (le 3 du mois à 4 h, le lundi à 4 h 30). Nouveaux vaccins notifiés par e-mail à `CATALOGUE_NOTIFICATION_EMAIL`.
+
+`vaccinations` : chaque injection est une ligne (historique complet, plus d'écrasement), reliée au `produit_id` (ou saisie libre `nom`/`marque`), avec `valences` (photographie des codes au moment de l'injection), `lot`, `gtin`, `peremption_le`, `voie`, `site_injection`, `remarque`, `reaction`, `echeance_le` facultative (calculée du schéma : prochaine dose de primo, premier rappel, rappel courant). `App\Services\EtatVaccinal` dérive l'état par valence (`retard`, `primo`, `proche` à 30 jours, `ok`, `inconnu`) pour l'onglet clinique et le carnet du propriétaire.
+
+Routes : `GET vaccins?espece=&q=`, `GET vaccins/gtin/{gtin}`, `GET|POST patients/{patient}/vaccinations`, `PUT|DELETE patients/{patient}/vaccinations/{vaccination}`.
+
 ## Annexe — récapitulatif des enums
 
 | Enum | Valeurs |

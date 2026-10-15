@@ -108,6 +108,7 @@ use App\Http\Controllers\Api\V1\TerminalPaiementController;
 use App\Http\Controllers\Api\V1\TrameImagerieController;
 use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
+use App\Http\Controllers\Api\V1\VaccinCatalogueController;
 use App\Http\Controllers\Api\V1\VenteComptoirController;
 use App\Http\Controllers\Api\V1\VisiteController;
 use App\Http\Controllers\Api\V1\VitrineController;
@@ -302,6 +303,12 @@ Route::prefix('v1')->group(function (): void {
 
         Route::get('patients/{patient}/vaccinations', [VaccinationController::class, 'index']);
         Route::post('patients/{patient}/vaccinations', [VaccinationController::class, 'store']);
+        Route::put('patients/{patient}/vaccinations/{vaccination}', [VaccinationController::class, 'update']);
+        Route::delete('patients/{patient}/vaccinations/{vaccination}', [VaccinationController::class, 'destroy']);
+
+        // Catalogue des vaccins autorisés en Suisse (Swissmedic, GTIN Refdata)
+        Route::get('vaccins', [VaccinCatalogueController::class, 'index']);
+        Route::get('vaccins/gtin/{gtin}', [VaccinCatalogueController::class, 'gtin']);
 
         Route::get('patients/{patient}/visites', [VisiteController::class, 'index']);
         Route::post('patients/{patient}/visites', [VisiteController::class, 'store']);

@@ -42,7 +42,7 @@ class AnimalController extends Controller
     public function show(ContexteProprietaire $contexte, int $animalId): AnimalProprietaireResource
     {
         $animal = $contexte->filtrerAnimaux(Patient::withoutGlobalScopes())
-            ->with(['organisation', 'courbePoids', 'vaccinations', 'visites.employe'])
+            ->with(['organisation', 'courbePoids', 'vaccinations.produit.schema', 'vaccinations.produit.valences', 'visites.employe'])
             ->findOrFail($animalId);
 
         $animal->ordonnance_active_id = Ordonnance::withoutGlobalScopes()
