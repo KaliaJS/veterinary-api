@@ -178,6 +178,8 @@ Route::prefix('v1')->group(function (): void {
         Route::post('animaux/reclamer', [AnimalController::class, 'reclamer']);
         Route::get('animaux/rattachements', [AnimalController::class, 'rattachements']);
         Route::get('animaux/{animal}', [AnimalController::class, 'show']);
+        Route::put('animaux/{animal}', [AnimalController::class, 'update']);
+        Route::put('animaux/{animal}/acces', [AnimalController::class, 'acces']);
         Route::get('rendez-vous', [RendezVousProprietaireController::class, 'index']);
         Route::post('rendez-vous/{rendezVous}/annuler', [RendezVousProprietaireController::class, 'annuler']);
         Route::post('rendez-vous/{rendezVous}/reporter', [RendezVousProprietaireController::class, 'reporter']);

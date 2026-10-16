@@ -20,7 +20,7 @@ class CarnetSanteController extends Controller
 {
     public function modifierPuce(ModifierPuceRequest $request, Patient $patient): PatientResource
     {
-        $this->authorize('update', $patient);
+        $this->authorize('updateIdentity', $patient);
 
         $patient->update(['puce' => NumeroPuce::formater($request->validated('puce'))]);
 
@@ -29,7 +29,7 @@ class CarnetSanteController extends Controller
 
     public function declarerAmicus(Patient $patient): PatientResource
     {
-        $this->authorize('update', $patient);
+        $this->authorize('updateIdentity', $patient);
 
         if ($patient->espece !== Espece::Chien) {
             throw ValidationException::withMessages([

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AccesClinique;
 use App\Enums\Espece;
 use App\Enums\Sexe;
 use App\Enums\StatutRendezVous;
@@ -19,8 +20,11 @@ class Patient extends Model
     /** @use HasFactory<PatientFactory> */
     use AppartientAUneOrganisation, HasFactory;
 
+    /** Identité de l animal : ce que le propriétaire peut réserver à sa main (AccesClinique) */
+    public const CHAMPS_IDENTITE = ['nom', 'espece', 'race', 'sexe', 'ne_le', 'est_sterilise', 'puce'];
+
     protected $fillable = [
-        'organisation_id', 'client_id', 'proprietaire_id', 'nom', 'espece', 'race', 'sexe',
+        'organisation_id', 'client_id', 'proprietaire_id', 'acces_clinique', 'nom', 'espece', 'race', 'sexe',
         'ne_le', 'est_sterilise', 'puce', 'dette', 'est_agressif',
         'a_allergies', 'traitement_en_cours', 'rappels_coupes',
         'amicus_declare_le', 'client_depuis',
@@ -31,6 +35,7 @@ class Patient extends Model
         return [
             'espece' => Espece::class,
             'sexe' => Sexe::class,
+            'acces_clinique' => AccesClinique::class,
             'ne_le' => 'date',
             'est_sterilise' => 'boolean',
             'dette' => 'decimal:2',
@@ -40,6 +45,18 @@ class Patient extends Model
             'amicus_declare_le' => 'datetime',
             'client_depuis' => 'integer',
         ];
+    }
+
+    /** Fiche gérée par son propriétaire depuis l espace client (compte rattaché) */
+    public function estGereParProprietaire(): bool
+    {
+        return $this->proprietaire_id !== null;
+    }
+
+    /** La clinique peut modifier l identité : fiche de clinique, ou droit « modification » accordé par le propriétaire */
+    public function cliniquePeutModifierIdentite(): bool
+    {
+        return ! $this->estGereParProprietaire() || $this->acces_clinique !== AccesClinique::Lecture;
     }
 
     /** @return BelongsTo<Organisation, $this> */

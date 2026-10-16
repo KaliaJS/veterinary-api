@@ -468,6 +468,8 @@ RDV créés, pas une table.
 | `debt` | decimal | Solde dû en CHF |
 | `sterilized` | enum/bool | STÉRILISÉ(E) \| NON STÉRILISÉ |
 | `chip` | string(15) | Puce format suisse AMICUS « 756 09X XXX XXX XXX » — modifiable depuis le carnet |
+| `proprietaire_id` | FK → users, nullable | Compte espace client qui gère la fiche (animal créé depuis l'espace, ou réclamé par puce et accepté par la clinique) |
+| `acces_clinique` | enum `modification` \| `lecture` | Droits sur l'animal (16.10.2026) : quand un propriétaire gère la fiche, ce qu'il laisse à la clinique sur l'**identité** (nom, espèce, race, sexe, naissance, stérilisation, puce, AMICUS). `lecture` : 403 sur ces champs côté clinique (`PatientPolicy::updateIdentity`), les actes médicaux (pesées, vaccinations, visites, alertes, traitement, rappels) restent à la clinique. Servi au front en `droits.{gere_par, acces_clinique, modifier_identite}` ; côté espace `PUT /espace/animaux/{id}` (identité) et `PUT /espace/animaux/{id}/acces`, réservés au compte qui gère la fiche (403 sinon) |
 | `since` | year | Client depuis |
 | `treatment` | string | Traitement en cours (texte libre) |
 | `nextVisit` | dérivé | Prochain RDV — dérivable des RDV |

@@ -6,7 +6,9 @@ use App\Auth\ContexteProprietaire;
 use App\Enums\StatutDemandeRattachement;
 use App\Enums\StatutOrdonnance;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\V1\Espace\AccesAnimalRequest;
 use App\Http\Requests\V1\Espace\EnregistrerAnimalRequest;
+use App\Http\Requests\V1\Espace\ModifierAnimalRequest;
 use App\Http\Requests\V1\Espace\ReclamerAnimalRequest;
 use App\Http\Resources\V1\Espace\AnimalProprietaireResource;
 use App\Models\Client;
@@ -24,7 +26,9 @@ use Illuminate\Validation\ValidationException;
  * fiches client rattachées (toutes organisations), la fiche détaillée
  * (carnet, visites), l'ajout d'un animal — qui appartient au compte,
  * sans clinique — et la réclamation par puce d'un animal déjà
- * enregistré par une clinique (validée par elle). Modèles de niveau
+ * enregistré par une clinique (validée par elle). Un animal géré par le
+ * compte (proprietaire_id) se modifie ici, et le compte décide du droit
+ * de la clinique sur son identité (AccesClinique). Modèles de niveau
  * organisation : organisation_id explicite, pas de contexte clinique.
  */
 class AnimalController extends Controller
@@ -86,6 +90,41 @@ class AnimalController extends Controller
         return (new AnimalProprietaireResource($animal->load(['organisation', 'courbePoids'])))
             ->response()
             ->setStatusCode(201);
+    }
+
+    /** Identité d'un animal géré par le compte (403 pour une fiche de clinique seulement). */
+    public function update(ModifierAnimalRequest $request, ContexteProprietaire $contexte, int $animalId): AnimalProprietaireResource
+    {
+        $animal = $this->animalGere($contexte, $animalId);
+        $donnees = $request->validated();
+        if (isset($donnees['puce'])) {
+            $donnees['puce'] = NumeroPuce::formater($donnees['puce']);
+        }
+        $animal->update($donnees);
+
+        return new AnimalProprietaireResource($animal->load(['organisation', 'courbePoids']));
+    }
+
+    /** Droit accordé à la clinique sur l'identité : « modification » ou « lecture ». */
+    public function acces(AccesAnimalRequest $request, ContexteProprietaire $contexte, int $animalId): AnimalProprietaireResource
+    {
+        $animal = $this->animalGere($contexte, $animalId);
+        $animal->update(['acces_clinique' => $request->validated('acces_clinique')]);
+
+        return new AnimalProprietaireResource($animal->load(['organisation', 'courbePoids']));
+    }
+
+    /** L'animal, s'il est géré par le compte : 404 hors du compte, 403 si seule la clinique gère la fiche. */
+    private function animalGere(ContexteProprietaire $contexte, int $animalId): Patient
+    {
+        $animal = $contexte->filtrerAnimaux(Patient::withoutGlobalScopes())->findOrFail($animalId);
+        abort_unless(
+            $animal->proprietaire_id === $contexte->user()->id,
+            403,
+            'Cette fiche est gérée par la clinique : réclamez l’animal par sa puce pour la gérer vous-même.',
+        );
+
+        return $animal;
     }
 
     /**

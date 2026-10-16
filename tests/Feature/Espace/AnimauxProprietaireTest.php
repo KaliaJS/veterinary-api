@@ -18,7 +18,9 @@ use Tests\TestCase;
  * Espace propriétaire — mes animaux : liste (animaux du propriétaire et
  * des fiches rattachées), fiche détaillée (carnet dédupliqué par
  * vaccin, visites), ajout d'un animal appartenant au compte, réclamation
- * par puce validée par la clinique, isolation.
+ * par puce validée par la clinique, isolation ; droits sur l'animal : le
+ * compte qui gère la fiche la modifie et réserve ou non son identité à la
+ * clinique.
  */
 class AnimauxProprietaireTest extends TestCase
 {
@@ -177,6 +179,51 @@ class AnimauxProprietaireTest extends TestCase
         ['jeton' => $jetonAutre] = $this->proprietaireAvecJeton();
         $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567'], $this->enTetes($jetonAutre))
             ->assertUnprocessable()->assertJsonValidationErrors('puce');
+    }
+
+    public function test_le_compte_qui_gere_l_animal_le_modifie_et_regle_le_droit_de_la_clinique(): void
+    {
+        $clinique = Clinique::factory()->create();
+        $fiche = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id]);
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $rex = Patient::factory()->create(['organisation_id' => $fiche->organisation_id, 'client_id' => $fiche->id, 'proprietaire_id' => $user->id, 'nom' => 'Rex', 'race' => 'Beagle']);
+        // Max : sur une fiche du compte, mais géré par sa clinique seule (fixtures posées avant toute requête :
+        // le contexte clinique des requêtes suivantes bloquerait une création dans une autre organisation)
+        $ficheDuCompte = Client::factory()->create(['user_id' => $user->id]);
+        $max = Patient::factory()->create(['client_id' => $ficheDuCompte->id, 'nom' => 'Max']);
+        ['jeton' => $jetonClinique] = $this->employeAvecJeton($clinique);
+
+        // Par défaut la clinique garde la main sur l identité.
+        $this->getJson("/api/v1/patients/{$rex->id}", $this->enTetes($jetonClinique))
+            ->assertOk()->assertJsonPath('data.droits.gere_par', 'proprietaire')->assertJsonPath('data.droits.modifier_identite', true);
+        $this->putJson("/api/v1/patients/{$rex->id}", ['race' => 'Beagle harrier'], $this->enTetes($jetonClinique))->assertOk();
+
+        // Le propriétaire modifie son animal et réserve l identité.
+        $this->putJson("/api/v1/espace/animaux/{$rex->id}", ['race' => 'Beagle', 'est_sterilise' => true, 'puce' => '756098100234567'], $this->enTetes($jeton))
+            ->assertOk()->assertJsonPath('data.race', 'Beagle')->assertJsonPath('data.est_sterilise', true)->assertJsonPath('data.puce', '756 098 100 234 567')
+            ->assertJsonPath('data.gere_par_moi', true)->assertJsonPath('data.acces_clinique', 'modification');
+        $this->putJson("/api/v1/espace/animaux/{$rex->id}/acces", ['acces_clinique' => 'lecture'], $this->enTetes($jeton))
+            ->assertOk()->assertJsonPath('data.acces_clinique', 'lecture');
+        $this->putJson("/api/v1/espace/animaux/{$rex->id}/acces", ['acces_clinique' => 'tout'], $this->enTetes($jeton))->assertUnprocessable();
+
+        // La clinique consulte, enregistre ses actes, mais ne touche plus à l identité.
+        $this->getJson("/api/v1/patients/{$rex->id}", $this->enTetes($jetonClinique))
+            ->assertOk()->assertJsonPath('data.droits.modifier_identite', false)->assertJsonPath('data.droits.acces_clinique', 'lecture');
+        $this->putJson("/api/v1/patients/{$rex->id}", ['race' => 'Autre'], $this->enTetes($jetonClinique))->assertForbidden();
+        $this->putJson("/api/v1/patients/{$rex->id}/puce", ['puce' => '756098100999999'], $this->enTetes($jetonClinique))->assertForbidden();
+        $this->putJson("/api/v1/patients/{$rex->id}", ['traitement_en_cours' => 'Antibiotique 7 jours', 'est_agressif' => true], $this->enTetes($jetonClinique))
+            ->assertOk()->assertJsonPath('data.traitement_en_cours', 'Antibiotique 7 jours');
+        $this->postJson("/api/v1/patients/{$rex->id}/pesees", ['poids_kg' => 12.4], $this->enTetes($jetonClinique))->assertCreated();
+        $this->assertDatabaseHas('patients', ['id' => $rex->id, 'race' => 'Beagle', 'acces_clinique' => 'lecture']);
+
+        // Une fiche gérée par la clinique seule n est pas modifiable depuis l espace.
+        $this->getJson("/api/v1/espace/animaux/{$max->id}", $this->enTetes($jeton))->assertOk()->assertJsonPath('data.gere_par_moi', false);
+        $this->putJson("/api/v1/espace/animaux/{$max->id}", ['race' => 'Caniche'], $this->enTetes($jeton))->assertForbidden();
+        $this->putJson("/api/v1/espace/animaux/{$max->id}/acces", ['acces_clinique' => 'lecture'], $this->enTetes($jeton))->assertForbidden();
+
+        // Un animal d un autre compte reste introuvable.
+        ['jeton' => $jetonAutre] = $this->proprietaireAvecJeton();
+        $this->putJson("/api/v1/espace/animaux/{$rex->id}/acces", ['acces_clinique' => 'lecture'], $this->enTetes($jetonAutre))->assertNotFound();
     }
 
     public function test_la_clinique_peut_refuser_et_une_autre_clinique_ne_voit_pas_la_demande(): void

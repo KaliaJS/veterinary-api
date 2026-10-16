@@ -42,6 +42,12 @@ class PatientResource extends JsonResource
             'rappels_coupes' => $this->rappels_coupes,
             'amicus_declare_le' => $this->amicus_declare_le,
             'client_depuis' => $this->client_depuis,
+            /* Droits sur l animal : qui gère la fiche, et si la clinique peut en modifier l identité */
+            'droits' => [
+                'gere_par' => $this->estGereParProprietaire() ? 'proprietaire' : 'clinique',
+                'acces_clinique' => $this->acces_clinique?->value ?? 'modification',
+                'modifier_identite' => $this->cliniquePeutModifierIdentite(),
+            ],
             'derniere_visite_le' => $this->whenHas('visites_max_visite_le'),
             'echeance_vaccinale' => $this->whenHas('vaccinations_min_echeance_le'),
             'dernier_poids_kg' => $this->whenLoaded('courbePoids', fn (): ?float => $this->courbePoids->first()?->poids_kg === null

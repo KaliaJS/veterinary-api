@@ -171,6 +171,12 @@ class PatientController extends Controller
 
         $donnees = $request->validated();
 
+        // L identité peut être réservée par le propriétaire (droits sur l animal) ;
+        // alertes, traitement, rappels restent à la clinique
+        if (array_intersect_key($donnees, array_flip(Patient::CHAMPS_IDENTITE)) !== []) {
+            $this->authorize('updateIdentity', $patient);
+        }
+
         if (isset($donnees['puce'])) {
             $donnees['puce'] = NumeroPuce::formater($donnees['puce']);
         }
