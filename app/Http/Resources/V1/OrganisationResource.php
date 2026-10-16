@@ -30,6 +30,13 @@ class OrganisationResource extends JsonResource
             'cycle' => $this->cycle,
             'resilie_le' => $this->resilie_le?->toDateString(),
             'moyen_paiement' => $this->moyen_paiement,
+            /* Abonnement Stripe : statut (null : aucun abonnement payant ;
+               actif | impaye | incomplet | resilie) et fin de la période
+               payée (renouvellement, ou fin d'accès si résilié) */
+            'abonnement' => [
+                'statut' => $this->statut_abonnement,
+                'periode_fin' => $this->periode_fin?->toDateString(),
+            ],
             'usage' => [
                 'emails' => $this->usage_emails,
                 'sms' => $this->usage_sms,

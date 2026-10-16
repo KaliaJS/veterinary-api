@@ -24,6 +24,10 @@ class OrganisationFacture extends Model
         return [
             'emise_le' => 'date',
             'montant' => 'decimal:2',
+            'montant_ht' => 'decimal:2',
+            'tva' => 'decimal:2',
+            'metadonnees' => 'array',
+            'quota_applique' => 'boolean',
         ];
     }
 

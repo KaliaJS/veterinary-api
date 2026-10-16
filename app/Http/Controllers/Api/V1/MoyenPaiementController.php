@@ -6,31 +6,44 @@ use App\Auth\ContexteClinique;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Organisation\EnregistrerMoyenPaiementRequest;
 use App\Http\Resources\V1\OrganisationResource;
+use App\Models\Organisation;
+use App\Services\Abonnements\AbonnementSaas;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Carte de l'abonnement : seul le libellé masqué est conservé
- * (« Visa •••• 4242 ») — le numéro complet ne touche jamais la base.
+ * Carte de l'abonnement, chez Stripe : l'intention d'enregistrement sert
+ * au Payment Element du navigateur (la carte ne passe jamais par nos
+ * serveurs), puis la carte confirmée devient celle des factures ; seul
+ * son libellé masqué est gardé (« Visa •••• 4242 · exp. 08/28 »).
  */
 class MoyenPaiementController extends Controller
 {
-    public function enregistrer(EnregistrerMoyenPaiementRequest $request): OrganisationResource
+    public function __construct(private AbonnementSaas $abonnements) {}
+
+    public function intention(Request $request): JsonResponse
     {
-        $organisation = app(ContexteClinique::class)->clinique()->societe->organisation;
-
-        $chiffres = preg_replace('/\D/', '', $request->validated('numero'));
-
-        $organisation->update(['moyen_paiement' => 'Visa •••• '.substr($chiffres, -4)]);
-
-        return new OrganisationResource($organisation);
+        return response()->json(['data' => $this->abonnements->intentionCarte($this->organisation(), $request->user()?->email)]);
     }
 
-    public function supprimer(Request $request): OrganisationResource
+    public function enregistrer(EnregistrerMoyenPaiementRequest $request): OrganisationResource
     {
-        $organisation = app(ContexteClinique::class)->clinique()->societe->organisation;
+        $organisation = $this->organisation();
+        $this->abonnements->enregistrerCarte($organisation, $request->validated('payment_method'));
 
-        $organisation->update(['moyen_paiement' => null]);
+        return new OrganisationResource($organisation->refresh());
+    }
 
-        return new OrganisationResource($organisation);
+    public function supprimer(): OrganisationResource
+    {
+        $organisation = $this->organisation();
+        $this->abonnements->supprimerCarte($organisation);
+
+        return new OrganisationResource($organisation->refresh());
+    }
+
+    private function organisation(): Organisation
+    {
+        return app(ContexteClinique::class)->clinique()->societe->organisation;
     }
 }

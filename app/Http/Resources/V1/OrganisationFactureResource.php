@@ -19,7 +19,12 @@ class OrganisationFactureResource extends JsonResource
             'numero' => $this->numero,
             'emise_le' => $this->emise_le->toDateString(),
             'libelle' => $this->libelle,
+            'statut' => $this->statut,
             'montant' => (float) $this->montant,
+            'montant_ht' => $this->montant_ht === null ? null : (float) $this->montant_ht,
+            'tva' => $this->tva === null ? null : (float) $this->tva,
+            'pdf_url' => $this->pdf_url,
+            'paiement_url' => $this->paiement_url,
         ];
     }
 }

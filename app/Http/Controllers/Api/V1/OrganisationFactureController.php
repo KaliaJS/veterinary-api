@@ -10,7 +10,8 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 /**
  * Factures d'abonnement et de packs de l'organisation du jeton —
- * lecture seule, émises par l'éditeur.
+ * lecture seule, reflets des factures Stripe (numéro, statut, PDF). Les
+ * anciennes factures sans facture Stripe (simulées) ne sont plus servies.
  */
 class OrganisationFactureController extends Controller
 {
@@ -18,6 +19,7 @@ class OrganisationFactureController extends Controller
     {
         $factures = app(ContexteClinique::class)->clinique()->societe->organisation
             ->facturesAbonnement()
+            ->whereNotNull('stripe_facture_id')
             ->latest('emise_le')
             ->latest('id')
             ->paginate($this->parPage($request));

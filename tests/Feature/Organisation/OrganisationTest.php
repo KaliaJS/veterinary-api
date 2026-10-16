@@ -6,18 +6,25 @@ use App\Auth\RolesParDefaut;
 use App\Enums\FormuleSaas;
 use App\Models\Clinique;
 use App\Models\Employe;
+use App\Models\Organisation;
+use App\Models\OrganisationFacture;
 use App\Models\Role;
 use App\Models\Societe;
+use App\Paiements\PasserelleAbonnement;
+use App\Paiements\PasserellePaiement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
+use Tests\Doubles\PasserelleAbonnementFactice;
+use Tests\Doubles\PasserellePaiementFactice;
 use Tests\TestCase;
 
 /**
  * Structure et abonnement SaaS : sociétés, cliniques (création avec
  * horaires par défaut, quota de la formule, suppression tolérée d'une
  * clinique vide seulement — jamais la dernière), changement de formule
- * bloqué par les limites dépassées, packs de quota, moyen de paiement
- * masqué, factures « F- ».
+ * bloqué par les limites dépassées) et abonnement réel chez Stripe
+ * Billing (double en mémoire) : carte, souscription, prorata, refus,
+ * résiliation, packs prélevés, factures reflétées, webhooks.
  */
 class OrganisationTest extends TestCase
 {
@@ -27,6 +34,8 @@ class OrganisationTest extends TestCase
     private Clinique $clinique;
 
     private string $jeton;
+
+    private PasserelleAbonnementFactice $stripe;
 
     protected function setUp(): void
     {
@@ -43,7 +52,17 @@ class OrganisationTest extends TestCase
                 ->value('id'),
         ]);
 
-        $this->clinique->societe->organisation->update(['moyen_paiement' => 'Visa •••• 4242']);
+        $this->stripe = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $this->stripe);
+    }
+
+    /** Carte enregistrée comme le ferait le Payment Element : intention, confirmation, enregistrement. */
+    private function avecCarte(string $fin = '4242'): void
+    {
+        $entetes = $this->enTetes($this->jeton);
+        $this->postJson('/api/v1/organisation/moyen-paiement/intention', [], $entetes)->assertOk();
+        $client = Organisation::query()->findOrFail($this->organisationId())->stripe_client_id;
+        $this->putJson('/api/v1/organisation/moyen-paiement', ['payment_method' => $this->stripe->carteConfirmee($client, 'visa', $fin)], $entetes)->assertOk();
     }
 
     private function organisationId(): int
@@ -155,101 +174,210 @@ class OrganisationTest extends TestCase
         // Deux cliniques : la formule Individuel (1 clinique) est hors
         // de portée — le message nomme le dépassement.
         Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $this->avecCarte();
 
         $this->postJson('/api/v1/organisation/abonnement', [
             'plan' => 'individuel',
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('plan');
+        $this->assertSame([], $this->stripe->abonnements);
     }
 
-    public function test_le_changement_de_formule_facture_immediatement(): void
+    public function test_la_carte_s_enregistre_chez_stripe_et_seul_son_libelle_est_garde(): void
     {
-        $annee = now()->year;
+        $entetes = $this->enTetes($this->jeton);
 
-        $reponse = $this->postJson('/api/v1/organisation/abonnement', [
-            'plan' => 'hopital',
-            'cycle' => 'an',
-        ], $this->enTetes($this->jeton));
+        $intention = $this->postJson('/api/v1/organisation/moyen-paiement/intention', [], $entetes)
+            ->assertOk()
+            ->assertJsonStructure(['data' => ['client_secret', 'cle_publique']])
+            ->json('data');
+        $this->assertStringStartsWith('seti_secret_', $intention['client_secret']);
+        $client = Organisation::query()->findOrFail($this->organisationId())->stripe_client_id;
+        $this->assertNotNull($client);
 
-        $reponse->assertOk()
-            ->assertJsonPath('data.plan.code', 'hopital')
-            ->assertJsonPath('data.cycle', 'an')
-            ->assertJsonPath('data.resilie_le', null);
+        // Une carte d'un autre client Stripe est refusée
+        $etrangere = $this->stripe->carteConfirmee($this->stripe->creerClient('Autre', null, []));
+        $this->putJson('/api/v1/organisation/moyen-paiement', ['payment_method' => $etrangere], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('payment_method');
 
-        // Dix mois pour un an, TVA 8.1 % incluse : 999 × 10 × 1.081.
-        $this->assertDatabaseHas('organisation_factures', [
-            'organisation_id' => $this->organisationId(),
-            'numero' => "F-{$annee}-001",
-            'montant' => 10799.19,
-        ]);
+        $premiere = $this->stripe->carteConfirmee($client, 'visa', '4242');
+        $this->putJson('/api/v1/organisation/moyen-paiement', ['payment_method' => $premiere], $entetes)
+            ->assertOk()->assertJsonPath('data.moyen_paiement', 'Visa •••• 4242 · exp. 08/28');
+        $this->assertSame($premiere, $this->stripe->clients[$client]['carte']);
+
+        // Remplacée : l'ancienne est détachée chez Stripe
+        $seconde = $this->stripe->carteConfirmee($client, 'mastercard', '4444');
+        $this->putJson('/api/v1/organisation/moyen-paiement', ['payment_method' => $seconde], $entetes)
+            ->assertOk()->assertJsonPath('data.moyen_paiement', 'Mastercard •••• 4444 · exp. 08/28');
+        $this->assertSame([$premiere], $this->stripe->detachees);
+
+        $this->deleteJson('/api/v1/organisation/moyen-paiement', [], $entetes)
+            ->assertOk()->assertJsonPath('data.moyen_paiement', null);
+        $this->assertContains($seconde, $this->stripe->detachees);
     }
 
-    public function test_le_changement_de_formule_exige_un_moyen_de_paiement(): void
+    public function test_la_souscription_exige_une_carte(): void
     {
-        Clinique::withoutGlobalScopes()->findOrFail($this->clinique->id)
-            ->societe->organisation->update(['moyen_paiement' => null]);
-
-        $this->postJson('/api/v1/organisation/abonnement', [
-            'plan' => 'hopital',
-        ], $this->enTetes($this->jeton))
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('moyen_paiement');
     }
 
-    public function test_la_resiliation_vaut_fin_de_mois_et_se_reactive(): void
+    public function test_la_souscription_cree_l_abonnement_stripe_et_reflete_sa_facture(): void
+    {
+        $this->avecCarte();
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital', 'cycle' => 'an'], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.plan.code', 'hopital')
+            ->assertJsonPath('data.cycle', 'an')
+            ->assertJsonPath('data.abonnement.statut', 'actif')
+            ->assertJsonPath('data.abonnement.periode_fin', now()->addMonth()->toDateString())
+            ->assertJsonPath('data.resilie_le', null);
+
+        // Dix mois pour un an, HT : 999 × 10 ; TVA 8,1 % en sus
+        $this->assertSame(999000, $this->stripe->prix['veterinary-hopital-an']);
+        $this->getJson('/api/v1/organisation/factures', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.libelle', 'Abonnement Pro Hôpital, annuel')
+            ->assertJsonPath('data.0.statut', 'payee')
+            ->assertJsonPath('data.0.montant_ht', 9990)
+            ->assertJsonPath('data.0.tva', 809.19)
+            ->assertJsonPath('data.0.montant', 10799.19)
+            ->assertJsonPath('data.0.pdf_url', fn (string $url): bool => str_starts_with($url, 'https://pay.stripe.com/'));
+    }
+
+    public function test_le_changement_de_formule_est_proratise_sur_l_abonnement_en_cours(): void
+    {
+        $this->avecCarte();
+        $entetes = $this->enTetes($this->jeton);
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet', 'cycle' => 'mois'], $entetes)->assertOk();
+        $abonnement = Organisation::query()->findOrFail($this->organisationId())->stripe_abonnement_id;
+
+        // La formule en cours n'est pas « rachetée »
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet', 'cycle' => 'mois'], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('plan');
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital', 'cycle' => 'mois'], $entetes)
+            ->assertOk()->assertJsonPath('data.plan.code', 'hopital');
+        $this->assertCount(1, $this->stripe->abonnements, 'même abonnement, nouvelle formule');
+        $this->assertSame('price_veterinary-hopital-mois', $this->stripe->abonnements[$abonnement]['prix']);
+        $this->assertSame('Passage à Pro Hôpital, mensuel (prorata)',
+            $this->getJson('/api/v1/organisation/factures', $entetes)->json('data.0.libelle'));
+    }
+
+    public function test_une_carte_refusee_ne_change_rien(): void
+    {
+        $this->avecCarte();
+        $this->stripe->refus = 'La carte a été refusée par la banque.';
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.paiement.0', 'La carte a été refusée par la banque.');
+        $this->assertDatabaseHas('organisations', ['id' => $this->organisationId(), 'plan' => 'cabinet', 'statut_abonnement' => null]);
+    }
+
+    public function test_la_resiliation_vaut_fin_de_periode_et_se_reactive(): void
     {
         $entetes = $this->enTetes($this->jeton);
+        $this->postJson('/api/v1/organisation/abonnement/resilier', [], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('abonnement');
+
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $entetes)->assertOk();
 
         $this->postJson('/api/v1/organisation/abonnement/resilier', [], $entetes)
             ->assertOk()
-            ->assertJsonPath('data.resilie_le', today()->endOfMonth()->toDateString());
+            ->assertJsonPath('data.resilie_le', now()->addMonth()->toDateString())
+            ->assertJsonPath('data.abonnement.statut', 'actif');
 
         $this->postJson('/api/v1/organisation/abonnement/reactiver', [], $entetes)
             ->assertOk()
             ->assertJsonPath('data.resilie_le', null);
     }
 
-    public function test_un_pack_de_quota_s_ajoute_au_palier_du_catalogue_et_se_facture(): void
+    public function test_un_pack_de_quota_est_preleve_puis_ajoute(): void
     {
         $entetes = $this->enTetes($this->jeton);
+        $this->postJson('/api/v1/organisation/packs', ['type' => 'emails', 'quantite' => 5000], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('moyen_paiement');
 
-        $this->postJson('/api/v1/organisation/packs', [
-            'type' => 'emails',
-            'quantite' => 5000,
-        ], $entetes)
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/packs', ['type' => 'emails', 'quantite' => 5000], $entetes)
             ->assertOk()
             ->assertJsonPath('data.quota_extra.emails', 5000);
-
         $this->assertDatabaseHas('organisation_factures', [
             'libelle' => 'Quota e-mails +5 000',
-            'montant' => 15,
+            'montant_ht' => 15,
+            'montant' => 16.22,
+            'quota_applique' => true,
         ]);
+
+        // Refusé : ni facture ni quota en plus
+        $this->stripe->refus = 'Fonds insuffisants sur la carte.';
+        $this->postJson('/api/v1/organisation/packs', ['type' => 'sms', 'quantite' => 500], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('paiement');
+        $this->assertDatabaseHas('organisations', ['id' => $this->organisationId(), 'quota_extra_sms' => 0]);
+
+        // Pas de pack sur un quota que la formule rend illimité
+        $this->stripe->refus = null;
+        Organisation::query()->whereKey($this->organisationId())->update(['plan' => 'hopital']);
+        $this->postJson('/api/v1/organisation/packs', ['type' => 'emails', 'quantite' => 5000], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('type');
+        Organisation::query()->whereKey($this->organisationId())->update(['plan' => 'cabinet']);
 
         // Un palier hors catalogue est refusé — le prix est celui du
         // serveur, jamais celui du client.
-        $this->postJson('/api/v1/organisation/packs', [
-            'type' => 'emails',
-            'quantite' => 4242,
-        ], $entetes)
+        $this->postJson('/api/v1/organisation/packs', ['type' => 'emails', 'quantite' => 4242], $entetes)
             ->assertUnprocessable()
             ->assertJsonValidationErrors('quantite');
     }
 
-    public function test_le_moyen_de_paiement_est_masque_et_supprimable(): void
+    public function test_les_webhooks_tiennent_l_abonnement_et_les_factures_a_jour(): void
     {
-        $entetes = $this->enTetes($this->jeton);
+        $this->app->instance(PasserellePaiement::class, new PasserellePaiementFactice);
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $abonnement = $organisation->stripe_abonnement_id;
+        $webhook = fn (string $id, string $type, array $objet) => $this->postJson('/api/v1/stripe/webhook', ['id' => $id, 'type' => $type, 'data' => ['object' => $objet]], ['Stripe-Signature' => 'signature-valide'])->assertNoContent();
 
-        $this->putJson('/api/v1/organisation/moyen-paiement', [
-            'titulaire' => 'Deux Rives Vétérinaires SA',
-            'numero' => '4242 4242 4242 4242',
-            'expiration' => '08/28',
-        ], $entetes)
-            ->assertOk()
-            ->assertJsonPath('data.moyen_paiement', 'Visa •••• 4242');
+        // Renouvellement impayé : l'abonnement passe en impayé, la facture est à payer
+        $this->stripe->abonnements[$abonnement]['status'] = 'past_due';
+        $webhook('evt_1', 'customer.subscription.updated', ['id' => $abonnement, 'customer' => $organisation->stripe_client_id]);
+        $facture = $this->stripe->facturerAchat($organisation->stripe_client_id, 24900, 'Renouvellement', 'txr_tva', [], 'x');
+        $this->stripe->factures[$facture['id']]['status'] = 'open';
+        $this->stripe->factures[$facture['id']]['billing_reason'] = 'subscription_cycle';
+        $webhook('evt_2', 'invoice.payment_failed', ['id' => $facture['id']]);
 
-        $this->deleteJson('/api/v1/organisation/moyen-paiement', [], $entetes)
+        $this->assertDatabaseHas('organisations', ['id' => $organisation->id, 'statut_abonnement' => 'impaye']);
+        $this->assertDatabaseHas('organisation_factures', ['stripe_facture_id' => $facture['id'], 'statut' => 'a_payer', 'paiement_url' => 'https://invoice.stripe.com/i/'.$facture['id']]);
+
+        // Réglée sur la page Stripe : payée, plus de lien de paiement ; l'abonnement redevient actif
+        $this->stripe->factures[$facture['id']]['status'] = 'paid';
+        $this->stripe->abonnements[$abonnement]['status'] = 'active';
+        $webhook('evt_3', 'invoice.paid', ['id' => $facture['id']]);
+        $webhook('evt_4', 'customer.subscription.updated', ['id' => $abonnement, 'customer' => $organisation->stripe_client_id]);
+        $this->assertDatabaseHas('organisation_factures', ['stripe_facture_id' => $facture['id'], 'statut' => 'payee', 'paiement_url' => null]);
+        $this->assertDatabaseHas('organisations', ['id' => $organisation->id, 'statut_abonnement' => 'actif']);
+
+        // Fin de l'abonnement : résilié, l'accès finit à la date servie
+        $this->stripe->abonnements[$abonnement]['status'] = 'canceled';
+        $this->stripe->abonnements[$abonnement]['ended_at'] = today()->timestamp;
+        $webhook('evt_5', 'customer.subscription.deleted', ['id' => $abonnement, 'customer' => $organisation->stripe_client_id]);
+        $organisation->refresh();
+        $this->assertSame('resilie', $organisation->statut_abonnement);
+        $this->assertSame(today()->toDateString(), $organisation->resilie_le->toDateString());
+    }
+
+    public function test_les_anciennes_factures_simulees_ne_sont_plus_servies(): void
+    {
+        OrganisationFacture::factory()->create(['organisation_id' => $this->organisationId(), 'stripe_facture_id' => null, 'numero' => 'F-2026-070']);
+
+        $this->getJson('/api/v1/organisation/factures', $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonPath('data.moyen_paiement', null);
+            ->assertJsonCount(0, 'data');
     }
 }

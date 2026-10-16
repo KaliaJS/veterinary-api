@@ -15,10 +15,15 @@ class OrganisationFactureFactory extends Factory
     {
         return [
             'organisation_id' => Organisation::factory(),
-            'numero' => 'F-'.now()->year.'-'.fake()->unique()->numerify('###'),
+            // Reflet d'une facture Stripe (numéro et identifiant Stripe)
+            'stripe_facture_id' => 'in_'.fake()->unique()->bothify('????########'),
+            'numero' => 'VET-'.fake()->unique()->numerify('####'),
             'emise_le' => fake()->dateTimeBetween('-4 months'),
-            'libelle' => 'Abonnement mensuel',
-            'montant' => 249,
+            'libelle' => 'Formule Pro Cabinet, mensuelle',
+            'statut' => 'payee',
+            'montant' => 269.17,
+            'montant_ht' => 249,
+            'tva' => 20.17,
         ];
     }
 }

@@ -40,6 +40,7 @@ class Organisation extends Model
         return [
             'plan' => FormuleSaas::class,
             'resilie_le' => 'date',
+            'periode_fin' => 'date',
             'usage_emails' => 'integer',
             'usage_sms' => 'integer',
             'usage_stockage_go' => 'decimal:1',

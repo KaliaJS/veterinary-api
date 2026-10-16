@@ -4,16 +4,20 @@ namespace App\Services\Paiements;
 
 use App\Models\EvenementStripe;
 use App\Models\Paiement;
+use App\Services\Abonnements\AbonnementSaas;
+use Throwable;
 
 /**
- * Événements Stripe utiles à la caisse. Chaque événement n'est traité
- * qu'une fois (id verrouillé dans `evenements_stripe`) ; une intention
- * inconnue (autre application sur le même compte) est ignorée sans
- * erreur, pour que Stripe ne la renvoie pas en boucle.
+ * Événements Stripe utiles à la caisse et à l'abonnement SaaS. Chaque
+ * événement n'est traité qu'une fois (id verrouillé dans
+ * `evenements_stripe`) ; un traitement en échec libère le verrou pour
+ * que Stripe réessaie. Une intention ou un client inconnu (autre
+ * application sur le même compte) est ignoré sans erreur, pour que Stripe
+ * ne le renvoie pas en boucle.
  */
 class WebhooksStripe
 {
-    public function __construct(private PaiementsCaisse $paiements) {}
+    public function __construct(private PaiementsCaisse $paiements, private AbonnementSaas $abonnements) {}
 
     /** @param  array{id: string, type: string, objet: array<string, mixed>}  $evenement */
     public function traiter(array $evenement): void
@@ -30,13 +34,21 @@ class WebhooksStripe
 
         $objet = $evenement['objet'];
 
-        match ($evenement['type']) {
-            'payment_intent.succeeded' => $this->intention($objet, 'succeeded'),
-            'payment_intent.payment_failed' => $this->intention($objet, 'requires_payment_method'),
-            'payment_intent.canceled' => $this->intention($objet, 'canceled'),
-            'terminal.reader.action_failed' => $this->echecLecteur($objet),
-            default => null,
-        };
+        try {
+            match ($evenement['type']) {
+                'payment_intent.succeeded' => $this->intention($objet, 'succeeded'),
+                'payment_intent.payment_failed' => $this->intention($objet, 'requires_payment_method'),
+                'payment_intent.canceled' => $this->intention($objet, 'canceled'),
+                'terminal.reader.action_failed' => $this->echecLecteur($objet),
+                'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted' => $this->abonnements->surAbonnement($objet),
+                'invoice.finalized', 'invoice.paid', 'invoice.payment_failed', 'invoice.voided', 'invoice.marked_uncollectible' => $this->abonnements->surFacture($objet),
+                default => null,
+            };
+        } catch (Throwable $e) {
+            EvenementStripe::query()->whereKey($evenement['id'])->delete();
+
+            throw $e;
+        }
     }
 
     /** @param  array<string, mixed>  $intention */

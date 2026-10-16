@@ -5,18 +5,29 @@ namespace App\Http\Requests\V1\Organisation;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * Carte de l'abonnement : seul le libellé masqué est conservé — le
- * numéro complet ne touche jamais la base (le PSP le garde).
+ * Carte de l'abonnement, confirmée dans le Payment Element de Stripe :
+ * seul son identifiant passe par nos serveurs, jamais le numéro.
  */
 class EnregistrerMoyenPaiementRequest extends FormRequest
 {
-    /** @return array<string, mixed> */
+    /**
+     * Carte confirmée par le Payment Element de Stripe (identifiant « pm_… »).
+     *
+     * @return array<string, mixed>
+     */
     public function rules(): array
     {
         return [
-            'titulaire' => ['required', 'string', 'max:255'],
-            'numero' => ['required', 'string', 'regex:/^[\d\s]{15,23}$/'],
-            'expiration' => ['required', 'string', 'regex:/^(0[1-9]|1[0-2])\/\d{2}$/'],
+            'payment_method' => ['required', 'string', 'starts_with:pm_', 'max:255'],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'payment_method.required' => 'Carte manquante.',
+            'payment_method.starts_with' => 'Carte invalide.',
         ];
     }
 }

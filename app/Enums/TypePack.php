@@ -34,6 +34,16 @@ enum TypePack: string
         return null;
     }
 
+    /** Limite de la formule que le pack prolonge (FormuleSaas::limites) */
+    public function limite(): string
+    {
+        return match ($this) {
+            self::Emails => 'emails',
+            self::Sms => 'sms',
+            self::Stockage => 'stockage_go',
+        };
+    }
+
     public function colonneQuota(): string
     {
         return match ($this) {

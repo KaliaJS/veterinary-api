@@ -425,6 +425,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('abonnement/resilier', [AbonnementController::class, 'resilier']);
             Route::post('abonnement/reactiver', [AbonnementController::class, 'reactiver']);
             Route::post('packs', [PackQuotaController::class, 'acheter']);
+            Route::post('moyen-paiement/intention', [MoyenPaiementController::class, 'intention']);
             Route::put('moyen-paiement', [MoyenPaiementController::class, 'enregistrer']);
             Route::delete('moyen-paiement', [MoyenPaiementController::class, 'supprimer']);
             Route::get('factures', [OrganisationFactureController::class, 'index']);

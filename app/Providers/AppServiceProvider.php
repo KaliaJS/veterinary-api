@@ -7,6 +7,8 @@ use App\Auth\ContexteProprietaire;
 use App\Enums\DomainePermission;
 use App\Models\JetonApi;
 use App\Models\User;
+use App\Paiements\PasserelleAbonnement;
+use App\Paiements\PasserelleAbonnementStripe;
 use App\Paiements\PasserellePaiement;
 use App\Paiements\PasserelleStripe;
 use App\Services\Domaines\FournisseurCloudflare;
@@ -35,6 +37,12 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(PasserellePaiement::class, fn () => new PasserelleStripe(
             new StripeClient(['api_key' => config('services.stripe.secret') ?: null]),
             config('services.stripe.webhook_secret'),
+        ));
+
+        // Abonnement SaaS des organisations : Stripe Billing, remplacé par
+        // un double dans les tests
+        $this->app->singleton(PasserelleAbonnement::class, fn () => new PasserelleAbonnementStripe(
+            new StripeClient(['api_key' => config('services.stripe.secret') ?: null]),
         ));
 
         // Domaines personnalisés des sites : fournisseur choisi par configuration
