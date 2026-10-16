@@ -39,11 +39,14 @@ class PlaneteController extends Controller
 
     public function declarerDeces(Request $request, ContexteProprietaire $contexte, int $animalId): JsonResponse
     {
-        $donnees = $request->validate(['decede_le' => ['nullable', 'date', 'before_or_equal:today']], [
+        /* Jour local suisse : l'application compte en UTC, une date du jour
+           déclarée juste après minuit passerait sinon pour une date future */
+        $aujourdhui = now('Europe/Zurich')->toDateString();
+        $donnees = $request->validate(['decede_le' => ['nullable', 'date', 'before_or_equal:'.$aujourdhui]], [
             'decede_le.before_or_equal' => 'La date ne peut pas être dans le futur.',
         ]);
         $animal = $contexte->filtrerAnimaux(Patient::withoutGlobalScopes())->findOrFail($animalId);
-        $animal->forceFill(['decede_le' => $donnees['decede_le'] ?? today()->toDateString(), 'rappels_coupes' => true])->save();
+        $animal->forceFill(['decede_le' => $donnees['decede_le'] ?? $aujourdhui, 'rappels_coupes' => true])->save();
 
         return response()->json(['data' => ['id' => $animal->id, 'decede_le' => $animal->decede_le->toDateString()]]);
     }
@@ -51,7 +54,8 @@ class PlaneteController extends Controller
     public function annulerDeces(ContexteProprietaire $contexte, int $animalId): JsonResponse
     {
         $animal = $contexte->filtrerAnimaux(Patient::withoutGlobalScopes())->findOrFail($animalId);
-        $animal->forceFill(['decede_le' => null])->save();
+        // Décès déclaré par erreur : la fiche revient comme avant, rappels compris
+        $animal->forceFill(['decede_le' => null, 'rappels_coupes' => false])->save();
 
         return response()->json(['data' => ['id' => $animal->id, 'decede_le' => null]]);
     }

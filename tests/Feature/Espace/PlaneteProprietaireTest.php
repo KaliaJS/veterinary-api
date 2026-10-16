@@ -5,6 +5,7 @@ namespace Tests\Feature\Espace;
 use App\Models\Client;
 use App\Models\Patient;
 use App\Paiements\PasserelleAbonnement;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserelleAbonnementFactice;
@@ -50,12 +51,28 @@ class PlaneteProprietaireTest extends TestCase
         $rex = Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Rex', 'rappels_coupes' => false]);
         $autre = Patient::factory()->create();
 
-        $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", ['decede_le' => today()->addDay()->toDateString()], $entetes)->assertUnprocessable();
-        $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", [], $entetes)->assertOk()->assertJsonPath('data.decede_le', today()->toDateString());
+        $jour = now('Europe/Zurich')->toDateString();
+        $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", ['decede_le' => now('Europe/Zurich')->addDay()->toDateString()], $entetes)->assertUnprocessable();
+        $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", [], $entetes)->assertOk()->assertJsonPath('data.decede_le', $jour);
         $this->assertDatabaseHas('patients', ['id' => $rex->id, 'rappels_coupes' => true]);
-        $this->getJson("/api/v1/espace/animaux/{$rex->id}", $entetes)->assertOk()->assertJsonPath('data.decede_le', today()->toDateString());
+        $this->getJson("/api/v1/espace/animaux/{$rex->id}", $entetes)->assertOk()->assertJsonPath('data.decede_le', $jour);
 
         $this->deleteJson("/api/v1/espace/animaux/{$rex->id}/deces", [], $entetes)->assertOk()->assertJsonPath('data.decede_le', null);
+        $this->assertDatabaseHas('patients', ['id' => $rex->id, 'decede_le' => null, 'rappels_coupes' => false]);
         $this->postJson("/api/v1/espace/animaux/{$autre->id}/deces", [], $entetes)->assertNotFound();
+    }
+
+    public function test_le_jour_du_deces_est_le_jour_suisse_juste_apres_minuit(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $entetes = $this->enTetes($jeton);
+        $fiche = Client::factory()->create(['user_id' => $user->id]);
+        $rex = Patient::factory()->create(['client_id' => $fiche->id]);
+        // 00:10 à Zurich, encore la veille en UTC
+        $this->travelTo(CarbonImmutable::parse('2026-10-16 22:10:00', 'UTC'));
+
+        $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", ['decede_le' => '2026-10-17'], $entetes)->assertOk()->assertJsonPath('data.decede_le', '2026-10-17');
+        $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", [], $entetes)->assertOk()->assertJsonPath('data.decede_le', '2026-10-17');
+        $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", ['decede_le' => '2026-10-18'], $entetes)->assertUnprocessable();
     }
 }
