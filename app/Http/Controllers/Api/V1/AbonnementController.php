@@ -27,7 +27,8 @@ class AbonnementController extends Controller
         $this->abonnements->souscrire(
             $organisation,
             FormuleSaas::from($request->validated('plan')),
-            $request->validated('cycle') ?? $organisation->cycle,
+            // Mensuel : le cycle annuel n'est plus proposé (16.10.2026)
+            $request->validated('cycle') ?? 'mois',
         );
 
         return new OrganisationResource($organisation->refresh());

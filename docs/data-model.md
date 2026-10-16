@@ -242,6 +242,17 @@ Réel depuis le 16.10.2026 : **Stripe Billing** fait foi (service
 - Changement de formule bloqué si les limites cibles sont dépassées
   (`depassementsPour`).
 
+**Offre des propriétaires** (16.10.2026) : tout l'espace client est
+gratuit (les vétérinaires financent la plateforme). « Plus », 1 CHF par
+mois TVA incluse (taux Stripe inclus), ne donne que d'autres planètes au
+jeu de l'accueil de l'espace client. Même service (`AbonnementSaas`),
+abonné = compte `users` (`formule` gratuit \| plus, mêmes colonnes Stripe
+que l'organisation), factures dans `proprietaire_factures`. Routes
+`/espace/abonnement` (GET), `…/carte/intention`, `PUT|DELETE …/carte`,
+`POST …/plus`, `…/resilier` (retour à Gratuit en fin de période),
+`…/reactiver`. Les cliniques s'abonnent au mois (le cycle annuel n'est
+plus proposé).
+
 Pas encore réel : les compteurs d'usage (`usage_emails`, `usage_sms`,
 `usage_stockage_go`) ne sont alimentés par aucun envoi ni fichier (valeurs
 seedées), et rien ne bascule l'organisation en lecture seule après la fin

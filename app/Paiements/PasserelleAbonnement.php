@@ -33,8 +33,11 @@ interface PasserelleAbonnement
     /** Prix récurrent d'une formule (créé au premier besoin), par sa clé. */
     public function prixFormule(string $cle, string $produit, int $centimes, string $intervalle): string;
 
-    /** Taux de TVA suisse appliqué aux factures (créé au premier besoin). */
-    public function tauxTva(): string;
+    /**
+     * Taux de TVA suisse appliqué aux factures (créé au premier besoin) :
+     * en sus (prix HT des cliniques) ou inclus (prix TTC des propriétaires).
+     */
+    public function tauxTva(bool $inclus = false): string;
 
     /**
      * @param  array<string, string>  $metadonnees

@@ -79,9 +79,9 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
         return 'price_'.$cle;
     }
 
-    public function tauxTva(): string
+    public function tauxTva(bool $inclus = false): string
     {
-        return 'txr_tva';
+        return $inclus ? 'txr_tva_incluse' : 'txr_tva';
     }
 
     public function creerAbonnement(string $client, string $prix, string $tva, array $metadonnees, string $cleIdempotence): array
@@ -93,7 +93,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
             'metadata' => $metadonnees, 'prix' => $prix,
             'items' => ['data' => [['id' => 'si_'.$id, 'current_period_end' => now()->addMonth()->startOfDay()->timestamp]]],
         ];
-        $this->abonnements[$id]['latest_invoice'] = $this->facture($client, $this->prix[substr($prix, 6)] ?? 0, 'subscription_create', [], ['metadata' => $metadonnees]);
+        $this->abonnements[$id]['latest_invoice'] = $this->facture($client, $this->prix[substr($prix, 6)] ?? 0, 'subscription_create', [], ['metadata' => $metadonnees], null, $tva === 'txr_tva_incluse');
 
         return $this->abonnements[$id];
     }
@@ -146,15 +146,17 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
      * @param  array<string, mixed>|null  $abonnement
      * @return array<string, mixed>
      */
-    private function facture(string $client, int $htCentimes, string $raison, array $metadonnees, ?array $abonnement = null, ?string $description = null): array
+    private function facture(string $client, int $centimes, string $raison, array $metadonnees, ?array $abonnement = null, ?string $description = null, bool $tvaIncluse = false): array
     {
         $id = 'in_'.++$this->sequence;
-        $tva = (int) round($htCentimes * 0.081);
+        // TVA en sus (prix HT) ou incluse (prix TTC)
+        $ht = $tvaIncluse ? (int) round($centimes / 1.081) : $centimes;
+        $total = $tvaIncluse ? $centimes : $centimes + (int) round($centimes * 0.081);
 
         return $this->factures[$id] = [
             'id' => $id, 'customer' => $client, 'number' => 'VET-'.str_pad((string) $this->sequence, 4, '0', STR_PAD_LEFT),
             'status' => 'paid', 'billing_reason' => $raison, 'created' => now()->timestamp,
-            'total' => $htCentimes + $tva, 'total_excluding_tax' => $htCentimes,
+            'total' => $total, 'total_excluding_tax' => $ht,
             'invoice_pdf' => 'https://pay.stripe.com/invoice/'.$id.'/pdf', 'hosted_invoice_url' => 'https://invoice.stripe.com/i/'.$id,
             'description' => $description, 'metadata' => $metadonnees,
             'parent' => $abonnement ? ['subscription_details' => $abonnement] : null,

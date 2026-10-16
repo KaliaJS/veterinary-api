@@ -41,6 +41,7 @@ use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\DomainePublicController;
 use App\Http\Controllers\Api\V1\EncaissementController;
 use App\Http\Controllers\Api\V1\EquipeEmployeController;
+use App\Http\Controllers\Api\V1\Espace\AbonnementProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\AccueilController;
 use App\Http\Controllers\Api\V1\Espace\AnimalController;
 use App\Http\Controllers\Api\V1\Espace\BoutiqueProprietaireController;
@@ -198,6 +199,14 @@ Route::prefix('v1')->group(function (): void {
         Route::get('notifications', [ReglagesProprietaireController::class, 'notifications']);
         Route::post('notifications/lues', [ReglagesProprietaireController::class, 'marquerLues']);
         Route::get('export', [ReglagesProprietaireController::class, 'export']);
+        // Offre du propriétaire : Gratuit, ou Plus (d'autres planètes)
+        Route::get('abonnement', [AbonnementProprietaireController::class, 'afficher']);
+        Route::post('abonnement/carte/intention', [AbonnementProprietaireController::class, 'intentionCarte']);
+        Route::put('abonnement/carte', [AbonnementProprietaireController::class, 'enregistrerCarte']);
+        Route::delete('abonnement/carte', [AbonnementProprietaireController::class, 'supprimerCarte']);
+        Route::post('abonnement/plus', [AbonnementProprietaireController::class, 'souscrire']);
+        Route::post('abonnement/resilier', [AbonnementProprietaireController::class, 'resilier']);
+        Route::post('abonnement/reactiver', [AbonnementProprietaireController::class, 'reactiver']);
         Route::put('coordonnees', [CoordonneesProprietaireController::class, 'modifier']);
         Route::get('commandes', [BoutiqueProprietaireController::class, 'commandes']);
         Route::post('commandes', [BoutiqueProprietaireController::class, 'passer']);

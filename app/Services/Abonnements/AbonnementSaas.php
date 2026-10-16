@@ -4,8 +4,10 @@ namespace App\Services\Abonnements;
 
 use App\Enums\FormuleSaas;
 use App\Enums\TypePack;
+use App\Models\FactureProprietaire;
 use App\Models\Organisation;
 use App\Models\OrganisationFacture;
+use App\Models\User;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleAbonnement;
 use Illuminate\Support\Carbon;
@@ -14,8 +16,11 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Abonnement SaaS d'une organisation, réel (16.10.2026) : Stripe Billing
- * fait foi. La carte est saisie dans le Payment Element de Stripe (jamais
+ * Abonnements réels sur Stripe Billing (16.10.2026), pour deux sortes
+ * d'abonnés aux mêmes colonnes Stripe : l'organisation (formules des
+ * vétérinaires, packs) et le compte propriétaire (offre « Plus », 1 CHF
+ * par mois TTC, d'autres planètes au jeu de l'accueil ; tout le reste de
+ * l'espace client est gratuit). Stripe Billing fait foi. La carte est saisie dans le Payment Element de Stripe (jamais
  * sur nos serveurs) puis enregistrée comme carte par défaut du client ;
  * la formule est un abonnement Stripe (prix HT, TVA 8,1 % en sus,
  * changement proratisé et facturé aussitôt, résiliation en fin de
@@ -39,27 +44,27 @@ final class AbonnementSaas
     /* ————— Carte ————— */
 
     /** @return array{client_secret: string, cle_publique: ?string} */
-    public function intentionCarte(Organisation $organisation, ?string $email): array
+    public function intentionCarte(Organisation|User $abonne, ?string $email): array
     {
-        $intention = $this->sansErreur('moyen_paiement', fn () => $this->stripe->creerIntentionCarte($this->client($organisation, $email)));
+        $intention = $this->sansErreur('moyen_paiement', fn () => $this->stripe->creerIntentionCarte($this->client($abonne, $email)));
 
         return ['client_secret' => $intention['client_secret'], 'cle_publique' => config('services.stripe.key')];
     }
 
-    public function enregistrerCarte(Organisation $organisation, string $moyen): void
+    public function enregistrerCarte(Organisation|User $abonne, string $moyen): void
     {
-        $client = $organisation->stripe_client_id
+        $client = $abonne->stripe_client_id
             ?? throw ValidationException::withMessages(['payment_method' => 'Aucune carte en cours d’enregistrement.']);
 
         $carte = $this->sansErreur('payment_method', fn () => $this->stripe->lireMoyenPaiement($moyen));
         if (($carte['customer'] ?? null) !== $client) {
-            throw ValidationException::withMessages(['payment_method' => 'Cette carte n’appartient pas à votre organisation.']);
+            throw ValidationException::withMessages(['payment_method' => 'Cette carte n’appartient pas à votre compte.']);
         }
 
         $this->sansErreur('payment_method', fn () => $this->stripe->definirCarteParDefaut($client, $moyen));
 
-        $ancienne = $organisation->stripe_moyen_paiement_id;
-        $organisation->forceFill([
+        $ancienne = $abonne->stripe_moyen_paiement_id;
+        $abonne->forceFill([
             'stripe_moyen_paiement_id' => $moyen,
             'moyen_paiement' => self::libelleCarte($carte),
         ])->save();
@@ -69,13 +74,13 @@ final class AbonnementSaas
         }
     }
 
-    public function supprimerCarte(Organisation $organisation): void
+    public function supprimerCarte(Organisation|User $abonne): void
     {
-        if ($organisation->stripe_moyen_paiement_id) {
-            $this->detacher($organisation->stripe_moyen_paiement_id);
+        if ($abonne->stripe_moyen_paiement_id) {
+            $this->detacher($abonne->stripe_moyen_paiement_id);
         }
 
-        $organisation->forceFill(['stripe_moyen_paiement_id' => null, 'moyen_paiement' => null])->save();
+        $abonne->forceFill(['stripe_moyen_paiement_id' => null, 'moyen_paiement' => null])->save();
     }
 
     /** « Visa •••• 4242 · exp. 08/28 » */
@@ -126,16 +131,51 @@ final class AbonnementSaas
         $this->refleterDerniereFacture($abonnement);
     }
 
-    public function resilier(Organisation $organisation): void
+    /** Fin de l'abonnement à la fin de la période payée (propriétaire : retour à Gratuit). */
+    public function resilier(Organisation|User $abonne): void
     {
-        $this->abonnementEnCours($organisation);
-        $this->appliquerAbonnement($organisation, $this->sansErreur('abonnement', fn () => $this->stripe->finDePeriode($organisation->stripe_abonnement_id, true)));
+        $this->abonnementEnCours($abonne);
+        $this->appliquerAbonnement($abonne, $this->sansErreur('abonnement', fn () => $this->stripe->finDePeriode($abonne->stripe_abonnement_id, true)));
     }
 
-    public function reactiver(Organisation $organisation): void
+    public function reactiver(Organisation|User $abonne): void
     {
-        $this->abonnementEnCours($organisation);
-        $this->appliquerAbonnement($organisation, $this->sansErreur('abonnement', fn () => $this->stripe->finDePeriode($organisation->stripe_abonnement_id, false)));
+        $this->abonnementEnCours($abonne);
+        $this->appliquerAbonnement($abonne, $this->sansErreur('abonnement', fn () => $this->stripe->finDePeriode($abonne->stripe_abonnement_id, false)));
+    }
+
+    /* ————— Offre Plus des propriétaires ————— */
+
+    /** Prix TTC de Plus, en centimes (1 CHF par mois). */
+    public const PLUS_CENTIMES = 100;
+
+    /** Souscrit Plus ; un retour à Gratuit programmé est simplement annulé. */
+    public function souscrirePlus(User $user): void
+    {
+        $enCours = $user->stripe_abonnement_id && $user->statut_abonnement !== 'resilie';
+        if ($enCours && $user->resilie_le) {
+            $this->reactiver($user);
+
+            return;
+        }
+        if ($enCours) {
+            throw ValidationException::withMessages(['formule' => 'Plus est déjà votre offre.']);
+        }
+        if (! $user->stripe_moyen_paiement_id) {
+            throw ValidationException::withMessages(['moyen_paiement' => 'Enregistrez d’abord une carte.']);
+        }
+
+        $prix = $this->sansErreur('formule', fn () => $this->stripe->prixFormule('veterinary-plus-mois', 'Veterinary Plus (mensuel)', self::PLUS_CENTIMES, 'month'));
+        $abonnement = $this->sansErreur('paiement', fn () => $this->stripe->creerAbonnement(
+            $user->stripe_client_id,
+            $prix,
+            $this->stripe->tauxTva(true),
+            ['user_id' => (string) $user->id, 'formule' => 'plus', 'cycle' => 'mois'],
+            'plus-'.$user->id.'-'.Str::uuid(),
+        ));
+
+        $this->appliquerAbonnement($user, $abonnement);
+        $this->refleterDerniereFacture($abonnement);
     }
 
     /* ————— Packs ————— */
@@ -168,7 +208,7 @@ final class AbonnementSaas
     /* ————— Reflets de Stripe ————— */
 
     /** @param  array<string, mixed>  $abonnement */
-    public function appliquerAbonnement(Organisation $organisation, array $abonnement): void
+    public function appliquerAbonnement(Organisation|User $abonne, array $abonnement): void
     {
         $element = $abonnement['items']['data'][0] ?? [];
         $fin = isset($element['current_period_end']) ? $this->date($element['current_period_end']) : null;
@@ -187,14 +227,24 @@ final class AbonnementSaas
             default => null,
         };
 
-        $organisation->forceFill([
+        $abonne->forceFill([
             'stripe_abonnement_id' => $abonnement['id'],
             'statut_abonnement' => $statut,
-            'plan' => FormuleSaas::tryFrom((string) ($metadonnees['formule'] ?? '')) ?? $organisation->plan,
-            'cycle' => in_array($cycle, ['mois', 'an'], true) ? $cycle : $organisation->cycle,
             'periode_fin' => $fin,
             'resilie_le' => $finAcces,
-        ])->save();
+        ]);
+
+        if ($abonne instanceof Organisation) {
+            $abonne->forceFill([
+                'plan' => FormuleSaas::tryFrom((string) ($metadonnees['formule'] ?? '')) ?? $abonne->plan,
+                'cycle' => in_array($cycle, ['mois', 'an'], true) ? $cycle : $abonne->cycle,
+            ]);
+        } else {
+            // Abonnement terminé : retour à l'offre gratuite
+            $abonne->forceFill(['formule' => $statut === 'resilie' ? 'gratuit' : 'plus']);
+        }
+
+        $abonne->save();
     }
 
     /**
@@ -203,14 +253,14 @@ final class AbonnementSaas
      *
      * @param  array<string, mixed>  $facture
      */
-    public function refleterFacture(array $facture): ?OrganisationFacture
+    public function refleterFacture(array $facture): OrganisationFacture|FactureProprietaire|null
     {
         if (($facture['status'] ?? 'draft') === 'draft') {
             return null;
         }
 
-        $organisation = Organisation::query()->where('stripe_client_id', $facture['customer'] ?? '')->first();
-        if (! $organisation) {
+        $abonne = $this->abonne($facture['customer'] ?? null);
+        if (! $abonne) {
             return null;
         }
 
@@ -222,11 +272,12 @@ final class AbonnementSaas
         $total = (int) ($facture['total'] ?? 0);
         $ht = (int) ($facture['total_excluding_tax'] ?? $total);
 
-        $ligne = DB::transaction(function () use ($organisation, $facture, $statut, $total, $ht): OrganisationFacture {
-            $ligne = OrganisationFacture::query()->lockForUpdate()->firstOrNew(['stripe_facture_id' => $facture['id']]);
+        return DB::transaction(function () use ($abonne, $facture, $statut, $total, $ht): OrganisationFacture|FactureProprietaire {
+            $ligne = ($abonne instanceof Organisation ? OrganisationFacture::query() : FactureProprietaire::query())
+                ->lockForUpdate()->firstOrNew(['stripe_facture_id' => $facture['id']]);
             $ligne->stripe_facture_id = $facture['id'];
+            $ligne->forceFill([$abonne instanceof Organisation ? 'organisation_id' : 'user_id' => $abonne->id]);
             $ligne->fill([
-                'organisation_id' => $organisation->id,
                 'numero' => $facture['number'] ?? $facture['id'],
                 'emise_le' => $this->date($facture['created'] ?? time()),
                 'libelle' => $this->libelle($facture),
@@ -242,8 +293,8 @@ final class AbonnementSaas
 
             $metadonnees = $facture['metadata'] ?? [];
             $pack = TypePack::tryFrom((string) ($metadonnees['pack'] ?? ''));
-            if ($statut === 'payee' && $pack && ! $ligne->quota_applique) {
-                Organisation::query()->whereKey($organisation->id)->increment($pack->colonneQuota(), (int) ($metadonnees['quantite'] ?? 0));
+            if ($abonne instanceof Organisation && $statut === 'payee' && $pack && ! $ligne->quota_applique) {
+                Organisation::query()->whereKey($abonne->id)->increment($pack->colonneQuota(), (int) ($metadonnees['quantite'] ?? 0));
                 $ligne->quota_applique = true;
             }
 
@@ -251,20 +302,18 @@ final class AbonnementSaas
 
             return $ligne;
         });
-
-        return $ligne;
     }
 
     /** Webhook `customer.subscription.*` : l'état courant relu chez Stripe. */
     public function surAbonnement(array $objet): void
     {
-        $organisation = Organisation::query()->where('stripe_client_id', $objet['customer'] ?? '')->first();
-        // Un ancien abonnement (remplacé après une résiliation échue) ne touche plus l'organisation
-        if (! $organisation || ($organisation->stripe_abonnement_id && $organisation->stripe_abonnement_id !== ($objet['id'] ?? null))) {
+        $abonne = $this->abonne($objet['customer'] ?? null);
+        // Un ancien abonnement (remplacé après une résiliation échue) ne touche plus l'abonné
+        if (! $abonne || ($abonne->stripe_abonnement_id && $abonne->stripe_abonnement_id !== ($objet['id'] ?? null))) {
             return;
         }
 
-        $this->appliquerAbonnement($organisation, $this->stripe->lireAbonnement($objet['id']));
+        $this->appliquerAbonnement($abonne, $this->stripe->lireAbonnement($objet['id']));
     }
 
     /** Webhook `invoice.*` : la facture courante relue chez Stripe. */
@@ -277,21 +326,34 @@ final class AbonnementSaas
 
     /* ————— Interne ————— */
 
-    private function client(Organisation $organisation, ?string $email): string
+    private function client(Organisation|User $abonne, ?string $email): string
     {
-        if ($organisation->stripe_client_id) {
-            return $organisation->stripe_client_id;
+        if ($abonne->stripe_client_id) {
+            return $abonne->stripe_client_id;
         }
 
-        $id = $this->stripe->creerClient($organisation->nom, $email, ['organisation_id' => (string) $organisation->id]);
-        $organisation->forceFill(['stripe_client_id' => $id])->save();
+        $id = $abonne instanceof Organisation
+            ? $this->stripe->creerClient($abonne->nom, $email, ['organisation_id' => (string) $abonne->id])
+            : $this->stripe->creerClient($abonne->name, $abonne->email, ['user_id' => (string) $abonne->id]);
+        $abonne->forceFill(['stripe_client_id' => $id])->save();
 
         return $id;
     }
 
-    private function abonnementEnCours(Organisation $organisation): void
+    /** L'abonné d'un client Stripe : organisation ou compte propriétaire. */
+    private function abonne(?string $client): Organisation|User|null
     {
-        if (! $organisation->stripe_abonnement_id || $organisation->statut_abonnement === 'resilie') {
+        if (! $client) {
+            return null;
+        }
+
+        return Organisation::query()->where('stripe_client_id', $client)->first()
+            ?? User::query()->where('stripe_client_id', $client)->first();
+    }
+
+    private function abonnementEnCours(Organisation|User $abonne): void
+    {
+        if (! $abonne->stripe_abonnement_id || $abonne->statut_abonnement === 'resilie') {
             throw ValidationException::withMessages(['abonnement' => 'Aucun abonnement en cours : choisissez une formule.']);
         }
     }
@@ -319,7 +381,11 @@ final class AbonnementSaas
         $abonnement = $facture['parent']['subscription_details']['metadata'] ?? [];
         $formule = FormuleSaas::tryFrom((string) ($abonnement['formule'] ?? ''));
         // « Pro Cabinet, mensuel » : court, la ligne de la liste reste lisible
-        $nom = $formule ? str_replace('Veterinary ', '', $formule->nom()).(($abonnement['cycle'] ?? 'mois') === 'an' ? ', annuel' : ', mensuel') : null;
+        $nom = match (true) {
+            ($abonnement['formule'] ?? null) === 'plus' => 'Plus, mensuel',
+            $formule !== null => str_replace('Veterinary ', '', $formule->nom()).(($abonnement['cycle'] ?? 'mois') === 'an' ? ', annuel' : ', mensuel'),
+            default => null,
+        };
 
         return match ($facture['billing_reason'] ?? null) {
             'subscription_create' => $nom ? 'Abonnement '.$nom : 'Abonnement',

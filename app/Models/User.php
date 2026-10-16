@@ -30,7 +30,16 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'periode_fin' => 'date',
+            'resilie_le' => 'date',
         ];
+    }
+
+    /** Factures de l'offre Plus (propriétaire).
+     * @return HasMany<FactureProprietaire, $this> */
+    public function facturesPlus(): HasMany
+    {
+        return $this->hasMany(FactureProprietaire::class);
     }
 
     /**

@@ -87,25 +87,27 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
         });
     }
 
-    public function tauxTva(): string
+    public function tauxTva(bool $inclus = false): string
     {
-        return Cache::rememberForever('stripe-tva-ch-81', function (): string {
-            $taux = $this->appel(fn () => $this->client->taxRates->all(['active' => true, 'inclusive' => false, 'limit' => 100]));
+        $cle = $inclus ? 'tva-ch-8.1-incluse' : 'tva-ch-8.1';
+
+        return Cache::rememberForever('stripe-'.$cle, function () use ($cle, $inclus): string {
+            $taux = $this->appel(fn () => $this->client->taxRates->all(['active' => true, 'inclusive' => $inclus, 'limit' => 100]));
             foreach ($taux->data as $t) {
-                if (($t->metadata['veterinary'] ?? null) === 'tva-ch-8.1') {
+                if (($t->metadata['veterinary'] ?? null) === $cle) {
                     return $t->id;
                 }
             }
 
             return $this->appel(fn () => $this->client->taxRates->create([
                 'display_name' => 'TVA',
-                'description' => 'TVA suisse, taux normal',
+                'description' => 'TVA suisse, taux normal'.($inclus ? ' (incluse)' : ''),
                 'percentage' => 8.1,
-                'inclusive' => false,
+                'inclusive' => $inclus,
                 'country' => 'CH',
                 'jurisdiction' => 'CH',
                 'tax_type' => 'vat',
-                'metadata' => ['veterinary' => 'tva-ch-8.1'],
+                'metadata' => ['veterinary' => $cle],
             ]))->id;
         });
     }
