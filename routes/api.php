@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\AnalyseController;
 use App\Http\Controllers\Api\V1\AnalysePatientController;
 use App\Http\Controllers\Api\V1\AnnuaireCliniqueController;
 use App\Http\Controllers\Api\V1\AnnuaireEmployeController;
+use App\Http\Controllers\Api\V1\AppStoreNotificationsController;
 use App\Http\Controllers\Api\V1\Auth\ChangementCliniqueController;
 use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
 use App\Http\Controllers\Api\V1\Auth\EmailConnuController;
@@ -44,6 +45,7 @@ use App\Http\Controllers\Api\V1\EquipeEmployeController;
 use App\Http\Controllers\Api\V1\Espace\AbonnementProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\AccueilController;
 use App\Http\Controllers\Api\V1\Espace\AnimalController;
+use App\Http\Controllers\Api\V1\Espace\AppStoreController;
 use App\Http\Controllers\Api\V1\Espace\BoutiqueProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\CliniqueProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\CoordonneesProprietaireController;
@@ -154,6 +156,10 @@ Route::prefix('v1')->group(function (): void {
     // paiements de caisse — terminal et TWINT.
     Route::post('stripe/webhook', StripeWebhookController::class);
 
+    // Notifications de l'App Store (public, vérifiées par signature) :
+    // renouvellements et remboursements des achats de l'app iPhone.
+    Route::post('app-store/notifications', AppStoreNotificationsController::class);
+
     // Vitrine publique (visiteur non connecté, depuis l'accueil) :
     // boutiques des cliniques et annuaire avec créneaux. Leur contenu ne
     // dépend d'aucun compte — mêmes actions que dans l'espace, sans
@@ -208,6 +214,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('abonnement/plus', [AbonnementProprietaireController::class, 'souscrire']);
         Route::post('abonnement/resilier', [AbonnementProprietaireController::class, 'resilier']);
         Route::post('abonnement/reactiver', [AbonnementProprietaireController::class, 'reactiver']);
+        // Achats dans l'app iPhone (App Store, StoreKit 2)
+        Route::get('app-store', [AppStoreController::class, 'afficher']);
+        Route::post('app-store/transactions', [AppStoreController::class, 'transactions']);
         // Jeu de la planète : boutique d'objets, décès d'un animal (tombe)
         Route::get('planete', [PlaneteController::class, 'afficher']);
         Route::post('planete/achats', [PlaneteController::class, 'acheter']);

@@ -49,4 +49,17 @@ enum ArticlePlanete: string
             self::Niche, self::Cerisier => 200,
         };
     }
+
+    /** Produit de l'App Store (achat non consommable dans l'app iPhone). */
+    public function produitAppStore(): string
+    {
+        return config('services.apple.bundle_id').'.planete.'.$this->value;
+    }
+
+    public static function depuisProduitAppStore(string $produit): ?self
+    {
+        $prefixe = config('services.apple.bundle_id').'.planete.';
+
+        return str_starts_with($produit, $prefixe) ? self::tryFrom(substr($produit, strlen($prefixe))) : null;
+    }
 }

@@ -163,6 +163,9 @@ final class AbonnementSaas
         if ($enCours) {
             throw ValidationException::withMessages(['formule' => 'Plus est déjà votre offre.']);
         }
+        if ($user->aPlusApple()) {
+            throw ValidationException::withMessages(['formule' => 'Plus est déjà actif, payé par l’App Store sur votre iPhone.']);
+        }
         if (! $user->stripe_moyen_paiement_id) {
             throw ValidationException::withMessages(['moyen_paiement' => 'Enregistrez d’abord une carte.']);
         }

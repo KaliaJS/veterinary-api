@@ -262,6 +262,28 @@ achetés une fois (`achats_planete`, unique par compte), prélevés sur la
 carte du compte (facture Stripe, `GET /espace/planete`, `POST
 /espace/planete/achats`).
 
+**Achats dans l'app iPhone** (17.10.2026) : Apple exige son paiement
+(StoreKit 2) pour Plus et les objets de la planète vendus dans l'app.
+Prix = celui du site majoré de 30 % (`AchatsAppStore::MAJORATION`, fixé
+dans App Store Connect ; l'app affiche le prix de l'App Store). Produits
+`ch.veterinary.client.plus` (abonnement mensuel) et
+`ch.veterinary.client.planete.<objet>` (non consommables). Chaque compte
+a un identifiant App Store (`users.apple_compte`, UUID posé comme
+appAccountToken sur chaque achat). L'app envoie les transactions signées
+(JWS) à `POST /espace/app-store/transactions`, vérifiées sur place contre
+la racine d'Apple (`resources/apple/AppleRootCA-G3.pem`, chaîne,
+marqueurs, signature ES256 : `VerificateurJws`) et réservées au compte
+qui les a passées. Plus d'Apple vit à côté de celui de Stripe
+(`apple_abonnement_id`, `apple_fin`, `apple_renouvelle`) : `GET
+/espace/abonnement` sert `formule` (plus si l'un des deux est actif) et
+`source` (`stripe` ou `app_store`) ; un Plus Stripe est refusé si celui
+d'Apple court. Objet acheté : ligne `achats_planete` avec
+`apple_transaction_id`. Notifications serveur V2 d'Apple sur `POST
+/app-store/notifications` (renouvellement, résiliation, remboursement),
+adresse à déclarer dans App Store Connect. En local, `APPLE_STOREKIT_XCODE`
+accepte les achats de test signés par Xcode (fichier
+`ios/App/App/Veterinary.storekit` du dépôt web).
+
 Pas encore réel : les compteurs d'usage (`usage_emails`, `usage_sms`,
 `usage_stockage_go`) ne sont alimentés par aucun envoi ni fichier (valeurs
 seedées), et rien ne bascule l'organisation en lecture seule après la fin

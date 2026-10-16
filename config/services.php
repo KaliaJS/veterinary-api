@@ -38,6 +38,17 @@ return [
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
     ],
 
+    // Achats dans l'app iPhone (StoreKit 2). Les transactions arrivent
+    // signées par Apple (JWS) : vérifiées ici contre la racine d'Apple,
+    // sans clé ni appel réseau. `accepte_xcode` (en local seulement, sur
+    // option) : achats de test lancés depuis Xcode avec le fichier de
+    // configuration StoreKit, signés par un certificat local d'Xcode.
+    'apple' => [
+        'bundle_id' => env('APPLE_BUNDLE_ID', 'ch.veterinary.client'),
+        'racines' => [resource_path('apple/AppleRootCA-G3.pem')],
+        'accepte_xcode' => env('APP_ENV') === 'local' && (bool) env('APPLE_STOREKIT_XCODE', false),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

@@ -15,7 +15,9 @@ use Illuminate\Http\JsonResponse;
  * « Plus » (1 CHF par mois TTC) donne d'autres planètes au jeu de
  * l'accueil. Carte saisie dans le Payment Element de Stripe, souscription,
  * retour à Gratuit en fin de période payée (réactivable d'ici là),
- * factures Stripe. Chaque réponse renvoie l'offre à jour.
+ * factures Stripe. Dans l'app iPhone, Plus se paie par l'App Store
+ * (AchatsAppStore) : `source` dit qui encaisse. Chaque réponse renvoie
+ * l'offre à jour.
  */
 class AbonnementProprietaireController extends Controller
 {
@@ -72,7 +74,17 @@ class AbonnementProprietaireController extends Controller
         $user->refresh();
 
         return response()->json(['data' => [
-            'formule' => $user->formule ?? 'gratuit',
+            'formule' => $user->aPlus() ? 'plus' : 'gratuit',
+            // Plus payé sur le site (Stripe) ou dans l'app iPhone (App Store)
+            'source' => match (true) {
+                $user->aPlusApple() => 'app_store',
+                $user->aPlusStripe() => 'stripe',
+                default => null,
+            },
+            'app_store' => $user->aPlusApple() ? [
+                'fin' => $user->apple_fin->toIso8601String(),
+                'renouvelle' => (bool) $user->apple_renouvelle,
+            ] : null,
             'prix_mensuel' => AbonnementSaas::PLUS_CENTIMES / 100,
             'statut' => $user->statut_abonnement,
             'periode_fin' => $user->periode_fin?->toDateString(),

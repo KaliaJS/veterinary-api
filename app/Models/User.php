@@ -32,7 +32,26 @@ class User extends Authenticatable
             'password' => 'hashed',
             'periode_fin' => 'date',
             'resilie_le' => 'date',
+            'apple_fin' => 'datetime',
+            'apple_renouvelle' => 'boolean',
         ];
+    }
+
+    /** Plus payé par Stripe (site) : abonnement en cours, même résilié d'ici la fin du mois. */
+    public function aPlusStripe(): bool
+    {
+        return $this->formule === 'plus';
+    }
+
+    /** Plus payé par l'App Store (iPhone) : jusqu'à la fin de la période achetée. */
+    public function aPlusApple(): bool
+    {
+        return $this->apple_fin !== null && $this->apple_fin->isFuture();
+    }
+
+    public function aPlus(): bool
+    {
+        return $this->aPlusStripe() || $this->aPlusApple();
     }
 
     /** Factures de l'offre Plus (propriétaire).
