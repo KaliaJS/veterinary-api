@@ -25,7 +25,7 @@ class Patient extends Model
 
     protected $fillable = [
         'organisation_id', 'client_id', 'proprietaire_id', 'acces_clinique', 'nom', 'espece', 'race', 'sexe',
-        'ne_le', 'est_sterilise', 'puce', 'dette', 'est_agressif',
+        'ne_le', 'est_sterilise', 'puce', 'photo_chemin', 'dette', 'est_agressif',
         'a_allergies', 'traitement_en_cours', 'rappels_coupes',
         'amicus_declare_le', 'client_depuis',
     ];
@@ -45,6 +45,12 @@ class Patient extends Model
             'amicus_declare_le' => 'datetime',
             'client_depuis' => 'integer',
         ];
+    }
+
+    /** URL publique de la photo (nom de fichier imprévisible), ou null */
+    public function photoUrl(): ?string
+    {
+        return $this->photo_chemin ? route('patient.photo', ['fichier' => basename($this->photo_chemin)]) : null;
     }
 
     /** Fiche gérée par son propriétaire depuis l espace client (compte rattaché) */

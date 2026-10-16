@@ -7,7 +7,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Patients\EnregistrerPatientRequest;
 use App\Http\Requests\V1\Patients\ModifierPatientRequest;
 use App\Http\Resources\V1\PatientResource;
+use App\Models\Client;
 use App\Models\Patient;
+use App\Models\Pesee;
 use App\Rules\NumeroPuce;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -18,7 +20,9 @@ use Illuminate\Support\Carbon;
  * Patients — niveau ORGANISATION comme les clients (scope global
  * organisation, partagés entre les cliniques du jeton). Jamais de
  * suppression de fiche. Filtres et tris de l'écran Patients :
- * `filtre` tous|chien|chat|nac|alertes|rappels, `tri` nom|rappels|visite,
+ * `filtre` tous|chien|chat|nac|alertes|rappels, `tri` nom|proprietaire|
+ * alertes|rappels|visite|poids et `sens` asc|desc (16.10.2026 : tri par
+ * clic sur les en-têtes de colonnes),
  * `q` sur nom, race, puce et propriétaire ; `meta.facettes` porte les
  * compteurs de chaque filtre sur la recherche courante.
  */
@@ -47,13 +51,7 @@ class PatientController extends Controller
                 ),
                 default => $requete,
             })
-            ->when($request->string('tri')->toString(), fn (Builder $requete, string $tri) => match ($tri) {
-                'rappels' => $requete
-                    ->orderByRaw('vaccinations_min_echeance_le is null')
-                    ->orderBy('vaccinations_min_echeance_le'),
-                'visite' => $requete->orderByDesc('visites_max_visite_le'),
-                default => $requete->orderBy('nom'),
-            }, fn (Builder $requete) => $requete->orderBy('nom'))
+            ->tap(fn (Builder $requete) => $this->trier($requete, $request))
             ->paginate($this->parPage($request));
 
         return PatientResource::collection($patients)->additional([
@@ -62,6 +60,44 @@ class PatientController extends Controller
     }
 
     /** Recherche `q` sur nom, race, puce et propriétaire. */
+    /**
+     * Tri de l écran : `tri` et `sens` (asc par défaut, sauf visite et
+     * poids, du plus récent ou du plus lourd). Les valeurs absentes
+     * (sans rappel, sans visite, sans pesée) vont toujours en fin.
+     */
+    private function trier(Builder $requete, Request $request): void
+    {
+        $tri = $request->string('tri')->toString() ?: 'nom';
+        $sens = $request->string('sens')->toString() ?: (in_array($tri, ['visite', 'poids'], true) ? 'desc' : 'asc');
+        $sens = $sens === 'desc' ? 'desc' : 'asc';
+
+        match ($tri) {
+            'proprietaire' => $requete->orderBy(
+                Client::withoutGlobalScopes()->select('nom')->whereColumn('clients.id', 'patients.client_id')->limit(1),
+                $sens,
+            )->orderBy('nom'),
+            'alertes' => $requete
+                ->orderByRaw('(case when est_agressif then 1 else 0 end) + (case when a_allergies then 1 else 0 end) + (case when dette > 0 then 1 else 0 end) '.($sens === 'asc' ? 'desc' : 'asc'))
+                ->orderBy('nom'),
+            'rappels' => $requete
+                ->orderByRaw('vaccinations_min_echeance_le is null')
+                ->orderBy('vaccinations_min_echeance_le', $sens)
+                ->orderBy('nom'),
+            'visite' => $requete
+                ->orderByRaw('visites_max_visite_le is null')
+                ->orderBy('visites_max_visite_le', $sens)
+                ->orderBy('nom'),
+            'poids' => $requete
+                ->orderByRaw('(select poids_kg from pesees where pesees.patient_id = patients.id order by pesee_le desc, id desc limit 1) is null')
+                ->orderBy(
+                    Pesee::select('poids_kg')->whereColumn('pesees.patient_id', 'patients.id')->orderByDesc('pesee_le')->orderByDesc('id')->limit(1),
+                    $sens,
+                )
+                ->orderBy('nom'),
+            default => $requete->orderBy('nom', $sens),
+        };
+    }
+
     private function rechercher(Builder $requete, Request $request): void
     {
         if ($request->string('q')->isEmpty()) {

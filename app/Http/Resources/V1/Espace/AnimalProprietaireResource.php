@@ -33,6 +33,7 @@ class AnimalProprietaireResource extends JsonResource
             'ne_le' => $this->ne_le?->toDateString(),
             'age_libelle' => self::age($this->ne_le),
             'puce' => $this->puce,
+            'photo_url' => $this->photoUrl(),
             'est_sterilise' => $this->est_sterilise,
             /* Droits : la fiche est gérée par ce compte (modifiable ici), et ce que la clinique peut en faire */
             'gere_par_moi' => $this->proprietaire_id !== null && $this->proprietaire_id === $request->user()?->id,

@@ -10,6 +10,8 @@ use App\Models\RendezVous;
 use App\Models\Vaccination;
 use App\Models\Visite;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -78,6 +80,57 @@ class PatientTest extends TestCase
 
             $this->assertSame($ids, array_column($reponse->json('data'), 'id'), "Filtre {$filtre}");
         }
+    }
+
+    public function test_la_liste_se_trie_par_colonne_dans_les_deux_sens(): void
+    {
+        $autreClient = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Aubert']);
+        $this->client->update(['nom' => 'Zbinden']);
+        $rex = Patient::factory()->for($this->client)->create(['nom' => 'Rex', 'est_agressif' => true, 'dette' => 0]);
+        $mimi = Patient::factory()->for($autreClient)->create(['nom' => 'Mimi', 'est_agressif' => false, 'dette' => 0]);
+        $pixel = Patient::factory()->for($this->client)->create(['nom' => 'Pixel', 'est_agressif' => false, 'dette' => 0]);
+        $rex->pesees()->create(['poids_kg' => 24.5, 'pesee_le' => today()->subDays(3)]);
+        $rex->pesees()->create(['poids_kg' => 26, 'pesee_le' => today()]);
+        $mimi->pesees()->create(['poids_kg' => 4.2, 'pesee_le' => today()]);
+        Visite::factory()->for($mimi)->create(['visite_le' => today()->subDays(2)]);
+        Visite::factory()->for($pixel)->create(['visite_le' => today()->subDays(40)]);
+
+        $attendus = [
+            'tri=nom' => [$mimi->id, $pixel->id, $rex->id],
+            'tri=nom&sens=desc' => [$rex->id, $pixel->id, $mimi->id],
+            'tri=proprietaire' => [$mimi->id, $pixel->id, $rex->id],
+            'tri=alertes' => [$rex->id, $mimi->id, $pixel->id],
+            'tri=poids' => [$rex->id, $mimi->id, $pixel->id],
+            'tri=poids&sens=asc' => [$mimi->id, $rex->id, $pixel->id],
+            'tri=visite' => [$mimi->id, $pixel->id, $rex->id],
+            'tri=visite&sens=asc' => [$pixel->id, $mimi->id, $rex->id],
+        ];
+
+        foreach ($attendus as $query => $ids) {
+            $reponse = $this->getJson("/api/v1/patients?{$query}", $this->enTetes($this->jeton))->assertOk();
+
+            $this->assertSame($ids, array_column($reponse->json('data'), 'id'), "Tri {$query}");
+        }
+    }
+
+    public function test_la_photo_de_l_animal_se_televerse_se_sert_et_se_supprime(): void
+    {
+        Storage::fake('local');
+        $rex = Patient::factory()->for($this->client)->create(['nom' => 'Rex']);
+
+        $url = $this->post("/api/v1/patients/{$rex->id}/photo", ['photo' => UploadedFile::fake()->image('rex.jpg', 300, 300)], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->json('data.photo_url');
+        $this->assertNotNull($url);
+        $this->assertStringContainsString('/photos-animaux/', $url);
+        Storage::disk('local')->assertExists($rex->fresh()->photo_chemin);
+
+        $this->get($url)->assertOk()->assertHeader('Cache-Control', 'immutable, max-age=31536000, public');
+        $this->post("/api/v1/patients/{$rex->id}/photo", ['photo' => UploadedFile::fake()->create('rex.svg', 10, 'image/svg+xml')], $this->enTetes($this->jeton))
+            ->assertUnprocessable();
+
+        $this->deleteJson("/api/v1/patients/{$rex->id}/photo", [], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.photo_url', null);
+        $this->assertNull($rex->fresh()->photo_chemin);
     }
 
     public function test_la_liste_sert_le_dernier_poids_et_la_courbe_des_douze_dernieres_pesees(): void

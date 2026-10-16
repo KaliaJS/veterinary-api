@@ -34,6 +34,7 @@ class PatientResource extends JsonResource
             'ne_le' => $this->ne_le?->toDateString(),
             'est_sterilise' => $this->est_sterilise,
             'puce' => $this->puce,
+            'photo_url' => $this->photoUrl(),
             'dette' => (float) $this->dette,
             'alertes' => $this->alertes(),
             'est_agressif' => $this->est_agressif,

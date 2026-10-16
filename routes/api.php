@@ -80,6 +80,7 @@ use App\Http\Controllers\Api\V1\PanelLaboController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PhotoEmployeController;
+use App\Http\Controllers\Api\V1\PhotoPatientController;
 use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
 use App\Http\Controllers\Api\V1\ProduitController;
@@ -164,6 +165,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('domaines/{domaine}', [DomainePublicController::class, 'site'])->where('domaine', '[a-z0-9.-]+');
         Route::get('domaines-autorises', [DomainePublicController::class, 'autorise'])->withoutMiddleware('throttle:60,1');
         Route::get('photos/{fichier}', [PhotoEmployeController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('employe.photo')->withoutMiddleware('throttle:60,1');
+        Route::get('photos-animaux/{fichier}', [PhotoPatientController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('patient.photo')->withoutMiddleware('throttle:60,1');
         Route::get('sites/{slug}/logo', [SitePublicController::class, 'logo'])->where('slug', '[a-z0-9-]+')->name('site.logo')->withoutMiddleware('throttle:60,1');
     });
 
@@ -297,6 +299,8 @@ Route::prefix('v1')->group(function (): void {
         // Carnet de santé : puce (15 chiffres, format AMICUS) et
         // déclaration AMICUS (chiens pucés uniquement).
         Route::put('patients/{patient}/puce', [CarnetSanteController::class, 'modifierPuce']);
+        Route::post('patients/{patient}/photo', [PhotoPatientController::class, 'televerser']);
+        Route::delete('patients/{patient}/photo', [PhotoPatientController::class, 'supprimer']);
         Route::post('patients/{patient}/amicus', [CarnetSanteController::class, 'declarerAmicus']);
 
         Route::post('patients/{patient}/pesees', [PeseeController::class, 'store']);
