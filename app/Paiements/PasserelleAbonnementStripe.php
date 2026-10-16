@@ -153,8 +153,11 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
 
     public function facturerAchat(string $client, int $centimes, string $libelle, string $tva, array $metadonnees, string $cleIdempotence): array
     {
+        // Devise explicite : sans elle, la facture d'un client sans
+        // historique prend celle du compte Stripe (EUR) et refuse la ligne en CHF
         $facture = $this->appel(fn () => $this->client->invoices->create([
             'customer' => $client,
+            'currency' => 'chf',
             'collection_method' => 'charge_automatically',
             'auto_advance' => false,
             'default_tax_rates' => [$tva],
