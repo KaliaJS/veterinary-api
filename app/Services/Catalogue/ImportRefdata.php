@@ -31,7 +31,7 @@ final class ImportRefdata
             $journal->fichier_hash = hash_file('sha256', $archive);
             $precedent = CatalogueImport::query()
                 ->where('source', CatalogueImport::REFDATA)
-                ->where('statut', CatalogueImport::REUSSI)
+                ->whereIn('statut', [CatalogueImport::REUSSI, CatalogueImport::IDENTIQUE])
                 ->latest('id')->first();
             if (! $forcer && $precedent && $precedent->fichier_hash === $journal->fichier_hash) {
                 $journal->statut = CatalogueImport::IDENTIQUE;
@@ -48,12 +48,21 @@ final class ImportRefdata
             $this->clore($journal, $debut);
             throw $erreur;
         } finally {
+            // Rien n est conservé sur le disque : ni les XML extraits ni l archive téléchargée
             File::deleteDirectory($dossier.'/xml');
+            if ($fichierLocal === null) {
+                File::delete($dossier.'/Refdata.Articles.zip');
+            }
         }
 
         return $journal;
     }
 
+    /**
+     * Télécharge l archive, toujours en entier : Refdata n annonce ni date ni
+     * ETag et ignore les requêtes conditionnelles ; c est l empreinte SHA-256
+     * locale qui dit ensuite si le fichier a changé.
+     */
     private function telecharger(string $dossier): string
     {
         $cle = config('catalogue.refdata.cle');
@@ -62,9 +71,9 @@ final class ImportRefdata
         }
         File::ensureDirectoryExists($dossier);
         $cible = $dossier.'/Refdata.Articles.zip';
-        // (la clé passe en paramètre : l en-tête de souscription n est pas accepté par ce portail)
-        $reponse = Http::timeout(300)->withUserAgent('veterinary-api')->sink($cible)
-            ->get(config('catalogue.refdata.url'), ['subscription-key' => $cle]);
+        $reponse = Http::timeout(300)->withUserAgent('veterinary-api')
+            ->withHeaders(['X-API-Key' => $cle, 'Cache-Control' => 'no-cache'])
+            ->sink($cible)->get(config('catalogue.refdata.url'));
         if (! $reponse->successful()) {
             throw new RuntimeException('Téléchargement Refdata en échec : HTTP '.$reponse->status());
         }

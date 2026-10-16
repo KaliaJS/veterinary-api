@@ -38,13 +38,25 @@ final class ImportSwissmedic
         $debut = hrtime(true);
         $journal = new CatalogueImport(['source' => CatalogueImport::SWISSMEDIC, 'statut' => CatalogueImport::ECHEC]);
         $dossier = storage_path('app/catalogue/swissmedic');
+        // Dernier passage concluant (importé ou identique) : son empreinte et l ETag du serveur
+        $precedent = CatalogueImport::query()
+            ->where('source', CatalogueImport::SWISSMEDIC)
+            ->whereIn('statut', [CatalogueImport::REUSSI, CatalogueImport::IDENTIQUE])
+            ->latest('id')->first();
         try {
-            $archive = $fichierLocal ?? $this->telecharger($dossier);
+            if ($fichierLocal === null) {
+                [$archive, $journal->fichier_etag] = $this->telecharger($dossier, $forcer ? null : $precedent?->fichier_etag);
+                if ($archive === null) {
+                    $journal->fichier_hash = $precedent?->fichier_hash;
+                    $journal->statut = CatalogueImport::IDENTIQUE;
+                    $journal->message = 'Fichier inchangé sur le serveur, rien téléchargé';
+
+                    return $this->clore($journal, $debut);
+                }
+            } else {
+                $archive = $fichierLocal;
+            }
             $journal->fichier_hash = hash_file('sha256', $archive);
-            $precedent = CatalogueImport::query()
-                ->where('source', CatalogueImport::SWISSMEDIC)
-                ->where('statut', CatalogueImport::REUSSI)
-                ->latest('id')->first();
             if (! $forcer && $precedent && $precedent->fichier_hash === $journal->fichier_hash) {
                 $journal->statut = CatalogueImport::IDENTIQUE;
                 $journal->message = 'Fichier identique au dernier import';
@@ -62,30 +74,35 @@ final class ImportSwissmedic
             $this->clore($journal, $debut);
             throw $erreur;
         } finally {
+            // Rien n est conservé sur le disque : ni les XML extraits ni l archive téléchargée
             File::deleteDirectory($dossier.'/xml');
+            if ($fichierLocal === null) {
+                File::delete($dossier.'/OGD.zip');
+            }
         }
 
         return $journal;
     }
 
-    /** Date de modification annoncée par le portail opendata.swiss (null si inaccessible). */
-    public function dateDuJeu(): ?Carbon
-    {
-        try {
-            $reponse = Http::timeout(20)->withUserAgent('veterinary-api')->get(config('catalogue.swissmedic.metadonnees_url'));
-            $date = $reponse->json('result.metadata_modified');
-
-            return $date ? Carbon::parse($date) : null;
-        } catch (Throwable) {
-            return null;
-        }
-    }
-
-    private function telecharger(string $dossier): string
+    /**
+     * Télécharge l archive. Avec l ETag du dernier fichier importé, le serveur
+     * répond « 304, inchangé » sans corps : rien n est transféré.
+     *
+     * @return array{0: ?string, 1: ?string} chemin de l archive (null : inchangée) et ETag du serveur
+     */
+    private function telecharger(string $dossier, ?string $etagConnu): array
     {
         File::ensureDirectoryExists($dossier);
         $cible = $dossier.'/OGD.zip';
-        $reponse = Http::timeout(300)->withUserAgent('veterinary-api')->sink($cible)->get(config('catalogue.swissmedic.url'));
+        $entetes = ['Cache-Control' => 'no-cache'];
+        if ($etagConnu) {
+            $entetes['If-None-Match'] = $etagConnu;
+        }
+        $reponse = Http::timeout(300)->withUserAgent('veterinary-api')->withHeaders($entetes)->sink($cible)
+            ->get(config('catalogue.swissmedic.url'));
+        if ($reponse->status() === 304) {
+            return [null, $etagConnu];
+        }
         if (! $reponse->successful()) {
             throw new RuntimeException('Téléchargement Swissmedic en échec : HTTP '.$reponse->status());
         }
@@ -93,7 +110,7 @@ final class ImportSwissmedic
             throw new RuntimeException('Archive Swissmedic plus grande qu attendu');
         }
 
-        return $cible;
+        return [$cible, $reponse->header('ETag') ?: null];
     }
 
     private function dateExport(string $chemin): ?Carbon

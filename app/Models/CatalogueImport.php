@@ -17,7 +17,7 @@ class CatalogueImport extends Model
 
     public const ECHEC = 'echec';
 
-    protected $fillable = ['source', 'fichier_hash', 'export_le', 'statut', 'ajoutes', 'modifies', 'retires', 'message', 'duree_ms'];
+    protected $fillable = ['source', 'fichier_hash', 'fichier_etag', 'export_le', 'statut', 'ajoutes', 'modifies', 'retires', 'message', 'duree_ms'];
 
     protected function casts(): array
     {

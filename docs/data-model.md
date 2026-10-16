@@ -1111,10 +1111,10 @@ comme la démo :
 Données de plateforme (aucune organisation, aucun scope) :
 
 - `produits_veterinaires` : les 760 médicaments vétérinaires autorisés en Suisse, importés du flux Open Government Data de Swissmedic (ZIP d'XML mensuel, sans clé). Clé : `numero_autorisation`. `categorie` : `vaccin` (code Swissmedic I), `immunologique` (AI, sérums), `medicament`. `especes` (codes `Espece`) déduit du code ATCvet et des mots du nom (« für Hunde, Katzen… ») ; `voies` : codes Swissmedic. Un produit disparu du flux est marqué `retire_le`, jamais supprimé.
-- `produit_emballages` : emballages autorisés (numéro à 8 chiffres = produit + emballage, celui des codes Swissmedic et Refdata) ; `gtin` et `nom_fr` posés par la base d'articles Refdata (ZIP d'XML quotidien, clé de souscription `REFDATA_API_KEY`, passée en paramètre `subscription-key`).
+- `produit_emballages` : emballages autorisés (numéro à 8 chiffres = produit + emballage, celui des codes Swissmedic et Refdata) ; `gtin` et `nom_fr` posés par la base d'articles Refdata (ZIP d'XML quotidien, clé de souscription `REFDATA_API_KEY`, passée en en-tête `X-API-Key`).
 - `valences` : maladies couvertes, en français (données curées `DonneesVaccins::VALENCES`) ; `produit_valence` : lesquelles par produit, déduites de la description ATCvet (`AGENTS`) ou curées (`PRODUITS[n]['valences']`).
 - `vaccin_schemas` : schéma d'emploi curé par produit (âge minimal, nombre d'injections et intervalle de la primo-vaccination, premier rappel, rappel courant, voie, remarques, source). Jamais écrasé par un import ; les sources « indicatives » restent à confirmer sur l'information professionnelle.
-- `catalogue_imports` : journal (source, empreinte SHA-256, date d'export, comptes, statut `reussi | identique | echec`).
+- `catalogue_imports` : journal (source, empreinte SHA-256, ETag annoncé par le serveur, date d'export, comptes, statut `reussi | identique | echec`). Swissmedic reçoit l'ETag du dernier fichier et répond « inchangé » sans rien envoyer ; Refdata n'annonce rien, son fichier est téléchargé puis comparé par empreinte. Un fichier inchangé n'écrit rien ; aucune archive n'est conservée sur le disque.
 
 Commandes `catalogue:swissmedic` et `catalogue:refdata` (`--fichier`, `--force`) ; planifiées en production seulement (le 3 du mois à 4 h, le lundi à 4 h 30). Nouveaux vaccins notifiés par e-mail à `CATALOGUE_NOTIFICATION_EMAIL`.
 

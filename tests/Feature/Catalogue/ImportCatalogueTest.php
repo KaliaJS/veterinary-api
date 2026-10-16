@@ -8,6 +8,8 @@ use App\Models\ProduitVeterinaire;
 use App\Services\Catalogue\ImportRefdata;
 use App\Services\Catalogue\ImportSwissmedic;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -16,7 +18,9 @@ use ZipArchive;
  * balises que les flux Swissmedic OGD et Refdata) : produits vétérinaires
  * seulement, valences déduites de l ATCvet ou curées, schéma curé,
  * emballages et GTIN, retrait d un produit disparu, fichier identique
- * ignoré, archive suspecte refusée.
+ * ignoré, archive suspecte refusée ; téléchargements simulés : ETag
+ * mémorisé puis renvoyé (304 : rien téléchargé), clé Refdata en en-tête,
+ * aucune archive gardée.
  */
 class ImportCatalogueTest extends TestCase
 {
@@ -87,6 +91,47 @@ class ImportCatalogueTest extends TestCase
         $this->assertSame('8713184095282', $emballage->gtin);
         $this->assertSame('NOBIVAC DHPPi ad us. vet. susp pdr', $emballage->nom_fr);
         $this->assertStringContainsString('1 sans correspondance', $journal->message);
+    }
+
+    public function test_le_telechargement_swissmedic_memorise_l_etag_et_ne_garde_pas_l_archive(): void
+    {
+        Http::fake([config('catalogue.swissmedic.url') => Http::response(file_get_contents($this->archiveSwissmedic()), 200, ['ETag' => '"v1"'])]);
+
+        $journal = app(ImportSwissmedic::class)->importer();
+
+        $this->assertSame(CatalogueImport::REUSSI, $journal->statut);
+        $this->assertSame(2, $journal->ajoutes);
+        $this->assertSame('"v1"', $journal->fichier_etag);
+        Http::assertSent(fn (Request $r): bool => $r->header('Cache-Control') === ['no-cache'] && ! $r->hasHeader('If-None-Match'));
+        $this->assertFileDoesNotExist(storage_path('app/catalogue/swissmedic/OGD.zip'));
+    }
+
+    public function test_swissmedic_ne_telecharge_rien_quand_le_serveur_repond_inchange(): void
+    {
+        CatalogueImport::query()->create(['source' => CatalogueImport::SWISSMEDIC, 'statut' => CatalogueImport::REUSSI, 'fichier_hash' => str_repeat('a', 64), 'fichier_etag' => '"v1"']);
+        Http::fake([config('catalogue.swissmedic.url') => Http::response('', 304)]);
+
+        $journal = app(ImportSwissmedic::class)->importer();
+
+        $this->assertSame(CatalogueImport::IDENTIQUE, $journal->statut);
+        $this->assertSame('"v1"', $journal->fichier_etag);
+        $this->assertSame(str_repeat('a', 64), $journal->fichier_hash);
+        Http::assertSent(fn (Request $r): bool => $r->header('If-None-Match') === ['"v1"']);
+        $this->assertFileDoesNotExist(storage_path('app/catalogue/swissmedic/OGD.zip'));
+    }
+
+    public function test_refdata_envoie_la_cle_en_en_tete_et_ne_garde_pas_l_archive(): void
+    {
+        config(['catalogue.refdata.cle' => 'cle-de-test']);
+        Http::fake([config('catalogue.refdata.url') => Http::response(file_get_contents($this->archiveRefdata()))]);
+        app(ImportSwissmedic::class)->importer($this->archiveSwissmedic());
+
+        $journal = app(ImportRefdata::class)->importer();
+
+        $this->assertSame(CatalogueImport::REUSSI, $journal->statut);
+        $this->assertSame(1, $journal->modifies);
+        Http::assertSent(fn (Request $r): bool => $r->header('X-API-Key') === ['cle-de-test'] && $r->header('Cache-Control') === ['no-cache'] && ! str_contains($r->url(), 'cle-de-test'));
+        $this->assertFileDoesNotExist(storage_path('app/catalogue/refdata/Refdata.Articles.zip'));
     }
 
     private function archiveSwissmedic(bool $sansRage = false): string
