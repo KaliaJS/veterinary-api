@@ -253,6 +253,15 @@ que l'organisation), factures dans `proprietaire_factures`. Routes
 `…/reactiver`. Les cliniques s'abonnent au mois (le cycle annuel n'est
 plus proposé).
 
+**Jeu de la planète** (16.10.2026) : `patients.decede_le` (déclaré par
+le propriétaire pour tout animal du compte, `POST|DELETE
+/espace/animaux/{id}/deces`, ou par la clinique ; coupe les rappels) met
+une tombe à son nom sur la planète ; boutique d'objets (`ArticlePlanete` :
+balle, gamelle, lanterne, banc, niche, cerisier, de 0,50 à 2 CHF TTC),
+achetés une fois (`achats_planete`, unique par compte), prélevés sur la
+carte du compte (facture Stripe, `GET /espace/planete`, `POST
+/espace/planete/achats`).
+
 Pas encore réel : les compteurs d'usage (`usage_emails`, `usage_sms`,
 `usage_stockage_go`) ne sont alimentés par aucun envoi ni fichier (valeurs
 seedées), et rien ne bascule l'organisation en lecture seule après la fin

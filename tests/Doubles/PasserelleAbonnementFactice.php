@@ -126,7 +126,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     {
         $this->refuser();
 
-        return $this->facture($client, $centimes, 'manual', $metadonnees, null, $libelle);
+        return $this->facture($client, $centimes, 'manual', $metadonnees, null, $libelle, $tva === 'txr_tva_incluse');
     }
 
     public function lireFacture(string $facture): array

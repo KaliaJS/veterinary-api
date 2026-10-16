@@ -32,6 +32,7 @@ class PatientResource extends JsonResource
             'race' => $this->race,
             'sexe' => $this->sexe,
             'ne_le' => $this->ne_le?->toDateString(),
+            'decede_le' => $this->decede_le?->toDateString(),
             'est_sterilise' => $this->est_sterilise,
             'puce' => $this->puce,
             'photo_url' => $this->photoUrl(),

@@ -31,6 +31,7 @@ class AnimalProprietaireResource extends JsonResource
             'race' => $this->race,
             'sexe' => $this->sexe?->value,
             'ne_le' => $this->ne_le?->toDateString(),
+            'decede_le' => $this->decede_le?->toDateString(),
             'age_libelle' => self::age($this->ne_le),
             'puce' => $this->puce,
             'photo_url' => $this->photoUrl(),

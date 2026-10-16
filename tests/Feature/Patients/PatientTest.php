@@ -86,9 +86,10 @@ class PatientTest extends TestCase
     {
         $autreClient = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Aubert']);
         $this->client->update(['nom' => 'Zbinden']);
-        $rex = Patient::factory()->for($this->client)->create(['nom' => 'Rex', 'est_agressif' => true, 'dette' => 0]);
-        $mimi = Patient::factory()->for($autreClient)->create(['nom' => 'Mimi', 'est_agressif' => false, 'dette' => 0]);
-        $pixel = Patient::factory()->for($this->client)->create(['nom' => 'Pixel', 'est_agressif' => false, 'dette' => 0]);
+        // Alertes posées explicitement (la fabrique tire les allergies au hasard)
+        $rex = Patient::factory()->for($this->client)->create(['nom' => 'Rex', 'est_agressif' => true, 'a_allergies' => false, 'dette' => 0]);
+        $mimi = Patient::factory()->for($autreClient)->create(['nom' => 'Mimi', 'est_agressif' => false, 'a_allergies' => false, 'dette' => 0]);
+        $pixel = Patient::factory()->for($this->client)->create(['nom' => 'Pixel', 'est_agressif' => false, 'a_allergies' => false, 'dette' => 0]);
         $rex->pesees()->create(['poids_kg' => 24.5, 'pesee_le' => today()->subDays(3)]);
         $rex->pesees()->create(['poids_kg' => 26, 'pesee_le' => today()]);
         $mimi->pesees()->create(['poids_kg' => 4.2, 'pesee_le' => today()]);

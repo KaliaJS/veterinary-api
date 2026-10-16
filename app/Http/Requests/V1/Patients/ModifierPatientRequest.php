@@ -23,6 +23,7 @@ class ModifierPatientRequest extends FormRequest
             'race' => ['sometimes', 'nullable', 'string', 'max:255'],
             'sexe' => ['sometimes', Rule::enum(Sexe::class)],
             'ne_le' => ['sometimes', 'nullable', 'date', 'before_or_equal:today'],
+            'decede_le' => ['sometimes', 'nullable', 'date', 'before_or_equal:today'],
             'est_sterilise' => ['sometimes', 'boolean'],
             'puce' => ['sometimes', 'nullable', 'string', 'max:32', new NumeroPuce],
             'est_agressif' => ['sometimes', 'boolean'],

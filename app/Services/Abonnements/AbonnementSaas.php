@@ -2,8 +2,10 @@
 
 namespace App\Services\Abonnements;
 
+use App\Enums\ArticlePlanete;
 use App\Enums\FormuleSaas;
 use App\Enums\TypePack;
+use App\Models\AchatPlanete;
 use App\Models\FactureProprietaire;
 use App\Models\Organisation;
 use App\Models\OrganisationFacture;
@@ -178,6 +180,30 @@ final class AbonnementSaas
         $this->refleterDerniereFacture($abonnement);
     }
 
+    /* ————— Boutique de la planète (propriétaires) ————— */
+
+    /** Objet acheté une fois, prélevé aussitôt (TTC) ; posé sur la planète une fois la facture payée. */
+    public function acheterArticle(User $user, ArticlePlanete $article): void
+    {
+        if (AchatPlanete::query()->where('user_id', $user->id)->where('article', $article)->exists()) {
+            throw ValidationException::withMessages(['article' => 'Cet objet est déjà sur votre planète.']);
+        }
+        if (! $user->stripe_moyen_paiement_id) {
+            throw ValidationException::withMessages(['moyen_paiement' => 'Enregistrez d’abord une carte.']);
+        }
+
+        $facture = $this->sansErreur('paiement', fn () => $this->stripe->facturerAchat(
+            $user->stripe_client_id,
+            $article->centimes(),
+            $article->nom().' pour votre planète',
+            $this->stripe->tauxTva(true),
+            ['user_id' => (string) $user->id, 'type' => 'planete', 'article' => $article->value, 'libelle' => $article->nom().' pour votre planète'],
+            'planete-'.$user->id.'-'.$article->value.'-'.Str::uuid(),
+        ));
+
+        $this->refleterFacture($facture);
+    }
+
     /* ————— Packs ————— */
 
     public function acheterPack(Organisation $organisation, TypePack $type, int $quantite): void
@@ -292,6 +318,10 @@ final class AbonnementSaas
             ]);
 
             $metadonnees = $facture['metadata'] ?? [];
+            $article = ArticlePlanete::tryFrom((string) ($metadonnees['article'] ?? ''));
+            if ($abonne instanceof User && $statut === 'payee' && $article) {
+                AchatPlanete::query()->firstOrCreate(['user_id' => $abonne->id, 'article' => $article], ['stripe_facture_id' => $facture['id']]);
+            }
             $pack = TypePack::tryFrom((string) ($metadonnees['pack'] ?? ''));
             if ($abonne instanceof Organisation && $statut === 'payee' && $pack && ! $ligne->quota_applique) {
                 Organisation::query()->whereKey($abonne->id)->increment($pack->colonneQuota(), (int) ($metadonnees['quantite'] ?? 0));
@@ -374,8 +404,8 @@ final class AbonnementSaas
     private function libelle(array $facture): string
     {
         $metadonnees = $facture['metadata'] ?? [];
-        if (($metadonnees['type'] ?? null) === 'pack') {
-            return (string) ($metadonnees['libelle'] ?? 'Pack de quota');
+        if (in_array($metadonnees['type'] ?? null, ['pack', 'planete'], true)) {
+            return (string) ($metadonnees['libelle'] ?? 'Achat');
         }
 
         $abonnement = $facture['parent']['subscription_details']['metadata'] ?? [];

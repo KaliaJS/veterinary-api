@@ -25,7 +25,7 @@ class Patient extends Model
 
     protected $fillable = [
         'organisation_id', 'client_id', 'proprietaire_id', 'acces_clinique', 'nom', 'espece', 'race', 'sexe',
-        'ne_le', 'est_sterilise', 'puce', 'photo_chemin', 'dette', 'est_agressif',
+        'ne_le', 'decede_le', 'est_sterilise', 'puce', 'photo_chemin', 'dette', 'est_agressif',
         'a_allergies', 'traitement_en_cours', 'rappels_coupes',
         'amicus_declare_le', 'client_depuis',
     ];
@@ -37,6 +37,7 @@ class Patient extends Model
             'sexe' => Sexe::class,
             'acces_clinique' => AccesClinique::class,
             'ne_le' => 'date',
+            'decede_le' => 'date',
             'est_sterilise' => 'boolean',
             'dette' => 'decimal:2',
             'est_agressif' => 'boolean',

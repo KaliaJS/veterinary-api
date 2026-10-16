@@ -49,6 +49,7 @@ use App\Http\Controllers\Api\V1\Espace\CliniqueProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\CoordonneesProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\DocumentProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\MessageProprietaireController;
+use App\Http\Controllers\Api\V1\Espace\PlaneteController;
 use App\Http\Controllers\Api\V1\Espace\ReglagesProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\RendezVousProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\VerificationEmailController;
@@ -207,6 +208,11 @@ Route::prefix('v1')->group(function (): void {
         Route::post('abonnement/plus', [AbonnementProprietaireController::class, 'souscrire']);
         Route::post('abonnement/resilier', [AbonnementProprietaireController::class, 'resilier']);
         Route::post('abonnement/reactiver', [AbonnementProprietaireController::class, 'reactiver']);
+        // Jeu de la planète : boutique d'objets, décès d'un animal (tombe)
+        Route::get('planete', [PlaneteController::class, 'afficher']);
+        Route::post('planete/achats', [PlaneteController::class, 'acheter']);
+        Route::post('animaux/{animal}/deces', [PlaneteController::class, 'declarerDeces']);
+        Route::delete('animaux/{animal}/deces', [PlaneteController::class, 'annulerDeces']);
         Route::put('coordonnees', [CoordonneesProprietaireController::class, 'modifier']);
         Route::get('commandes', [BoutiqueProprietaireController::class, 'commandes']);
         Route::post('commandes', [BoutiqueProprietaireController::class, 'passer']);
