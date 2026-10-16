@@ -208,7 +208,7 @@ Réel depuis le 16.10.2026 : **Stripe Billing** fait foi (service
 
 - `plan` (`individuel` \| `cabinet` \| `hopital`, enum `FormuleSaas` :
   prix HT mensuel et limites cliniques, employés actifs, e-mails, SMS,
-  patients, stockage), `cycle` (`mois` \| `an`, dix mois pour un an).
+  patients, stockage), `cycle` (`mois` \| `an`, un an = douze mois, sans remise depuis le 16.10.2026).
   Reflets de l'abonnement Stripe (métadonnées `formule`, `cycle`).
 - **Carte** : `POST organisation/moyen-paiement/intention` crée le client
   Stripe au besoin (`stripe_client_id`) et un SetupIntent hors session ;

@@ -112,7 +112,8 @@ final class AbonnementSaas
         $prix = $this->sansErreur('plan', fn () => $this->stripe->prixFormule(
             'veterinary-'.$cible->value.'-'.$cycle,
             $cible->nom().($cycle === 'an' ? ' (annuel)' : ' (mensuel)'),
-            $cible->prixMensuel() * 100 * ($cycle === 'an' ? 10 : 1),
+            // Un an = douze mois, sans remise (décision du 16.10.2026)
+            $cible->prixMensuel() * 100 * ($cycle === 'an' ? 12 : 1),
             $cycle === 'an' ? 'year' : 'month',
         ));
         $metadonnees = ['organisation_id' => (string) $organisation->id, 'formule' => $cible->value, 'cycle' => $cycle];

@@ -236,16 +236,16 @@ class OrganisationTest extends TestCase
             ->assertJsonPath('data.abonnement.periode_fin', now()->addMonth()->toDateString())
             ->assertJsonPath('data.resilie_le', null);
 
-        // Dix mois pour un an, HT : 999 × 10 ; TVA 8,1 % en sus
-        $this->assertSame(999000, $this->stripe->prix['veterinary-hopital-an']);
+        // Un an = douze mois, sans remise, HT : 999 × 12 ; TVA 8,1 % en sus
+        $this->assertSame(1198800, $this->stripe->prix['veterinary-hopital-an']);
         $this->getJson('/api/v1/organisation/factures', $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.libelle', 'Abonnement Pro Hôpital, annuel')
             ->assertJsonPath('data.0.statut', 'payee')
-            ->assertJsonPath('data.0.montant_ht', 9990)
-            ->assertJsonPath('data.0.tva', 809.19)
-            ->assertJsonPath('data.0.montant', 10799.19)
+            ->assertJsonPath('data.0.montant_ht', 11988)
+            ->assertJsonPath('data.0.tva', 971.03)
+            ->assertJsonPath('data.0.montant', 12959.03)
             ->assertJsonPath('data.0.pdf_url', fn (string $url): bool => str_starts_with($url, 'https://pay.stripe.com/'));
     }
 
