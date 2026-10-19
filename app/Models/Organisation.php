@@ -21,6 +21,7 @@ class Organisation extends Model
         'nom', 'plan', 'cycle', 'resilie_le', 'moyen_paiement',
         'usage_emails', 'usage_sms', 'usage_stockage_go',
         'quota_extra_emails', 'quota_extra_sms', 'quota_extra_stockage_go',
+        'plafond_transcription', 'termes_transcription',
     ];
 
     /** Miroir des défauts de la base. */
@@ -33,6 +34,7 @@ class Organisation extends Model
         'quota_extra_emails' => 0,
         'quota_extra_sms' => 0,
         'quota_extra_stockage_go' => 0,
+        'plafond_transcription' => 20000,
     ];
 
     protected function casts(): array
@@ -47,6 +49,10 @@ class Organisation extends Model
             'quota_extra_emails' => 'integer',
             'quota_extra_sms' => 'integer',
             'quota_extra_stockage_go' => 'integer',
+            // Transcription des consultations : plafond mensuel en centimes HT,
+            // mots rares à faire reconnaître (médicaments, races, marques)
+            'plafond_transcription' => 'integer',
+            'termes_transcription' => 'array',
         ];
     }
 

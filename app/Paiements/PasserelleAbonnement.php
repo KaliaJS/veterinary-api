@@ -67,6 +67,15 @@ interface PasserelleAbonnement
      */
     public function facturerAchat(string $client, int $centimes, string $libelle, string $tva, array $metadonnees, string $cleIdempotence): array;
 
+    /**
+     * Ligne ajoutée à la prochaine facture de l'abonnement (usage du mois
+     * écoulé, facturé avec le renouvellement), TVA en sus.
+     *
+     * @param  array<string, string>  $metadonnees
+     * @return string identifiant de la ligne
+     */
+    public function ajouterAuProchainCycle(string $client, string $abonnement, int $centimes, string $libelle, string $tva, array $metadonnees, string $cleIdempotence): string;
+
     /** @return array<string, mixed> facture */
     public function lireFacture(string $facture): array;
 }

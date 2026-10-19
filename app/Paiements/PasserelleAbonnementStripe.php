@@ -188,6 +188,21 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
         }
     }
 
+    public function ajouterAuProchainCycle(string $client, string $abonnement, int $centimes, string $libelle, string $tva, array $metadonnees, string $cleIdempotence): string
+    {
+        // Ligne en attente rattachée à l'abonnement : Stripe la reprend
+        // dans la facture de son prochain renouvellement
+        return $this->appel(fn () => $this->client->invoiceItems->create([
+            'customer' => $client,
+            'subscription' => $abonnement,
+            'amount' => $centimes,
+            'currency' => 'chf',
+            'description' => $libelle,
+            'tax_rates' => [$tva],
+            'metadata' => $metadonnees,
+        ], ['idempotency_key' => $cleIdempotence]))->id;
+    }
+
     public function lireFacture(string $facture): array
     {
         return $this->appel(fn () => $this->client->invoices->retrieve($facture))->toArray();

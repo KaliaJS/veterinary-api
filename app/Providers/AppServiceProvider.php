@@ -14,6 +14,10 @@ use App\Paiements\PasserelleStripe;
 use App\Services\Domaines\FournisseurCloudflare;
 use App\Services\Domaines\FournisseurDomaines;
 use App\Services\Domaines\FournisseurManuel;
+use App\Services\Transcription\Redacteur;
+use App\Services\Transcription\RedacteurClaude;
+use App\Services\Transcription\Transcripteur;
+use App\Services\Transcription\TranscripteurDeepgram;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -44,6 +48,12 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(PasserelleAbonnement::class, fn () => new PasserelleAbonnementStripe(
             new StripeClient(['api_key' => config('services.stripe.secret') ?: null]),
         ));
+
+        // Transcription des consultations : un fournisseur pour transcrire,
+        // un pour rédiger le compte rendu, chacun remplaçable derrière son
+        // interface (doubles dans les tests)
+        $this->app->bind(Transcripteur::class, TranscripteurDeepgram::class);
+        $this->app->bind(Redacteur::class, RedacteurClaude::class);
 
         // Domaines personnalisés des sites : fournisseur choisi par configuration
         $this->app->bind(FournisseurDomaines::class, fn ($app) => config('sites.domaines.fournisseur') === 'cloudflare'

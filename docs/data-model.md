@@ -932,6 +932,44 @@ a (diagnostic), p (traitement & plan) }`. Table `comptes_rendus` :
 La présence d'un CR est affichée sur le RDV (badge « CR à rédiger » /
 rédigé dans « Ma journée »). PDF signé.
 
+### Enregistrement et transcription de la consultation (19.10.2026)
+
+Le vétérinaire enregistre la consultation (accord du propriétaire
+demandé oralement, rien n'est tracé). Pas de temps réel : l'audio est
+envoyé après coup, transcrit, **effacé**, puis un brouillon SOAP est
+rédigé ; le vétérinaire le relit dans la fenêtre du compte rendu et sa
+validation enregistre le CR ci-dessus.
+
+- `enregistrements_consultation` (niveau organisation) : `rendez_vous_id`,
+  `clinique_id`, `user_id`, `statut` (`enregistrement` → `transcription`
+  → `redaction` → `pret` → `valide` ; `erreur` + `erreur` =
+  `transcription` | `redaction`, relançable), `parties_attendues`
+  (connu à « terminer »), `brouillon` chiffré `{s, o, a, p, a_verifier[]}`.
+  Plusieurs parties par consultation (arrêt sur silence, reprise) ; un
+  brouillon non validé se rouvre pour ajouter une partie.
+- `parties_enregistrement` : `numero`, `statut` (`envoi` | `recue` |
+  `transcrite` | `erreur`), `format`, `morceaux`, `fichier` (null dès la
+  transcription), `segments` chiffrés `[{voix, debut, fin, texte}]`,
+  `duree_secondes` (durée transcrite, facturée).
+- Audio reçu par morceaux d'au plus 1 Mo (`POST
+  enregistrements/{id}/parties/{numero}`), assemblé quand tous sont là ;
+  un morceau renvoyé remplace le précédent. Audio non transcrit effacé
+  après 7 jours (`transcriptions:purger`).
+- Fournisseurs remplaçables : `Transcripteur` (Deepgram, `nova-3-medical`
+  en `multi`, voix séparées, mots rares, `mip_opt_out`) et `Redacteur`
+  (Claude, JSON imposé, n'invente rien, rubrique vide si rien n'est dit).
+  Mots rares : liste de l'organisation (`organisations.termes_transcription`),
+  race, vaccins et médicaments du patient, produits les plus prescrits,
+  dans la limite d'environ 100 mots.
+- Facturation à l'usage : 5 centimes HT la minute (2 CHF les 40 min),
+  total du mois arrondi à la minute ; `facturations_transcription` (un
+  mois par organisation, jamais deux fois) ; ligne ajoutée à la prochaine
+  facture de l'abonnement, ou facture à part. Plafond mensuel de
+  l'organisation (`organisations.plafond_transcription`, 200 CHF par
+  défaut) et plafond de la plateforme en minutes (alerte e-mail à 80 % et
+  100 %) : ils bloquent le début d'un enregistrement, jamais une
+  consultation en cours. Carte enregistrée requise.
+
 ### Carnet de santé & vaccination (modale carnet)
 
 **Artefact de démo à ne pas reproduire** : la modale carnet est indexée

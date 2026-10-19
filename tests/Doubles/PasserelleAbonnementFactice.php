@@ -30,6 +30,9 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     /** @var list<string> */
     public array $detachees = [];
 
+    /** @var array<string, array<string, mixed>> lignes en attente du prochain renouvellement */
+    public array $lignesEnAttente = [];
+
     public ?string $refus = null;
 
     private int $sequence = 0;
@@ -127,6 +130,17 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
         $this->refuser();
 
         return $this->facture($client, $centimes, 'manual', $metadonnees, null, $libelle, $tva === 'txr_tva_incluse');
+    }
+
+    public function ajouterAuProchainCycle(string $client, string $abonnement, int $centimes, string $libelle, string $tva, array $metadonnees, string $cleIdempotence): string
+    {
+        $id = 'ii_'.++$this->sequence;
+        $this->lignesEnAttente[$id] = [
+            'customer' => $client, 'subscription' => $abonnement, 'amount' => $centimes,
+            'description' => $libelle, 'tax_rates' => [$tva], 'metadata' => $metadonnees,
+        ];
+
+        return $id;
     }
 
     public function lireFacture(string $facture): array

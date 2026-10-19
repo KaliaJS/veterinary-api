@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\StatutEnregistrement;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\DossierMedical\EnregistrerCompteRenduRequest;
 use App\Http\Resources\V1\CompteRenduResource;
 use App\Models\CompteRendu;
+use App\Models\EnregistrementConsultation;
 use App\Models\RendezVous;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -32,10 +34,21 @@ class CompteRenduController extends Controller
     {
         $this->authorize('create', CompteRendu::class);
 
-        $compteRendu = $this->rendezVousDeLOrganisation($rendezVous)->compteRendu()->updateOrCreate([], [
-            ...$request->validated(),
+        $rendezVous = $this->rendezVousDeLOrganisation($rendezVous);
+        $compteRendu = $rendezVous->compteRendu()->updateOrCreate([], [
+            ...$request->safe()->only(['s', 'o', 'a', 'p']),
             'user_id' => $request->user()->id,
         ]);
+
+        // Relu et enregistré par le vétérinaire : le brouillon de
+        // l'enregistrement est validé
+        if ($request->validated('enregistrement_id')) {
+            EnregistrementConsultation::query()
+                ->whereKey($request->validated('enregistrement_id'))
+                ->where('rendez_vous_id', $rendezVous->id)
+                ->where('statut', StatutEnregistrement::Pret->value)
+                ->update(['statut' => StatutEnregistrement::Valide->value, 'valide_le' => now()]);
+        }
 
         return new CompteRenduResource($compteRendu);
     }

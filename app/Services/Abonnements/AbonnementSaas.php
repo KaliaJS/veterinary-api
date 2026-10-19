@@ -407,7 +407,7 @@ final class AbonnementSaas
     private function libelle(array $facture): string
     {
         $metadonnees = $facture['metadata'] ?? [];
-        if (in_array($metadonnees['type'] ?? null, ['pack', 'planete'], true)) {
+        if (in_array($metadonnees['type'] ?? null, ['pack', 'planete', 'transcription'], true)) {
             return (string) ($metadonnees['libelle'] ?? 'Achat');
         }
 

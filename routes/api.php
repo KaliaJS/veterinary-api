@@ -41,6 +41,7 @@ use App\Http\Controllers\Api\V1\DisponibiliteController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\DomainePublicController;
 use App\Http\Controllers\Api\V1\EncaissementController;
+use App\Http\Controllers\Api\V1\EnregistrementConsultationController;
 use App\Http\Controllers\Api\V1\EquipeEmployeController;
 use App\Http\Controllers\Api\V1\Espace\AbonnementProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\AccueilController;
@@ -78,9 +79,11 @@ use App\Http\Controllers\Api\V1\OrganisationCliniqueController;
 use App\Http\Controllers\Api\V1\OrganisationController;
 use App\Http\Controllers\Api\V1\OrganisationFactureController;
 use App\Http\Controllers\Api\V1\OrganisationHoraireController;
+use App\Http\Controllers\Api\V1\OrganisationTranscriptionController;
 use App\Http\Controllers\Api\V1\PackQuotaController;
 use App\Http\Controllers\Api\V1\PaiementCaisseController;
 use App\Http\Controllers\Api\V1\PanelLaboController;
+use App\Http\Controllers\Api\V1\PartieEnregistrementController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PhotoEmployeController;
@@ -111,6 +114,7 @@ use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\TerminalPaiementController;
 use App\Http\Controllers\Api\V1\TrameImagerieController;
+use App\Http\Controllers\Api\V1\TranscriptionController;
 use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
 use App\Http\Controllers\Api\V1\VaccinCatalogueController;
@@ -368,6 +372,18 @@ Route::prefix('v1')->group(function (): void {
         Route::get('rendez-vous/{rendezVous}/compte-rendu', [CompteRenduController::class, 'afficher']);
         Route::put('rendez-vous/{rendezVous}/compte-rendu', [CompteRenduController::class, 'enregistrer']);
 
+        // Transcription des consultations (19.10.2026) — l'audio arrive
+        // après la consultation, par morceaux ; il est transcrit, effacé,
+        // puis un brouillon SOAP est rédigé pour le compte rendu ci-dessus,
+        // que le vétérinaire valide. Niveau organisation, comme lui.
+        Route::get('transcription', [TranscriptionController::class, 'etat']);
+        Route::get('rendez-vous/{rendezVous}/enregistrement', [EnregistrementConsultationController::class, 'afficher']);
+        Route::post('rendez-vous/{rendezVous}/enregistrement', [EnregistrementConsultationController::class, 'demarrer']);
+        Route::post('enregistrements/{enregistrement}/parties/{numero}', [PartieEnregistrementController::class, 'morceau'])->whereNumber(['enregistrement', 'numero']);
+        Route::post('enregistrements/{enregistrement}/terminer', [EnregistrementConsultationController::class, 'terminer'])->whereNumber('enregistrement');
+        Route::post('enregistrements/{enregistrement}/relancer', [EnregistrementConsultationController::class, 'relancer'])->whereNumber('enregistrement');
+        Route::delete('enregistrements/{enregistrement}', [EnregistrementConsultationController::class, 'supprimer'])->whereNumber('enregistrement');
+
         // Registre des ordonnances — du dossier médical : domaine
         // patients (Policies), niveau organisation. La signature sort
         // le stock de la clinique du jeton ; jamais de modification
@@ -453,6 +469,8 @@ Route::prefix('v1')->group(function (): void {
             Route::put('moyen-paiement', [MoyenPaiementController::class, 'enregistrer']);
             Route::delete('moyen-paiement', [MoyenPaiementController::class, 'supprimer']);
             Route::get('factures', [OrganisationFactureController::class, 'index']);
+            Route::get('transcription', [OrganisationTranscriptionController::class, 'afficher']);
+            Route::put('transcription', [OrganisationTranscriptionController::class, 'modifier']);
         });
 
         // Domaine équipe — fiches RH. La liste est celle de la clinique

@@ -49,6 +49,22 @@ return [
         'accepte_xcode' => env('APP_ENV') === 'local' && (bool) env('APPLE_STOREKIT_XCODE', false),
     ],
 
+    // Transcription des consultations : fichier entier envoyé après la
+    // consultation (pas de temps réel). Modèle médical, langue `multi`
+    // (français, avec d'autres langues possibles) ; la clé reste au serveur.
+    'deepgram' => [
+        'key' => env('DEEPGRAM_API_KEY'),
+        'url' => env('DEEPGRAM_URL', 'https://api.deepgram.com'),
+        'modele' => env('DEEPGRAM_MODELE', 'nova-3-medical'),
+        'langue' => env('DEEPGRAM_LANGUE', 'multi'),
+    ],
+
+    // Brouillon du compte rendu SOAP rédigé par Claude à partir de la transcription
+    'anthropic' => [
+        'key' => env('ANTHROPIC_API_KEY'),
+        'modele' => env('ANTHROPIC_MODELE', 'claude-opus-5-5'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
