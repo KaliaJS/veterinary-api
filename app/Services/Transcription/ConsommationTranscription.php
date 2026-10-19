@@ -14,11 +14,12 @@ use Illuminate\Support\Facades\Mail;
 /**
  * Minutes de transcription : ce qu'une organisation a consommé ce mois-ci
  * (heure suisse), ce que ça coûte, et si elle peut encore enregistrer.
- * Deux plafonds : celui de l'organisation (en francs, dans ses réglages)
- * et celui de la plateforme (en minutes, Deepgram n'ayant pas de plafond
- * de dépense), qui prévient par e-mail à 80 % puis à 100 %. Une partie
- * déjà enregistrée est toujours transcrite : le plafond bloque seulement
- * le début d'un nouvel enregistrement.
+ * Il faut un abonnement en cours (tout l'espace clinique est payant), et
+ * deux plafonds tiennent : celui de l'organisation (en francs, dans ses
+ * réglages) et le budget Deepgram de la plateforme (en dollars, vide :
+ * illimité), qui prévient par e-mail à 80 % puis à 100 %. Une partie déjà
+ * enregistrée est toujours transcrite : les plafonds bloquent seulement le
+ * début d'un nouvel enregistrement.
  */
 final class ConsommationTranscription
 {
@@ -56,12 +57,21 @@ final class ConsommationTranscription
     /** Pourquoi l'organisation ne peut pas commencer un enregistrement, ou null. */
     public function refus(Organisation $organisation): ?string
     {
+        $budget = config('transcription.budget_deepgram_usd');
+
         return match (true) {
-            ! $organisation->stripe_moyen_paiement_id => 'Enregistrez une carte dans les réglages de facturation pour utiliser la transcription.',
+            $organisation->statut_abonnement === 'impaye' => 'Une facture de votre abonnement attend son règlement : réglez-la dans les réglages de facturation pour utiliser la transcription.',
+            ! $organisation->stripe_abonnement_id || $organisation->statut_abonnement !== 'actif' => 'La transcription demande un abonnement en cours.',
             $this->montant($this->secondes($organisation->id)) >= $organisation->plafond_transcription => 'Le plafond mensuel de transcription de votre organisation est atteint. Un administrateur peut le relever dans les réglages de l’organisation.',
-            self::minutes($this->secondes()) >= (int) config('transcription.plafond_global_minutes') => 'La transcription est momentanément indisponible. Réessayez plus tard.',
+            $budget !== null && $this->depenseDeepgram() >= $budget => 'La transcription est momentanément indisponible. Réessayez plus tard.',
             default => null,
         };
+    }
+
+    /** Dépense Deepgram estimée de la plateforme ce mois-ci, en dollars. */
+    public function depenseDeepgram(): float
+    {
+        return round($this->secondes() / 60 * (float) config('transcription.cout_minute_deepgram_usd'), 2);
     }
 
     /** @return array<string, mixed> */
@@ -84,22 +94,22 @@ final class ConsommationTranscription
         ];
     }
 
-    /** Après chaque transcription : alerte quand la plateforme approche de son plafond. */
+    /** Après chaque transcription : alerte quand la plateforme approche de son budget Deepgram. */
     public function surveiller(): void
     {
-        $plafond = (int) config('transcription.plafond_global_minutes');
+        $budget = config('transcription.budget_deepgram_usd');
         $destinataire = config('transcription.alerte_email');
-        if ($plafond <= 0 || ! $destinataire) {
+        if ($budget === null || ! $destinataire) {
             return;
         }
 
-        $minutes = self::minutes($this->secondes());
+        $depense = $this->depenseDeepgram();
         foreach ([100, 80] as $seuil) {
-            if ($minutes * 100 < $plafond * $seuil) {
+            if ($depense * 100 < $budget * $seuil) {
                 continue;
             }
             if (Cache::add('transcription-alerte-'.$seuil.'-'.now('Europe/Zurich')->format('Y-m'), true, now()->addDays(40))) {
-                Mail::to($destinataire)->send(new AlerteTranscription($seuil, $minutes, $plafond));
+                Mail::to($destinataire)->send(new AlerteTranscription($seuil, $depense, (float) $budget, self::minutes($this->secondes())));
             }
 
             return;

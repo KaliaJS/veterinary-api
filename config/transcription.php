@@ -14,9 +14,13 @@ return [
     'plafond_organisation_centimes' => 20000,
 
     // Garde-fou de la plateforme : Deepgram n'a pas de plafond de dépense.
-    // Au-delà, plus aucun nouvel enregistrement ce mois-ci ; alerte par
-    // e-mail à 80 % puis à 100 %.
-    'plafond_global_minutes' => (int) env('TRANSCRIPTION_PLAFOND_GLOBAL_MINUTES', 20000),
+    // Budget mensuel en dollars (vide : illimité). Dépense estimée =
+    // minutes transcrites × coût d'une minute (tarif de la console
+    // Deepgram) ; alerte par e-mail à 80 % puis à 100 %, où plus aucun
+    // nouvel enregistrement ne commence ce mois-ci.
+    'budget_deepgram_usd' => is_numeric(env('TRANSCRIPTION_BUDGET_DEEPGRAM_USD')) ? (float) env('TRANSCRIPTION_BUDGET_DEEPGRAM_USD') : null,
+
+    'cout_minute_deepgram_usd' => (float) env('TRANSCRIPTION_COUT_MINUTE_DEEPGRAM_USD', 0.0065),
 
     'alerte_email' => env('TRANSCRIPTION_ALERTE_EMAIL'),
 

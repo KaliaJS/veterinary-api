@@ -90,7 +90,12 @@ class FournisseursTranscriptionTest extends TestCase
         Http::fake(['api.anthropic.com/*' => Http::response([
             'stop_reason' => 'end_turn',
             'content' => [['type' => 'text', 'text' => json_encode([
-                's' => ' Boiterie depuis 3 jours. ', 'o' => '', 'a' => '', 'p' => 'Repos.', 'a_verifier' => ['Dose de Metacam à confirmer.', ' '],
+                's' => ' Boiterie depuis 3 jours. ', 'o' => '', 'a' => '', 'p' => 'Repos et Metacam.', 'doutes' => [
+                    ['rubrique' => 'p', 'passage' => 'Metacam', 'entendu' => 'mes ta came', 'raison' => 'Nom de médicament incertain.'],
+                    ['rubrique' => 's', 'passage' => 'cinq jours', 'entendu' => 'cinq jours', 'raison' => 'Passage absent de la rubrique.'],
+                    ['rubrique' => 'x', 'passage' => '', 'entendu' => '', 'raison' => 'Rubrique inconnue.'],
+                    ['rubrique' => 'o', 'passage' => '', 'entendu' => '', 'raison' => ' '],
+                ],
             ])]],
         ])]);
 
@@ -99,7 +104,11 @@ class FournisseursTranscriptionTest extends TestCase
             ['partie' => 2, 'voix' => 1, 'debut' => 75.0, 'texte' => 'On met au repos.'],
         ], ['Animal' => 'Pacha', 'Espèce' => 'Chien']);
 
-        $this->assertSame(['s' => 'Boiterie depuis 3 jours.', 'o' => '', 'a' => '', 'p' => 'Repos.', 'a_verifier' => ['Dose de Metacam à confirmer.']], $brouillon->toArray());
+        $this->assertSame(['s' => 'Boiterie depuis 3 jours.', 'o' => '', 'a' => '', 'p' => 'Repos et Metacam.', 'doutes' => [
+            ['rubrique' => 'p', 'passage' => 'Metacam', 'entendu' => 'mes ta came', 'raison' => 'Nom de médicament incertain.'],
+            // Passage introuvable dans sa rubrique : le doute devient une note
+            ['rubrique' => 's', 'passage' => '', 'entendu' => 'cinq jours', 'raison' => 'Passage absent de la rubrique.'],
+        ]], $brouillon->toArray());
 
         Http::assertSent(function (Request $requete): bool {
             $message = $requete['messages'][0]['content'];
@@ -110,7 +119,8 @@ class FournisseursTranscriptionTest extends TestCase
                 && str_contains($requete['system'], 'N\'invente rien')
                 && $requete['output_config']['format']['type'] === 'json_schema'
                 && $requete['output_config']['format']['schema']['additionalProperties'] === false
-                && $requete['output_config']['format']['schema']['required'] === ['s', 'o', 'a', 'p', 'a_verifier']
+                && $requete['output_config']['format']['schema']['required'] === ['s', 'o', 'a', 'p', 'doutes']
+                && $requete['output_config']['format']['schema']['properties']['doutes']['items']['additionalProperties'] === false
                 && str_contains($message, "Animal : Pacha\nEspèce : Chien")
                 && str_contains($message, "Partie 1\n[0:12] Voix 1 : Il boite depuis trois jours.")
                 && str_contains($message, "Partie 2\n[1:15] Voix 2 : On met au repos.");

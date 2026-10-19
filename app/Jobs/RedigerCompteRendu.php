@@ -68,7 +68,9 @@ final class RedigerCompteRendu implements ShouldQueue
             ->all();
 
         if ($segments === []) {
-            $brouillon = new BrouillonSoap('', '', '', '', ['Aucune parole n’a été reconnue dans l’enregistrement.']);
+            $brouillon = new BrouillonSoap('', '', '', '', [
+                ['rubrique' => 's', 'passage' => '', 'entendu' => '', 'raison' => 'Aucune parole n’a été reconnue dans l’enregistrement.'],
+            ]);
         } else {
             try {
                 $brouillon = $redacteur->rediger($segments, self::contexte($enregistrement));

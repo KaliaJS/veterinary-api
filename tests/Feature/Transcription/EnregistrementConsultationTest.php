@@ -66,7 +66,10 @@ class EnregistrementConsultationTest extends TestCase
 
         $this->clinique = Clinique::factory()->create();
         $this->organisation = $this->clinique->societe->organisation;
-        $this->organisation->forceFill(['stripe_client_id' => 'cus_1', 'stripe_moyen_paiement_id' => 'pm_1'])->save();
+        $this->organisation->forceFill([
+            'stripe_client_id' => 'cus_1', 'stripe_moyen_paiement_id' => 'pm_1',
+            'stripe_abonnement_id' => 'sub_1', 'statut_abonnement' => 'actif',
+        ])->save();
 
         $patient = Patient::factory()->create([
             'client_id' => Client::factory()->create(['organisation_id' => $this->organisation->id])->id,
@@ -99,7 +102,8 @@ class EnregistrementConsultationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.statut', 'pret')
             ->assertJsonPath('data.brouillon.s', 'Boiterie depuis 3 jours, surtout le matin.')
-            ->assertJsonPath('data.brouillon.a_verifier', ['Côté du genou à confirmer.']);
+            ->assertJsonPath('data.brouillon.doutes.0.passage', 'genou droit')
+            ->assertJsonPath('data.brouillon.doutes.0.raison', 'Côté du genou à confirmer.');
 
         $this->assertCount(1, $this->redacteur->appels);
         $this->assertSame([1, 1, 2, 2], array_column($this->redacteur->appels[0]['segments'], 'partie'));
@@ -148,12 +152,15 @@ class EnregistrementConsultationTest extends TestCase
         $this->morceau($id, 2, 3, 2, 'ZZ')->assertUnprocessable()->assertJsonValidationErrors('morceau');
     }
 
-    public function test_sans_carte_ou_au_plafond_aucun_enregistrement_ne_commence_mais_celui_en_cours_continue(): void
+    public function test_sans_abonnement_en_cours_ou_au_plafond_aucun_enregistrement_ne_commence_mais_celui_en_cours_continue(): void
     {
-        $this->organisation->forceFill(['stripe_moyen_paiement_id' => null])->save();
-        $this->demarrer()->assertUnprocessable()->assertJsonValidationErrors('transcription');
+        $this->organisation->forceFill(['statut_abonnement' => 'resilie'])->save();
+        $this->demarrer()->assertUnprocessable()->assertJsonPath('errors.transcription.0', 'La transcription demande un abonnement en cours.');
 
-        $this->organisation->forceFill(['stripe_moyen_paiement_id' => 'pm_1', 'plafond_transcription' => 300])->save();
+        $this->organisation->forceFill(['statut_abonnement' => 'impaye'])->save();
+        $this->demarrer()->assertUnprocessable()->assertJsonPath('errors.transcription.0', 'Une facture de votre abonnement attend son règlement : réglez-la dans les réglages de facturation pour utiliser la transcription.');
+
+        $this->organisation->forceFill(['statut_abonnement' => 'actif', 'plafond_transcription' => 300])->save();
         $enCours = $this->enregistrementTranscrit(4000);
         // 4000 s, soit 67 min à 5 centimes : 3,35 CHF, au-dessus de 3 CHF
         $enCours->forceFill(['statut' => StatutEnregistrement::Enregistrement])->save();
@@ -165,18 +172,23 @@ class EnregistrementConsultationTest extends TestCase
             ->assertJsonPath('errors.transcription.0', 'Le plafond mensuel de transcription de votre organisation est atteint. Un administrateur peut le relever dans les réglages de l’organisation.');
     }
 
-    public function test_la_plateforme_previent_puis_bloque_a_son_plafond(): void
+    public function test_le_budget_deepgram_vide_est_illimite_sinon_il_previent_puis_bloque(): void
     {
         Mail::fake();
-        config(['transcription.plafond_global_minutes' => 2, 'transcription.alerte_email' => 'alertes@veterinary.test']);
+        config(['transcription.alerte_email' => 'alertes@veterinary.test', 'transcription.cout_minute_deepgram_usd' => 0.0065]);
 
+        // Budget vide : illimité, aucune alerte
         $id = $this->demarrer()->json('data.id');
         $this->envoyer($id, 1, 'AUDIO');
+        Mail::assertNothingSent();
 
-        // 95,2 s : 2 minutes facturées, le plafond est atteint
-        Mail::assertSent(AlerteTranscription::class, fn (AlerteTranscription $mail) => $mail->seuil === 100 && $mail->minutes === 2);
+        config(['transcription.budget_deepgram_usd' => 0.02]);
+        $this->envoyer($id, 2, 'AUDIO');
 
-        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 1], $this->enTetes($this->jeton))->assertOk();
+        // 2 × 95,2 s à 0,0065 $ la minute : environ 0,02 $, le budget est atteint
+        Mail::assertSent(AlerteTranscription::class, fn (AlerteTranscription $mail) => $mail->seuil === 100 && $mail->minutes === 4 && $mail->depense === 0.02);
+
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 2], $this->enTetes($this->jeton))->assertOk();
         $this->putJson("/api/v1/rendez-vous/{$this->rendezVous->id}/compte-rendu", ['s' => 'Relu.', 'enregistrement_id' => $id], $this->enTetes($this->jeton))->assertSuccessful();
 
         $this->demarrer()->assertUnprocessable()->assertJsonPath('errors.transcription.0', 'La transcription est momentanément indisponible. Réessayez plus tard.');

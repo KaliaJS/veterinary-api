@@ -23,7 +23,12 @@ Règles absolues :
 1. N'invente rien. Chaque information du compte rendu doit être dite dans la transcription. Aucun diagnostic, examen, dose, traitement ou conseil supposé, même s'il est habituel.
 2. Si une rubrique n'a rien dans la transcription, laisse-la vide (chaîne vide). Un compte rendu incomplet vaut mieux qu'un compte rendu faux.
 3. Les informations du dossier servent seulement à comprendre la conversation (nom de l'animal, espèce, orthographe). Ne les recopie jamais dans les rubriques.
-4. La transcription automatique peut se tromper, surtout sur les noms de médicaments, les doses et les chiffres. Écris ce que tu comprends le plus probablement, et ajoute chaque doute dans « a_verifier », en une phrase courte.
+4. La transcription automatique peut se tromper, surtout sur les noms de médicaments, les doses, les chiffres et les mots qui se ressemblent. Écris ce que tu comprends le plus probablement. Chaque fois que tu as corrigé ou interprété un mot de la transcription, ajoute un doute :
+   rubrique : s, o, a ou p ;
+   passage : seulement le ou les mots que tu as corrigés (un à trois mots), recopiés exactement comme tu les as écrits dans la rubrique, jamais la phrase entière ;
+   entendu : seulement les mots correspondants de la transcription, tels quels (par exemple « boîte fixe » pour le passage « boiterie ») ;
+   raison : pourquoi tu doutes, en une phrase courte.
+5. Une information qui manque ou reste ambiguë sans qu'aucun mot ait été corrigé (le côté d'une patte non dit, une voie d'administration non précisée, une dose inaudible) est aussi un doute, avec passage et entendu vides. N'en ajoute que si cela compte vraiment pour le dossier.
 
 Rubriques :
 s (Subjectif) : motif de la consultation, anamnèse, ce que rapporte le propriétaire (symptômes, durée, comportement, alimentation, traitements en cours).
@@ -71,12 +76,12 @@ TXT;
             throw new RedactionImpossible('Réponse illisible.');
         }
 
-        return new BrouillonSoap(
+        return BrouillonSoap::avecDoutes(
             trim((string) ($json['s'] ?? '')),
             trim((string) ($json['o'] ?? '')),
             trim((string) ($json['a'] ?? '')),
             trim((string) ($json['p'] ?? '')),
-            array_values(array_filter(array_map(fn ($doute) => trim((string) $doute), (array) ($json['a_verifier'] ?? [])))),
+            (array) ($json['doutes'] ?? []),
         );
     }
 
@@ -115,13 +120,23 @@ TXT;
                 'o' => $rubrique('Objectif : constats de l\'examen clinique énoncés par le vétérinaire.'),
                 'a' => $rubrique('Évaluation : diagnostic ou hypothèses énoncés par le vétérinaire.'),
                 'p' => $rubrique('Plan : traitements, examens à prévoir, conseils, suivi.'),
-                'a_verifier' => [
+                'doutes' => [
                     'type' => 'array',
-                    'items' => ['type' => 'string'],
-                    'description' => 'Passages douteux de la transcription à vérifier par le vétérinaire. Liste vide s\'il n\'y en a pas.',
+                    'description' => 'Passages incertains à vérifier par le vétérinaire. Liste vide s\'il n\'y en a pas.',
+                    'items' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'rubrique' => ['type' => 'string', 'enum' => ['s', 'o', 'a', 'p']],
+                            'passage' => ['type' => 'string', 'description' => 'Le ou les mots corrigés (un à trois), recopiés exactement depuis la rubrique. Vide pour une information manquante ou ambiguë.'],
+                            'entendu' => ['type' => 'string', 'description' => 'Les mots correspondants de la transcription, tels quels. Vide pour une information manquante ou ambiguë.'],
+                            'raison' => ['type' => 'string', 'description' => 'Pourquoi ce passage est incertain, en une phrase courte.'],
+                        ],
+                        'required' => ['rubrique', 'passage', 'entendu', 'raison'],
+                        'additionalProperties' => false,
+                    ],
                 ],
             ],
-            'required' => ['s', 'o', 'a', 'p', 'a_verifier'],
+            'required' => ['s', 'o', 'a', 'p', 'doutes'],
             'additionalProperties' => false,
         ];
     }

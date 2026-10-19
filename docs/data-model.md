@@ -944,7 +944,10 @@ validation enregistre le CR ci-dessus.
   `clinique_id`, `user_id`, `statut` (`enregistrement` → `transcription`
   → `redaction` → `pret` → `valide` ; `erreur` + `erreur` =
   `transcription` | `redaction`, relançable), `parties_attendues`
-  (connu à « terminer »), `brouillon` chiffré `{s, o, a, p, a_verifier[]}`.
+  (connu à « terminer »), `brouillon` chiffré `{s, o, a, p, doutes[]}` ;
+  un doute = `{rubrique, passage, entendu, raison}`, le passage figurant
+  mot pour mot dans sa rubrique (souligné à l'écran : accepter la
+  proposition ou remettre ce qui a été entendu), ou vide (note).
   Plusieurs parties par consultation (arrêt sur silence, reprise) ; un
   brouillon non validé se rouvre pour ajouter une partie.
 - `parties_enregistrement` : `numero`, `statut` (`envoi` | `recue` |
@@ -966,9 +969,9 @@ validation enregistre le CR ci-dessus.
   mois par organisation, jamais deux fois) ; ligne ajoutée à la prochaine
   facture de l'abonnement, ou facture à part. Plafond mensuel de
   l'organisation (`organisations.plafond_transcription`, 200 CHF par
-  défaut) et plafond de la plateforme en minutes (alerte e-mail à 80 % et
+  défaut) et budget Deepgram de la plateforme en dollars, vide = illimité (alerte e-mail à 80 % et
   100 %) : ils bloquent le début d'un enregistrement, jamais une
-  consultation en cours. Carte enregistrée requise.
+  consultation en cours. Abonnement en cours requis.
 
 ### Carnet de santé & vaccination (modale carnet)
 

@@ -14,7 +14,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * Un enregistrement vu par le vétérinaire : où en sont ses parties (les
  * morceaux déjà reçus, pour reprendre un envoi coupé), la transcription
  * (voix, temps, texte) et, une fois rédigé, le brouillon SOAP à relire
- * avec ses doutes à vérifier.
+ * avec ses doutes (passage souligné, ce qui a été entendu, la raison).
  *
  * @mixin EnregistrementConsultation
  */

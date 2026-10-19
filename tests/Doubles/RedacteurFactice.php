@@ -21,6 +21,8 @@ class RedacteurFactice implements Redacteur
             throw $this->erreur;
         }
 
-        return new BrouillonSoap('Boiterie depuis 3 jours, surtout le matin.', 'Chaleur au genou droit.', '', 'Repos 10 jours.', ['Côté du genou à confirmer.']);
+        return new BrouillonSoap('Boiterie depuis 3 jours, surtout le matin.', 'Chaleur au genou droit.', '', 'Repos 10 jours.', [
+            ['rubrique' => 'o', 'passage' => 'genou droit', 'entendu' => 'genou droit', 'raison' => 'Côté du genou à confirmer.'],
+        ]);
     }
 }
