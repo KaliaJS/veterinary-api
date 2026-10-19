@@ -7,6 +7,7 @@ use App\Auth\RolesParDefaut;
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
 use App\Mail\AlerteTranscription;
+use App\Mail\PlafondTranscriptionOrganisation;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\CompteRendu;
@@ -192,6 +193,27 @@ class EnregistrementConsultationTest extends TestCase
         $this->putJson("/api/v1/rendez-vous/{$this->rendezVous->id}/compte-rendu", ['s' => 'Relu.', 'enregistrement_id' => $id], $this->enTetes($this->jeton))->assertSuccessful();
 
         $this->demarrer()->assertUnprocessable()->assertJsonPath('errors.transcription.0', 'La transcription est momentanément indisponible. Réessayez plus tard.');
+    }
+
+    public function test_les_administrateurs_sont_prevenus_au_plafond_de_l_organisation_une_fois(): void
+    {
+        Mail::fake();
+        $this->employe->update(['role_id' => Role::withoutGlobalScope('organisation')
+            ->where('organisation_id', $this->organisation->id)
+            ->where('nom', RolesParDefaut::ADMINISTRATEUR)
+            ->value('id')]);
+        ['user' => $autre] = $this->employeAvecJeton($this->clinique);
+        // 95,2 s : 2 minutes à 5 centimes, le plafond de 0,10 CHF est atteint
+        $this->organisation->forceFill(['plafond_transcription' => 10])->save();
+
+        $id = $this->demarrer()->json('data.id');
+        $this->envoyer($id, 1, 'UN');
+        $this->envoyer($id, 2, 'DEUX');
+
+        Mail::assertSent(PlafondTranscriptionOrganisation::class, 1);
+        Mail::assertSent(PlafondTranscriptionOrganisation::class, fn ($mail) => $mail->seuil === 100
+            && $mail->hasTo($this->employe->user->email)
+            && ! $mail->hasTo($autre->email));
     }
 
     public function test_un_refus_de_transcription_met_l_enregistrement_en_erreur_et_se_relance(): void

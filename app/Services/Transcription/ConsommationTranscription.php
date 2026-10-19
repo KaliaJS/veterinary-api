@@ -2,10 +2,14 @@
 
 namespace App\Services\Transcription;
 
+use App\Enums\DomainePermission;
 use App\Enums\StatutPartie;
 use App\Mail\AlerteTranscription;
+use App\Mail\PlafondTranscriptionOrganisation;
+use App\Models\Employe;
 use App\Models\Organisation;
 use App\Models\PartieEnregistrement;
+use App\Models\Role;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Cache;
@@ -17,7 +21,9 @@ use Illuminate\Support\Facades\Mail;
  * Il faut un abonnement en cours (tout l'espace clinique est payant), et
  * deux plafonds tiennent : celui de l'organisation (en francs, dans ses
  * réglages) et le budget Deepgram de la plateforme (en dollars, vide :
- * illimité), qui prévient par e-mail à 80 % puis à 100 %. Une partie déjà
+ * illimité), qui prévient par e-mail à 80 % puis à 100 %. Les
+ * administrateurs de l'organisation sont prévenus de même quand elle
+ * approche de son propre plafond. Une partie déjà
  * enregistrée est toujours transcrite : les plafonds bloquent seulement le
  * début d'un nouvel enregistrement.
  */
@@ -92,6 +98,56 @@ final class ConsommationTranscription
                 'morceau_max_ko' => (int) config('transcription.morceau_max_ko'),
             ],
         ];
+    }
+
+    /**
+     * Après chaque transcription : les administrateurs de l'organisation
+     * (rôles du domaine organisation, accès actif) sont prévenus à 80 % puis
+     * à 100 % de leur plafond mensuel, une fois par seuil et par mois.
+     */
+    public function surveillerOrganisation(Organisation $organisation): void
+    {
+        $plafond = $organisation->plafond_transcription;
+        if ($plafond <= 0) {
+            return;
+        }
+
+        $montant = $this->montant($this->secondes($organisation->id));
+        foreach ([100, 80] as $seuil) {
+            if ($montant * 100 < $plafond * $seuil) {
+                continue;
+            }
+            $cle = 'transcription-plafond-'.$organisation->id.'-'.$seuil.'-'.now('Europe/Zurich')->format('Y-m');
+            if (Cache::add($cle, true, now()->addDays(40))) {
+                $destinataires = $this->administrateurs($organisation);
+                if ($destinataires !== []) {
+                    Mail::to($destinataires)->send(new PlafondTranscriptionOrganisation($seuil, $montant / 100, $plafond / 100, $organisation->nom));
+                }
+            }
+
+            return;
+        }
+    }
+
+    /** @return list<string> adresses des administrateurs de l'organisation */
+    private function administrateurs(Organisation $organisation): array
+    {
+        $roles = Role::withoutGlobalScopes()
+            ->where('organisation_id', $organisation->id)
+            ->get()
+            ->filter(fn (Role $role) => $role->domaines->contains(DomainePermission::Organisation))
+            ->pluck('id');
+
+        return Employe::withoutGlobalScopes()
+            ->whereIn('role_id', $roles)
+            ->where('acces_suspendu', false)
+            ->with('user')
+            ->get()
+            ->map(fn (Employe $employe) => $employe->user?->email)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
     }
 
     /** Après chaque transcription : alerte quand la plateforme approche de son budget Deepgram. */

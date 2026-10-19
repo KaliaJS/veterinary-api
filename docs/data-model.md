@@ -971,7 +971,10 @@ validation enregistre le CR ci-dessus.
   l'organisation (`organisations.plafond_transcription`, 200 CHF par
   défaut) et budget Deepgram de la plateforme en dollars, vide = illimité (alerte e-mail à 80 % et
   100 %) : ils bloquent le début d'un enregistrement, jamais une
-  consultation en cours. Abonnement en cours requis.
+  consultation en cours. Abonnement en cours requis. Les
+  administrateurs de l'organisation (rôles du domaine organisation)
+  sont prévenus par e-mail à 80 % puis à 100 % de leur plafond ; plafond
+  et mots rares se règlent dans Réglages, onglet Transcription.
 
 ### Carnet de santé & vaccination (modale carnet)
 

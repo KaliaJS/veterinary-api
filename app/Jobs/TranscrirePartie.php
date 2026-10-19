@@ -72,6 +72,9 @@ final class TranscrirePartie implements ShouldQueue
         Storage::disk('local')->delete($fichier);
 
         $consommation->surveiller();
+        if ($partie->enregistrement->organisation) {
+            $consommation->surveillerOrganisation($partie->enregistrement->organisation);
+        }
         RedigerCompteRendu::siPret($partie->enregistrement);
     }
 
