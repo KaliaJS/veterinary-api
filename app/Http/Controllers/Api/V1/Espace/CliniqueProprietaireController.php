@@ -31,6 +31,9 @@ class CliniqueProprietaireController extends Controller
 
     private const int DUREE_MINUTES = 20;
 
+    /** Les créneaux proposés tombent au quart d'heure (horaires suisses : décalage en heures entières). */
+    private const int QUART = 900;
+
     public function index(CalculateurCreneaux $calculateur): JsonResponse
     {
         $cliniques = Clinique::withoutGlobalScopes()
@@ -122,8 +125,10 @@ class CliniqueProprietaireController extends Controller
 
             foreach ($trous as $trou) {
                 $fin = $trou['fin']->getTimestamp();
+                // Au quart d'heure : aujourd'hui, un trou commence à l'heure qu'il est (« 17:56 »)
+                $premier = (int) (ceil($trou['debut']->getTimestamp() / self::QUART) * self::QUART);
 
-                for ($debut = $trou['debut']->getTimestamp(); $debut + $pas <= $fin; $debut += $pas) {
+                for ($debut = $premier; $debut + $pas <= $fin; $debut += $pas) {
                     if ($debut > $maintenant) {
                         $candidats[$debut] ??= ['debut' => $debut, 'ligne_planning_id' => $trou['ligne_planning_id']];
                     }

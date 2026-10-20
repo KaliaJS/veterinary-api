@@ -110,6 +110,10 @@ class RendezVousProprietaireTest extends TestCase
         $this->assertTrue(strtotime($creneaux[0]['debut']) > time());
         $this->assertTrue(strtotime($creneaux[0]['debut']) < strtotime($creneaux[1]['debut']));
         $this->assertTrue(strtotime($creneaux[1]['debut']) < strtotime($creneaux[2]['debut']));
+        // Au quart d'heure, même aujourd'hui où le trou commence à l'heure qu'il est.
+        foreach ($creneaux as $c) {
+            $this->assertSame(0, strtotime($c['debut']) % 900);
+        }
         // Étalés sur les jours : les trois créneaux tombent sur des dates différentes.
         $this->assertCount(3, array_unique(array_map(fn (array $c): string => substr($c['debut'], 0, 10), $creneaux)));
     }
