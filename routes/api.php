@@ -90,6 +90,7 @@ use App\Http\Controllers\Api\V1\PanelLaboController;
 use App\Http\Controllers\Api\V1\PartieEnregistrementController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
+use App\Http\Controllers\Api\V1\PhotoCliniqueController;
 use App\Http\Controllers\Api\V1\PhotoEmployeController;
 use App\Http\Controllers\Api\V1\PhotoPatientController;
 use App\Http\Controllers\Api\V1\PremiersPasController;
@@ -191,6 +192,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('domaines-autorises', [DomainePublicController::class, 'autorise'])->withoutMiddleware('throttle:60,1');
         Route::get('photos/{fichier}', [PhotoEmployeController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('employe.photo')->withoutMiddleware('throttle:60,1');
         Route::get('photos-animaux/{fichier}', [PhotoPatientController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('patient.photo')->withoutMiddleware('throttle:60,1');
+        Route::get('photos-cliniques/{fichier}', [PhotoCliniqueController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('clinique.photo')->withoutMiddleware('throttle:60,1');
         Route::get('sites/{slug}/logo', [SitePublicController::class, 'logo'])->where('slug', '[a-z0-9-]+')->name('site.logo')->withoutMiddleware('throttle:60,1');
     });
 
@@ -487,6 +489,9 @@ Route::prefix('v1')->group(function (): void {
             Route::post('cliniques', [OrganisationCliniqueController::class, 'store']);
             Route::patch('cliniques/{clinique}', [OrganisationCliniqueController::class, 'update'])->whereNumber('clinique');
             Route::delete('cliniques/{clinique}', [OrganisationCliniqueController::class, 'destroy'])->whereNumber('clinique');
+            // Photo de la clinique, montrée dans l'annuaire des cliniques
+            Route::post('cliniques/{clinique}/photo', [PhotoCliniqueController::class, 'televerser'])->whereNumber('clinique');
+            Route::delete('cliniques/{clinique}/photo', [PhotoCliniqueController::class, 'supprimer'])->whereNumber('clinique');
             // Horaires d'une clinique de l'organisation (créée ou
             // sœur) — /horaires ne vise que la clinique du jeton.
             Route::get('cliniques/{clinique}/horaires', [OrganisationHoraireController::class, 'afficher'])->whereNumber('clinique');

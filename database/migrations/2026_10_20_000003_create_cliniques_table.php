@@ -22,6 +22,7 @@ return new class extends Migration
             $table->string('email')->nullable();
             $table->string('fuseau_horaire')->default('Europe/Zurich');
             $table->unsignedTinyInteger('nombre_boxes')->default(0)->comment('Capacité d’hospitalisation');
+            $table->string('photo_chemin')->nullable()->comment('Photo de la clinique (annuaire), posée par l’administrateur');
             $table->string('stripe_location_id')->nullable();
             $table->timestamps();
         });

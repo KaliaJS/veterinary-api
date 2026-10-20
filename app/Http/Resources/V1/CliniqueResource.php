@@ -32,6 +32,7 @@ class CliniqueResource extends JsonResource
             'email' => $this->email,
             'fuseau_horaire' => $this->fuseau_horaire,
             'nombre_boxes' => $this->nombre_boxes,
+            'photo_url' => $this->photoUrl(),
             'equipe' => EmployeResource::collection($this->whenLoaded('employes')),
             'nombre_employes_actifs' => $this->whenLoaded(
                 'employes',

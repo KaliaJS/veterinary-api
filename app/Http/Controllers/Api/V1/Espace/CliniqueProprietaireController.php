@@ -60,6 +60,7 @@ class CliniqueProprietaireController extends Controller
             'organisation' => ['id' => $clinique->societe->organisation->id, 'nom' => $clinique->societe->organisation->nom],
             'site_slug' => ($site = $sites[$clinique->societe->organisation->id] ?? null)?->est_publie ? $site->slug : null,
             'logo_url' => $site?->logoUrl(),
+            'photo_url' => $clinique->photoUrl(),
             'creneaux' => $this->retenir($semaines[$clinique->id]),
         ])->all()]);
     }

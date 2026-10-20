@@ -19,7 +19,7 @@ class Clinique extends Model
     protected $fillable = [
         'societe_id', 'nom', 'raison_sociale', 'rue', 'npa', 'ville',
         'latitude', 'longitude', 'tel', 'email', 'fuseau_horaire', 'nombre_boxes',
-        'stripe_location_id',
+        'stripe_location_id', 'photo_chemin',
     ];
 
     protected function casts(): array
@@ -33,6 +33,12 @@ class Clinique extends Model
 
     /** Cliniques des organisations ouvertes (vérifiées et payées) : annuaire, boutiques, demandes.
      * @param  Builder<Clinique>  $requete */
+    /** URL publique de la photo (nom de fichier imprévisible), ou null. */
+    public function photoUrl(): ?string
+    {
+        return $this->photo_chemin ? route('clinique.photo', ['fichier' => basename($this->photo_chemin)]) : null;
+    }
+
     public function scopeOuvertes(Builder $requete): void
     {
         $requete->whereHas('societe.organisation', fn (Builder $organisation) => $organisation->ouvertes());
