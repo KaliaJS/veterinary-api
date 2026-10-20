@@ -64,6 +64,7 @@ class Organisation extends Model
             // mots rares à faire reconnaître (médicaments, races, marques)
             'plafond_transcription' => 'integer',
             'termes_transcription' => 'array',
+            'premiers_pas' => 'array',
         ];
     }
 

@@ -247,6 +247,20 @@ première formule se termine d'abord.
   fermeture }`. Une organisation fermée disparaît de l'annuaire, des
   boutiques, des demandes de rendez-vous et de son site public.
 
+### Premiers pas d'une clinique neuve (20.10.2026)
+
+Une clinique inscrite part vide. `GET organisation/premiers-pas`
+(administrateurs) donne l'état de huit étapes pour la clinique du jeton :
+praticiens au planning, salles, horaires, équipe, position sur la carte,
+rappels, caisse, site. Chacune se déduit des données (une ligne de
+planning d'employé, une salle, des horaires modifiés, plus d'un employé,
+une latitude, un terminal, un site publié) ; les horaires, l'équipe
+(« je travaille seul »), les rappels, la caisse et le site se confirment
+aussi à la main (`PUT … {confirmer}`), la liste se masque
+(`{masque}`). État dans `organisations.premiers_pas` (json). Le front
+l'affiche en tête de « Ma journée » ; praticiens et salles s'ajoutent dans
+Réglages › Structure (le bloc et l'imagerie y reçoivent aussi leur ligne).
+
 ### Formule SaaS, quotas, facturation d'abonnement (niveau organisation)
 
 Depuis le 20.10.2026, **abonnements maison** : l'application tient les

@@ -41,6 +41,7 @@ return new class extends Migration
             $table->unsignedInteger('quota_extra_stockage_go')->default(0);
             $table->unsignedInteger('plafond_transcription')->default(20000);
             $table->json('termes_transcription')->nullable();
+            $table->json('premiers_pas')->nullable()->comment('Premiers pas d’une clinique neuve : étapes confirmées à la main, liste masquée');
             $table->timestamps();
 
             $table->unique('stripe_client_id');

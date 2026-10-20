@@ -89,6 +89,7 @@ use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PhotoEmployeController;
 use App\Http\Controllers\Api\V1\PhotoPatientController;
+use App\Http\Controllers\Api\V1\PremiersPasController;
 use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
 use App\Http\Controllers\Api\V1\ProduitController;
@@ -493,6 +494,9 @@ Route::prefix('v1')->group(function (): void {
             Route::post('packs', [PackQuotaController::class, 'acheter']);
             Route::get('transcription', [OrganisationTranscriptionController::class, 'afficher']);
             Route::put('transcription', [OrganisationTranscriptionController::class, 'modifier']);
+            // Premiers pas d'une clinique neuve : étapes et confirmations
+            Route::get('premiers-pas', [PremiersPasController::class, 'afficher']);
+            Route::put('premiers-pas', [PremiersPasController::class, 'modifier']);
         });
 
         // Domaine équipe — fiches RH. La liste est celle de la clinique
