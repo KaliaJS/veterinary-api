@@ -48,6 +48,9 @@ class AnnuaireSeeder extends Seeder
         ['Cabinet vétérinaire de la Côte', 'Rue de la Gare 18', '1260', 'Nyon', 46.3829, 6.2372, '+41 22 361 52 10', 'Dr Julien Favre'],
         ['Vétérinaires du Léman', 'Avenue de Marcelin 9', '1110', 'Morges', 46.5128, 6.4931, '+41 21 801 36 22', 'Dre Sophie Jaquet'],
         ['Clinique vétérinaire du Nord vaudois', 'Rue des Remparts 7', '1400', 'Yverdon-les-Bains', 46.7792, 6.6432, '+41 24 425 61 40', 'Dr Marc Pittet'],
+        // Lausanne : trois cliniques proches avec Deux Rives, regroupées en dézoomant
+        ['Clinique vétérinaire d’Ouchy', 'Avenue d’Ouchy 58', '1006', 'Lausanne', 46.5121, 6.6302, '+41 21 616 24 30', 'Dre Camille Rossier'],
+        ['Cabinet vétérinaire de la Pontaise', 'Rue de la Pontaise 21', '1018', 'Lausanne', 46.5309, 6.6262, '+41 21 646 13 52', 'Dr Hugo Blanc'],
         ['Clinique vétérinaire de la Riviera', 'Avenue des Alpes 54', '1820', 'Montreux', 46.4335, 6.9108, '+41 21 963 27 15', 'Dre Laure Chevalley'],
         ['Clinique vétérinaire du Littoral', 'Rue de l’Hôpital 11', '2000', 'Neuchâtel', 46.9925, 6.9311, '+41 32 725 40 12', 'Dr Olivier Matthey'],
         ['Cabinet vétérinaire des Montagnes', 'Avenue Léopold-Robert 66', '2300', 'La Chaux-de-Fonds', 47.1012, 6.8287, '+41 32 913 55 21', 'Dre Anne Huguenin'],
