@@ -2,6 +2,14 @@
 
 Document de référence pour les migrations Laravel de l'API.
 
+**Migrations (20.10.2026)** : remises à zéro avant toute mise en
+production, une migration par table, chacune dans son état final (les
+trois fichiers de base de Laravel gardent leurs tables techniques
+regroupées). Jusqu'à la première mise en production, un changement de
+schéma se fait **dans la migration de la table**, pas dans une nouvelle
+migration, puis `migrate:fresh --seed` en local. Après la mise en
+production, on revient aux migrations successives habituelles.
+
 Deux sources, dans cet ordre d'autorité :
 
 1. **Les stores implémentés** (`src/stores/`) — planning, patients,
