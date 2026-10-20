@@ -1,58 +1,97 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
-
 <p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/marque/veterinary-logo-texte-clair.png">
+    <img src="docs/marque/veterinary-logo-texte-fonce.png" alt="Veterinary" width="440">
+  </picture>
 </p>
 
-## About Laravel
+<p align="center">
+  <strong>Le logiciel des cliniques vétérinaires suisses, et l’espace de leurs clients.</strong><br>
+  API de <a href="https://veterinary.app">veterinary.app</a> · Laravel 13 · PHP 8.3
+</p>
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Veterinary en bref
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Veterinary réunit dans une seule application la journée entière d’une clinique vétérinaire, et offre à chaque propriétaire d’animal un espace gratuit, relié à sa clinique.
 
-## Learning Laravel
+**Pour les cliniques**, par abonnement mensuel :
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+- **Rendez-vous** : planning des vétérinaires, des salles, du bloc et de l’imagerie, liste d’attente, urgences, téléconsultation, prise de rendez-vous en ligne.
+- **Dossier médical** : visites, comptes rendus, vaccins sur le catalogue Swissmedic, relevés dentaires et ophtalmologiques, laboratoire, imagerie DICOM, hospitalisation, bloc opératoire, ordonnances et registre des stupéfiants.
+- **Transcription des consultations** : la consultation enregistrée est transcrite, puis un brouillon de compte rendu SOAP est rédigé ; le vétérinaire le relit et le valide.
+- **Gestion** : caisse et factures, devis, décomptes d’assurance, stocks et commandes fournisseurs, boutique en ligne, site web de la clinique.
+- **Organisation** : plusieurs sociétés et cliniques, équipe, rôles et permissions.
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+**Pour les propriétaires**, gratuitement : carnet de santé et vaccins, rendez-vous en ligne, documents, messages avec la clinique, commandes en boutique, et « Mon espace », la planète où vivent leurs animaux. L’offre Plus, facultative, ouvre d’autres planètes.
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+## Ce dépôt
 
-## Agentic Development
+L’API REST de Veterinary. Elle sert l’application web et l’app iPhone, développées dans [veterinary-web](https://github.com/KaliaJS/veterinary-web) (Vue 3, Capacitor).
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+| | |
+| :-- | :-- |
+| **Authentification** | Jetons Sanctum, connexion par passkey ou par code envoyé par e-mail. Un jeton porte une clinique ; les permissions sont relues en base à chaque requête. |
+| **Multi-clinique** | Chaque requête s’exécute dans le contexte de la clinique du jeton. Le dossier médical, lui, est partagé par toutes les cliniques de l’organisation. |
+| **Accès vérifié et payant** | Une clinique s’ouvre une fois son vétérinaire retrouvé dans MedReg (ou vérifié à la main) et sa formule payée. |
+| **Abonnements maison** | Stripe enregistre les cartes et les prélève ; les abonnements, les factures et les relances sont les nôtres. Renouvellement à la date anniversaire, factures sans TVA. |
+
+## Services
+
+| Service | Rôle |
+| :-- | :-- |
+| [Stripe](https://stripe.com) | Cartes enregistrées et prélèvements des abonnements ; terminal de paiement et TWINT à la caisse. |
+| [Deepgram](https://deepgram.com) | Transcription des consultations (`nova-3-medical`). |
+| [Claude](https://www.anthropic.com) | Brouillon du compte rendu SOAP à partir de la transcription. |
+| [MedReg](https://healthreg-public.admin.ch/medreg/search) | Vérification du GLN des vétérinaires à l’inscription des cliniques. |
+| [Swissmedic](https://www.swissmedic.ch) et [Refdata](https://www.refdata.ch) | Catalogue des médicaments vétérinaires et codes-barres des emballages. |
+| App Store | Offre Plus achetée dans l’app iPhone. |
+
+## Démarrer en local
+
+Il faut [Laravel Herd](https://herd.laravel.com) (PHP 8.3 et MySQL), Composer, [Mailpit](https://mailpit.axllent.org) et la [CLI Stripe](https://docs.stripe.com/stripe-cli).
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+composer install
+cp .env.example .env              # puis remplir les clés (voir les commentaires du fichier)
+php artisan key:generate
+php artisan migrate:fresh --seed  # base de démonstration
+php artisan catalogue:swissmedic  # médicaments vétérinaires
+php artisan catalogue:refdata     # codes-barres, demande REFDATA_API_KEY
+php artisan queue:work            # transcriptions et e-mails
+composer stripe:listen            # webhooks Stripe en local
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+La démonstration ouvre la clinique Deux Rives (Lausanne et Genève). On s’y connecte avec `a.meyer@deuxrives.ch` : le code de connexion arrive dans Mailpit.
 
-## Contributing
+## Tâches planifiées
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+| Commande | Quand | Rôle |
+| :-- | :-- | :-- |
+| `abonnements:renouveler` | toutes les heures | Renouvelle les abonnements échus et retente les prélèvements refusés. |
+| `inscriptions:reessayer` | toutes les heures | Retente dans MedReg les cliniques inscrites pendant une panne. |
+| `transcriptions:purger` | chaque nuit | Efface l’audio des consultations déjà transcrites. |
+| `sites:verifier-domaines` | toutes les 10 minutes | Vérifie les domaines personnalisés des sites des cliniques. |
+| `catalogue:swissmedic` | le 3 du mois | Met à jour les médicaments vétérinaires autorisés. |
+| `catalogue:refdata` | chaque lundi | Met à jour les codes-barres des emballages. |
 
-## Code of Conduct
+## Tests et style
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```bash
+php artisan test          # SQLite en mémoire
+vendor/bin/pint --dirty   # style du code
+```
 
-## Security Vulnerabilities
+## Migrations
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Tant que Veterinary n’est pas en production, il y a **une migration par table**, dans son état final. Un changement de schéma se fait dans la migration de la table concernée, suivi de `php artisan migrate:fresh --seed`. Après la mise en production, on reviendra aux migrations successives.
 
-## License
+## Documentation
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+- [`docs/data-model.md`](docs/data-model.md) : le modèle de données et les décisions qui le fondent.
+- [`docs/branchement.md`](docs/branchement.md) : le branchement du front sur l’API.
+
+## Licence
+
+© 2026 [Meteora Systems Sàrl](https://veterinary.app), Froideville (Suisse). Logiciel propriétaire, tous droits réservés.

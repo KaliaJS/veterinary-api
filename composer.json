@@ -1,10 +1,9 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
-    "name": "laravel/laravel",
+    "name": "meteora/veterinary-api",
     "type": "project",
-    "description": "The skeleton application for the Laravel framework.",
-    "keywords": ["laravel", "framework"],
-    "license": "MIT",
+    "description": "API de Veterinary : le logiciel des cliniques vétérinaires suisses et l'espace de leurs clients.",
+    "license": "proprietary",
     "require": {
         "php": "^8.3",
         "laravel/framework": "^13.17",
