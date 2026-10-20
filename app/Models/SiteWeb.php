@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Auth\ContexteClinique;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Services\Domaines\DomaineSite;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Str;
@@ -154,6 +155,14 @@ class SiteWeb extends Model
     }
 
     /** URL publique du logo (versionnée pour le cache), ou null. */
+    /** Adresse publique du site : son domaine une fois actif, sinon celle de Veterinary. */
+    public function urlPublique(): string
+    {
+        return $this->domaine && $this->domaine_statut === DomaineSite::ACTIF
+            ? 'https://'.$this->domaine
+            : rtrim((string) config('app.frontend_url'), '/').'/site/'.$this->slug;
+    }
+
     public function logoUrl(): ?string
     {
         return $this->logo_chemin

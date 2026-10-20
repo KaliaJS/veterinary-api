@@ -59,6 +59,7 @@ class CliniqueProprietaireController extends Controller
             'longitude' => $clinique->longitude === null ? null : (float) $clinique->longitude,
             'organisation' => ['id' => $clinique->societe->organisation->id, 'nom' => $clinique->societe->organisation->nom],
             'site_slug' => ($site = $sites[$clinique->societe->organisation->id] ?? null)?->est_publie ? $site->slug : null,
+            'site_url' => $site?->est_publie ? $site->urlPublique() : null,
             'logo_url' => $site?->logoUrl(),
             'photo_url' => $clinique->photoUrl(),
             'creneaux' => $this->retenir($semaines[$clinique->id]),

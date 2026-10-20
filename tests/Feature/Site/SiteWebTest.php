@@ -209,7 +209,9 @@ class SiteWebTest extends TestCase
 
         $this->getJson('/api/v1/public/cliniques')
             ->assertJsonPath('data.0.site_slug', 'deux-rives-veterinaires')
-            ->assertJsonPath('data.1.site_slug', 'deux-rives-veterinaires');
+            ->assertJsonPath('data.1.site_slug', 'deux-rives-veterinaires')
+            // Son adresse publique : celle de Veterinary tant qu'aucun domaine n'est actif
+            ->assertJsonPath('data.0.site_url', rtrim(config('app.frontend_url'), '/').'/site/deux-rives-veterinaires');
     }
 
     public function test_l_apparence_se_regle_theme_ou_manuellement(): void
