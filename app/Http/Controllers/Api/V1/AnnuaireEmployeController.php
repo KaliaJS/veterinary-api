@@ -22,7 +22,7 @@ class AnnuaireEmployeController extends Controller
         $this->authorize('viewAnnuaire', Employe::class);
 
         $employes = Employe::query()
-            ->with('lignePlanning')
+            ->with(['cliniques', 'lignePlanning'])
             ->orderBy('id')
             ->get();
 

@@ -28,7 +28,7 @@ class InterventionFactory extends Factory
             'patient_id' => Patient::factory(),
             'salle_id' => fn (array $attributes) => Salle::factory()->bloc()->create(['clinique_id' => $attributes['clinique_id']])->id,
             'salle_nom' => fn (array $attributes) => Salle::find($attributes['salle_id'])->nom,
-            'chirurgien_id' => fn (array $attributes) => Employe::factory()->create(['clinique_id' => $attributes['clinique_id']])->id,
+            'chirurgien_id' => fn (array $attributes) => Employe::factory()->dans($attributes['clinique_id'])->create()->id,
             'rendez_vous_id' => null,
             'procedure' => fake()->randomElement(self::PROCEDURES),
             'prevu_le' => fake()->dateTimeBetween('today 08:00', 'today 17:00'),

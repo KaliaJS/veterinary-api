@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AbonnementController;
 use App\Http\Controllers\Api\V1\AbsenceController;
 use App\Http\Controllers\Api\V1\AccesEmployeController;
+use App\Http\Controllers\Api\V1\AffectationsEmployeController;
 use App\Http\Controllers\Api\V1\AjustementStockController;
 use App\Http\Controllers\Api\V1\AnalyseController;
 use App\Http\Controllers\Api\V1\AnalysePatientController;
@@ -25,6 +26,7 @@ use App\Http\Controllers\Api\V1\CommandeBoutiqueController;
 use App\Http\Controllers\Api\V1\CommandeFournisseurController;
 use App\Http\Controllers\Api\V1\CommandeFournisseurLigneController;
 use App\Http\Controllers\Api\V1\CompteClientController;
+use App\Http\Controllers\Api\V1\CompteEmployeController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
 use App\Http\Controllers\Api\V1\CompteRenduImagerieController;
 use App\Http\Controllers\Api\V1\ConsentementInterventionController;
@@ -504,9 +506,10 @@ Route::prefix('v1')->group(function (): void {
             Route::put('premiers-pas', [PremiersPasController::class, 'modifier']);
         });
 
-        // Domaine équipe — fiches RH. La liste est celle de la clinique
-        // du jeton (écran Équipe) ; les gestes (fiche, embauche,
-        // suspension, licenciement) sont bornés à l'ORGANISATION :
+        // Domaine équipe — fiches RH, une par personne. La liste est celle
+        // de la clinique du jeton (écran Équipe) ; les gestes (fiche,
+        // embauche, cliniques, suspension, licenciement) sont bornés à
+        // l'ORGANISATION :
         // l'écran Organisation pilote aussi les cliniques sœurs, la
         // résolution se fait sans binding implicite. Les absences,
         // elles, restent aux routes planning/équipe existantes.
@@ -519,6 +522,9 @@ Route::prefix('v1')->group(function (): void {
             Route::post('employes/{employe}/retablir', [AccesEmployeController::class, 'retablir'])->whereNumber('employe');
             Route::post('employes/{employe}/licencier', [LicenciementEmployeController::class, 'licencier'])->whereNumber('employe');
             Route::post('employes/{employe}/annuler-licenciement', [LicenciementEmployeController::class, 'annuler'])->whereNumber('employe');
+            Route::put('employes/{employe}/cliniques', AffectationsEmployeController::class)->whereNumber('employe');
+            // Embauche : à qui appartient le code employé donné par la personne
+            Route::get('comptes/{code}', CompteEmployeController::class)->middleware('throttle:20,1');
 
             Route::get('gardes', [GardeWeekendController::class, 'index']);
             Route::put('gardes', [GardeWeekendController::class, 'modifier']);

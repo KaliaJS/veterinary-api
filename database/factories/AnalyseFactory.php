@@ -25,7 +25,7 @@ class AnalyseFactory extends Factory
             'statut' => StatutAnalyse::Attente,
             'priorite' => PrioriteAnalyse::Standard,
             'preleve_le' => fake()->dateTimeBetween('-2 days'),
-            'prescripteur_id' => fn (array $attributes) => Employe::factory()->create(['clinique_id' => $attributes['clinique_id']])->id,
+            'prescripteur_id' => fn (array $attributes) => Employe::factory()->dans($attributes['clinique_id'])->create()->id,
         ];
     }
 

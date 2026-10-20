@@ -9,13 +9,15 @@ use App\Enums\TypeAbsence;
 use App\Models\Absence;
 use App\Models\Clinique;
 use App\Models\Employe;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
 /**
- * Fiches RH : embauche (rôle dérivé du poste, quota d'employés actifs
- * de la formule, cible mono ou multi-cliniques), suspension d'accès à
+ * Fiches RH : embauche par le code employé du compte (rôle dérivé du
+ * poste, quota d'employés actifs de la formule, une fiche quelles que
+ * soient les cliniques choisies), suspension d'accès à
  * effet immédiat, licenciement comme état (jamais de suppression),
  * solde de congés dérivé.
  */
@@ -41,39 +43,89 @@ class EmployeRhTest extends TestCase
 
     public function test_l_embauche_cree_la_fiche_avec_le_role_derive_du_poste(): void
     {
+        $compte = User::factory()->create(['name' => 'Nadia Rey', 'email' => 'nadia@exemple.ch']);
+
         $reponse = $this->postJson('/api/v1/equipe/employes', [
+            'code' => User::formaterCodeEmploye($compte->codeEmploye()),
             'nom' => 'Dr Nadia Rey',
             'poste' => 'Vétérinaire',
             'taux' => 80,
             'salaire_mensuel' => 8500,
             'contrat_statut' => 'attente',
-            'email' => 'n.rey@veterinary.ch',
+            'cliniques' => [$this->clinique->id],
         ], $this->enTetes($this->jeton));
 
         $reponse->assertCreated()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.nom', 'Dr Nadia Rey')
-            ->assertJsonPath('data.0.initiales', 'NR')
-            ->assertJsonPath('data.0.contrat_statut', 'attente')
-            ->assertJsonPath('data.0.clinique_id', $this->clinique->id);
+            ->assertJsonPath('data.nom', 'Dr Nadia Rey')
+            ->assertJsonPath('data.initiales', 'NR')
+            ->assertJsonPath('data.contrat_statut', 'attente')
+            ->assertJsonPath('data.email', 'nadia@exemple.ch')
+            ->assertJsonPath('data.cliniques', [$this->clinique->id]);
 
-        $fiche = Employe::withoutGlobalScopes()->find($reponse->json('data.0.id'));
+        $fiche = Employe::withoutGlobalScopes()->find($reponse->json('data.id'));
 
         $this->assertSame(RolesParDefaut::VETERINAIRE, $fiche->role->nom);
         $this->assertSame('CDI', $fiche->contrat);
+        // Le compte de la personne est lié : elle pourra se connecter
+        $this->assertSame($compte->id, $fiche->user_id);
     }
 
-    public function test_l_embauche_d_une_asv_prend_le_role_asv(): void
+    public function test_l_embauche_d_une_asv_prend_le_role_asv_et_le_nom_du_compte(): void
     {
+        $compte = User::factory()->create(['name' => 'Léa Perrin']);
+
         $reponse = $this->postJson('/api/v1/equipe/employes', [
-            'nom' => 'Léa Perrin',
+            'code' => strtolower($compte->codeEmploye()),
             'poste' => 'ASV · Accueil',
             'contrat_statut' => 'pdf',
+            'cliniques' => [$this->clinique->id],
         ], $this->enTetes($this->jeton))->assertCreated();
 
-        $fiche = Employe::withoutGlobalScopes()->find($reponse->json('data.0.id'));
+        $fiche = Employe::withoutGlobalScopes()->find($reponse->json('data.id'));
 
         $this->assertSame(RolesParDefaut::ASV, $fiche->role->nom);
+        $this->assertSame('Léa Perrin', $fiche->nom);
+    }
+
+    public function test_l_embauche_refuse_un_code_inconnu_et_une_personne_deja_dans_l_equipe(): void
+    {
+        $this->postJson('/api/v1/equipe/employes', [
+            'code' => 'ZZZ-ZZZ', 'poste' => 'ASV', 'contrat_statut' => 'signe', 'cliniques' => [$this->clinique->id],
+        ], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('code');
+
+        $this->postJson('/api/v1/equipe/employes', [
+            'code' => $this->employe->user->codeEmploye(), 'poste' => 'ASV', 'contrat_statut' => 'signe', 'cliniques' => [$this->clinique->id],
+        ], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('code');
+    }
+
+    public function test_le_code_employe_montre_a_qui_il_appartient(): void
+    {
+        $compte = User::factory()->create(['name' => 'Nadia Rey', 'email' => 'nadia@exemple.ch']);
+
+        $this->getJson('/api/v1/equipe/comptes/'.User::formaterCodeEmploye($compte->codeEmploye()), $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertExactJson(['data' => ['nom' => 'Nadia Rey', 'email' => 'nadia@exemple.ch', 'employe_id' => null]]);
+
+        // Déjà dans l'organisation : sa fiche, pour lui ajouter des cliniques
+        $this->getJson('/api/v1/equipe/comptes/'.$this->employe->user->codeEmploye(), $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.employe_id', $this->employe->id);
+
+        $this->getJson('/api/v1/equipe/comptes/AAAAAA', $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('code');
+    }
+
+    public function test_chaque_compte_a_un_code_employe_stable_dans_sa_session(): void
+    {
+        $premier = $this->getJson('/api/v1/auth/moi', $this->enTetes($this->jeton))->json('data.user.code_employe');
+
+        $this->assertMatchesRegularExpression('/^[A-HJKMNP-Z2-9]{3}-[A-HJKMNP-Z2-9]{3}$/', $premier);
+        $this->assertSame($premier, $this->getJson('/api/v1/auth/moi', $this->enTetes($this->jeton))->json('data.user.code_employe'));
     }
 
     public function test_l_embauche_respecte_la_limite_d_employes_actifs_de_la_formule(): void
@@ -84,33 +136,55 @@ class EmployeRhTest extends TestCase
         $entetes = $this->enTetes($this->jeton);
 
         $this->postJson('/api/v1/equipe/employes', [
-            'nom' => 'Dr Paul Karlen', 'poste' => 'Vétérinaire', 'contrat_statut' => 'signe',
+            'code' => User::factory()->create()->codeEmploye(), 'poste' => 'Vétérinaire', 'contrat_statut' => 'signe', 'toutes_les_cliniques' => true,
         ], $entetes)->assertCreated();
 
         $this->postJson('/api/v1/equipe/employes', [
-            'nom' => 'Anna Duval', 'poste' => 'ASV', 'contrat_statut' => 'signe',
+            'code' => User::factory()->create()->codeEmploye(), 'poste' => 'ASV', 'contrat_statut' => 'signe', 'cliniques' => [$this->clinique->id],
         ], $entetes)
             ->assertUnprocessable()
             ->assertJsonValidationErrors('employes');
     }
 
-    public function test_l_embauche_pour_toutes_les_cliniques_cree_une_fiche_par_clinique(): void
+    public function test_l_embauche_dans_toutes_les_cliniques_cree_une_seule_fiche(): void
     {
         $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
 
         $reponse = $this->postJson('/api/v1/equipe/employes', [
+            'code' => User::factory()->create()->codeEmploye(),
             'nom' => 'Dr Marc Weber',
             'poste' => 'Vétérinaire',
             'contrat_statut' => 'signe',
             'toutes_les_cliniques' => true,
         ], $this->enTetes($this->jeton))->assertCreated();
 
-        $reponse->assertJsonCount(2, 'data');
+        $reponse->assertJsonPath('data.cliniques', [$this->clinique->id, $soeur->id]);
 
-        $this->assertEqualsCanonicalizing(
-            [$this->clinique->id, $soeur->id],
-            Employe::withoutGlobalScopes()->where('nom', 'Dr Marc Weber')->pluck('clinique_id')->all(),
-        );
+        $this->assertSame(1, Employe::withoutGlobalScopes()->where('nom', 'Dr Marc Weber')->count());
+        // Une personne compte une fois dans la limite de la formule
+        $this->assertSame(2, $this->clinique->societe->organisation->employesActifs());
+    }
+
+    public function test_l_embauche_dans_quelques_cliniques_seulement(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $troisieme = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+
+        $this->postJson('/api/v1/equipe/employes', [
+            'code' => User::factory()->create()->codeEmploye(),
+            'poste' => 'ASV',
+            'contrat_statut' => 'signe',
+            'cliniques' => [$soeur->id, $troisieme->id],
+        ], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.cliniques', [$soeur->id, $troisieme->id]);
+
+        // Aucune clinique cochée : refusé
+        $this->postJson('/api/v1/equipe/employes', [
+            'code' => User::factory()->create()->codeEmploye(), 'poste' => 'ASV', 'contrat_statut' => 'signe', 'cliniques' => [],
+        ], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('cliniques');
     }
 
     public function test_la_suspension_coupe_l_acces_immediatement_et_le_retablissement_le_rouvre(): void

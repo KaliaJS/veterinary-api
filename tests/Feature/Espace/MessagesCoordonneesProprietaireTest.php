@@ -25,7 +25,7 @@ class MessagesCoordonneesProprietaireTest extends TestCase
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
         $clinique = Clinique::factory()->create(['nom' => 'Deux Rives']);
         Client::factory()->create(['user_id' => $user->id, 'organisation_id' => $clinique->societe->organisation_id]);
-        $veterinaire = Employe::factory()->create(['clinique_id' => $clinique->id]);
+        $veterinaire = Employe::factory()->dans($clinique)->create();
         MessageClientele::create(['clinique_id' => $clinique->id, 'user_id' => $user->id, 'employe_id' => $veterinaire->id, 'auteur' => 'clinique', 'texte' => 'Comment va Paco ?']);
         Clinique::factory()->create(['nom' => 'Ailleurs']); // pas client
 

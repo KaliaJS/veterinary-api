@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\V1\DossierMedical;
 
+use App\Http\Requests\V1\Concerns\ReglesScopees;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -15,6 +16,8 @@ use Illuminate\Validation\Rule;
  */
 class EnregistrerVaccinationRequest extends FormRequest
 {
+    use ReglesScopees;
+
     protected function prepareForValidation(): void
     {
         $this->mergeIfMissing(['injectee_le' => today()->toDateString()]);
@@ -39,7 +42,7 @@ class EnregistrerVaccinationRequest extends FormRequest
             'site_injection' => ['nullable', 'string', 'max:60'],
             'remarque' => ['nullable', 'string', 'max:2000'],
             'reaction' => ['nullable', 'string', 'max:2000'],
-            'employe_id' => ['nullable', 'integer', Rule::exists('employes', 'id')],
+            'employe_id' => ['nullable', 'integer', $this->employeDeLOrganisation()],
             'injectee_le' => ['sometimes', 'date', 'before_or_equal:today'],
             'echeance_le' => ['nullable', 'date', 'after:injectee_le'],
         ];

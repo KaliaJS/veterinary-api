@@ -22,6 +22,8 @@ class UtilisateurResource extends JsonResource
             'mail' => $this->email,
             'first' => $this->prenom(),
             'last' => $this->nomFamille(),
+            // À donner à une clinique pour s'y faire embaucher
+            'code_employe' => User::formaterCodeEmploye($this->codeEmploye()),
         ];
     }
 }

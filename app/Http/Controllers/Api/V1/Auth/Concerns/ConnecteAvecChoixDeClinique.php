@@ -35,17 +35,17 @@ trait ConnecteAvecChoixDeClinique
             return new JetonEmisResource($emetteur->emettreSansClinique($user, $appareil), null);
         }
 
-        $employe = $emetteur->employeParmi(
+        $rattachement = $emetteur->rattachementParmi(
             $rattachements,
             $request->filled('clinique_id') ? $request->integer('clinique_id') : null,
         );
 
-        if ($employe === null) {
+        if ($rattachement === null) {
             return new ChoixCliniqueResource($rattachements);
         }
 
         $consommerLeSecret();
 
-        return new JetonEmisResource($emetteur->emettrePour($user, $employe, $appareil), $employe);
+        return new JetonEmisResource($emetteur->emettrePour($user, $rattachement, $appareil), $rattachement->employe);
     }
 }

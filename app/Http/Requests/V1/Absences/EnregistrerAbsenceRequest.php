@@ -21,7 +21,7 @@ class EnregistrerAbsenceRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'employe_id' => ['required', $this->existeDansLaClinique('employes')],
+            'employe_id' => ['required', $this->employeDeLaClinique()],
             'type' => ['required', Rule::enum(TypeAbsence::class)],
             'debut_le' => ['required', 'date'],
             'fin_le' => ['required', 'date', 'after_or_equal:debut_le'],

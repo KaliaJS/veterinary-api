@@ -38,7 +38,7 @@ class PermissionsTest extends TestCase
         ['employe' => $employe] = $this->employeAvecJeton();
 
         $roles = Role::withoutGlobalScopes()
-            ->where('organisation_id', $employe->clinique->societe->organisation_id)
+            ->where('organisation_id', $employe->organisation_id)
             ->pluck('domaines', 'nom');
 
         $this->assertEqualsCanonicalizing(
@@ -142,7 +142,7 @@ class PermissionsTest extends TestCase
     {
         $resultat = $this->employeAvecJeton(attributs: ['role_libelle' => 'ASV · Accueil']);
 
-        $organisation = $resultat['employe']->clinique->societe->organisation;
+        $organisation = $resultat['employe']->organisation;
 
         $resultat['employe']->update([
             'role_id' => Role::withoutGlobalScopes()

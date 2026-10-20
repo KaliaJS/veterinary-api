@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
@@ -55,10 +56,15 @@ class Clinique extends Model
         return $this->hasMany(Salle::class);
     }
 
-    /** @return HasMany<Employe, $this> */
-    public function employes(): HasMany
+    /**
+     * Employés affectés à la clinique. Le scope de clinique des employés
+     * vise celle du jeton : le lever pour lire une clinique sœur.
+     *
+     * @return BelongsToMany<Employe, $this>
+     */
+    public function employes(): BelongsToMany
     {
-        return $this->hasMany(Employe::class);
+        return $this->belongsToMany(Employe::class)->withTimestamps();
     }
 
     /** @return HasMany<LignePlanning, $this> */

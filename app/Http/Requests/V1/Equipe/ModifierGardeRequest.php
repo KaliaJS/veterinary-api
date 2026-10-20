@@ -28,7 +28,7 @@ class ModifierGardeRequest extends FormRequest
                     }
                 },
             ],
-            'employe_id' => ['required', $this->existeDansLaClinique('employes')],
+            'employe_id' => ['required', $this->employeDeLaClinique()],
         ];
     }
 }

@@ -94,8 +94,8 @@ final class InscriptionClinique
                 ...HoraireOuverture::DEFAUTS,
             ]));
 
-            return Employe::withoutEvents(fn (): Employe => Employe::create([
-                'clinique_id' => $clinique->id,
+            $employe = Employe::withoutEvents(fn (): Employe => Employe::create([
+                'organisation_id' => $organisation->id,
                 'user_id' => $user->id,
                 'nom' => 'Dr '.$nom,
                 'initiales' => Str::upper(Str::substr($donnees['prenom'], 0, 1).Str::substr($donnees['nom'], 0, 1)),
@@ -109,10 +109,13 @@ final class InscriptionClinique
                 'entree_le' => today(),
                 'email' => $user->email,
             ]));
+            $employe->cliniques()->attach($clinique->id);
+
+            return $employe->load('cliniques');
         });
 
         if (! $verifiee) {
-            $this->demanderVerification($employe->clinique->societe->organisation, $resultat);
+            $this->demanderVerification($employe->organisation, $resultat);
         }
 
         return $employe;

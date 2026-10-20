@@ -36,7 +36,7 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
                 'nullable',
                 $this->existeDansLOrganisation('patients'),
             ],
-            'employe_id' => ['sometimes', 'nullable', $this->existeDansLesCliniquesDeLOrganisation('employes')],
+            'employe_id' => ['sometimes', 'nullable', $this->employeDeLOrganisation()],
             'motif' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
     }

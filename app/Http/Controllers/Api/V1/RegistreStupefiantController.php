@@ -35,7 +35,7 @@ class RegistreStupefiantController extends Controller
         ]);
 
         $mouvements = MouvementStupefiant::query()
-            ->with(['produit', 'patient', 'employe'])
+            ->with(['produit', 'patient', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
             ->when($request->date('du'), fn ($requete, $du) => $requete->where('created_at', '>=', $du))
             ->when($request->date('au'), fn ($requete, $au) => $requete->where('created_at', '<=', $au->endOfDay()))
             ->latest('created_at')

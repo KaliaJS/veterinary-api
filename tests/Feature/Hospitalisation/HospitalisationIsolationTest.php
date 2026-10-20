@@ -112,7 +112,7 @@ class HospitalisationIsolationTest extends TestCase
 
     public function test_un_veterinaire_d_une_clinique_soeur_est_accepte_comme_referent(): void
     {
-        $confrere = Employe::factory()->create(['clinique_id' => $this->cliniqueSoeur->id]);
+        $confrere = Employe::factory()->dans($this->cliniqueSoeur)->create();
 
         $this->postJson('/api/v1/hospitalisation/sejours', [
             'patient_id' => $this->patient->id,
@@ -127,7 +127,7 @@ class HospitalisationIsolationTest extends TestCase
 
     public function test_un_veterinaire_d_une_autre_organisation_est_refuse(): void
     {
-        $etranger = Employe::factory()->create(['clinique_id' => $this->cliniqueEtrangere->id]);
+        $etranger = Employe::factory()->dans($this->cliniqueEtrangere)->create();
 
         $this->postJson('/api/v1/hospitalisation/sejours', [
             'patient_id' => $this->patient->id,

@@ -19,7 +19,8 @@ class AnnuaireEmployeResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'clinique_id' => $this->clinique_id,
+            // Cliniques où la personne travaille (affectations)
+            'cliniques' => $this->cliniques->pluck('id')->values()->all(),
             'nom' => $this->nom,
             'initiales' => $this->initiales,
             'titre' => $this->titre(),

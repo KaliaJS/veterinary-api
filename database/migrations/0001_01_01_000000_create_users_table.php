@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('gln', 13)->nullable()->comment('GLN du vétérinaire, retrouvé dans MedReg ou validé à la main');
             $table->unsignedInteger('medreg_id')->nullable();
             $table->timestamp('gln_verifie_le')->nullable();
+            $table->char('code_employe', 6)->nullable()->unique()->comment('Code court que la personne donne pour être embauchée (« K7F3QZ », affiché « K7F-3QZ »)');
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->rememberToken();

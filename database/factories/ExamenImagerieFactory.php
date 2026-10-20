@@ -33,7 +33,7 @@ class ExamenImagerieFactory extends Factory
             'incidence' => $examen[1],
             'realise_le' => fake()->dateTimeBetween('-30 days'),
             'duree_minutes' => 30,
-            'prescripteur_id' => fn (array $attributes) => Employe::factory()->create(['clinique_id' => $attributes['clinique_id']])->id,
+            'prescripteur_id' => fn (array $attributes) => Employe::factory()->dans($attributes['clinique_id'])->create()->id,
         ];
     }
 
@@ -43,7 +43,7 @@ class ExamenImagerieFactory extends Factory
         return $this->state(fn (): array => [
             'constatations' => 'Cliché de qualité diagnostique. Examen dans les limites de la normale.',
             'conclusion' => 'Examen dans les limites de la normale.',
-            'signe_par_id' => fn (array $attributes) => Employe::factory()->create(['clinique_id' => $attributes['clinique_id']])->id,
+            'signe_par_id' => fn (array $attributes) => Employe::factory()->dans($attributes['clinique_id'])->create()->id,
             'signe_le' => now(),
         ]);
     }

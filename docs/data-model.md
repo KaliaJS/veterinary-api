@@ -93,6 +93,21 @@ licenciement). Les deux listes ne sont pas réconciliées au front. En
 base : **une seule table `employes`**, dont l'écran Organisation et le
 planning sont deux vues.
 
+**Une fiche par personne et par organisation (21.10.2026, décision de
+Jim)** : contrat, salaire, congés, rôle et accès sont ceux de la
+personne, quel que soit le nombre de ses cliniques. Les cliniques où
+elle travaille sont ses **affectations** (`clinique_employe`), choisies
+par l'administrateur à l'embauche (toutes, ou quelques-unes) puis sur la
+fiche ; rien n'est automatique. On ne voit et n'agit que dans les
+cliniques où l'on est affecté : le scope `clinique` des employés suit
+les affectations, et un jeton n'ouvre que la clinique d'une affectation
+(un « rattachement » = la fiche × une de ses cliniques). Une absence est
+celle de la personne : validée, elle vide ses colonnes de planning dans
+chacune de ses cliniques. La colonne d'un employé retiré d'une clinique
+reste (son historique y est accroché) mais ne s'affiche plus et n'offre
+plus de créneaux. L'embauche lie le compte Veterinary de la personne par
+son **code employé** (`users.code_employe`, affiché « K7F-3QZ »).
+
 ### Ligne de planning (`lanes`)
 
 | Champ | Type | Description |
@@ -415,7 +430,7 @@ Tables portant `clinic_id` :
 
 | Table | Rattachement |
 |---|---|
-| `praticiens` / `employes` | `clinic_id` direct |
+| `employes` | **niveau organisation** ; cliniques par les affectations (`clinique_employe`) |
 | `salles` (consultation, bloc, imagerie) | `clinic_id` direct |
 | `lignes_planning` | via la salle ou le praticien ; le planning affiché est celui d'une clinique |
 | `rendez_vous` | dérivable via la ligne, mais `clinic_id` direct recommandé |

@@ -115,7 +115,7 @@ class ImagerieIsolationTest extends TestCase
 
     public function test_un_operateur_d_une_autre_organisation_est_refuse(): void
     {
-        $etranger = Employe::factory()->create(['clinique_id' => $this->cliniqueEtrangere->id]);
+        $etranger = Employe::factory()->dans($this->cliniqueEtrangere)->create();
 
         $this->postJson('/api/v1/imagerie/examens', $this->chargeValide(['prescripteur_id' => $etranger->id]), $this->enTetes($this->jeton))
             ->assertUnprocessable()

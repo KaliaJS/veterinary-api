@@ -127,7 +127,7 @@ class PasskeyTest extends TestCase
         $user = User::factory()->create();
         $employeA = Employe::factory()->create(['user_id' => $user->id]);
         $cliniqueB = Clinique::factory()->create();
-        $employeB = Employe::factory()->create(['user_id' => $user->id, 'clinique_id' => $cliniqueB->id]);
+        $employeB = Employe::factory()->dans($cliniqueB)->create(['user_id' => $user->id]);
 
         $passkey = Passkey::make(['user_id' => $user->id, 'nom' => 'Clé', 'credential_id' => 'abc']);
         $passkey->setRelation('user', $user);
@@ -144,8 +144,8 @@ class PasskeyTest extends TestCase
         ])
             ->assertOk()
             ->assertJsonPath('data.choix_clinique', true)
-            ->assertJsonPath('data.cliniques.0.id', $employeA->clinique_id)
-            ->assertJsonPath('data.cliniques.1.id', $employeB->clinique_id)
+            ->assertJsonPath('data.cliniques.0.id', $employeA->cliniques->sole()->id)
+            ->assertJsonPath('data.cliniques.1.id', $cliniqueB->id)
             ->assertJsonMissingPath('data.token');
 
         $this->postJson('/api/v1/auth/passkey/verifier', [

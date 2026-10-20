@@ -34,15 +34,15 @@ class GardeWeekendTest extends TestCase
 
     public function test_la_rotation_derive_six_week_ends_sur_l_effectif_veterinaire(): void
     {
-        Employe::factory()->count(2)->create(['clinique_id' => $this->clinique->id]);
-        Employe::factory()->asv()->create(['clinique_id' => $this->clinique->id]);
+        Employe::factory()->count(2)->dans($this->clinique)->create();
+        Employe::factory()->asv()->dans($this->clinique)->create();
 
         $reponse = $this->getJson('/api/v1/equipe/gardes', $this->enTetes($this->jeton));
 
         $reponse->assertOk()->assertJsonCount(6, 'data');
 
         $veterinaires = Employe::withoutGlobalScopes()
-            ->where('clinique_id', $this->clinique->id)
+            ->whereRelation('cliniques', 'cliniques.id', $this->clinique->id)
             ->where('role_libelle', 'like', 'Vétérinaire%')
             ->pluck('id');
 
@@ -68,13 +68,13 @@ class GardeWeekendTest extends TestCase
 
     public function test_l_echange_reattribue_un_week_end_et_prime_sur_la_rotation(): void
     {
-        Employe::factory()->count(2)->create(['clinique_id' => $this->clinique->id]);
+        Employe::factory()->count(2)->dans($this->clinique)->create();
         $entetes = $this->enTetes($this->jeton);
 
         $avant = $this->getJson('/api/v1/equipe/gardes', $entetes)->json('data.0');
 
         $remplacant = Employe::withoutGlobalScopes()
-            ->where('clinique_id', $this->clinique->id)
+            ->whereRelation('cliniques', 'cliniques.id', $this->clinique->id)
             ->where('id', '!=', $avant['employe_id'])
             ->first();
 
@@ -97,7 +97,7 @@ class GardeWeekendTest extends TestCase
     {
         $this->putJson('/api/v1/equipe/gardes', [
             'samedi_le' => CarbonImmutable::today()->next(CarbonImmutable::SATURDAY)->addDay()->toDateString(),
-            'employe_id' => Employe::factory()->create(['clinique_id' => $this->clinique->id])->id,
+            'employe_id' => Employe::factory()->dans($this->clinique)->create()->id,
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('samedi_le');

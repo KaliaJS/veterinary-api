@@ -120,6 +120,7 @@ class CalculateurCreneaux
         $minuits = $this->minuits($premierJour, $nombreJours, $fuseau);
 
         $lignes = LignePlanning::query()
+            ->enService()
             ->when($lignePlanningId !== null, fn ($requete) => $requete->whereKey($lignePlanningId))
             ->orderBy('ordre')
             ->orderBy('id')
@@ -172,6 +173,7 @@ class CalculateurCreneaux
         $horaires = HoraireOuverture::withoutGlobalScope('clinique')->whereIn('clinique_id', $ids)->get()->keyBy('clinique_id');
 
         $lignes = LignePlanning::withoutGlobalScope('clinique')
+            ->enService()
             ->whereIn('clinique_id', $ids)
             ->orderBy('ordre')
             ->orderBy('id')

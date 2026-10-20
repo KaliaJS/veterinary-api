@@ -20,7 +20,8 @@ class EmployeResource extends JsonResource
     {
         return [
             'id' => $this->id,
-            'clinique_id' => $this->clinique_id,
+            // Cliniques où la personne travaille (affectations)
+            'cliniques' => $this->cliniques->pluck('id')->values()->all(),
             'nom' => $this->nom,
             'initiales' => $this->initiales,
             'role_libelle' => $this->role_libelle,

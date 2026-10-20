@@ -172,7 +172,7 @@ class AuthentificationTest extends TestCase
         $user = User::factory()->create();
         $employeA = Employe::factory()->create(['user_id' => $user->id]);
         $cliniqueB = Clinique::factory()->create();
-        $employeB = Employe::factory()->create(['user_id' => $user->id, 'clinique_id' => $cliniqueB->id]);
+        $employeB = Employe::factory()->dans($cliniqueB)->create(['user_id' => $user->id]);
 
         $code = $this->envoyerEtRecupererLeCode($user);
 
@@ -188,8 +188,8 @@ class AuthentificationTest extends TestCase
             ->assertExactJson(['data' => [
                 'choix_clinique' => true,
                 'cliniques' => [
-                    ['id' => $employeA->clinique_id, 'nom' => $employeA->clinique->nom],
-                    ['id' => $employeB->clinique_id, 'nom' => $cliniqueB->nom],
+                    ['id' => $employeA->cliniques->sole()->id, 'nom' => $employeA->cliniques->sole()->nom],
+                    ['id' => $cliniqueB->id, 'nom' => $cliniqueB->nom],
                 ],
             ]]);
 
@@ -204,17 +204,17 @@ class AuthentificationTest extends TestCase
         $this->postJson('/api/v1/auth/code-email/verifier', [
             'email' => $user->email,
             'code' => $code,
-            'clinique_id' => $employeB->clinique_id,
+            'clinique_id' => $cliniqueB->id,
         ])
             ->assertOk()
-            ->assertJsonPath('data.clinique.id', $employeB->clinique_id)
+            ->assertJsonPath('data.clinique.id', $cliniqueB->id)
             ->assertJsonPath('data.employe.id', $employeB->id);
 
         // … et seulement maintenant, il est consommé.
         $this->postJson('/api/v1/auth/code-email/verifier', [
             'email' => $user->email,
             'code' => $code,
-            'clinique_id' => $employeA->clinique_id,
+            'clinique_id' => $employeA->cliniques->sole()->id,
         ])->assertUnprocessable()->assertJsonValidationErrors('code');
     }
 
@@ -292,8 +292,8 @@ class AuthentificationTest extends TestCase
             ->assertJsonPath('data.employe.titre', 'Dr')
             ->assertJsonPath('data.employe.role_libelle', 'Vétérinaire · Titulaire')
             ->assertJsonPath('data.employe.role_id', $employe->role_id)
-            ->assertJsonPath('data.clinique.id', $employe->clinique_id)
-            ->assertJsonPath('data.cliniques', [['id' => $employe->clinique_id, 'nom' => $employe->clinique->nom]])
+            ->assertJsonPath('data.clinique.id', $employe->cliniques->sole()->id)
+            ->assertJsonPath('data.cliniques', [['id' => $employe->cliniques->sole()->id, 'nom' => $employe->cliniques->sole()->nom]])
             ->assertJsonPath('data.permissions', app(CalculateurPermissions::class)->pour($employe->load(['role', 'derogations'])));
     }
 
@@ -328,7 +328,7 @@ class AuthentificationTest extends TestCase
     {
         ['user' => $user, 'employe' => $employeA, 'jeton' => $jeton] = $this->employeAvecJeton();
         $cliniqueB = Clinique::factory()->create();
-        $employeB = Employe::factory()->asv()->create(['user_id' => $user->id, 'clinique_id' => $cliniqueB->id]);
+        $employeB = Employe::factory()->asv()->dans($cliniqueB)->create(['user_id' => $user->id]);
 
         $reponse = $this->postJson('/api/v1/auth/clinique', ['clinique_id' => $cliniqueB->id], $this->enTetes($jeton))
             ->assertOk()

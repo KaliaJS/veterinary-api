@@ -4,6 +4,7 @@ namespace Tests\Feature\Equipe;
 
 use App\Models\Clinique;
 use App\Models\Employe;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -40,18 +41,18 @@ class EquipeIsolationTest extends TestCase
 
     public function test_la_liste_d_equipe_est_celle_de_la_clinique_du_jeton(): void
     {
-        Employe::factory()->create(['clinique_id' => $this->cliniqueSoeur->id]);
+        Employe::factory()->dans($this->cliniqueSoeur)->create();
 
         $this->getJson('/api/v1/equipe/employes', $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.clinique_id', $this->clinique->id);
+            ->assertJsonPath('data.0.cliniques', [$this->clinique->id]);
     }
 
     public function test_les_gestes_rh_atteignent_une_clinique_soeur_mais_jamais_une_autre_organisation(): void
     {
-        $soeur = Employe::factory()->create(['clinique_id' => $this->cliniqueSoeur->id]);
-        $etranger = Employe::factory()->create(['clinique_id' => $this->cliniqueEtrangere->id]);
+        $soeur = Employe::factory()->dans($this->cliniqueSoeur)->create();
+        $etranger = Employe::factory()->dans($this->cliniqueEtrangere)->create();
         $entetes = $this->enTetes($this->jeton);
 
         $this->getJson("/api/v1/equipe/employes/{$soeur->id}", $entetes)->assertOk();
@@ -67,18 +68,31 @@ class EquipeIsolationTest extends TestCase
     public function test_l_embauche_ne_cible_jamais_une_clinique_d_une_autre_organisation(): void
     {
         $this->postJson('/api/v1/equipe/employes', [
-            'nom' => 'Intrus',
+            'code' => User::factory()->create()->codeEmploye(),
             'poste' => 'ASV',
             'contrat_statut' => 'signe',
-            'clinique_id' => $this->cliniqueEtrangere->id,
+            'cliniques' => [$this->clinique->id, $this->cliniqueEtrangere->id],
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors('clinique_id');
+            ->assertJsonValidationErrors('cliniques.1');
+    }
+
+    public function test_un_employe_ne_s_affecte_jamais_a_une_clinique_d_une_autre_organisation(): void
+    {
+        $soeur = Employe::factory()->dans($this->cliniqueSoeur)->create();
+
+        $this->putJson("/api/v1/equipe/employes/{$soeur->id}/cliniques", [
+            'cliniques' => [$this->cliniqueEtrangere->id],
+        ], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('cliniques.0');
+
+        $this->assertSame([$this->cliniqueSoeur->id], $soeur->cliniques()->pluck('cliniques.id')->all());
     }
 
     public function test_une_garde_ne_se_reattribue_pas_a_un_employe_d_une_autre_clinique(): void
     {
-        $soeur = Employe::factory()->create(['clinique_id' => $this->cliniqueSoeur->id]);
+        $soeur = Employe::factory()->dans($this->cliniqueSoeur)->create();
 
         $this->putJson('/api/v1/equipe/gardes', [
             'samedi_le' => today()->next('saturday')->toDateString(),
@@ -90,12 +104,12 @@ class EquipeIsolationTest extends TestCase
 
     public function test_la_rotation_des_gardes_ignore_les_veterinaires_des_autres_cliniques(): void
     {
-        Employe::factory()->create(['clinique_id' => $this->cliniqueSoeur->id]);
+        Employe::factory()->dans($this->cliniqueSoeur)->create();
 
         $reponse = $this->getJson('/api/v1/equipe/gardes', $this->enTetes($this->jeton));
 
         $veterinaireLocal = Employe::withoutGlobalScopes()
-            ->where('clinique_id', $this->clinique->id)
+            ->whereRelation('cliniques', 'cliniques.id', $this->clinique->id)
             ->sole();
 
         foreach ($reponse->json('data') as $garde) {

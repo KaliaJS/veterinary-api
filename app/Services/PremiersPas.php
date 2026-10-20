@@ -56,7 +56,7 @@ final class PremiersPas
                     ->orWhereNotIn('code', array_keys(PrestationsParDefaut::CATALOGUE)))
                 ->exists(),
             'equipe' => $confirmee('equipe') || Employe::withoutGlobalScopes()
-                ->whereIn('clinique_id', $organisation->cliniques()->pluck('cliniques.id'))
+                ->where('organisation_id', $organisation->id)
                 ->count() > 1,
             'carte' => $clinique->latitude !== null && $clinique->longitude !== null,
             'rappels' => $confirmee('rappels'),

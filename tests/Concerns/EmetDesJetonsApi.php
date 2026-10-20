@@ -26,11 +26,9 @@ trait EmetDesJetonsApi
 
         $user = User::factory()->create();
 
-        $employe = Employe::factory()->create([
-            'user_id' => $user->id,
-            ...($clinique ? ['clinique_id' => $clinique->id] : []),
-            ...$attributs,
-        ]);
+        $employe = Employe::factory()
+            ->when($clinique, fn ($fabrique) => $fabrique->dans($clinique))
+            ->create(['user_id' => $user->id, ...$attributs]);
 
         $resultat = app(EmetteurJetons::class)->emettre($user);
 

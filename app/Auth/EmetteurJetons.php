@@ -2,11 +2,12 @@
 
 namespace App\Auth;
 
+use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\JetonApi;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\NewAccessToken;
 
@@ -21,7 +22,7 @@ use Laravel\Sanctum\NewAccessToken;
  * requête, via le middleware `clinique` et les Gates — un changement
  * prend effet immédiatement, sans réémission.
  *
- * Le choix du rattachement (employePour) est séparé de l'émission
+ * Le choix du rattachement (rattachementPour) est séparé de l'émission
  * (emettrePour) : les voies de connexion résolvent le rattachement
  * AVANT de consommer leur secret (code e-mail, défi passkey), pour
  * qu'un rattachement multiple sans choix ne brûle rien.
@@ -31,7 +32,7 @@ class EmetteurJetons
     /**
      * Connexion en un temps : rattachement résolu puis jeton émis. Un
      * rattachement multiple sans choix est refusé (422) — les voies de
-     * connexion HTTP préfèrent employePour() pour proposer la liste.
+     * connexion HTTP préfèrent rattachementPour() pour proposer la liste.
      *
      * @return array{jeton: NewAccessToken, employe: Employe}
      *
@@ -39,21 +40,21 @@ class EmetteurJetons
      */
     public function emettre(User $user, ?int $cliniqueId = null, string $nomAppareil = 'api'): array
     {
-        $employe = $this->employePour($user, $cliniqueId) ?? throw ValidationException::withMessages([
+        $rattachement = $this->rattachementPour($user, $cliniqueId) ?? throw ValidationException::withMessages([
             'clinique_id' => 'Ce compte est rattaché à plusieurs cliniques — précisez clinique_id.',
         ]);
 
-        return ['jeton' => $this->emettrePour($user, $employe, $nomAppareil), 'employe' => $employe];
+        return ['jeton' => $this->emettrePour($user, $rattachement, $nomAppareil), 'employe' => $rattachement->employe];
     }
 
     /** Jeton neuf lié à la clinique du rattachement donné. */
-    public function emettrePour(User $user, Employe $employe, string $nomAppareil = 'api'): NewAccessToken
+    public function emettrePour(User $user, Rattachement $rattachement, string $nomAppareil = 'api'): NewAccessToken
     {
         $jeton = $user->createToken($nomAppareil, ['*'], $this->expireLe());
 
         /** @var JetonApi $modele */
         $modele = $jeton->accessToken;
-        $modele->forceFill(['clinique_id' => $employe->clinique_id])->save();
+        $modele->forceFill(['clinique_id' => $rattachement->clinique->id])->save();
 
         return $jeton;
     }
@@ -108,20 +109,24 @@ class EmetteurJetons
     }
 
     /**
-     * Rattachements clinique de l'utilisateur, clinique chargée —
-     * requête d'authentification, hors de tout contexte clinique (le
-     * scope global ne doit jamais restreindre le choix du rattachement).
+     * Rattachements de l'utilisateur : chacune de ses fiches (une par
+     * organisation) dans chacune des cliniques où elle est affectée,
+     * dans l'ordre des cliniques — requête d'authentification, hors de
+     * tout contexte clinique (les scopes globaux ne doivent jamais
+     * restreindre le choix du rattachement).
      *
-     * @return Collection<int, Employe>
+     * @return Collection<int, Rattachement>
      */
     public function rattachements(User $user): Collection
     {
-        return Employe::query()
-            ->withoutGlobalScope('clinique')
-            ->with('clinique')
+        return Employe::withoutGlobalScopes()
+            ->with('cliniques')
             ->where('user_id', $user->id)
-            ->orderBy('clinique_id')
-            ->get();
+            ->get()
+            ->flatMap(fn (Employe $employe) => $employe->cliniques
+                ->map(fn (Clinique $clinique): Rattachement => new Rattachement($employe, $clinique)))
+            ->sortBy(fn (Rattachement $rattachement): int => $rattachement->clinique->id)
+            ->values();
     }
 
     /**
@@ -134,32 +139,33 @@ class EmetteurJetons
      *
      * @throws ValidationException
      */
-    public function employePour(User $user, ?int $cliniqueId): ?Employe
+    public function rattachementPour(User $user, ?int $cliniqueId): ?Rattachement
     {
-        return $this->employeParmi($this->rattachements($user), $cliniqueId);
+        return $this->rattachementParmi($this->rattachements($user), $cliniqueId);
     }
 
     /**
      * Même résolution, sur des rattachements déjà chargés.
      *
-     * @param  Collection<int, Employe>  $employes
+     * @param  Collection<int, Rattachement>  $rattachements
      *
      * @throws ValidationException
      */
-    public function employeParmi(Collection $employes, ?int $cliniqueId): ?Employe
+    public function rattachementParmi(Collection $rattachements, ?int $cliniqueId): ?Rattachement
     {
-        if ($employes->isEmpty()) {
+        if ($rattachements->isEmpty()) {
             throw ValidationException::withMessages([
                 'email' => 'Ce compte n’est rattaché à aucune clinique.',
             ]);
         }
 
         if ($cliniqueId !== null) {
-            return $employes->firstWhere('clinique_id', $cliniqueId) ?? throw ValidationException::withMessages([
-                'clinique_id' => 'Aucun rattachement à cette clinique.',
-            ]);
+            return $rattachements->first(fn (Rattachement $rattachement): bool => $rattachement->clinique->id === $cliniqueId)
+                ?? throw ValidationException::withMessages([
+                    'clinique_id' => 'Aucun rattachement à cette clinique.',
+                ]);
         }
 
-        return $employes->count() === 1 ? $employes->first() : null;
+        return $rattachements->count() === 1 ? $rattachements->first() : null;
     }
 }

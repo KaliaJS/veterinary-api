@@ -183,7 +183,7 @@ class OrganisationTest extends TestCase
     public function test_une_clinique_avec_historique_se_desactive_plutot_qu_elle_ne_se_supprime(): void
     {
         $avecEquipe = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
-        Employe::factory()->create(['clinique_id' => $avecEquipe->id]);
+        Employe::factory()->dans($avecEquipe)->create();
 
         $this->deleteJson("/api/v1/organisation/cliniques/{$avecEquipe->id}", [], $this->enTetes($this->jeton))
             ->assertUnprocessable();
@@ -199,7 +199,7 @@ class OrganisationTest extends TestCase
     public function test_le_solde_de_conges_compte_aussi_les_conges_des_employes_des_autres_cliniques(): void
     {
         $autre = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
-        $employe = Employe::factory()->create(['clinique_id' => $autre->id, 'conges_droit' => 25, 'conges_pris' => 5]);
+        $employe = Employe::factory()->dans($autre)->create(['conges_droit' => 25, 'conges_pris' => 5]);
         Absence::factory()->create([
             'employe_id' => $employe->id,
             'debut_le' => today()->addDays(10),

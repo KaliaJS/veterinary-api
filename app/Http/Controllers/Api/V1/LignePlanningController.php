@@ -23,6 +23,7 @@ class LignePlanningController extends Controller
 
         return LignePlanningResource::collection(
             LignePlanning::query()
+                ->enService()
                 ->orderBy('ordre')
                 ->orderBy('id')
                 ->paginate($this->parPage($request)),

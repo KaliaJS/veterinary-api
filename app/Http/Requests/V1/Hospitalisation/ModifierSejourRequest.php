@@ -28,7 +28,7 @@ class ModifierSejourRequest extends FormRequest
             'box' => ['sometimes', 'integer', 'min:1'],
             'motif' => ['sometimes', 'string', 'max:255'],
             'statut' => ['sometimes', Rule::enum(StatutSejour::class)],
-            'veterinaire_id' => ['sometimes', 'nullable', $this->existeDansLesCliniquesDeLOrganisation('employes')],
+            'veterinaire_id' => ['sometimes', 'nullable', $this->employeDeLOrganisation()],
             'sortie_prevue' => ['sometimes', 'nullable', 'string', 'max:255'],
             'perfusion' => ['sometimes', 'nullable', 'string', 'max:255'],
             'note' => ['sometimes', 'nullable', 'string'],

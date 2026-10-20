@@ -42,7 +42,7 @@ class DataModelFoundationsTest extends TestCase
         $this->assertNotNull($praticien->employe);
         $this->assertNull($praticien->salle);
         $this->assertSame(RoleLignePlanning::Consultation, $praticien->role);
-        $this->assertSame($praticien->clinique_id, $praticien->employe->clinique_id);
+        $this->assertSame([$praticien->clinique_id], $praticien->employe->cliniques()->pluck('cliniques.id')->all());
 
         $this->assertNull($bloc->employe);
         $this->assertNotNull($bloc->salle);

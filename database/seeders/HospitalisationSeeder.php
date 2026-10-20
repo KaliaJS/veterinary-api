@@ -96,8 +96,8 @@ class HospitalisationSeeder extends Seeder
 
     private function creerDrFavre(Organisation $organisation, Clinique $leLac): Employe
     {
-        return Employe::create([
-            'clinique_id' => $leLac->id,
+        $favre = Employe::create([
+            'organisation_id' => $organisation->id,
             'nom' => 'Dr Théo Favre',
             'initiales' => 'TF',
             'role_libelle' => 'Vétérinaire',
@@ -110,6 +110,9 @@ class HospitalisationSeeder extends Seeder
             'conges_droit' => 25,
             'conges_pris' => 10,
         ]);
+        $favre->cliniques()->attach($leLac->id);
+
+        return $favre;
     }
 
     /** [jours en arrière, minutes locales] → datetime UTC (Europe/Zurich). */

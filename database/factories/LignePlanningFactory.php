@@ -21,7 +21,7 @@ class LignePlanningFactory extends Factory
     {
         return [
             'clinique_id' => Clinique::factory(),
-            'employe_id' => fn (array $attributes) => Employe::factory()->create(['clinique_id' => $attributes['clinique_id']])->id,
+            'employe_id' => fn (array $attributes) => Employe::factory()->dans($attributes['clinique_id'])->create()->id,
             'salle_id' => null,
             'nom' => fn (array $attributes) => Employe::find($attributes['employe_id'])->nom,
             'sous_titre' => 'CONSULTATION',

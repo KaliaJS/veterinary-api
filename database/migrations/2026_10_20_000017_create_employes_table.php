@@ -8,16 +8,18 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Table unique d'équipe — réconcilie `planning.staff` et
-     * `org.clinics[].team` du front (divergence signalée dans
-     * docs/data-model.md). `user_id` relie l'employé à son compte de
+     * Une fiche RH par personne et par organisation — réconcilie
+     * `planning.staff` et `org.clinics[].team` du front (divergence
+     * signalée dans docs/data-model.md). Les cliniques où la personne
+     * travaille sont ses affectations (`clinique_employe`), choisies
+     * par l'administrateur. `user_id` relie l'employé à son compte de
      * connexion (acteur des audits de RDV).
      */
     public function up(): void
     {
         Schema::create('employes', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('clinique_id')->constrained()->restrictOnDelete();
+            $table->foreignId('organisation_id')->constrained()->restrictOnDelete();
             $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
             $table->string('nom');
             $table->string('initiales', 3);
@@ -38,6 +40,9 @@ return new class extends Migration
             $table->date('fin_contrat_le')->nullable();
             $table->string('licenciement_motif')->nullable();
             $table->timestamps();
+
+            // Un compte, une fiche par organisation
+            $table->unique(['organisation_id', 'user_id']);
         });
     }
 

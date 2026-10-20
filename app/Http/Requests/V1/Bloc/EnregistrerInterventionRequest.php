@@ -27,7 +27,7 @@ class EnregistrerInterventionRequest extends FormRequest
             'prevu_le' => ['required', 'date'],
             'duree_minutes' => ['required', 'integer', 'between:10,1440'],
             'salle_id' => ['required', $this->existeDansLaClinique('salles')->where('type', TypeSalle::Bloc->value)],
-            'chirurgien_id' => ['required', $this->existeDansLesCliniquesDeLOrganisation('employes')],
+            'chirurgien_id' => ['required', $this->employeDeLOrganisation()],
             'rendez_vous_id' => [
                 'sometimes', 'nullable',
                 $this->existeDansLaClinique('rendez_vous')

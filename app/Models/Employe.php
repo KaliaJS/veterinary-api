@@ -2,24 +2,35 @@
 
 namespace App\Models;
 
+use App\Auth\ContexteClinique;
 use App\Enums\StatutAbsence;
 use App\Enums\StatutContrat;
 use App\Enums\TypeAbsence;
-use App\Models\Concerns\AppartientAUneClinique;
+use App\Models\Concerns\AppartientAUneOrganisation;
 use Database\Factories\EmployeFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
+/**
+ * Fiche RH d'une personne dans une organisation (contrat, salaire,
+ * congés, rôle) : une seule, quel que soit le nombre de cliniques où
+ * elle travaille. Ses cliniques sont ses affectations (`cliniques()`).
+ * Deux scopes : l'organisation du jeton, et la clinique du jeton
+ * (`'clinique'`, les employés qui y sont affectés) — l'équipe d'une
+ * clinique. Lever `'clinique'` donne toute l'organisation.
+ */
 class Employe extends Model
 {
     /** @use HasFactory<EmployeFactory> */
-    use AppartientAUneClinique, HasFactory;
+    use AppartientAUneOrganisation, HasFactory;
 
     protected $fillable = [
-        'clinique_id', 'user_id', 'nom', 'initiales', 'role_libelle', 'role_id',
+        'organisation_id', 'user_id', 'nom', 'initiales', 'role_libelle', 'role_id',
         'taux', 'contrat', 'entree_le', 'tel', 'email', 'photo_chemin', 'conges_droit', 'conges_pris',
         'acces_suspendu', 'contrat_statut', 'salaire_mensuel',
         'licenciement_notifie_le', 'fin_contrat_le', 'licenciement_motif',
@@ -40,10 +51,33 @@ class Employe extends Model
         ];
     }
 
-    /** @return BelongsTo<Clinique, $this> */
-    public function clinique(): BelongsTo
+    protected static function booted(): void
     {
-        return $this->belongsTo(Clinique::class);
+        static::addGlobalScope('clinique', function (Builder $builder): void {
+            $contexte = app(ContexteClinique::class);
+            if ($contexte->estDefini()) {
+                $builder->whereIn($builder->qualifyColumn('id'), fn ($affectations) => $affectations
+                    ->select('employe_id')
+                    ->from('clinique_employe')
+                    ->where('clinique_id', $contexte->cliniqueId()));
+            }
+        });
+    }
+
+    /** @return BelongsTo<Organisation, $this> */
+    public function organisation(): BelongsTo
+    {
+        return $this->belongsTo(Organisation::class);
+    }
+
+    /**
+     * Cliniques où la personne travaille (affectations).
+     *
+     * @return BelongsToMany<Clinique, $this>
+     */
+    public function cliniques(): BelongsToMany
+    {
+        return $this->belongsToMany(Clinique::class)->withTimestamps()->orderBy('cliniques.id');
     }
 
     /** Rôle configurable portant les permissions (`role_libelle`
@@ -67,7 +101,9 @@ class Employe extends Model
         return $this->belongsTo(User::class);
     }
 
-    /** Colonne du planning — seuls les vétérinaires en ont une.
+    /** Colonne du planning dans la clinique du jeton — seuls les
+     * vétérinaires en ont une (une par clinique où ils consultent).
+     *
      * @return HasOne<LignePlanning, $this> */
     public function lignePlanning(): HasOne
     {
@@ -83,8 +119,9 @@ class Employe extends Model
     /**
      * Congés validés en cours ou à venir, la part qui pèse sur le solde.
      * Sans le scope de clinique des absences : l'employé est déjà
-     * autorisé, et l'écran Organisation montre aussi les employés des
-     * autres cliniques, dont les congés seraient sinon écartés.
+     * autorisé, et l'écran Organisation montre aussi les employés qui ne
+     * travaillent pas dans la clinique du jeton, dont les congés seraient
+     * sinon écartés.
      *
      * @return HasMany<Absence, $this>
      */

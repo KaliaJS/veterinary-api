@@ -8,11 +8,11 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Embauche (écran Organisation — docs/data-model.md §2) : compte
- * vérifié en amont (QR/code, hors API pour l'instant), contrat déposé
- * (pdf) ou généré (signé / en attente de la signature de l'employé).
- * Cible : la clinique du jeton par défaut, une clinique sœur de
- * l'organisation, ou toutes.
+ * Embauche (écran Organisation — docs/data-model.md §2) : le compte
+ * Veterinary de la personne, par le code employé qu'elle donne (vérifié
+ * d'abord par GET /equipe/comptes/{code}), contrat déposé (pdf) ou
+ * généré (signé / en attente de la signature de l'employé). Cliniques :
+ * toutes, ou celles que l'administrateur coche.
  */
 class EmbaucherEmployeRequest extends FormRequest
 {
@@ -22,7 +22,8 @@ class EmbaucherEmployeRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'nom' => ['required', 'string', 'max:255'],
+            'code' => ['required', 'string', 'max:20'],
+            'nom' => ['sometimes', 'string', 'max:255'],
             'poste' => ['required', 'string', 'max:100'],
             'role_id' => ['sometimes', 'nullable', $this->existeDansLOrganisation('roles')],
             'taux' => ['sometimes', 'integer', 'between:10,100'],
@@ -33,8 +34,9 @@ class EmbaucherEmployeRequest extends FormRequest
             'tel' => ['nullable', 'string', 'max:30'],
             'email' => ['nullable', 'email', 'max:255'],
             'conges_droit' => ['sometimes', 'integer', 'between:0,60'],
-            'clinique_id' => ['sometimes', $this->estUneCliniqueDeLOrganisation()],
             'toutes_les_cliniques' => ['sometimes', 'boolean'],
+            'cliniques' => ['required_unless:toutes_les_cliniques,true', 'array', 'min:1'],
+            'cliniques.*' => ['integer', 'distinct', $this->estUneCliniqueDeLOrganisation()],
         ];
     }
 }

@@ -38,7 +38,8 @@ class FacturationSeeder extends Seeder
         $deuxRives = Clinique::where('nom', 'Deux Rives')->firstOrFail();
         $annee = now()->year;
 
-        $lanes = LignePlanning::whereIn('nom', ['Dr Meyer', 'Dr Solal', 'Dr Adjei'])
+        $lanes = LignePlanning::where('clinique_id', $deuxRives->id)
+            ->whereIn('nom', ['Dr Meyer', 'Dr Solal', 'Dr Adjei'])
             ->get()
             ->keyBy(fn (LignePlanning $ligne): string => $ligne->nom);
 

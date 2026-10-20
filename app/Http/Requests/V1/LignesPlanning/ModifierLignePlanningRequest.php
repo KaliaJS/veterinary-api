@@ -17,7 +17,7 @@ class ModifierLignePlanningRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'employe_id' => ['sometimes', 'nullable', $this->existeDansLaClinique('employes')],
+            'employe_id' => ['sometimes', 'nullable', $this->employeDeLaClinique()],
             'salle_id' => ['sometimes', 'nullable', $this->existeDansLaClinique('salles')],
             'nom' => ['sometimes', 'string', 'max:255'],
             'sous_titre' => ['sometimes', 'nullable', 'string', 'max:255'],

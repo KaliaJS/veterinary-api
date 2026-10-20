@@ -23,9 +23,7 @@ class OrdonnanceFactory extends Factory
             'patient_id' => fn (array $attributes) => Patient::factory()->create([
                 'organisation_id' => $attributes['organisation_id'],
             ])->id,
-            'employe_id' => fn (array $attributes) => Employe::factory()->create([
-                'clinique_id' => $attributes['clinique_id'],
-            ])->id,
+            'employe_id' => fn (array $attributes) => Employe::factory()->dans($attributes['clinique_id'])->create()->id,
             'signee_le' => fake()->dateTimeBetween('-10 days'),
             'renouvellements' => fake()->numberBetween(0, 3),
             'statut' => StatutOrdonnance::Active,

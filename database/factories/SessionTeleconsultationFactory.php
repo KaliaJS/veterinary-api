@@ -21,7 +21,7 @@ class SessionTeleconsultationFactory extends Factory
             'patient_id' => Patient::factory(),
             'motif' => 'Appel vidéo',
             'demarre_le' => now(),
-            'demarre_par_id' => fn (array $attributes) => Employe::factory()->create(['clinique_id' => $attributes['clinique_id']])->id,
+            'demarre_par_id' => fn (array $attributes) => Employe::factory()->dans($attributes['clinique_id'])->create()->id,
         ];
     }
 

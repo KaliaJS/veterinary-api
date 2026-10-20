@@ -42,11 +42,12 @@ class AppliquerContexteClinique
             abort(403, 'Jeton non rattaché à une clinique.');
         }
 
-        $employe = Employe::query()
-            ->withoutGlobalScope('clinique')
+        // La fiche du compte affectée à la clinique du jeton : retirer
+        // l'affectation ferme la clinique dès la requête suivante
+        $employe = Employe::withoutGlobalScopes()
             ->with(['role', 'derogations'])
             ->where('user_id', $user->id)
-            ->where('clinique_id', $jeton->clinique_id)
+            ->whereHas('cliniques', fn ($cliniques) => $cliniques->whereKey($jeton->clinique_id))
             ->first();
 
         if (! $employe) {

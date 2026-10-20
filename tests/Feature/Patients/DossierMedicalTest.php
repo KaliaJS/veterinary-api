@@ -131,7 +131,7 @@ class DossierMedicalTest extends TestCase
     public function test_le_signataire_d_une_visite_peut_venir_d_une_clinique_soeur(): void
     {
         $cliniqueSoeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
-        $employeSoeur = Employe::factory()->create(['clinique_id' => $cliniqueSoeur->id]);
+        $employeSoeur = Employe::factory()->dans($cliniqueSoeur)->create();
         $employeEtranger = Employe::factory()->create();
 
         // Dossier partagé dans l'organisation : l'employé d'une

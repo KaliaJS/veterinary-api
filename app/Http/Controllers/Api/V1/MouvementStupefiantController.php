@@ -25,7 +25,7 @@ class MouvementStupefiantController extends Controller
         $this->authorize('viewAny', MouvementStupefiant::class);
 
         $mouvements = MouvementStupefiant::query()
-            ->with(['produit', 'patient', 'employe'])
+            ->with(['produit', 'patient', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
             ->when($request->integer('produit_id'), fn ($requete, int $produit) => $requete->where('produit_id', $produit))
             ->when($request->integer('patient_id'), fn ($requete, int $patient) => $requete->where('patient_id', $patient))
             ->latest('created_at')
@@ -55,6 +55,6 @@ class MouvementStupefiantController extends Controller
             'created_at' => now(),
         ]);
 
-        return new MouvementStupefiantResource($mouvement->load(['produit', 'patient', 'employe']));
+        return new MouvementStupefiantResource($mouvement->load(['produit', 'patient', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
     }
 }

@@ -8,7 +8,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Equipe\EmbaucherEmployeRequest;
 use App\Http\Requests\V1\Equipe\ModifierEmployeRequest;
 use App\Http\Resources\V1\EmployeResource;
-use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\Role;
 use Illuminate\Http\JsonResponse;
@@ -19,12 +18,14 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Fiches RH. La LISTE est celle de la clinique du jeton (écran
- * Équipe) ; les GESTES (fiche, modification, embauche multi-cliniques)
- * sont bornés à l'ORGANISATION — c'est l'écran Organisation qui les
- * pilote, l'employé visé peut être d'une clinique sœur (résolution sans
- * binding implicite, comme le compte rendu SOAP). L'embauche respecte
- * la limite d'employés ACTIFS de la formule SaaS. Jamais de suppression
+ * Fiches RH : une par personne dans l'organisation, avec les cliniques
+ * où elle travaille. La LISTE est celle de la clinique du jeton (écran
+ * Équipe) ; les GESTES (fiche, modification, embauche) sont bornés à
+ * l'ORGANISATION — c'est l'écran Organisation qui les pilote, l'employé
+ * visé peut ne pas travailler dans la clinique du jeton (résolution
+ * sans binding implicite, comme le compte rendu SOAP). L'embauche lie le
+ * compte Veterinary de la personne (son code employé) et respecte la
+ * limite d'employés ACTIFS de la formule SaaS. Jamais de suppression
  * d'employé : le licenciement est un état.
  */
 class EquipeEmployeController extends Controller
@@ -34,7 +35,7 @@ class EquipeEmployeController extends Controller
         $this->authorize('viewAny', Employe::class);
 
         $employes = Employe::query()
-            ->with(['lignePlanning', 'congesAVenir'])
+            ->with(['cliniques', 'lignePlanning', 'congesAVenir'])
             ->orderBy('id')
             ->paginate($this->parPage($request));
 
@@ -44,10 +45,9 @@ class EquipeEmployeController extends Controller
     public function show(Request $request, int $employe): EmployeResource
     {
         $fiche = $this->employeDeLOrganisation($employe);
-
         $this->authorize('view', $fiche);
 
-        return new EmployeResource($fiche->load('lignePlanning'));
+        return new EmployeResource($fiche->load(['cliniques', 'lignePlanning']));
     }
 
     public function store(EmbaucherEmployeRequest $request): JsonResponse
@@ -55,20 +55,25 @@ class EquipeEmployeController extends Controller
         $this->authorize('create', Employe::class);
 
         $donnees = $request->validated();
-        $contexte = app(ContexteClinique::class);
-        $organisation = $contexte->clinique()->societe->organisation;
+        $organisation = app(ContexteClinique::class)->clinique()->societe->organisation;
+        $compte = CompteEmployeController::compteDuCode($donnees['code']);
 
-        $cibles = ($donnees['toutes_les_cliniques'] ?? false)
-            ? $organisation->cliniques()->pluck('cliniques.id')->all()
-            : [(int) ($donnees['clinique_id'] ?? $contexte->cliniqueId())];
+        if (Employe::withoutGlobalScopes()->where('organisation_id', $organisation->id)->where('user_id', $compte->id)->exists()) {
+            throw ValidationException::withMessages([
+                'code' => 'Cette personne fait déjà partie de l’équipe : ajoutez-lui des cliniques depuis sa fiche.',
+            ]);
+        }
 
         $limite = $organisation->plan->limites()['employes'];
-
-        if ($limite !== null && $organisation->employesActifs() + count($cibles) > $limite) {
+        if ($limite !== null && $organisation->employesActifs() + 1 > $limite) {
             throw ValidationException::withMessages([
                 'employes' => "Limite de {$limite} employés actifs atteinte — formule supérieure requise.",
             ]);
         }
+
+        $cliniques = ($donnees['toutes_les_cliniques'] ?? false)
+            ? $organisation->cliniques()->pluck('cliniques.id')->all()
+            : array_map('intval', $donnees['cliniques']);
 
         $roleId = $donnees['role_id']
             ?? Role::withoutGlobalScope('organisation')
@@ -76,15 +81,14 @@ class EquipeEmployeController extends Controller
                 ->where('nom', Str::contains($donnees['poste'], 'ASV') ? RolesParDefaut::ASV : RolesParDefaut::VETERINAIRE)
                 ->value('id');
 
-        $embauches = DB::transaction(fn () => collect($cibles)->map(
-            // Seule dérogation à l'invariant d'écriture locale : le
-            // geste RH cible des cliniques sœurs, validées dans
-            // l'organisation — les événements du trait sont contournés,
-            // la clinique est posée explicitement.
-            fn (int $cliniqueId): Employe => Employe::withoutEvents(fn (): Employe => Employe::create([
-                'clinique_id' => $cliniqueId,
-                'nom' => $donnees['nom'],
-                'initiales' => $this->initialesDe($donnees['nom']),
+        $nom = $donnees['nom'] ?? $compte->name;
+
+        $embauche = DB::transaction(function () use ($donnees, $organisation, $compte, $cliniques, $roleId, $nom): Employe {
+            $employe = Employe::create([
+                'organisation_id' => $organisation->id,
+                'user_id' => $compte->id,
+                'nom' => $nom,
+                'initiales' => $this->initialesDe($nom),
                 'role_libelle' => $donnees['poste'],
                 'role_id' => $roleId,
                 'taux' => $donnees['taux'] ?? 100,
@@ -93,38 +97,36 @@ class EquipeEmployeController extends Controller
                 'salaire_mensuel' => $donnees['salaire_mensuel'] ?? null,
                 'entree_le' => $donnees['entree_le'] ?? today(),
                 'tel' => $donnees['tel'] ?? null,
-                'email' => $donnees['email'] ?? null,
+                'email' => $donnees['email'] ?? $compte->email,
                 'conges_droit' => $donnees['conges_droit'] ?? 25,
                 'conges_pris' => 0,
-            ])),
-        ));
+            ]);
+            $employe->cliniques()->attach($cliniques);
 
-        return EmployeResource::collection($embauches)->response()->setStatusCode(JsonResponse::HTTP_CREATED);
+            return $employe;
+        });
+
+        return (new EmployeResource($embauche->load('cliniques')))->response()->setStatusCode(JsonResponse::HTTP_CREATED);
     }
 
     public function update(ModifierEmployeRequest $request, int $employe): EmployeResource
     {
         $fiche = $this->employeDeLOrganisation($employe);
-
         $this->authorize('update', $fiche);
 
         $fiche->update($request->validated());
 
-        return new EmployeResource($fiche);
+        return new EmployeResource($fiche->load('cliniques'));
     }
 
     /**
-     * Résolution SANS binding implicite (qui bornerait à la clinique du
-     * jeton) : l'employé de n'importe quelle clinique de l'organisation.
+     * Résolution SANS binding implicite (qui bornerait aux employés de la
+     * clinique du jeton) : un employé de l'organisation, où qu'il
+     * travaille.
      */
     public static function employeDeLOrganisation(int $id): Employe
     {
-        return Employe::query()
-            ->withoutGlobalScope('clinique')
-            ->whereIn('clinique_id', Clinique::query()
-                ->whereRelation('societe', 'organisation_id', app(ContexteClinique::class)->organisationId())
-                ->pluck('id'))
-            ->findOrFail($id);
+        return Employe::withoutGlobalScope('clinique')->findOrFail($id);
     }
 
     private function initialesDe(string $nom): string

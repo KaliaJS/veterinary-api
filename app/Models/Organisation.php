@@ -172,15 +172,21 @@ class Organisation extends Model
         return $this->hasMany(OrganisationFacture::class);
     }
 
+    /** @return HasMany<Employe, $this> */
+    public function employes(): HasMany
+    {
+        return $this->hasMany(Employe::class);
+    }
+
     /**
-     * Employés ACTIFS (accès non suspendu), toutes cliniques de
-     * l'organisation — la grandeur plafonnée par la formule.
+     * Employés ACTIFS (accès non suspendu) de l'organisation, chaque
+     * personne une fois quel que soit le nombre de ses cliniques — la
+     * grandeur plafonnée par la formule.
      */
     public function employesActifs(): int
     {
-        return Employe::query()
-            ->withoutGlobalScope('clinique')
-            ->whereIn('clinique_id', $this->cliniques()->pluck('cliniques.id'))
+        return Employe::withoutGlobalScopes()
+            ->where('organisation_id', $this->id)
             ->where('acces_suspendu', false)
             ->count();
     }
@@ -233,6 +239,7 @@ class Organisation extends Model
             ->pluck('id');
 
         return Employe::withoutGlobalScopes()
+            ->where('organisation_id', $this->id)
             ->whereIn('role_id', $roles)
             ->where('acces_suspendu', false)
             ->with('user')

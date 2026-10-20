@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\EmetteurJetons;
+use App\Auth\Rattachement;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Inscription\GlnRequest;
 use App\Http\Requests\V1\Inscription\InscrireCliniqueRequest;
@@ -45,9 +46,9 @@ class InscriptionCliniqueController extends Controller
 
         /** @var JetonApi $ancien */
         $ancien = $user->currentAccessToken();
-        $jeton = $emetteur->emettrePour($user, $employe, $ancien->name);
+        $jeton = $emetteur->emettrePour($user, new Rattachement($employe, $employe->cliniques->sole()), $ancien->name);
         $ancien->delete();
 
-        return (new JetonEmisResource($jeton, $employe->load('clinique')))->response()->setStatusCode(201);
+        return (new JetonEmisResource($jeton, $employe))->response()->setStatusCode(201);
     }
 }

@@ -93,7 +93,8 @@ class SiteWeb extends Model
 
     /**
      * Équipe de l'organisation telle que le site la connaît : employés
-     * présentables de toutes ses cliniques, avec l'état « masqué ».
+     * présentables, avec leurs cliniques (si l'organisation en a
+     * plusieurs) et l'état « masqué ».
      *
      * @return list<array{id: int, nom: string, role: string|null, clinique: string|null, photo_url: string|null, est_masque: bool}>
      */
@@ -104,7 +105,8 @@ class SiteWeb extends Model
         $masques = array_map('intval', $this->equipe_masquee ?? []);
 
         return Employe::withoutGlobalScopes()
-            ->whereIn('clinique_id', $cliniques->keys())
+            ->where('organisation_id', $this->organisation_id)
+            ->with('cliniques')
             ->orderBy('nom')
             ->get()
             ->filter(fn (Employe $employe): bool => $employe->estPresentable())
@@ -112,7 +114,7 @@ class SiteWeb extends Model
                 'id' => $employe->id,
                 'nom' => $employe->nom,
                 'role' => $employe->role_libelle,
-                'clinique' => $plusieurs ? $cliniques[$employe->clinique_id] : null,
+                'clinique' => $plusieurs ? $employe->cliniques->pluck('nom')->implode(', ') : null,
                 'photo_url' => $employe->photoUrl(),
                 'est_masque' => in_array($employe->id, $masques, true),
             ])

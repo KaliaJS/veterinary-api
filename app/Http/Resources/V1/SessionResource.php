@@ -4,6 +4,7 @@ namespace App\Http\Resources\V1;
 
 use App\Auth\CalculateurPermissions;
 use App\Auth\EmetteurJetons;
+use App\Auth\Rattachement;
 use App\Models\Employe;
 use App\Models\JetonApi;
 use App\Models\User;
@@ -46,12 +47,20 @@ class SessionResource extends JsonResource
                 'role_libelle' => $this->employe->role_libelle,
                 'role_id' => $this->employe->role_id,
             ] : null,
-            'clinique' => $this->employe ? $this->clinique($this->employe) : null,
+            // La clinique du jeton (celle de la session, parmi les cliniques
+            // de l'employé)
+            'clinique' => $this->employe && $this->jeton->clinique ? [
+                'id' => $this->jeton->clinique->id,
+                'nom' => $this->jeton->clinique->nom,
+            ] : null,
             // L'organisation de la clinique du jeton : ouverte, ou fermée
             // et pourquoi (vérification, abonnement) — page d'accès du front
             'organisation' => $this->employe ? $this->organisation($this->employe) : null,
             'cliniques' => app(EmetteurJetons::class)->rattachements($this->user)
-                ->map(fn (Employe $rattachement): array => $this->clinique($rattachement))
+                ->map(fn (Rattachement $rattachement): array => [
+                    'id' => $rattachement->clinique->id,
+                    'nom' => $rattachement->clinique->nom,
+                ])
                 ->values()
                 ->all(),
             'permissions' => $this->permissions ?? ($this->employe ? app(CalculateurPermissions::class)->pour(
@@ -63,7 +72,7 @@ class SessionResource extends JsonResource
     /** @return array{id: int, nom: string, verification: string, verification_note: ?string, abonnement_en_cours: bool, fermeture: ?string} */
     private function organisation(Employe $employe): array
     {
-        $organisation = $employe->clinique->societe->organisation;
+        $organisation = $employe->organisation;
 
         return [
             'id' => $organisation->id,
@@ -72,15 +81,6 @@ class SessionResource extends JsonResource
             'verification_note' => $organisation->verification_note,
             'abonnement_en_cours' => $organisation->abonnementEnCours(),
             'fermeture' => $organisation->fermeture()['code'] ?? null,
-        ];
-    }
-
-    /** @return array{id: int, nom: string} */
-    private function clinique(Employe $employe): array
-    {
-        return [
-            'id' => $employe->clinique_id,
-            'nom' => $employe->clinique->nom,
         ];
     }
 }

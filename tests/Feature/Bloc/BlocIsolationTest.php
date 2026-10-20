@@ -142,7 +142,7 @@ class BlocIsolationTest extends TestCase
 
     public function test_un_chirurgien_d_une_clinique_soeur_est_accepte(): void
     {
-        $confrere = Employe::factory()->create(['clinique_id' => $this->cliniqueSoeur->id]);
+        $confrere = Employe::factory()->dans($this->cliniqueSoeur)->create();
 
         $this->postJson('/api/v1/bloc/interventions', $this->chargeValide(['chirurgien_id' => $confrere->id]), $this->enTetes($this->jeton))
             ->assertCreated()
@@ -151,7 +151,7 @@ class BlocIsolationTest extends TestCase
 
     public function test_un_chirurgien_d_une_autre_organisation_est_refuse(): void
     {
-        $etranger = Employe::factory()->create(['clinique_id' => $this->cliniqueEtrangere->id]);
+        $etranger = Employe::factory()->dans($this->cliniqueEtrangere)->create();
 
         $this->postJson('/api/v1/bloc/interventions', $this->chargeValide(['chirurgien_id' => $etranger->id]), $this->enTetes($this->jeton))
             ->assertUnprocessable()

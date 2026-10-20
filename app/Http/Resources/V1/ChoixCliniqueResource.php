@@ -2,7 +2,7 @@
 
 namespace App\Http\Resources\V1;
 
-use App\Models\Employe;
+use App\Auth\Rattachement;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Collection;
@@ -15,7 +15,7 @@ use Illuminate\Support\Collection;
  */
 class ChoixCliniqueResource extends JsonResource
 {
-    /** @param  Collection<int, Employe>  $rattachements */
+    /** @param  Collection<int, Rattachement>  $rattachements */
     public function __construct(private readonly Collection $rattachements)
     {
         parent::__construct($rattachements);
@@ -27,9 +27,9 @@ class ChoixCliniqueResource extends JsonResource
         return [
             'choix_clinique' => true,
             'cliniques' => $this->rattachements
-                ->map(fn (Employe $employe): array => [
-                    'id' => $employe->clinique_id,
-                    'nom' => $employe->clinique->nom,
+                ->map(fn (Rattachement $rattachement): array => [
+                    'id' => $rattachement->clinique->id,
+                    'nom' => $rattachement->clinique->nom,
                 ])
                 ->values()
                 ->all(),

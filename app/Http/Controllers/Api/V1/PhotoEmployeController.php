@@ -65,11 +65,9 @@ class PhotoEmployeController extends Controller
         return (int) app(ContexteClinique::class)->organisationId();
     }
 
-    /** Un employé de n'importe quelle clinique de l'organisation du jeton. */
+    /** Un employé de l'organisation du jeton, où qu'il travaille. */
     private function employeDeLOrganisation(int $id): Employe
     {
-        $cliniques = Organisation::findOrFail($this->organisationId())->cliniques()->withoutGlobalScopes()->pluck('cliniques.id');
-
-        return Employe::withoutGlobalScopes()->whereIn('clinique_id', $cliniques)->findOrFail($id);
+        return Employe::withoutGlobalScope('clinique')->findOrFail($id);
     }
 }

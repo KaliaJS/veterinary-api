@@ -29,7 +29,7 @@ class EquipePermissionsTest extends TestCase
         parent::setUp();
 
         $this->clinique = Clinique::factory()->create();
-        $this->collegue = Employe::factory()->create(['clinique_id' => $this->clinique->id]);
+        $this->collegue = Employe::factory()->dans($this->clinique)->create();
     }
 
     public function test_chaque_endpoint_du_domaine_refuse_un_employe_sans_role(): void

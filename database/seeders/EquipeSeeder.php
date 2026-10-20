@@ -32,13 +32,14 @@ class EquipeSeeder extends Seeder
         $anna = User::where('email', 'a.meyer@deuxrives.ch')->first();
 
         $staff = [
-            // [clé, clinique, user, nom, initiales, rôle, taux, contrat, entrée, tel, mail, droit, pris]
-            ['st1', $deuxRives, $anna?->id, 'Dr Anna Meyer', 'AM', 'Vétérinaire', 100, 'CDI', '03.2019', '079 412 88 31', 'a.meyer@deuxrives.ch', 25, 12],
-            ['st2', $deuxRives, null, 'Dr Rachel Solal', 'RS', 'Vétérinaire', 80, 'CDI', '09.2021', '078 233 90 12', 'r.solal@deuxrives.ch', 20, 9],
-            ['st3', $deuxRives, null, 'Dr Kofi Adjei', 'KA', 'Vétérinaire', 100, 'CDI', '01.2023', '076 554 02 77', 'k.adjei@deuxrives.ch', 25, 15],
-            ['st4', $deuxRives, null, 'Julie Muller', 'JM', 'ASV · Accueil', 100, 'CDI', '06.2020', '079 811 45 09', 'j.muller@deuxrives.ch', 25, 11],
-            ['st5', $deuxRives, null, 'Marc Besson', 'MB', 'ASV · Bloc', 60, 'CDI', '02.2022', '077 340 66 84', 'm.besson@deuxrives.ch', 15, 4],
-            ['st6', $leLac, null, 'Léa Fontaine', 'LF', 'ASV', 80, 'CDD → 12.2026', '11.2024', '078 902 13 55', 'l.fontaine@laveyre.ch', 20, 13],
+            // [clé, cliniques, user, nom, initiales, rôle, taux, contrat, entrée, tel, mail, droit, pris]
+            // Rachel Solal consulte dans les deux cliniques : une seule fiche
+            ['st1', [$deuxRives], $anna?->id, 'Dr Anna Meyer', 'AM', 'Vétérinaire', 100, 'CDI', '03.2019', '079 412 88 31', 'a.meyer@deuxrives.ch', 25, 12],
+            ['st2', [$deuxRives, $leLac], null, 'Dr Rachel Solal', 'RS', 'Vétérinaire', 80, 'CDI', '09.2021', '078 233 90 12', 'r.solal@deuxrives.ch', 20, 9],
+            ['st3', [$deuxRives], null, 'Dr Kofi Adjei', 'KA', 'Vétérinaire', 100, 'CDI', '01.2023', '076 554 02 77', 'k.adjei@deuxrives.ch', 25, 15],
+            ['st4', [$deuxRives], null, 'Julie Muller', 'JM', 'ASV · Accueil', 100, 'CDI', '06.2020', '079 811 45 09', 'j.muller@deuxrives.ch', 25, 11],
+            ['st5', [$deuxRives], null, 'Marc Besson', 'MB', 'ASV · Bloc', 60, 'CDI', '02.2022', '077 340 66 84', 'm.besson@deuxrives.ch', 15, 4],
+            ['st6', [$leLac], null, 'Léa Fontaine', 'LF', 'ASV', 80, 'CDD → 12.2026', '11.2024', '078 902 13 55', 'l.fontaine@laveyre.ch', 20, 13],
         ];
 
         $organisation = $deuxRives->societe->organisation;
@@ -49,9 +50,9 @@ class EquipeSeeder extends Seeder
         $roleAdministrateur = $organisation->roles()->where('nom', RolesParDefaut::ADMINISTRATEUR)->firstOrFail();
 
         $employes = [];
-        foreach ($staff as [$cle, $clinique, $userId, $nom, $initiales, $role, $taux, $contrat, $entree, $tel, $mail, $droit, $pris]) {
+        foreach ($staff as [$cle, $cliniques, $userId, $nom, $initiales, $role, $taux, $contrat, $entree, $tel, $mail, $droit, $pris]) {
             $employes[$cle] = Employe::create([
-                'clinique_id' => $clinique->id,
+                'organisation_id' => $organisation->id,
                 'user_id' => $userId,
                 'nom' => $nom,
                 'initiales' => $initiales,
@@ -69,23 +70,25 @@ class EquipeSeeder extends Seeder
                 'conges_droit' => $droit,
                 'conges_pris' => $pris,
             ]);
+            $employes[$cle]->cliniques()->attach(array_map(fn (Clinique $clinique): int => $clinique->id, $cliniques));
         }
 
         $bloc1 = Salle::where('clinique_id', $deuxRives->id)->where('nom', 'Bloc 1')->firstOrFail();
         $radioEcho = Salle::where('clinique_id', $deuxRives->id)->where('nom', 'Radio / Écho')->firstOrFail();
 
         $lignes = [
-            // [employé, salle, nom, sous-titre, rôle, initiales, groupe]
-            [$employes['st1'], null, 'Dr Meyer', 'CONSULTATION', RoleLignePlanning::Consultation, 'AM', 'Consultation'],
-            [$employes['st2'], null, 'Dr Solal', 'CONSULTATION', RoleLignePlanning::Consultation, 'RS', 'Consultation'],
-            [$employes['st3'], null, 'Dr Adjei', 'CONSULT · URGENCES', RoleLignePlanning::Consultation, 'KA', 'Consultation'],
-            [null, $bloc1, 'Bloc 1', 'CHIRURGIE', RoleLignePlanning::Bloc, 'B1', 'Chirurgie'],
-            [null, $radioEcho, 'Radio / Écho', 'IMAGERIE', RoleLignePlanning::Imagerie, 'IM', 'Imagerie'],
+            // [clinique, employé, salle, nom, sous-titre, rôle, initiales, groupe]
+            [$deuxRives, $employes['st1'], null, 'Dr Meyer', 'CONSULTATION', RoleLignePlanning::Consultation, 'AM', 'Consultation'],
+            [$deuxRives, $employes['st2'], null, 'Dr Solal', 'CONSULTATION', RoleLignePlanning::Consultation, 'RS', 'Consultation'],
+            [$deuxRives, $employes['st3'], null, 'Dr Adjei', 'CONSULT · URGENCES', RoleLignePlanning::Consultation, 'KA', 'Consultation'],
+            [$deuxRives, null, $bloc1, 'Bloc 1', 'CHIRURGIE', RoleLignePlanning::Bloc, 'B1', 'Chirurgie'],
+            [$deuxRives, null, $radioEcho, 'Radio / Écho', 'IMAGERIE', RoleLignePlanning::Imagerie, 'IM', 'Imagerie'],
+            [$leLac, $employes['st2'], null, 'Dr Solal', 'CONSULTATION', RoleLignePlanning::Consultation, 'RS', 'Consultation'],
         ];
 
-        foreach ($lignes as $ordre => [$employe, $salle, $nom, $sousTitre, $role, $initiales, $groupe]) {
+        foreach ($lignes as $ordre => [$clinique, $employe, $salle, $nom, $sousTitre, $role, $initiales, $groupe]) {
             LignePlanning::create([
-                'clinique_id' => $deuxRives->id,
+                'clinique_id' => $clinique->id,
                 'employe_id' => $employe?->id,
                 'salle_id' => $salle?->id,
                 'nom' => $nom,

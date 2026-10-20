@@ -20,7 +20,7 @@ class EnregistrerLignePlanningRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'employe_id' => ['required_without:salle_id', 'nullable', $this->existeDansLaClinique('employes')],
+            'employe_id' => ['required_without:salle_id', 'nullable', $this->employeDeLaClinique()],
             'salle_id' => ['required_without:employe_id', 'nullable', $this->existeDansLaClinique('salles')],
             'nom' => ['required', 'string', 'max:255'],
             'sous_titre' => ['nullable', 'string', 'max:255'],

@@ -281,9 +281,9 @@ class SiteWebTest extends TestCase
     public function test_l_equipe_vient_des_employes_et_le_site_ne_fait_que_masquer(): void
     {
         $soeur = Clinique::factory()->create(['nom' => 'Le Lac', 'societe_id' => $this->clinique->societe_id]);
-        $lea = Employe::factory()->create(['clinique_id' => $soeur->id, 'nom' => 'Léa Fontaine', 'role_libelle' => 'ASV']);
-        Employe::factory()->create(['clinique_id' => $soeur->id, 'nom' => 'Suspendu Durand', 'acces_suspendu' => true]);
-        Employe::factory()->create(['clinique_id' => $soeur->id, 'nom' => 'Parti Martin', 'fin_contrat_le' => now()->subDay()]);
+        $lea = Employe::factory()->dans($soeur)->create(['nom' => 'Léa Fontaine', 'role_libelle' => 'ASV']);
+        Employe::factory()->dans($soeur)->create(['nom' => 'Suspendu Durand', 'acces_suspendu' => true]);
+        Employe::factory()->dans($soeur)->create(['nom' => 'Parti Martin', 'fin_contrat_le' => now()->subDay()]);
 
         $equipe = collect($this->getJson('/api/v1/site', $this->enTetes($this->jeton))->assertOk()->json('data.equipe'));
         $this->assertCount(2, $equipe);
@@ -321,8 +321,8 @@ class SiteWebTest extends TestCase
     {
         Storage::fake('local');
         $soeur = Clinique::factory()->create(['nom' => 'Le Lac', 'societe_id' => $this->clinique->societe_id]);
-        $lea = Employe::factory()->create(['clinique_id' => $soeur->id, 'nom' => 'Léa Fontaine']);
-        $etranger = Employe::factory()->create(['clinique_id' => Clinique::factory()->create()->id]);
+        $lea = Employe::factory()->dans($soeur)->create(['nom' => 'Léa Fontaine']);
+        $etranger = Employe::factory()->dans(Clinique::factory()->create())->create();
 
         $reponse = $this->post("/api/v1/site/equipe/{$lea->id}/photo", ['photo' => UploadedFile::fake()->image('lea.jpg', 400, 400)], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])
             ->assertOk();

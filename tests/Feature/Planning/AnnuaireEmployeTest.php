@@ -40,8 +40,7 @@ class AnnuaireEmployeTest extends TestCase
     public function test_l_annuaire_expose_identite_ligne_et_poste_sans_donnees_rh(): void
     {
         ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJetonAsv();
-        $veterinaire = Employe::factory()->create([
-            'clinique_id' => $this->clinique->id,
+        $veterinaire = Employe::factory()->dans($this->clinique)->create([
             'nom' => 'Dr Anna Meyer',
             'initiales' => 'AM',
             'salaire_mensuel' => 9800,
@@ -61,7 +60,7 @@ class AnnuaireEmployeTest extends TestCase
             ->assertJsonPath('data.1.ligne_planning_id', $ligne->id);
 
         $this->assertEqualsCanonicalizing(
-            ['id', 'clinique_id', 'nom', 'initiales', 'titre', 'role_libelle', 'photo_url', 'ligne_planning_id', 'acces_suspendu'],
+            ['id', 'cliniques', 'nom', 'initiales', 'titre', 'role_libelle', 'photo_url', 'ligne_planning_id', 'acces_suspendu'],
             array_keys($reponse->json('data.1')),
         );
         $this->assertStringNotContainsString('9800', $reponse->getContent());
@@ -70,7 +69,7 @@ class AnnuaireEmployeTest extends TestCase
     public function test_une_asv_sans_le_domaine_equipe_lit_l_annuaire_et_les_absences_mais_pas_les_fiches_rh(): void
     {
         ['jeton' => $jeton] = $this->employeAvecJetonAsv();
-        $veterinaire = Employe::factory()->create(['clinique_id' => $this->clinique->id]);
+        $veterinaire = Employe::factory()->dans($this->clinique)->create();
         LignePlanning::factory()->create(['clinique_id' => $this->clinique->id, 'employe_id' => $veterinaire->id]);
         $absence = Absence::factory()->create(['employe_id' => $veterinaire->id]);
 
@@ -88,8 +87,8 @@ class AnnuaireEmployeTest extends TestCase
     public function test_l_annuaire_porte_l_etat_de_suspension_pour_retirer_la_colonne(): void
     {
         ['jeton' => $jeton] = $this->employeAvecJetonAsv();
-        $suspendu = Employe::factory()->create(['clinique_id' => $this->clinique->id, 'acces_suspendu' => true]);
-        $actif = Employe::factory()->create(['clinique_id' => $this->clinique->id, 'acces_suspendu' => false]);
+        $suspendu = Employe::factory()->dans($this->clinique)->create(['acces_suspendu' => true]);
+        $actif = Employe::factory()->dans($this->clinique)->create(['acces_suspendu' => false]);
 
         $reponse = $this->getJson('/api/v1/planning/employes', $this->enTetes($jeton))->assertOk();
 
@@ -102,14 +101,14 @@ class AnnuaireEmployeTest extends TestCase
     public function test_l_annuaire_est_celui_de_la_clinique_du_jeton(): void
     {
         ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
-        Employe::factory()->create(['clinique_id' => $this->cliniqueSoeur->id]);
-        Employe::factory()->create(['clinique_id' => Clinique::factory()->create()->id]);
+        Employe::factory()->dans($this->cliniqueSoeur)->create();
+        Employe::factory()->dans(Clinique::factory()->create())->create();
 
         $this->getJson('/api/v1/planning/employes', $this->enTetes($jeton))
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $employe->id)
-            ->assertJsonPath('data.0.clinique_id', $this->clinique->id);
+            ->assertJsonPath('data.0.cliniques', [$this->clinique->id]);
     }
 
     public function test_sans_le_domaine_planning_l_annuaire_est_refuse(): void

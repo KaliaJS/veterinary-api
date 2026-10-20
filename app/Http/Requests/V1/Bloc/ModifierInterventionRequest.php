@@ -27,7 +27,7 @@ class ModifierInterventionRequest extends FormRequest
             'prevu_le' => ['sometimes', 'date'],
             'duree_minutes' => ['sometimes', 'integer', 'between:10,1440'],
             'salle_id' => ['sometimes', $this->existeDansLaClinique('salles')->where('type', TypeSalle::Bloc->value)],
-            'chirurgien_id' => ['sometimes', $this->existeDansLesCliniquesDeLOrganisation('employes')],
+            'chirurgien_id' => ['sometimes', $this->employeDeLOrganisation()],
             'rendez_vous_id' => [
                 'sometimes', 'nullable',
                 $this->existeDansLaClinique('rendez_vous')

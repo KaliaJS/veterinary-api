@@ -28,18 +28,24 @@ trait ReglesScopees
     }
 
     /**
-     * Variante pour les tables portant `clinique_id` mais référencées
-     * au niveau organisation (ex. le signataire d'une visite peut être
-     * l'employé d'une clinique sœur — le dossier médical est partagé).
+     * Un employé affecté à la clinique du jeton (colonne de planning,
+     * absence, garde) : les employés n'ont pas de `clinique_id`, la
+     * borne passe par leurs affectations.
      */
-    protected function existeDansLesCliniquesDeLOrganisation(string $table): Exists
+    protected function employeDeLaClinique(): Exists
     {
-        $cliniques = Clinique::query()
-            ->whereRelation('societe', 'organisation_id', app(ContexteClinique::class)->organisationId())
-            ->pluck('id')
-            ->all();
+        return Rule::exists('clinique_employe', 'employe_id')
+            ->where('clinique_id', app(ContexteClinique::class)->cliniqueId());
+    }
 
-        return Rule::exists($table, 'id')->whereIn('clinique_id', $cliniques);
+    /**
+     * Un employé de l'organisation, affecté ou non à la clinique du jeton
+     * (ex. le signataire d'une visite peut travailler dans une clinique
+     * sœur — le dossier médical est partagé).
+     */
+    protected function employeDeLOrganisation(): Exists
+    {
+        return $this->existeDansLOrganisation('employes');
     }
 
     /**

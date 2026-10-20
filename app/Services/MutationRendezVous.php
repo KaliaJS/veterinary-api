@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
 use App\Models\Absence;
+use App\Models\LignePlanning;
 use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\Salle;
@@ -132,10 +133,12 @@ class MutationRendezVous
     }
 
     /**
-     * Absence bloquante validée → la colonne du praticien est vidée sur
-     * la période : statut `annule` audité avec motif, jamais de
-     * suppression. Un batch d'audit par rendez-vous. Retourne le nombre
-     * de rendez-vous (hors tampons) annulés.
+     * Absence bloquante validée → les colonnes du praticien sont vidées
+     * sur la période, dans chacune des cliniques où il consulte (la fiche
+     * et ses absences sont celles de la personne) : statut `annule`
+     * audité avec motif, jamais de suppression. Un batch d'audit par
+     * rendez-vous. Retourne le nombre de rendez-vous (hors tampons)
+     * annulés.
      */
     public function annulerPourAbsence(Absence $absence, ?User $auteur): int
     {
@@ -145,19 +148,26 @@ class MutationRendezVous
 
         $motif = 'Absence praticien — '.mb_strtolower($absence->type->libelle());
 
-        // Les jours d'absence sont des jours calendaires de la
+        $lignes = LignePlanning::withoutGlobalScope('clinique')
+            ->with('clinique')
+            ->where('employe_id', $absence->employe_id)
+            ->get();
+
+        // Les jours d'absence sont des jours calendaires de chaque
         // clinique : les bornes se posent à minuit local, puis se
         // comparent aux datetimes UTC des rendez-vous.
-        $fuseau = $absence->employe->clinique->fuseau_horaire ?? 'Europe/Zurich';
-        $debut = CarbonImmutable::parse($absence->debut_le->toDateString(), $fuseau);
-        $fin = CarbonImmutable::parse($absence->fin_le->copy()->addDay()->toDateString(), $fuseau);
+        $rendezVous = $lignes->flatMap(function (LignePlanning $ligne) use ($absence) {
+            $fuseau = $ligne->clinique->fuseau_horaire ?? 'Europe/Zurich';
+            $debut = CarbonImmutable::parse($absence->debut_le->toDateString(), $fuseau);
+            $fin = CarbonImmutable::parse($absence->fin_le->copy()->addDay()->toDateString(), $fuseau);
 
-        $rendezVous = RendezVous::query()
-            ->whereHas('lignePlanning', fn ($requete) => $requete->where('employe_id', $absence->employe_id))
-            ->where('status', '!=', StatutRendezVous::Annule)
-            ->where('starts_at', '<', $fin->utc())
-            ->where('ends_at', '>', $debut->utc())
-            ->get();
+            return RendezVous::withoutGlobalScope('clinique')
+                ->where('ligne_planning_id', $ligne->id)
+                ->where('status', '!=', StatutRendezVous::Annule)
+                ->where('starts_at', '<', $fin->utc())
+                ->where('ends_at', '>', $debut->utc())
+                ->get();
+        });
 
         $annules = 0;
 
