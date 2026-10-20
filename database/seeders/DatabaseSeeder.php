@@ -37,6 +37,7 @@ class DatabaseSeeder extends Seeder
             LaboratoireSeeder::class,
             ImagerieSeeder::class,
             SiteWebSeeder::class,
+            AnnuaireSeeder::class,
         ]);
     }
 }
