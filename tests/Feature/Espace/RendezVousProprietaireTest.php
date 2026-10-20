@@ -10,6 +10,7 @@ use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -111,6 +112,36 @@ class RendezVousProprietaireTest extends TestCase
         $this->assertTrue(strtotime($creneaux[1]['debut']) < strtotime($creneaux[2]['debut']));
         // Étalés sur les jours : les trois créneaux tombent sur des dates différentes.
         $this->assertCount(3, array_unique(array_map(fn (array $c): string => substr($c['debut'], 0, 10), $creneaux)));
+    }
+
+    public function test_le_nombre_de_requetes_de_l_annuaire_ne_depend_pas_du_nombre_de_cliniques(): void
+    {
+        $peupler = function (int $nombre): void {
+            Clinique::factory()->count($nombre)->create()->each(function (Clinique $clinique): void {
+                $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+                RendezVous::factory()->create([
+                    'clinique_id' => $clinique->id,
+                    'ligne_planning_id' => $ligne->id,
+                    'starts_at' => now()->addDay()->setTime(9, 0),
+                    'ends_at' => now()->addDay()->setTime(10, 0),
+                ]);
+            });
+        };
+
+        $requetes = function (): int {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->getJson('/api/v1/public/cliniques')->assertOk();
+            DB::disableQueryLog();
+
+            return count(DB::getQueryLog());
+        };
+
+        $peupler(2);
+        $avecDeux = $requetes();
+
+        $peupler(10);
+        $this->assertSame($avecDeux, $requetes());
     }
 
     public function test_une_demande_de_rendez_vous_est_deposee_pour_un_animal_du_compte_ou_un_nom_libre(): void

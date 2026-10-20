@@ -294,4 +294,49 @@ class DisponibilitesTest extends TestCase
         $this->assertNotContains($ligneAbsente->id, array_column($semaine[1]->all(), 'ligne_planning_id'));
         $this->assertContains($ligneAbsente->id, array_column($semaine[0]->all(), 'ligne_planning_id'));
     }
+
+    public function test_l_annuaire_calcule_toutes_les_cliniques_comme_chacune_dans_son_contexte(): void
+    {
+        $autre = Clinique::factory()->create();
+        HoraireOuverture::factory()->create(['clinique_id' => $autre->id, 'samedi_ferme' => true]);
+        $ligneAutre = LignePlanning::factory()->create(['clinique_id' => $autre->id]);
+        $sansHoraires = Clinique::factory()->create();
+        LignePlanning::factory()->create(['clinique_id' => $sansHoraires->id]);
+
+        Absence::factory()->create(['employe_id' => $ligneAutre->employe_id, 'debut_le' => today()->addDay(), 'fin_le' => today()->addDays(2)]);
+        foreach ([$this->ligne, $ligneAutre] as $i => $ligne) {
+            $debut = CarbonImmutable::parse(today()->addDays($i + 1)->toDateString(), 'Europe/Zurich')->setTime(10, 0)->utc();
+            RendezVous::factory()->create(['clinique_id' => $ligne->clinique_id, 'ligne_planning_id' => $ligne->id, 'starts_at' => $debut, 'ends_at' => $debut->addHour()]);
+        }
+
+        $cliniques = Clinique::query()->whereKey([$this->clinique->id, $autre->id, $sansHoraires->id])->get();
+        $groupe = app(CalculateurCreneaux::class)->creneauxDesCliniques($cliniques, 7, 20);
+
+        foreach ($cliniques as $clinique) {
+            $seule = app(SousContexteClinique::class)->pour($clinique, fn (): array => app(CalculateurCreneaux::class)->creneauxDesJours(CarbonImmutable::today('Europe/Zurich'), 7, 20));
+
+            $this->assertEquals($seule, $groupe[$clinique->id], "Clinique {$clinique->id}");
+        }
+    }
+
+    public function test_le_jour_du_changement_d_heure_les_creneaux_restent_a_l_heure_locale(): void
+    {
+        $annee = (int) today()->format('Y');
+        $jour = CarbonImmutable::parse("last sunday of october {$annee}");
+        if ($jour->isPast()) {
+            $jour = CarbonImmutable::parse('last sunday of october '.($annee + 1));
+        }
+        HoraireOuverture::query()->where('clinique_id', $this->clinique->id)->update(['dimanche_ferme' => false, 'pause_active' => false]);
+
+        $local = fn (int $heure): CarbonImmutable => CarbonImmutable::parse($jour->toDateString(), 'Europe/Zurich')->setTime($heure, 0);
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => $local(10)->utc(), 'ends_at' => $local(11)->utc()]);
+
+        $trous = app(SousContexteClinique::class)->pour($this->clinique, fn () => app(CalculateurCreneaux::class)->creneauxLibres($jour, 20))
+            ->where('ligne_planning_id', $this->ligne->id)
+            ->map(fn (array $t): string => $t['debut']->setTimezone('Europe/Zurich')->format('H:i').'-'.$t['fin']->setTimezone('Europe/Zurich')->format('H:i'))
+            ->values()
+            ->all();
+
+        $this->assertSame(['08:00-10:00', '11:00-19:30'], $trous);
+    }
 }

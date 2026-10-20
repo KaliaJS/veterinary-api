@@ -8,11 +8,11 @@ use App\Enums\StatutRendezVous;
 use App\Enums\TypeAbsence;
 use App\Enums\TypeRendezVous;
 use App\Models\Absence;
+use App\Models\Clinique;
 use App\Models\HoraireOuverture;
 use App\Models\LignePlanning;
 use App\Models\RendezVous;
 use Carbon\CarbonImmutable;
-use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
 
 /**
@@ -117,14 +117,7 @@ class CalculateurCreneaux
         $fuseau = $this->fuseau();
         $horaires = $this->horaires();
 
-        // Minuit local de chaque jour, et du lendemain du dernier pour
-        // borner la période. Reparsés par date calendaire : un addDay
-        // d'horloge dériverait au changement d'heure.
-        $minuits = [];
-
-        for ($i = 0; $i <= $nombreJours; $i++) {
-            $minuits[] = CarbonImmutable::parse($premierJour->addDays($i)->toDateString(), $fuseau);
-        }
+        $minuits = $this->minuits($premierJour, $nombreJours, $fuseau);
 
         $lignes = LignePlanning::query()
             ->when($lignePlanningId !== null, fn ($requete) => $requete->whereKey($lignePlanningId))
@@ -148,13 +141,70 @@ class CalculateurCreneaux
             ->where('ends_at', '>', $minuits[0]->utc())
             ->get();
 
-        $jours = [];
+        return $this->calculerPeriode($horaires, $minuits, $fuseau, $dureeMinutes, $lignes, $absences, $rendezVous);
+    }
 
-        for ($i = 0; $i < $nombreJours; $i++) {
-            $jours[] = $this->trousDuJour($horaires, $minuits[$i], $minuits[$i + 1], $fuseau, $dureeMinutes, $lignes, $absences, $rendezVous);
+    /**
+     * Les trous libres de plusieurs cliniques à la fois, hors de tout
+     * contexte (annuaire des cliniques) : horaires, lignes, absences et
+     * rendez-vous de toutes les cliniques sont lus en quatre requêtes,
+     * quel que soit leur nombre. Chaque clinique part de son propre
+     * aujourd'hui, dans son fuseau ; sans horaires enregistrés, ce sont
+     * les horaires par défaut.
+     *
+     * @param  Collection<int, Clinique>  $cliniques
+     * @return array<int, list<Collection<int, array{ligne_planning_id: int, debut: CarbonImmutable, fin: CarbonImmutable}>>> par id de clinique, un élément par jour
+     */
+    public function creneauxDesCliniques(Collection $cliniques, int $nombreJours, int $dureeMinutes = self::TROU_MINIMAL_MINUTES): array
+    {
+        if ($cliniques->isEmpty()) {
+            return [];
         }
 
-        return $jours;
+        $ids = $cliniques->modelKeys();
+        $fuseaux = $cliniques->mapWithKeys(fn (Clinique $clinique): array => [$clinique->id => $clinique->fuseau_horaire ?? 'Europe/Zurich']);
+        $minuits = $fuseaux->map(fn (string $fuseau): array => $this->minuits(CarbonImmutable::today($fuseau), $nombreJours, $fuseau));
+
+        // Période commune : du premier minuit au dernier, tous fuseaux confondus.
+        $debut = $minuits->map(fn (array $m): CarbonImmutable => $m[0])->min();
+        $fin = $minuits->map(fn (array $m): CarbonImmutable => $m[$nombreJours])->max();
+
+        $horaires = HoraireOuverture::withoutGlobalScope('clinique')->whereIn('clinique_id', $ids)->get()->keyBy('clinique_id');
+
+        $lignes = LignePlanning::withoutGlobalScope('clinique')
+            ->whereIn('clinique_id', $ids)
+            ->orderBy('ordre')
+            ->orderBy('id')
+            ->get();
+
+        $absences = Absence::withoutGlobalScope('clinique')
+            ->whereIn('employe_id', $lignes->pluck('employe_id')->filter()->unique()->values())
+            ->where('statut', StatutAbsence::Validee)
+            ->where('type', '!=', TypeAbsence::Garde)
+            ->whereDate('debut_le', '<=', $fin->subDay()->toDateString())
+            ->whereDate('fin_le', '>=', $debut->toDateString())
+            ->get();
+
+        $rendezVous = RendezVous::withoutGlobalScope('clinique')
+            ->whereIn('ligne_planning_id', $lignes->modelKeys())
+            ->where('status', '!=', StatutRendezVous::Annule)
+            ->where('type', '!=', TypeRendezVous::Tampon)
+            ->where('starts_at', '<', $fin->utc())
+            ->where('ends_at', '>', $debut->utc())
+            ->get(['id', 'clinique_id', 'ligne_planning_id', 'starts_at', 'ends_at'])
+            ->groupBy('clinique_id');
+
+        $lignes = $lignes->groupBy('clinique_id');
+
+        return $cliniques->mapWithKeys(fn (Clinique $clinique): array => [$clinique->id => $this->calculerPeriode(
+            $horaires->get($clinique->id) ?? new HoraireOuverture(HoraireOuverture::DEFAUTS),
+            $minuits[$clinique->id],
+            $fuseaux[$clinique->id],
+            $dureeMinutes,
+            $lignes->get($clinique->id, collect()),
+            $absences,
+            $rendezVous->get($clinique->id, collect()),
+        )])->all();
     }
 
     /**
@@ -190,15 +240,54 @@ class CalculateurCreneaux
     }
 
     /**
+     * Minuit local de chaque jour, et du lendemain du dernier pour borner
+     * la période. Reparsés par date calendaire : un addDay d'horloge
+     * dériverait au changement d'heure.
+     *
+     * @return list<CarbonImmutable>
+     */
+    private function minuits(CarbonImmutable $premierJour, int $nombreJours, string $fuseau): array
+    {
+        return array_map(
+            fn (int $i): CarbonImmutable => CarbonImmutable::parse($premierJour->addDays($i)->toDateString(), $fuseau),
+            range(0, $nombreJours),
+        );
+    }
+
+    /**
+     * @param  list<CarbonImmutable>  $minuits
+     * @param  Collection<int, LignePlanning>  $lignes
+     * @param  Collection<int, Absence>  $absences
+     * @param  Collection<int, RendezVous>  $rendezVous
+     * @return list<Collection<int, array{ligne_planning_id: int, debut: CarbonImmutable, fin: CarbonImmutable}>>
+     */
+    private function calculerPeriode(HoraireOuverture $horaires, array $minuits, string $fuseau, int $dureeMinutes, Collection $lignes, Collection $absences, Collection $rendezVous): array
+    {
+        // Chaque rendez-vous lu une seule fois : Eloquent recrée la date à
+        // chaque accès, et l'annuaire en parcourt des milliers.
+        $occupations = $rendezVous
+            ->map(fn (RendezVous $rendezVous): array => [(int) $rendezVous->ligne_planning_id, $rendezVous->starts_at->getTimestamp(), $rendezVous->ends_at->getTimestamp()])
+            ->all();
+
+        $jours = [];
+
+        for ($i = 0; $i < count($minuits) - 1; $i++) {
+            $jours[] = $this->trousDuJour($horaires, $minuits[$i], $minuits[$i + 1], $fuseau, $dureeMinutes, $lignes, $absences, $occupations);
+        }
+
+        return $jours;
+    }
+
+    /**
      * Le calcul d'un jour, sur les lignes, absences et rendez-vous déjà
      * lus pour la période.
      *
      * @param  Collection<int, LignePlanning>  $lignes
      * @param  Collection<int, Absence>  $absences
-     * @param  Collection<int, RendezVous>  $rendezVousPeriode
+     * @param  list<array{int, int, int}>  $occupations  [ligne, début, fin] en horodatages
      * @return Collection<int, array{ligne_planning_id: int, debut: CarbonImmutable, fin: CarbonImmutable}>
      */
-    private function trousDuJour(HoraireOuverture $horaires, CarbonImmutable $minuitLocal, CarbonImmutable $minuitSuivant, string $fuseau, int $dureeMinutes, Collection $lignes, Collection $absences, Collection $rendezVousPeriode): Collection
+    private function trousDuJour(HoraireOuverture $horaires, CarbonImmutable $minuitLocal, CarbonImmutable $minuitSuivant, string $fuseau, int $dureeMinutes, Collection $lignes, Collection $absences, array $occupations): Collection
     {
         $bornes = $this->bornesDuJour($horaires, $minuitLocal);
 
@@ -211,12 +300,19 @@ class CalculateurCreneaux
             ->filter(fn (Absence $absence): bool => $absence->debut_le->toDateString() <= $date && $absence->fin_le->toDateString() >= $date)
             ->pluck('employe_id');
 
-        $debutJourUtc = $minuitLocal->utc();
-        $finJourUtc = $minuitSuivant->utc();
+        $debutJour = $minuitLocal->getTimestamp();
+        $finJour = $minuitSuivant->getTimestamp();
+        // Sans changement d'heure dans la journée, l'heure locale se déduit
+        // de l'écart à minuit ; sinon on repasse par le fuseau.
+        $journeeReguliere = $minuitLocal->getOffset() === $minuitSuivant->getOffset();
 
-        $occupes = $rendezVousPeriode
-            ->filter(fn (RendezVous $rendezVous): bool => $rendezVous->starts_at->lt($finJourUtc) && $rendezVous->ends_at->gt($debutJourUtc))
-            ->groupBy('ligne_planning_id');
+        $occupes = [];
+
+        foreach ($occupations as [$ligneId, $debut, $fin]) {
+            if ($debut < $finJour && $fin > $debutJour) {
+                $occupes[$ligneId][] = [$debut, $fin];
+            }
+        }
 
         $depart = $bornes['ouverture'];
         $maintenantLocal = now()->setTimezone($fuseau);
@@ -234,11 +330,10 @@ class CalculateurCreneaux
 
             $intervalles = [];
 
-            foreach ($occupes->get($ligne->id, collect()) as $rendezVous) {
-                $intervalles[] = [
-                    $this->enMinutesLocales($rendezVous->starts_at, $minuitLocal, $fuseau),
-                    $this->enMinutesLocales($rendezVous->ends_at, $minuitLocal, $fuseau),
-                ];
+            foreach ($occupes[$ligne->id] ?? [] as [$debut, $fin]) {
+                $intervalles[] = $journeeReguliere
+                    ? [min(1440, max(0, intdiv($debut - $debutJour, 60))), min(1440, max(0, intdiv($fin - $debutJour, 60)))]
+                    : [$this->enMinutesLocales($debut, $minuitLocal, $fuseau), $this->enMinutesLocales($fin, $minuitLocal, $fuseau)];
             }
 
             if ($bornes['pause'] !== null) {
@@ -277,12 +372,12 @@ class CalculateurCreneaux
     }
 
     /**
-     * Instant UTC → minutes d'horloge locale du jour, bornées à
+     * Horodatage → minutes d'horloge locale du jour, bornées à
      * [0, 1440] pour un intervalle qui déborde du jour.
      */
-    private function enMinutesLocales(CarbonInterface $instant, CarbonImmutable $minuitLocal, string $fuseau): int
+    private function enMinutesLocales(int $horodatage, CarbonImmutable $minuitLocal, string $fuseau): int
     {
-        $local = $instant->avoidMutation()->setTimezone($fuseau);
+        $local = CarbonImmutable::createFromTimestamp($horodatage, $fuseau);
 
         if ($local->toDateString() < $minuitLocal->toDateString()) {
             return 0;

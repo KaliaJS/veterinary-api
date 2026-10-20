@@ -14,11 +14,12 @@ use App\Models\SiteWeb;
 use App\Services\CalculateurCreneaux;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Collection;
 
 /**
  * Prendre rendez-vous : annuaire de toutes les cliniques (carte du
  * proto) avec, pour chacune, ses prochains créneaux libres calculés
- * comme depuis la clinique (SousContexteClinique) ; dépôt d'une
+ * pour toutes les cliniques d'un coup (CalculateurCreneaux) ; dépôt d'une
  * demande de rendez-vous dans la file de la clinique — elle confirme
  * ensuite (mode « à valider »), boucle réelle du proto.
  */
@@ -30,13 +31,16 @@ class CliniqueProprietaireController extends Controller
 
     private const int DUREE_MINUTES = 20;
 
-    public function index(SousContexteClinique $sousContexte, CalculateurCreneaux $calculateur): JsonResponse
+    public function index(CalculateurCreneaux $calculateur): JsonResponse
     {
         $cliniques = Clinique::withoutGlobalScopes()
             ->ouvertes()
             ->with('societe.organisation')
             ->orderBy('id')
             ->get();
+
+        // Une semaine de créneaux pour toutes les cliniques d'un coup : le nombre de requêtes ne dépend pas du nombre de cliniques.
+        $semaines = $calculateur->creneauxDesCliniques($cliniques, self::JOURS_EXPLORES, self::DUREE_MINUTES);
 
         // Site web de l'organisation de chaque clinique : lien s'il est publié, logo dans tous les cas.
         $sites = SiteWeb::withoutGlobalScopes()->get()->keyBy('organisation_id');
@@ -53,7 +57,7 @@ class CliniqueProprietaireController extends Controller
             'organisation' => ['id' => $clinique->societe->organisation->id, 'nom' => $clinique->societe->organisation->nom],
             'site_slug' => ($site = $sites[$clinique->societe->organisation->id] ?? null)?->est_publie ? $site->slug : null,
             'logo_url' => $site?->logoUrl(),
-            'creneaux' => $sousContexte->pour($clinique, fn (): array => $this->creneaux($calculateur)),
+            'creneaux' => $this->retenir($semaines[$clinique->id]),
         ])->all()]);
     }
 
@@ -97,26 +101,31 @@ class CliniqueProprietaireController extends Controller
     }
 
     /**
-     * Prochains créneaux libres de la clinique du contexte, à des heures
+     * Prochains créneaux libres d'une clinique, sur sa semaine, à des heures
      * DISTINCTES et étalés sur les jours (proto : « Auj. 14:00 »,
      * « Dem. 09:15 »…) : les trous libres de chaque jour sont découpés
      * au pas de la durée, on retient d'abord le premier créneau de
      * chaque jour, puis on complète chronologiquement.
      *
+     * @param  list<Collection<int, array{ligne_planning_id: int, debut: CarbonImmutable, fin: CarbonImmutable}>>  $semaine
      * @return list<array{debut: string, ligne_planning_id: int}>
      */
-    private function creneaux(CalculateurCreneaux $calculateur): array
+    private function retenir(array $semaine): array
     {
-        $jour = $calculateur->aujourdHui();
+        // En horodatages entiers : des milliers de pas par semaine, une date Carbon par pas coûterait cher.
+        $pas = self::DUREE_MINUTES * 60;
+        $maintenant = now()->getTimestamp();
         $parJour = [];
 
-        foreach ($calculateur->creneauxDesJours($jour, self::JOURS_EXPLORES, self::DUREE_MINUTES) as $trous) {
+        foreach ($semaine as $trous) {
             $candidats = [];
 
             foreach ($trous as $trou) {
-                for ($debut = $trou['debut']; $debut->addMinutes(self::DUREE_MINUTES)->lte($trou['fin']); $debut = $debut->addMinutes(self::DUREE_MINUTES)) {
-                    if ($debut->isFuture()) {
-                        $candidats[$debut->timestamp] ??= ['debut' => $debut->toIso8601String(), 'ligne_planning_id' => $trou['ligne_planning_id']];
+                $fin = $trou['fin']->getTimestamp();
+
+                for ($debut = $trou['debut']->getTimestamp(); $debut + $pas <= $fin; $debut += $pas) {
+                    if ($debut > $maintenant) {
+                        $candidats[$debut] ??= ['debut' => $debut, 'ligne_planning_id' => $trou['ligne_planning_id']];
                     }
                 }
             }
@@ -131,13 +140,19 @@ class CliniqueProprietaireController extends Controller
         foreach ($parJour as $candidats) {
             $retenus[] = array_shift($candidats);
             if (count($retenus) >= self::CRENEAUX_PAR_CLINIQUE) {
-                return $retenus;
+                break;
             }
         }
 
-        $restants = array_merge(...array_map(fn (array $c): array => array_slice($c, 1), $parJour ?: [[]]));
-        usort($restants, fn (array $a, array $b): int => strcmp($a['debut'], $b['debut']));
+        if (count($retenus) < self::CRENEAUX_PAR_CLINIQUE) {
+            $restants = array_merge(...array_map(fn (array $c): array => array_slice($c, 1), $parJour ?: [[]]));
+            usort($restants, fn (array $a, array $b): int => $a['debut'] <=> $b['debut']);
+            $retenus = array_slice(array_merge($retenus, $restants), 0, self::CRENEAUX_PAR_CLINIQUE);
+        }
 
-        return array_slice(array_merge($retenus, $restants), 0, self::CRENEAUX_PAR_CLINIQUE);
+        return array_map(fn (array $c): array => [
+            'debut' => CarbonImmutable::createFromTimestampUTC($c['debut'])->toIso8601String(),
+            'ligne_planning_id' => $c['ligne_planning_id'],
+        ], $retenus);
     }
 }
