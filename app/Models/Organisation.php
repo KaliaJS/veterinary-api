@@ -5,11 +5,14 @@ namespace App\Models;
 use App\Auth\RolesParDefaut;
 use App\Enums\DomainePermission;
 use App\Enums\FormuleSaas;
+use App\Enums\VerificationOrganisation;
 use App\Services\PanelsLaboParDefaut;
 use App\Services\PrestationsParDefaut;
 use Database\Factories\OrganisationFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
@@ -28,6 +31,7 @@ class Organisation extends Model
     /** Miroir des défauts de la base. */
     protected $attributes = [
         'plan' => 'cabinet',
+        'verification' => 'en_attente',
         'cycle' => 'mois',
         'usage_emails' => 0,
         'usage_sms' => 0,
@@ -42,6 +46,8 @@ class Organisation extends Model
     {
         return [
             'plan' => FormuleSaas::class,
+            'verification' => VerificationOrganisation::class,
+            'verifiee_le' => 'datetime',
             'resilie_le' => 'date',
             'periode_debut' => 'date',
             'periode_fin' => 'date',
@@ -72,6 +78,58 @@ class Organisation extends Model
             PrestationsParDefaut::creer($organisation);
             PanelsLaboParDefaut::creer($organisation);
         });
+    }
+
+    /** Le compte qui a inscrit l'organisation (vérification, e-mails).
+     * @return BelongsTo<User, $this> */
+    public function inscritePar(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'inscrite_par');
+    }
+
+    /** Une période payée court (un prélèvement refusé garde l'accès le temps des relances). */
+    public function abonnementEnCours(): bool
+    {
+        return in_array($this->statut_abonnement, ['actif', 'impaye'], true) && $this->periode_fin !== null;
+    }
+
+    /**
+     * Pourquoi l'organisation est fermée (application et annuaire), ou
+     * null si elle est ouverte : vérifiée et payée.
+     *
+     * @return array{code: string, message: string}|null
+     */
+    public function fermeture(): ?array
+    {
+        return match (true) {
+            $this->verification === VerificationOrganisation::EnAttente => [
+                'code' => 'verification_en_attente',
+                'message' => 'Nous vérifions encore votre clinique. Vous recevrez un e-mail dès que c’est fait.',
+            ],
+            $this->verification === VerificationOrganisation::Refusee => [
+                'code' => 'verification_refusee',
+                'message' => 'L’inscription de votre clinique a été refusée.',
+            ],
+            ! $this->abonnementEnCours() => [
+                'code' => 'abonnement_requis',
+                'message' => 'Votre organisation n’a pas d’abonnement en cours. Choisissez une formule pour continuer.',
+            ],
+            default => null,
+        };
+    }
+
+    public function estOuverte(): bool
+    {
+        return $this->fermeture() === null;
+    }
+
+    /** Organisations ouvertes : vérifiées et payées (annuaire, boutiques, sites).
+     * @param  Builder<Organisation>  $requete */
+    public function scopeOuvertes(Builder $requete): void
+    {
+        $requete->where('verification', VerificationOrganisation::Verifiee)
+            ->whereIn('statut_abonnement', ['actif', 'impaye'])
+            ->whereNotNull('periode_fin');
     }
 
     /** @return HasMany<Societe, $this> */
@@ -157,7 +215,6 @@ class Organisation extends Model
         return $problemes;
     }
 
-    /** La formule plafonne les employés actifs — garde de l'embauche et du rétablissement d'accès. */
     /**
      * Adresses des administrateurs (rôles du domaine organisation, accès
      * actif) : factures, relances, plafonds.
@@ -184,6 +241,7 @@ class Organisation extends Model
             ->all();
     }
 
+    /** La formule plafonne les employés actifs — garde de l'embauche et du rétablissement d'accès. */
     public function limiteEmployesAtteinte(): bool
     {
         $limite = $this->plan->limites()['employes'];

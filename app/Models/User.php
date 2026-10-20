@@ -36,6 +36,7 @@ class User extends Authenticatable
             'prochaine_tentative_le' => 'datetime',
             'apple_fin' => 'datetime',
             'apple_renouvelle' => 'boolean',
+            'gln_verifie_le' => 'datetime',
         ];
     }
 

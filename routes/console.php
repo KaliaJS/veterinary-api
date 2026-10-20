@@ -22,4 +22,5 @@ Schedule::command('catalogue:refdata')->weeklyOn(1, '04:30')->environments(['pro
 // minutes de transcription de la période) et nouvelles tentatives après un
 // refus ; l'audio de transcription resté en erreur effacé chaque nuit
 Schedule::command('abonnements:renouveler')->hourly()->withoutOverlapping();
+Schedule::command('inscriptions:reessayer')->hourly()->withoutOverlapping();
 Schedule::command('transcriptions:purger')->dailyAt('03:30')->timezone('Europe/Zurich')->withoutOverlapping();

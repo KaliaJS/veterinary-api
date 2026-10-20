@@ -19,4 +19,8 @@ return [
         'assujetti_tva' => (bool) env('PLATEFORME_ASSUJETTI_TVA', false),
     ],
 
+    // Vérification à la main des cliniques inscrites (GLN introuvable dans
+    // MedReg, autre nom, MedReg en panne) : e-mail avec Valider et Refuser
+    'verification_email' => env('PLATEFORME_VERIFICATION_EMAIL') ?: env('TRANSCRIPTION_ALERTE_EMAIL') ?: env('PLATEFORME_EMETTEUR_EMAIL'),
+
 ];

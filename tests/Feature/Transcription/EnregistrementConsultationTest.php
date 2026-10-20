@@ -155,8 +155,9 @@ class EnregistrementConsultationTest extends TestCase
 
     public function test_sans_abonnement_en_cours_ou_au_plafond_aucun_enregistrement_ne_commence_mais_celui_en_cours_continue(): void
     {
+        // Abonnement terminé : toute l'application clinique est fermée
         $this->organisation->forceFill(['statut_abonnement' => 'resilie'])->save();
-        $this->demarrer()->assertUnprocessable()->assertJsonPath('errors.transcription.0', 'La transcription demande un abonnement en cours.');
+        $this->demarrer()->assertForbidden()->assertJsonPath('code', 'abonnement_requis');
 
         $this->organisation->forceFill(['statut_abonnement' => 'impaye'])->save();
         $this->demarrer()->assertUnprocessable()->assertJsonPath('errors.transcription.0', 'Une facture de votre abonnement attend son règlement : réglez-la dans les réglages de facturation pour utiliser la transcription.');

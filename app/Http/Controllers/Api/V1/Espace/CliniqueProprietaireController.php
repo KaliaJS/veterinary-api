@@ -33,6 +33,7 @@ class CliniqueProprietaireController extends Controller
     public function index(SousContexteClinique $sousContexte, CalculateurCreneaux $calculateur): JsonResponse
     {
         $cliniques = Clinique::withoutGlobalScopes()
+            ->ouvertes()
             ->with('societe.organisation')
             ->orderBy('id')
             ->get();
@@ -59,7 +60,7 @@ class CliniqueProprietaireController extends Controller
     public function deposer(DeposerDemandeRendezVousRequest $request, ContexteProprietaire $contexte, SousContexteClinique $sousContexte): JsonResponse
     {
         $donnees = $request->validated();
-        $clinique = Clinique::withoutGlobalScopes()->with('societe')->findOrFail((int) $donnees['clinique_id']);
+        $clinique = Clinique::withoutGlobalScopes()->ouvertes()->with('societe')->findOrFail((int) $donnees['clinique_id']);
 
         $patient = isset($donnees['patient_id'])
             ? Patient::withoutGlobalScopes()->find((int) $donnees['patient_id'])

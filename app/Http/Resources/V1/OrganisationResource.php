@@ -36,6 +36,7 @@ class OrganisationResource extends JsonResource
                (fin : prochain renouvellement, ou fin d'accès si résilié),
                formule moins chère programmée, nouvelle tentative de
                prélèvement après un refus */
+            'verification' => $this->verification->value,
             'abonnement' => [
                 'statut' => $this->statut_abonnement,
                 'periode_debut' => $this->periode_debut?->toDateString(),

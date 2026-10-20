@@ -33,7 +33,7 @@ class BoutiqueProprietaireController extends Controller
 
     public function vitrine(): JsonResponse
     {
-        $cliniques = Clinique::withoutGlobalScopes()->with('societe.organisation')->orderBy('id')->get();
+        $cliniques = Clinique::withoutGlobalScopes()->ouvertes()->with('societe.organisation')->orderBy('id')->get();
 
         $produitsParOrganisation = Produit::withoutGlobalScopes()
             ->where('est_boutique', true)
@@ -95,7 +95,7 @@ class BoutiqueProprietaireController extends Controller
             $creees = [];
 
             foreach ($donnees['commandes'] as $indexCommande => $panier) {
-                $clinique = Clinique::withoutGlobalScopes()->with('societe')->findOrFail((int) $panier['clinique_id']);
+                $clinique = Clinique::withoutGlobalScopes()->ouvertes()->with('societe')->findOrFail((int) $panier['clinique_id']);
                 $fiche = $contexte->clients()->firstWhere('organisation_id', $clinique->societe->organisation_id);
                 $nom = trim((string) ($donnees['nom'] ?? '')) ?: ($fiche ? trim($fiche->prenom.' '.$fiche->nom) : $user->name);
 

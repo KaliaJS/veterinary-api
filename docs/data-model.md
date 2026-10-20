@@ -200,6 +200,45 @@ au dossier RH »). En base, ces états vivent sur `employes` (cf.
 divergence section 1) : `acces_suspendu`, `contrat_statut`,
 `licencie_le` / dossier RH.
 
+### Inscription d'une clinique, vérification MedReg, accès (20.10.2026)
+
+Un vétérinaire inscrit son organisation depuis son compte (connecté,
+avec ou sans clinique) : `POST /inscription-clinique/gln` dit pendant
+la saisie ce que MedReg sait de son GLN, `POST /inscription-clinique`
+crée l'organisation (nom de la clinique), sa société (IDE facultatif),
+sa première clinique (horaires de départ) et le vétérinaire
+administrateur (« Dr Prénom Nom »). La réponse est une session neuve
+sur la nouvelle clinique ; l'ancien jeton est révoqué. Une seule
+inscription à la fois : une clinique qui attend sa vérification ou sa
+première formule se termine d'abord.
+
+- **MedReg** (`App\Services\Inscription\MedReg`) : les appels publics
+  du site de l'OFSP (`person/search` par GLN et profession 4, puis
+  `person` par id), pas une interface officielle. Le GLN est contrôlé
+  avant (13 chiffres, clé de GS1).
+- **Vérifiée aussitôt** si le GLN est celui d'un vétérinaire au même nom
+  (accents, casse, second prénom et titre ignorés) et d'aucun autre
+  compte : `users.gln`, `medreg_id`, `gln_verifie_le`.
+- **Sinon, à la main** (`organisations.verification_raison` :
+  `introuvable`, `nom_different`, `gln_deja_utilise`,
+  `medreg_indisponible`) : e-mail à `PLATEFORME_VERIFICATION_EMAIL` avec
+  deux liens signés (30 jours) vers une page de l'API qui confirme, puis
+  décide en POST (`/verification-cliniques/{id}/valider|refuser`, motif
+  facultatif envoyé au vétérinaire). Le vétérinaire reçoit un e-mail
+  dans les deux cas ; il peut répondre au refus. Une panne de MedReg est
+  retentée toutes les heures pendant une semaine (`inscriptions:reessayer`).
+- **Accès** : `organisations.verification` (`en_attente`, `verifiee`,
+  `refusee`). Toute l'application clinique exige une organisation
+  vérifiée **et** payée (période en cours, y compris pendant les
+  relances d'un prélèvement refusé) : middleware `organisation.ouverte`,
+  403 avec `code` `verification_en_attente`, `verification_refusee` ou
+  `abonnement_requis`. Seules la fiche de l'organisation, la formule,
+  la carte et les factures restent ouvertes, pour payer ; aucune formule
+  ne se paie avant la vérification. La session (`/auth/moi`) porte
+  `organisation { verification, verification_note, abonnement_en_cours,
+  fermeture }`. Une organisation fermée disparaît de l'annuaire, des
+  boutiques, des demandes de rendez-vous et de son site public.
+
 ### Formule SaaS, quotas, facturation d'abonnement (niveau organisation)
 
 Depuis le 20.10.2026, **abonnements maison** : l'application tient les

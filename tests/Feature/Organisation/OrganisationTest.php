@@ -75,6 +75,13 @@ class OrganisationTest extends TestCase
         $this->putJson('/api/v1/organisation/moyen-paiement', ['payment_method' => $this->stripe->carteConfirmee($client, 'visa', $fin)], $entetes)->assertOk();
     }
 
+    /** L'organisation de la fabrique est abonnée : on repart d'une organisation qui ne l'a jamais été. */
+    private function jamaisAbonnee(): void
+    {
+        Organisation::query()->whereKey($this->organisationId())
+            ->update(['statut_abonnement' => null, 'periode_debut' => null, 'periode_fin' => null, 'ancre_jour' => null]);
+    }
+
     /** Voyage dans le temps, avec un jeton neuf (les jetons expirent) */
     private function voyager(string $quand): void
     {
@@ -237,6 +244,8 @@ class OrganisationTest extends TestCase
 
     public function test_la_souscription_exige_une_carte(): void
     {
+        $this->jamaisAbonnee();
+
         $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('moyen_paiement');
@@ -244,6 +253,8 @@ class OrganisationTest extends TestCase
 
     public function test_la_souscription_preleve_le_premier_mois_et_emet_notre_facture_sans_tva(): void
     {
+        $this->jamaisAbonnee();
+
         $this->voyager('2026-10-20 10:00');
         $this->avecCarte();
 
@@ -283,6 +294,8 @@ class OrganisationTest extends TestCase
 
     public function test_le_renouvellement_suit_la_date_anniversaire_comme_netflix(): void
     {
+        $this->jamaisAbonnee();
+
         // Souscrit un 31 : février finit le 28, mars revient au 31
         $this->voyager('2027-01-31 09:00');
         $this->avecCarte();
@@ -306,6 +319,8 @@ class OrganisationTest extends TestCase
 
     public function test_une_formule_plus_chere_part_aussitot_avec_le_credit_du_temps_non_utilise(): void
     {
+        $this->jamaisAbonnee();
+
         $this->voyager('2026-10-01 10:00');
         $entetes = $this->enTetes($this->jeton);
         $this->avecCarte();
@@ -341,6 +356,8 @@ class OrganisationTest extends TestCase
 
     public function test_une_formule_moins_chere_s_applique_au_renouvellement(): void
     {
+        $this->jamaisAbonnee();
+
         $this->voyager('2026-10-20 10:00');
         $entetes = $this->enTetes($this->jeton);
         $this->avecCarte();
@@ -360,6 +377,8 @@ class OrganisationTest extends TestCase
 
     public function test_une_carte_refusee_ne_change_rien(): void
     {
+        $this->jamaisAbonnee();
+
         $this->avecCarte();
         $this->stripe->refus = 'La carte a été refusée par la banque.';
 
@@ -379,6 +398,8 @@ class OrganisationTest extends TestCase
 
     public function test_une_confirmation_bancaire_active_l_abonnement_une_fois_faite(): void
     {
+        $this->jamaisAbonnee();
+
         $entetes = $this->enTetes($this->jeton);
         $this->avecCarte();
         $this->stripe->actionRequise = true;
@@ -399,6 +420,8 @@ class OrganisationTest extends TestCase
 
     public function test_le_webhook_d_un_paiement_confirme_applique_la_facture(): void
     {
+        $this->jamaisAbonnee();
+
         $this->app->instance(PasserellePaiement::class, new PasserellePaiementFactice);
         $this->avecCarte();
         $this->stripe->actionRequise = true;
@@ -414,6 +437,8 @@ class OrganisationTest extends TestCase
 
     public function test_un_renouvellement_refuse_garde_l_acces_se_retente_puis_prend_fin(): void
     {
+        $this->jamaisAbonnee();
+
         Mail::fake();
         $this->voyager('2026-10-20 10:00');
         $entetes = $this->enTetes($this->jeton);
@@ -443,6 +468,8 @@ class OrganisationTest extends TestCase
 
     public function test_une_facture_refusee_se_regle_depuis_l_application(): void
     {
+        $this->jamaisAbonnee();
+
         Mail::fake();
         $this->voyager('2026-10-20 10:00');
         $entetes = $this->enTetes($this->jeton);
@@ -467,9 +494,12 @@ class OrganisationTest extends TestCase
 
     public function test_la_resiliation_vaut_fin_de_periode_et_se_reactive(): void
     {
+        $this->jamaisAbonnee();
+
+        // Sans abonnement, l'organisation est fermée : rien à résilier
         $entetes = $this->enTetes($this->jeton);
         $this->postJson('/api/v1/organisation/abonnement/resilier', [], $entetes)
-            ->assertUnprocessable()->assertJsonValidationErrors('abonnement');
+            ->assertForbidden()->assertJsonPath('code', 'abonnement_requis');
 
         $this->voyager('2026-10-20 10:00');
         $this->avecCarte();

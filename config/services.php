@@ -59,6 +59,12 @@ return [
         'langue' => env('DEEPGRAM_LANGUE', 'multi'),
     ],
 
+    // MedReg (OFSP) : vérification du GLN des vétérinaires à l'inscription
+    // des cliniques, par les appels publics de son site
+    'medreg' => [
+        'url' => env('MEDREG_URL', 'https://healthreg-public.admin.ch/medreg/api/public'),
+    ],
+
     // Brouillon du compte rendu SOAP rédigé par Claude à partir de la transcription
     'anthropic' => [
         'key' => env('ANTHROPIC_API_KEY'),

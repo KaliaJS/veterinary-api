@@ -47,6 +47,9 @@ class SessionResource extends JsonResource
                 'role_id' => $this->employe->role_id,
             ] : null,
             'clinique' => $this->employe ? $this->clinique($this->employe) : null,
+            // L'organisation de la clinique du jeton : ouverte, ou fermée
+            // et pourquoi (vérification, abonnement) — page d'accès du front
+            'organisation' => $this->employe ? $this->organisation($this->employe) : null,
             'cliniques' => app(EmetteurJetons::class)->rattachements($this->user)
                 ->map(fn (Employe $rattachement): array => $this->clinique($rattachement))
                 ->values()
@@ -54,6 +57,21 @@ class SessionResource extends JsonResource
             'permissions' => $this->permissions ?? ($this->employe ? app(CalculateurPermissions::class)->pour(
                 $this->employe->loadMissing(['role', 'derogations']),
             ) : []),
+        ];
+    }
+
+    /** @return array{id: int, nom: string, verification: string, verification_note: ?string, abonnement_en_cours: bool, fermeture: ?string} */
+    private function organisation(Employe $employe): array
+    {
+        $organisation = $employe->clinique->societe->organisation;
+
+        return [
+            'id' => $organisation->id,
+            'nom' => $organisation->nom,
+            'verification' => $organisation->verification->value,
+            'verification_note' => $organisation->verification_note,
+            'abonnement_en_cours' => $organisation->abonnementEnCours(),
+            'fermeture' => $organisation->fermeture()['code'] ?? null,
         ];
     }
 

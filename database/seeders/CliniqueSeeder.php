@@ -36,6 +36,17 @@ class CliniqueSeeder extends Seeder
             'usage_stockage_go' => 18.4,
         ]);
 
+        // Organisation de démo ouverte : vérifiée et dans une période payée
+        // (sans facture inventée), sinon l'application resterait fermée.
+        $organisation->forceFill([
+            'verification' => 'verifiee',
+            'verifiee_le' => now(),
+            'statut_abonnement' => 'actif',
+            'periode_debut' => today(),
+            'periode_fin' => today()->addMonth(),
+            'ancre_jour' => today()->day,
+        ])->save();
+
         // Le seeder coupe les événements de modèle : les rôles par
         // défaut, le catalogue de prestations et le référentiel de
         // panels labo de l'organisation sont créés explicitement.
@@ -105,7 +116,7 @@ class CliniqueSeeder extends Seeder
             Salle::create(['clinique_id' => $clinique->id, 'nom' => $nom, 'type' => $type]);
         }
 
-        // Abonnement : aucune carte ni facture inventée ; l'abonnement réel
-        // se souscrit dans Réglages › Facturation (Stripe, mode test en local).
+        // Abonnement : aucune carte ni facture inventée ; la carte s'enregistre
+        // dans Réglages › Facturation (Stripe, mode test en local).
     }
 }

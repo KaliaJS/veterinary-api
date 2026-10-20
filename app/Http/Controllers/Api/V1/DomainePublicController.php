@@ -21,6 +21,7 @@ class DomainePublicController extends Controller
         $site = SiteWeb::withoutGlobalScopes()
             ->where('domaine', strtolower($domaine))
             ->where('domaine_statut', DomaineSite::ACTIF)
+            ->whereHas('organisation', fn ($organisation) => $organisation->ouvertes())
             ->firstOrFail();
 
         return response()->json(['data' => ['slug' => $site->slug]]);

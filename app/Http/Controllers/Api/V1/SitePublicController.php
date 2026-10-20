@@ -23,7 +23,7 @@ class SitePublicController extends Controller
     public function afficher(string $slug, HorairesSiteWeb $horaires): JsonResponse
     {
         $site = SiteWeb::withoutGlobalScopes()->with('organisation')->where('slug', $slug)->where('est_publie', true)->firstOrFail();
-        $organisation = Organisation::findOrFail($site->organisation_id);
+        $organisation = Organisation::ouvertes()->findOrFail($site->organisation_id);
         $cliniques = $organisation->cliniques()->withoutGlobalScopes()->orderBy('cliniques.id')->get();
 
         return response()->json(['data' => [

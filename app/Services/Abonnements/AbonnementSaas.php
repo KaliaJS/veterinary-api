@@ -5,6 +5,7 @@ namespace App\Services\Abonnements;
 use App\Enums\ArticlePlanete;
 use App\Enums\FormuleSaas;
 use App\Enums\TypePack;
+use App\Enums\VerificationOrganisation;
 use App\Mail\PaiementAbonnementRefuse;
 use App\Models\AchatPlanete;
 use App\Models\FacturationTranscription;
@@ -123,6 +124,11 @@ final class AbonnementSaas
      */
     public function souscrire(Organisation $organisation, FormuleSaas $cible): ?Reglement
     {
+        // Rien n'est encaissé avant que la clinique soit vérifiée (MedReg ou à la main)
+        if ($organisation->verification !== VerificationOrganisation::Verifiee) {
+            throw ValidationException::withMessages(['plan' => 'Votre clinique doit d’abord être vérifiée.']);
+        }
+
         $depassements = $organisation->depassementsPour($cible);
         if ($depassements !== []) {
             throw ValidationException::withMessages([

@@ -66,6 +66,7 @@ use App\Http\Controllers\Api\V1\FinTeleconsultationController;
 use App\Http\Controllers\Api\V1\GardeWeekendController;
 use App\Http\Controllers\Api\V1\HoraireOuvertureController;
 use App\Http\Controllers\Api\V1\ImageriePatientController;
+use App\Http\Controllers\Api\V1\InscriptionCliniqueController;
 use App\Http\Controllers\Api\V1\InterventionController;
 use App\Http\Controllers\Api\V1\LicenciementEmployeController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
@@ -156,6 +157,14 @@ Route::prefix('v1')->group(function (): void {
         Route::delete('passkeys/{passkey}', [PasskeyController::class, 'supprimer']);
     });
 
+    // Inscription d'une clinique : tout compte connecté, avec ou sans
+    // clinique, hors contexte clinique (l'organisation naît à part).
+    // Vérification du GLN dans MedReg pendant la saisie, puis création.
+    Route::prefix('inscription-clinique')->middleware(['auth:sanctum', 'throttle:10,1'])->group(function (): void {
+        Route::post('gln', [InscriptionCliniqueController::class, 'verifier']);
+        Route::post('/', [InscriptionCliniqueController::class, 'inscrire']);
+    });
+
     // Webhook Stripe (public, vérifié par signature) : issue des
     // paiements de caisse — terminal et TWINT.
     Route::post('stripe/webhook', StripeWebhookController::class);
@@ -239,7 +248,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('email/verifier', [VerificationEmailController::class, 'verifier'])->middleware('throttle:auth');
     });
 
-    Route::middleware(['auth:sanctum', 'clinique'])->group(function (): void {
+    // Toute l'application clinique exige une organisation vérifiée et
+    // payée (`organisation.ouverte`), sauf la facturation, pour payer.
+    Route::middleware(['auth:sanctum', 'clinique', 'organisation.ouverte'])->group(function (): void {
         // Annuaire des cliniques de l'organisation (id, nom, boxes) :
         // tout employé — le domaine organisation garde la gestion.
         Route::get('cliniques', AnnuaireCliniqueController::class);
@@ -450,7 +461,20 @@ Route::prefix('v1')->group(function (): void {
         // résolvent explicitement depuis l'organisation du jeton, jamais
         // par binding implicite.
         Route::middleware('can:organisation')->prefix('organisation')->group(function (): void {
-            Route::get('/', [OrganisationController::class, 'afficher']);
+            // Ouvertes à une organisation fermée : l'état de l'abonnement,
+            // la formule, la carte et les factures, de quoi payer.
+            Route::withoutMiddleware('organisation.ouverte')->group(function (): void {
+                Route::get('/', [OrganisationController::class, 'afficher']);
+                Route::get('abonnement/apercu', [AbonnementController::class, 'apercu']);
+                Route::post('abonnement', [AbonnementController::class, 'changer']);
+                Route::post('moyen-paiement/intention', [MoyenPaiementController::class, 'intention']);
+                Route::put('moyen-paiement', [MoyenPaiementController::class, 'enregistrer']);
+                Route::delete('moyen-paiement', [MoyenPaiementController::class, 'supprimer']);
+                Route::get('factures', [OrganisationFactureController::class, 'index']);
+                Route::get('factures/{facture}', [OrganisationFactureController::class, 'show'])->whereNumber('facture');
+                Route::post('factures/{facture}/regler', [OrganisationFactureController::class, 'regler'])->whereNumber('facture');
+                Route::post('factures/{facture}/confirmer', [OrganisationFactureController::class, 'confirmer'])->whereNumber('facture');
+            });
 
             Route::get('societes', [SocieteController::class, 'index']);
             Route::post('societes', [SocieteController::class, 'store']);
@@ -464,18 +488,9 @@ Route::prefix('v1')->group(function (): void {
             Route::get('cliniques/{clinique}/horaires', [OrganisationHoraireController::class, 'afficher'])->whereNumber('clinique');
             Route::put('cliniques/{clinique}/horaires', [OrganisationHoraireController::class, 'modifier'])->whereNumber('clinique');
 
-            Route::get('abonnement/apercu', [AbonnementController::class, 'apercu']);
-            Route::post('abonnement', [AbonnementController::class, 'changer']);
             Route::post('abonnement/resilier', [AbonnementController::class, 'resilier']);
             Route::post('abonnement/reactiver', [AbonnementController::class, 'reactiver']);
             Route::post('packs', [PackQuotaController::class, 'acheter']);
-            Route::post('moyen-paiement/intention', [MoyenPaiementController::class, 'intention']);
-            Route::put('moyen-paiement', [MoyenPaiementController::class, 'enregistrer']);
-            Route::delete('moyen-paiement', [MoyenPaiementController::class, 'supprimer']);
-            Route::get('factures', [OrganisationFactureController::class, 'index']);
-            Route::get('factures/{facture}', [OrganisationFactureController::class, 'show'])->whereNumber('facture');
-            Route::post('factures/{facture}/regler', [OrganisationFactureController::class, 'regler'])->whereNumber('facture');
-            Route::post('factures/{facture}/confirmer', [OrganisationFactureController::class, 'confirmer'])->whereNumber('facture');
             Route::get('transcription', [OrganisationTranscriptionController::class, 'afficher']);
             Route::put('transcription', [OrganisationTranscriptionController::class, 'modifier']);
         });

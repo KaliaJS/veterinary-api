@@ -42,6 +42,8 @@ class FacturationTranscriptionTest extends TestCase
         $this->app->instance(PasserelleAbonnement::class, $this->stripe = new PasserelleAbonnementFactice);
         $this->clinique = Clinique::factory()->create();
         $this->organisation = $this->clinique->societe->organisation;
+        // Jamais abonnée : la souscription ci-dessous ouvre la première période
+        $this->organisation->forceFill(['statut_abonnement' => null, 'periode_debut' => null, 'periode_fin' => null, 'ancre_jour' => null])->save();
         $client = $this->stripe->creerClient('Clinique', null, []);
         $this->organisation->forceFill([
             'stripe_client_id' => $client,

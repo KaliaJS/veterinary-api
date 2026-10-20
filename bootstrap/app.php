@@ -3,6 +3,7 @@
 use App\Http\Middleware\AppliquerContexteClinique;
 use App\Http\Middleware\AppliquerContexteProprietaire;
 use App\Http\Middleware\AutoriserDomainesSites;
+use App\Http\Middleware\ExigerOrganisationOuverte;
 use App\Http\Middleware\ForcerReponseJson;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -25,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'clinique' => AppliquerContexteClinique::class,
+            'organisation.ouverte' => ExigerOrganisationOuverte::class,
             'proprietaire' => AppliquerContexteProprietaire::class,
         ]);
 

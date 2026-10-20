@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Database\Factories\CliniqueFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -27,6 +28,13 @@ class Clinique extends Model
             'longitude' => 'decimal:5',
             'nombre_boxes' => 'integer',
         ];
+    }
+
+    /** Cliniques des organisations ouvertes (vérifiées et payées) : annuaire, boutiques, demandes.
+     * @param  Builder<Clinique>  $requete */
+    public function scopeOuvertes(Builder $requete): void
+    {
+        $requete->whereHas('societe.organisation', fn (Builder $organisation) => $organisation->ouvertes());
     }
 
     /** @return BelongsTo<Societe, $this> */
