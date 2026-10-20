@@ -247,11 +247,22 @@ première formule se termine d'abord.
   fermeture }`. Une organisation fermée disparaît de l'annuaire, des
   boutiques, des demandes de rendez-vous et de son site public.
 
+### Catalogue d'actes : prestations et tarifs (20.10.2026)
+
+Les administrateurs gèrent le catalogue (`POST`, `PATCH`, `DELETE
+organisation/prestations`, lecture par `facturation/prestations`) : un
+acte, un prix. Code généré depuis le nom pour un acte ajouté. Les actes de
+départ (`PrestationsParDefaut`, `systeme: true`) sont lus par leur code
+(types de rendez-vous, fin de consultation, séjours) : ils se renomment et
+changent de prix, ils ne se suppriment pas. Les lignes de facture et de
+devis recopient nom et prix : supprimer un acte ne touche aucune facture.
+
 ### Premiers pas d'une clinique neuve (20.10.2026)
 
 Une clinique inscrite part vide. `GET organisation/premiers-pas`
 (administrateurs) donne l'état de huit étapes pour la clinique du jeton :
-praticiens au planning, salles, horaires, équipe, position sur la carte,
+praticiens au planning, salles, horaires, prestations, équipe, position
+sur la carte,
 rappels, caisse, site. Chacune se déduit des données (une ligne de
 planning d'employé, une salle, des horaires modifiés, plus d'un employé,
 une latitude, un terminal, un site publié) ; les horaires, l'équipe

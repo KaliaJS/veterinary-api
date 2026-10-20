@@ -7,6 +7,7 @@ use App\Models\Employe;
 use App\Models\HoraireOuverture;
 use App\Models\LignePlanning;
 use App\Models\Organisation;
+use App\Models\Prestation;
 use App\Models\Salle;
 use App\Models\SiteWeb;
 use App\Models\TerminalPaiement;
@@ -16,7 +17,7 @@ use Illuminate\Validation\ValidationException;
  * Premiers pas d'une clinique neuve, pour ses administrateurs : ce qui
  * reste à mettre en place avant de travailler. Chaque étape se déduit des
  * données (une salle existe, l'équipe compte plus d'une personne…) ; celles
- * dont la valeur de départ peut suffire (horaires, rappels) ou qui sont
+ * dont la valeur de départ peut suffire (horaires, prestations, rappels) ou qui sont
  * facultatives (caisse, site) se confirment aussi à la main. La liste
  * peut être masquée.
  */
@@ -27,6 +28,7 @@ final class PremiersPas
         'praticiens' => false,
         'salles' => false,
         'horaires' => true,
+        'prestations' => true,
         'equipe' => true,
         'carte' => false,
         'rappels' => true,
@@ -47,6 +49,11 @@ final class PremiersPas
             'horaires' => $confirmee('horaires') || HoraireOuverture::withoutGlobalScopes()
                 ->where('clinique_id', $clinique->id)
                 ->whereColumn('updated_at', '>', 'created_at')
+                ->exists(),
+            'prestations' => $confirmee('prestations') || Prestation::withoutGlobalScopes()
+                ->where('organisation_id', $organisation->id)
+                ->where(fn ($requete) => $requete->whereColumn('updated_at', '>', 'created_at')
+                    ->orWhereNotIn('code', array_keys(PrestationsParDefaut::CATALOGUE)))
                 ->exists(),
             'equipe' => $confirmee('equipe') || Employe::withoutGlobalScopes()
                 ->whereIn('clinique_id', $organisation->cliniques()->pluck('cliniques.id'))

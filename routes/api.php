@@ -80,6 +80,7 @@ use App\Http\Controllers\Api\V1\OrganisationCliniqueController;
 use App\Http\Controllers\Api\V1\OrganisationController;
 use App\Http\Controllers\Api\V1\OrganisationFactureController;
 use App\Http\Controllers\Api\V1\OrganisationHoraireController;
+use App\Http\Controllers\Api\V1\OrganisationPrestationController;
 use App\Http\Controllers\Api\V1\OrganisationTranscriptionController;
 use App\Http\Controllers\Api\V1\PackQuotaController;
 use App\Http\Controllers\Api\V1\PaiementCaisseController;
@@ -494,6 +495,10 @@ Route::prefix('v1')->group(function (): void {
             Route::post('packs', [PackQuotaController::class, 'acheter']);
             Route::get('transcription', [OrganisationTranscriptionController::class, 'afficher']);
             Route::put('transcription', [OrganisationTranscriptionController::class, 'modifier']);
+            // Catalogue d'actes : un acte, un prix (lecture : facturation/prestations)
+            Route::post('prestations', [OrganisationPrestationController::class, 'store']);
+            Route::patch('prestations/{prestation}', [OrganisationPrestationController::class, 'update'])->whereNumber('prestation');
+            Route::delete('prestations/{prestation}', [OrganisationPrestationController::class, 'destroy'])->whereNumber('prestation');
             // Premiers pas d'une clinique neuve : étapes et confirmations
             Route::get('premiers-pas', [PremiersPasController::class, 'afficher']);
             Route::put('premiers-pas', [PremiersPasController::class, 'modifier']);

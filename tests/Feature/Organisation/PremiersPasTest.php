@@ -59,7 +59,7 @@ class PremiersPasTest extends TestCase
             ->assertJsonPath('data.etapes.0', ['cle' => 'praticiens', 'fait' => false, 'confirmable' => false])
             ->assertJsonPath('data.etapes.2', ['cle' => 'horaires', 'fait' => false, 'confirmable' => true]);
 
-        $this->assertSame(['praticiens', 'salles', 'horaires', 'equipe', 'carte', 'rappels', 'caisse', 'site'], array_keys(array_filter($this->faites(), fn ($fait) => ! $fait)));
+        $this->assertSame(['praticiens', 'salles', 'horaires', 'prestations', 'equipe', 'carte', 'rappels', 'caisse', 'site'], array_keys(array_filter($this->faites(), fn ($fait) => ! $fait)));
     }
 
     public function test_les_etapes_suivent_les_donnees(): void
