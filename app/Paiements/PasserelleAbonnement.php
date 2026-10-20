@@ -3,12 +3,11 @@
 namespace App\Paiements;
 
 /**
- * Abonnement SaaS des organisations chez le prestataire de paiement
- * (Stripe Billing) : client, carte enregistrée hors session, abonnement à
- * une formule, achats ponctuels facturés et prélevés aussitôt. Les objets
- * sont rendus tels que le prestataire les sert (tableaux), comme dans les
- * webhooks : un seul code les lit (AbonnementSaas). Erreurs : ErreurPaiement
- * au message lisible.
+ * Prestataire de paiement des abonnements de la plateforme (Stripe) : il
+ * garde les clients et leurs cartes (saisies dans le Payment Element de
+ * Stripe, jamais sur nos serveurs) et prélève des montants. Abonnements,
+ * renouvellements et factures sont tenus par l'application
+ * (AbonnementSaas), plus par Stripe Billing (20.10.2026).
  */
 interface PasserelleAbonnement
 {
@@ -25,57 +24,26 @@ interface PasserelleAbonnement
     /** @return array<string, mixed> moyen de paiement (id, customer, card…) */
     public function lireMoyenPaiement(string $moyen): array;
 
-    /** La carte devient celle des factures du client. */
+    /** La carte devient celle des prélèvements du client. */
     public function definirCarteParDefaut(string $client, string $moyen): void;
 
     public function detacherMoyenPaiement(string $moyen): void;
 
-    /** Prix récurrent d'une formule (créé au premier besoin), par sa clé. */
-    public function prixFormule(string $cle, string $produit, int $centimes, string $intervalle): string;
-
     /**
-     * Taux de TVA suisse appliqué aux factures (créé au premier besoin) :
-     * en sus (prix HT des cliniques) ou inclus (prix TTC des propriétaires).
-     */
-    public function tauxTva(bool $inclus = false): string;
-
-    /**
-     * @param  array<string, string>  $metadonnees
-     * @return array<string, mixed> abonnement
-     */
-    public function creerAbonnement(string $client, string $prix, string $tva, array $metadonnees, string $cleIdempotence): array;
-
-    /**
-     * Nouvelle formule ou nouveau cycle, proratisés et facturés aussitôt.
+     * Prélève la carte enregistrée. Hors session (renouvellement), le client
+     * n'est pas là ; sinon il paie à l'instant et peut confirmer auprès de sa
+     * banque si elle le demande (`action_requise`, avec le secret à passer à
+     * Stripe.js).
      *
      * @param  array<string, string>  $metadonnees
-     * @return array<string, mixed> abonnement
+     * @return array{id: ?string, statut: 'reussi'|'action_requise'|'refuse'|'en_cours', client_secret: ?string, message: ?string}
      */
-    public function changerAbonnement(string $abonnement, string $prix, array $metadonnees): array;
-
-    /** @return array<string, mixed> abonnement */
-    public function finDePeriode(string $abonnement, bool $resilier): array;
-
-    /** @return array<string, mixed> abonnement */
-    public function lireAbonnement(string $abonnement): array;
+    public function prelever(string $client, string $moyen, int $centimes, string $libelle, array $metadonnees, bool $horsSession, string $cleIdempotence): array;
 
     /**
-     * Achat ponctuel : facture finalisée et prélevée sur la carte par défaut.
+     * Où en est un prélèvement (après une confirmation auprès de la banque).
      *
-     * @param  array<string, string>  $metadonnees
-     * @return array<string, mixed> facture
+     * @return array{id: ?string, statut: 'reussi'|'action_requise'|'refuse'|'en_cours', client_secret: ?string, message: ?string}
      */
-    public function facturerAchat(string $client, int $centimes, string $libelle, string $tva, array $metadonnees, string $cleIdempotence): array;
-
-    /**
-     * Ligne ajoutée à la prochaine facture de l'abonnement (usage du mois
-     * écoulé, facturé avec le renouvellement), TVA en sus.
-     *
-     * @param  array<string, string>  $metadonnees
-     * @return string identifiant de la ligne
-     */
-    public function ajouterAuProchainCycle(string $client, string $abonnement, int $centimes, string $libelle, string $tva, array $metadonnees, string $cleIdempotence): string;
-
-    /** @return array<string, mixed> facture */
-    public function lireFacture(string $facture): array;
+    public function lirePrelevement(string $id): array;
 }

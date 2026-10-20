@@ -2,26 +2,28 @@
 
 namespace Tests\Feature\Transcription;
 
+use App\Enums\FormuleSaas;
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
 use App\Models\Clinique;
 use App\Models\EnregistrementConsultation;
-use App\Models\FacturationTranscription;
 use App\Models\Organisation;
 use App\Models\OrganisationFacture;
 use App\Models\PartieEnregistrement;
 use App\Models\RendezVous;
 use App\Paiements\PasserelleAbonnement;
+use App\Services\Abonnements\AbonnementSaas;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Doubles\PasserelleAbonnementFactice;
 use Tests\TestCase;
 
 /**
- * Facturation des minutes de transcription : le mois écoulé (heure
- * suisse), total arrondi à la minute, 5 centimes HT la minute ; ligne
- * ajoutée à la prochaine facture de l'abonnement, ou facture à part sans
- * abonnement ; jamais deux fois le même mois.
+ * Les minutes de transcription se facturent par période d'abonnement : sur
+ * la facture du renouvellement (total arrondi à la minute, 5 centimes la
+ * minute, sans TVA), sur celle d'un changement de formule qui clôt la
+ * période, ou sur une facture finale quand l'abonnement prend fin ; jamais
+ * deux fois la même période.
  */
 class FacturationTranscriptionTest extends TestCase
 {
@@ -40,56 +42,66 @@ class FacturationTranscriptionTest extends TestCase
         $this->app->instance(PasserelleAbonnement::class, $this->stripe = new PasserelleAbonnementFactice);
         $this->clinique = Clinique::factory()->create();
         $this->organisation = $this->clinique->societe->organisation;
-    }
-
-    public function test_le_mois_ecoule_s_ajoute_a_la_prochaine_facture_de_l_abonnement(): void
-    {
+        $client = $this->stripe->creerClient('Clinique', null, []);
         $this->organisation->forceFill([
-            'stripe_client_id' => 'cus_1', 'stripe_moyen_paiement_id' => 'pm_1',
-            'stripe_abonnement_id' => 'sub_1', 'statut_abonnement' => 'actif',
+            'stripe_client_id' => $client,
+            'stripe_moyen_paiement_id' => $this->stripe->carteConfirmee($client),
         ])->save();
 
-        $this->transcrite(1500, '2026-09-01 00:10');
-        $this->transcrite(1000, '2026-09-30 23:50');
-        // Le 1er octobre à 0 h 30 en Suisse : 22 h 30 le 30 septembre en UTC, mais octobre
-        $this->transcrite(600, '2026-10-01 00:30');
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+        app(AbonnementSaas::class)->souscrire($this->organisation, FormuleSaas::Cabinet);
+        $this->organisation->refresh();
+    }
 
-        $this->artisan('transcriptions:facturer', ['--mois' => '2026-09'])->assertSuccessful();
-        $this->artisan('transcriptions:facturer', ['--mois' => '2026-09'])->assertSuccessful();
+    public function test_les_minutes_de_la_periode_s_ajoutent_au_renouvellement_une_seule_fois(): void
+    {
+        $this->transcrite(1500, '2026-10-20 11:00');
+        $this->transcrite(1000, '2026-11-19 23:50');
+        // Le jour du renouvellement : période suivante
+        $this->transcrite(600, '2026-11-20 00:30');
 
-        $this->assertCount(1, $this->stripe->lignesEnAttente);
-        $ligne = array_values($this->stripe->lignesEnAttente)[0];
+        $this->travelTo(CarbonImmutable::parse('2026-11-20 06:00', 'Europe/Zurich'));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $facture = OrganisationFacture::query()->latest('id')->firstOrFail();
         // 2500 s : 42 minutes à 5 centimes
-        $this->assertSame(210, $ligne['amount']);
-        $this->assertSame('sub_1', $ligne['subscription']);
-        $this->assertSame('Transcriptions des consultations, septembre 2026 : 42 min', $ligne['description']);
+        $this->assertSame(24900 + 210, $this->stripe->dernierPrelevement()['centimes']);
+        $this->assertSame('Transcription des consultations, du 20.10.2026 au 19.11.2026 : 42 min', $facture->lignes[1]['libelle']);
+        $this->assertSame(2.1, $facture->lignes[1]['montant']);
+        $this->assertDatabaseHas('facturations_transcription', ['organisation_id' => $this->organisation->id, 'minutes' => 42, 'organisation_facture_id' => $facture->id]);
 
-        $facturation = FacturationTranscription::query()->sole();
-        $this->assertSame([2500, 42, 210], [$facturation->secondes, $facturation->minutes, $facturation->montant_centimes]);
+        // La période suivante porte les 600 s du 20 novembre
+        $this->travelTo(CarbonImmutable::parse('2026-12-20 06:00', 'Europe/Zurich'));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertSame(24900 + 50, $this->stripe->dernierPrelevement()['centimes']);
     }
 
-    public function test_sans_abonnement_une_facture_a_part_est_prelevee(): void
+    public function test_un_changement_de_formule_clot_la_periode_et_facture_ses_minutes(): void
     {
-        $this->organisation->forceFill(['stripe_client_id' => 'cus_1', 'stripe_moyen_paiement_id' => 'pm_1'])->save();
-        $this->transcrite(59, '2026-09-15 10:00');
+        $this->transcrite(59, '2026-10-25 10:00');
+        $this->travelTo(CarbonImmutable::parse('2026-10-30 10:00', 'Europe/Zurich'));
 
-        $this->artisan('transcriptions:facturer', ['--mois' => '2026-09'])->assertSuccessful();
+        app(AbonnementSaas::class)->souscrire($this->organisation->refresh(), FormuleSaas::Hopital);
 
-        $this->assertCount(0, $this->stripe->lignesEnAttente);
-        $facture = OrganisationFacture::query()->sole();
-        $this->assertSame('Transcriptions des consultations, septembre 2026 : 1 min', $facture->libelle);
-        $this->assertSame('payee', $facture->statut);
+        $lignes = OrganisationFacture::query()->latest('id')->firstOrFail()->lignes;
+        $this->assertSame('Transcription des consultations, du 20.10.2026 au 29.10.2026 : 1 min', end($lignes)['libelle']);
+
+        // Le renouvellement suivant ne la refacture pas
+        $this->travelTo(CarbonImmutable::parse('2026-11-30 06:00', 'Europe/Zurich'));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertSame(99900, $this->stripe->dernierPrelevement()['centimes']);
     }
 
-    public function test_par_defaut_le_mois_ecoule_et_rien_sans_moyen_de_facturer(): void
+    public function test_la_fin_de_l_abonnement_facture_les_dernieres_minutes(): void
     {
-        $this->travelTo(CarbonImmutable::parse('2026-10-01 03:00', 'Europe/Zurich'));
-        $this->transcrite(120, '2026-09-20 10:00');
+        app(AbonnementSaas::class)->resilier($this->organisation);
+        $this->transcrite(120, '2026-11-02 10:00');
 
-        $this->artisan('transcriptions:facturer')->assertSuccessful();
+        $this->travelTo(CarbonImmutable::parse('2026-11-20 06:00', 'Europe/Zurich'));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
 
-        $this->assertSame(0, FacturationTranscription::query()->count());
-        $this->assertSame([], $this->stripe->factures);
+        $this->assertSame(10, $this->stripe->dernierPrelevement()['centimes']);
+        $this->assertDatabaseHas('organisations', ['id' => $this->organisation->id, 'statut_abonnement' => 'resilie']);
     }
 
     /** Une partie transcrite à l'heure suisse donnée. */

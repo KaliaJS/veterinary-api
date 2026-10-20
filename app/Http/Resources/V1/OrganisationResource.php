@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\V1;
 
+use App\Enums\FormuleSaas;
 use App\Models\Organisation;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -30,12 +31,19 @@ class OrganisationResource extends JsonResource
             'cycle' => $this->cycle,
             'resilie_le' => $this->resilie_le?->toDateString(),
             'moyen_paiement' => $this->moyen_paiement,
-            /* Abonnement Stripe : statut (null : aucun abonnement payant ;
-               actif | impaye | incomplet | resilie) et fin de la période
-               payée (renouvellement, ou fin d'accès si résilié) */
+            /* Abonnement (tenu par l'application) : statut (null : aucun
+               abonnement payant ; actif | impaye | resilie), période payée
+               (fin : prochain renouvellement, ou fin d'accès si résilié),
+               formule moins chère programmée, nouvelle tentative de
+               prélèvement après un refus */
             'abonnement' => [
                 'statut' => $this->statut_abonnement,
+                'periode_debut' => $this->periode_debut?->toDateString(),
                 'periode_fin' => $this->periode_fin?->toDateString(),
+                'formule_suivante' => ($suivante = FormuleSaas::tryFrom((string) $this->formule_suivante))
+                    ? ['code' => $suivante->value, 'nom' => $suivante->nom(), 'prix_mensuel' => $suivante->prixMensuel()]
+                    : null,
+                'prochaine_tentative_le' => $this->prochaine_tentative_le?->toIso8601String(),
             ],
             'usage' => [
                 'emails' => $this->usage_emails,

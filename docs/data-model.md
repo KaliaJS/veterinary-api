@@ -202,71 +202,88 @@ divergence section 1) : `acces_suspendu`, `contrat_statut`,
 
 ### Formule SaaS, quotas, facturation d'abonnement (niveau organisation)
 
-Réel depuis le 16.10.2026 : **Stripe Billing** fait foi (service
-`App\Services\Abonnements\AbonnementSaas`, passerelle
-`PasserelleAbonnement`, double `PasserelleAbonnementFactice` en test).
+Depuis le 20.10.2026, **abonnements maison** : l'application tient les
+abonnements et émet ses factures (service
+`App\Services\Abonnements\AbonnementSaas`) ; Stripe ne fait plus que garder
+la carte et la prélever (passerelle `PasserelleAbonnement`, PaymentIntent
+confirmé sur la carte enregistrée ; double `PasserelleAbonnementFactice` en
+test). Plus de Stripe Billing (0,7 % du volume économisé). **Aucune TVA** :
+Meteora Systems Sàrl n'y est pas assujettie (art. 10 LTVA) ; l'émetteur est
+dans `config/plateforme.php`.
 
 - `plan` (`individuel` \| `cabinet` \| `hopital`, enum `FormuleSaas` :
-  prix HT mensuel et limites cliniques, employés actifs, e-mails, SMS,
-  patients, stockage), `cycle` (`mois` \| `an`, un an = douze mois, sans remise depuis le 16.10.2026).
-  Reflets de l'abonnement Stripe (métadonnées `formule`, `cycle`).
+  prix mensuel et limites cliniques, employés actifs, e-mails, SMS,
+  patients, stockage), `cycle` = `mois` (seul cycle proposé).
 - **Carte** : `POST organisation/moyen-paiement/intention` crée le client
   Stripe au besoin (`stripe_client_id`) et un SetupIntent hors session ;
   le navigateur confirme la carte dans le Payment Element de Stripe (la
   carte ne passe jamais par nos serveurs) puis `PUT
   organisation/moyen-paiement {payment_method}` la vérifie (même client),
-  en fait la carte des factures et garde son libellé masqué
+  en fait la carte des prélèvements et garde son libellé masqué
   (`moyen_paiement` « Visa •••• 4242 · exp. 08/28 »,
   `stripe_moyen_paiement_id`) ; l'ancienne est détachée.
-- **Abonnement** : `POST organisation/abonnement {plan, cycle}` crée
-  l'abonnement Stripe (prix `veterinary-{formule}-{cycle}` créés au premier
-  besoin, TVA suisse 8,1 % en sus par un taux Stripe partagé) ou le change
-  (prorata facturé aussitôt) ; carte refusée : rien ne change (422
-  `paiement`). `statut_abonnement` : `actif` \| `impaye` \| `incomplet` \|
-  `resilie` (null : aucun abonnement payant), `periode_fin` (fin de la
-  période payée). Résiliation `cancel_at_period_end`, `resilie_le` = fin
-  d'accès, réactivable jusque-là.
-- **Packs** (`TypePack`, prix HT) : facture Stripe prélevée aussitôt ; la
-  quantité s'ajoute aux `quota_extra_*` une fois la facture payée
-  (`quota_applique`, une seule fois).
-- **Factures** (`organisation_factures`) : reflets des factures Stripe
-  finalisées (`stripe_facture_id`, numéro Stripe, `statut` `payee` \|
-  `a_payer` \| `annulee`, `montant_ht`, `tva`, `montant` TTC, `pdf_url`,
-  `paiement_url` pour régler une facture ouverte). Les anciennes factures
-  « F- » simulées ne sont plus servies.
-- **Webhooks** (`stripe/webhook`) : `customer.subscription.*` et
-  `invoice.*` (finalized, paid, payment_failed, voided,
-  marked_uncollectible) ; l'objet est relu chez Stripe avant d'être
-  appliqué (l'ordre de livraison ne compte pas). L'endpoint Stripe de
-  production doit être abonné à ces événements.
+- **Abonnement** (comme Netflix ou Claude) : payé d'avance, renouvelé à la
+  **date anniversaire** (`ancre_jour` ; le dernier jour d'un mois plus
+  court), au même prix quelle que soit la longueur du mois.
+  `POST organisation/abonnement {plan}` : première souscription (prélevée
+  aussitôt) ; formule **plus chère** : nouveau cycle aujourd'hui, prix
+  plein moins le crédit du temps non utilisé (prorata au jour) ; formule
+  **moins chère** : `formule_suivante`, appliquée au renouvellement, sans
+  remboursement ; même formule : annule une résiliation ou un changement
+  programmé. `statut_abonnement` : `actif` \| `impaye` \| `resilie` (null :
+  aucun abonnement payant), `periode_debut`, `periode_fin` (prochain
+  renouvellement, ou fin d'accès si résilié), `resilie_le`.
+- **Renouvellements** : `abonnements:renouveler` (toutes les heures).
+  Prélèvement hors session ; refusé : `impaye` (l'accès reste), nouvelles
+  tentatives 3, 5 puis 7 jours plus tard (`tentatives`,
+  `prochaine_tentative_le`), e-mail aux administrateurs
+  (`PaiementAbonnementRefuse`) ; après le dernier refus, `resilie`.
+- **Confirmation bancaire** : quand la banque la demande, la réponse porte
+  `paiement {facture_id, client_secret, cle_publique}` ; la page confirme
+  avec Stripe.js puis `POST organisation/factures/{id}/confirmer`. Le
+  webhook `payment_intent.succeeded` (métadonnées `plateforme`, `facture`)
+  applique aussi la facture. Une facture en attente se règle par
+  `POST organisation/factures/{id}/regler`.
+- **Packs** (`TypePack`) : facture prélevée aussitôt ; la quantité s'ajoute
+  aux `quota_extra_*` au paiement (`quota_applique`, une seule fois).
+- **Factures** (`organisation_factures`, `proprietaire_factures`) : les
+  nôtres, numérotées `MS-AAAA-NNNNN` (`sequence_factures_plateforme`, une
+  suite pour toute la plateforme), `lignes` (libellé, montant ; un crédit
+  est négatif), période, `statut` `payee` \| `a_payer` \| `annulee`,
+  `paye_le`, `carte`, `stripe_paiement_id`. `GET organisation/factures/{id}`
+  sert l'émetteur et le client pour imprimer la facture (A4, dans le
+  navigateur). Les factures Stripe d'avant le 20.10.2026 gardent leur
+  `pdf_url` ; les anciennes « F- » simulées ne sont pas servies.
 - Changement de formule bloqué si les limites cibles sont dépassées
   (`depassementsPour`).
 
 **Offre des propriétaires** (16.10.2026) : tout l'espace client est
-gratuit (les vétérinaires financent la plateforme). « Plus », 1 CHF par
-mois TVA incluse (taux Stripe inclus), ne donne que d'autres planètes au
-jeu de l'accueil de l'espace client. Même service (`AbonnementSaas`),
-abonné = compte `users` (`formule` gratuit \| plus, mêmes colonnes Stripe
-que l'organisation), factures dans `proprietaire_factures`. Routes
+gratuit (les vétérinaires financent la plateforme). « Plus », **12 CHF par
+an** (depuis le 20.10.2026, payé d'avance, renouvelé à la date
+anniversaire), ne donne que d'autres planètes au jeu de l'accueil de
+l'espace client. Même service (`AbonnementSaas`), abonné = compte `users`
+(`formule` gratuit \| plus, mêmes colonnes que l'organisation), factures
+dans `proprietaire_factures`. Routes
 `/espace/abonnement` (GET), `…/carte/intention`, `PUT|DELETE …/carte`,
 `POST …/plus`, `…/resilier` (retour à Gratuit en fin de période),
-`…/reactiver`. Les cliniques s'abonnent au mois (le cycle annuel n'est
-plus proposé).
+`…/reactiver`, `GET …/factures/{id}` (à imprimer), `POST
+…/factures/{id}/regler|confirmer`. Les cliniques s'abonnent au mois.
 
 **Jeu de la planète** (16.10.2026) : `patients.decede_le` (déclaré par
 le propriétaire pour tout animal du compte, `POST|DELETE
 /espace/animaux/{id}/deces`, ou par la clinique ; coupe les rappels) met
 une tombe à son nom sur la planète ; boutique d'objets (`ArticlePlanete` :
-balle, gamelle, lanterne, banc, niche, cerisier, de 0,50 à 2 CHF TTC),
-achetés une fois (`achats_planete`, unique par compte), prélevés sur la
-carte du compte (facture Stripe, `GET /espace/planete`, `POST
-/espace/planete/achats`).
+balle, gamelle, lanterne, banc, niche, cerisier, de 0,50 à 2 CHF, sans
+TVA), achetés une fois (`achats_planete`, unique par compte), prélevés sur
+la carte du compte (notre facture, `GET /espace/planete`, `POST
+/espace/planete/achats`, `paiement` si la banque demande une
+confirmation).
 
 **Achats dans l'app iPhone** (17.10.2026) : Apple exige son paiement
 (StoreKit 2) pour Plus et les objets de la planète vendus dans l'app.
 Prix = celui du site majoré de 30 % (`AchatsAppStore::MAJORATION`, fixé
 dans App Store Connect ; l'app affiche le prix de l'App Store). Produits
-`ch.veterinary.client.plus` (abonnement mensuel) et
+`ch.veterinary.client.plus` (abonnement annuel, 15,60 CHF) et
 `ch.veterinary.client.planete.<objet>` (non consommables). Chaque compte
 a un identifiant App Store (`users.apple_compte`, UUID posé comme
 appAccountToken sur chaque achat). L'app envoie les transactions signées
@@ -964,12 +981,13 @@ validation enregistre le CR ci-dessus.
   Mots rares : liste de l'organisation (`organisations.termes_transcription`),
   race, vaccins et médicaments du patient, produits les plus prescrits,
   dans la limite d'environ 100 mots.
-- Facturation à l'usage : 5 centimes HT la minute (2 CHF les 40 min),
-  total du mois arrondi à la minute ; `facturations_transcription` (un
-  mois par organisation, jamais deux fois) ; ligne ajoutée à la prochaine
-  facture de l'abonnement, ou facture à part. Plafond mensuel de
-  l'organisation (`organisations.plafond_transcription`, 200 CHF par
-  défaut) et budget Deepgram de la plateforme en dollars, vide = illimité (alerte e-mail à 80 % et
+- Facturation à l'usage : 5 centimes la minute (2 CHF les 40 min, sans
+  TVA), total de la **période d'abonnement** arrondi à la minute ; ligne
+  ajoutée à la facture du renouvellement (ou du changement de formule qui
+  clôt la période, ou facture finale à la fin de l'abonnement) ;
+  `facturations_transcription` (une ligne par période, jamais deux fois,
+  avec la facture). Plafond de l'organisation par période
+  (`organisations.plafond_transcription`, 200 CHF par défaut) et budget Deepgram de la plateforme en dollars, vide = illimité (alerte e-mail à 80 % et
   100 %) : ils bloquent le début d'un enregistrement, jamais une
   consultation en cours. Abonnement en cours requis. Les
   administrateurs de l'organisation (rôles du domaine organisation)

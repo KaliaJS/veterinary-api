@@ -50,7 +50,7 @@ class AchatsAppStoreTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.compte', $compte)
             ->assertJsonPath('data.produits.plus.id', 'ch.veterinary.client.plus')
-            ->assertJsonPath('data.produits.plus.prix_reference', 1.3)
+            ->assertJsonPath('data.produits.plus.prix_reference', 15.6)
             ->assertJsonPath('data.produits.articles.balle.id', 'ch.veterinary.client.planete.balle')
             ->assertJsonPath('data.produits.articles.balle.prix_reference', 0.65)
             ->assertJsonPath('data.produits.articles.banc.prix_reference', 1.95)

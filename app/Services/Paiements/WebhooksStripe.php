@@ -8,7 +8,8 @@ use App\Services\Abonnements\AbonnementSaas;
 use Throwable;
 
 /**
- * Événements Stripe utiles à la caisse et à l'abonnement SaaS. Chaque
+ * Événements Stripe utiles à la caisse et aux prélèvements de la
+ * plateforme (abonnements maison, achats ; plus de Stripe Billing). Chaque
  * événement n'est traité qu'une fois (id verrouillé dans
  * `evenements_stripe`) ; un traitement en échec libère le verrou pour
  * que Stripe réessaie. Une intention ou un client inconnu (autre
@@ -40,8 +41,6 @@ class WebhooksStripe
                 'payment_intent.payment_failed' => $this->intention($objet, 'requires_payment_method'),
                 'payment_intent.canceled' => $this->intention($objet, 'canceled'),
                 'terminal.reader.action_failed' => $this->echecLecteur($objet),
-                'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted' => $this->abonnements->surAbonnement($objet),
-                'invoice.finalized', 'invoice.paid', 'invoice.payment_failed', 'invoice.voided', 'invoice.marked_uncollectible' => $this->abonnements->surFacture($objet),
                 default => null,
             };
         } catch (Throwable $e) {
@@ -54,6 +53,13 @@ class WebhooksStripe
     /** @param  array<string, mixed>  $intention */
     private function intention(array $intention, string $statut): void
     {
+        // Prélèvement de la plateforme (abonnement, pack, objet de la planète)
+        if (($intention['metadata']['plateforme'] ?? null) === 'veterinary') {
+            $this->abonnements->surPrelevement($intention);
+
+            return;
+        }
+
         $paiement = $this->paiement($intention['id'] ?? null);
 
         if ($paiement) {

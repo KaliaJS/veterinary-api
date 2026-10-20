@@ -32,9 +32,9 @@ class PlaneteController extends Controller
     public function acheter(Request $request, ContexteProprietaire $contexte): JsonResponse
     {
         $donnees = $request->validate(['article' => ['required', Rule::enum(ArticlePlanete::class)]]);
-        $this->abonnements->acheterArticle($contexte->user(), ArticlePlanete::from($donnees['article']));
+        $reglement = $this->abonnements->acheterArticle($contexte->user(), ArticlePlanete::from($donnees['article']));
 
-        return $this->etat($contexte->user());
+        return $this->etat($contexte->user(), $reglement->action());
     }
 
     public function declarerDeces(Request $request, ContexteProprietaire $contexte, int $animalId): JsonResponse
@@ -60,7 +60,8 @@ class PlaneteController extends Controller
         return response()->json(['data' => ['id' => $animal->id, 'decede_le' => null]]);
     }
 
-    private function etat(User $user): JsonResponse
+    /** @param  array<string, mixed>|null  $paiement confirmation bancaire demandée */
+    private function etat(User $user, ?array $paiement = null): JsonResponse
     {
         $possedes = AchatPlanete::query()->where('user_id', $user->id)->pluck('article')->map(fn (ArticlePlanete $a): string => $a->value)->all();
 
@@ -74,6 +75,6 @@ class PlaneteController extends Controller
             ], ArticlePlanete::cases()),
             'possedes' => $possedes,
             'moyen_paiement' => $user->moyen_paiement,
-        ]]);
+        ], 'paiement' => $paiement]);
     }
 }

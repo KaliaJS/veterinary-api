@@ -5,19 +5,20 @@ namespace App\Http\Controllers\Api\V1\Espace;
 use App\Auth\ContexteProprietaire;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Organisation\EnregistrerMoyenPaiementRequest;
-use App\Models\FactureProprietaire;
+use App\Http\Resources\V1\FacturePlateformeResource;
 use App\Models\User;
 use App\Services\Abonnements\AbonnementSaas;
 use Illuminate\Http\JsonResponse;
 
 /**
- * Offre du propriétaire (16.10.2026) : tout l'espace client est gratuit ;
- * « Plus » (1 CHF par mois TTC) donne d'autres planètes au jeu de
- * l'accueil. Carte saisie dans le Payment Element de Stripe, souscription,
- * retour à Gratuit en fin de période payée (réactivable d'ici là),
- * factures Stripe. Dans l'app iPhone, Plus se paie par l'App Store
- * (AchatsAppStore) : `source` dit qui encaisse. Chaque réponse renvoie
- * l'offre à jour.
+ * Offre du propriétaire : tout l'espace client est gratuit ; « Plus »
+ * (12 CHF par an, payé d'avance, renouvelé à la date anniversaire) donne
+ * d'autres planètes au jeu de l'accueil. Carte saisie dans le Payment
+ * Element de Stripe, souscription, retour à Gratuit en fin d'année payée
+ * (réactivable d'ici là), factures de la plateforme (sans TVA). Dans l'app
+ * iPhone, Plus se paie par l'App Store (AchatsAppStore) : `source` dit qui
+ * encaisse. Chaque réponse renvoie l'offre à jour, et `paiement` quand la
+ * banque demande une confirmation.
  */
 class AbonnementProprietaireController extends Controller
 {
@@ -49,9 +50,9 @@ class AbonnementProprietaireController extends Controller
 
     public function souscrire(ContexteProprietaire $contexte): JsonResponse
     {
-        $this->abonnements->souscrirePlus($contexte->user());
+        $reglement = $this->abonnements->souscrirePlus($contexte->user());
 
-        return $this->offre($contexte->user());
+        return $this->offre($contexte->user(), $reglement?->action());
     }
 
     /** Retour à Gratuit à la fin de la période payée. */
@@ -69,7 +70,28 @@ class AbonnementProprietaireController extends Controller
         return $this->offre($contexte->user());
     }
 
-    private function offre(User $user): JsonResponse
+    /** Une facture, à imprimer */
+    public function facture(ContexteProprietaire $contexte, int $facture): FacturePlateformeResource
+    {
+        return (new FacturePlateformeResource($contexte->user()->facturesPlus()->findOrFail($facture)))->avecEntetes();
+    }
+
+    public function regler(ContexteProprietaire $contexte, int $facture): JsonResponse
+    {
+        $reglement = $this->abonnements->regler($contexte->user()->facturesPlus()->findOrFail($facture));
+
+        return $this->offre($contexte->user(), $reglement->action());
+    }
+
+    public function confirmer(ContexteProprietaire $contexte, int $facture): JsonResponse
+    {
+        $reglement = $this->abonnements->confirmer($contexte->user()->facturesPlus()->findOrFail($facture));
+
+        return $this->offre($contexte->user(), $reglement->action());
+    }
+
+    /** @param  array<string, mixed>|null  $paiement */
+    private function offre(User $user, ?array $paiement = null): JsonResponse
     {
         $user->refresh();
 
@@ -85,23 +107,16 @@ class AbonnementProprietaireController extends Controller
                 'fin' => $user->apple_fin->toIso8601String(),
                 'renouvelle' => (bool) $user->apple_renouvelle,
             ] : null,
-            'prix_mensuel' => AbonnementSaas::PLUS_CENTIMES / 100,
+            'prix_annuel' => AbonnementSaas::PLUS_CENTIMES / 100,
             'statut' => $user->statut_abonnement,
+            'periode_debut' => $user->periode_debut?->toDateString(),
             'periode_fin' => $user->periode_fin?->toDateString(),
             'resilie_le' => $user->resilie_le?->toDateString(),
+            'prochaine_tentative_le' => $user->prochaine_tentative_le?->toIso8601String(),
             'moyen_paiement' => $user->moyen_paiement,
-            'factures' => $user->facturesPlus()->latest('emise_le')->latest('id')->get()->map(fn (FactureProprietaire $f): array => [
-                'id' => $f->id,
-                'numero' => $f->numero,
-                'emise_le' => $f->emise_le->toDateString(),
-                'libelle' => $f->libelle,
-                'statut' => $f->statut,
-                'montant' => (float) $f->montant,
-                'montant_ht' => $f->montant_ht === null ? null : (float) $f->montant_ht,
-                'tva' => $f->tva === null ? null : (float) $f->tva,
-                'pdf_url' => $f->pdf_url,
-                'paiement_url' => $f->paiement_url,
-            ])->all(),
-        ]]);
+            'factures' => FacturePlateformeResource::collection(
+                $user->facturesPlus()->where('statut', '!=', 'annulee')->latest('emise_le')->latest('id')->get(),
+            )->resolve(),
+        ], 'paiement' => $paiement]);
     }
 }

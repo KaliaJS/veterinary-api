@@ -2,16 +2,16 @@
 
 namespace App\Paiements;
 
-use Illuminate\Support\Facades\Cache;
 use Stripe\Exception\ApiErrorException;
 use Stripe\Exception\CardException;
+use Stripe\PaymentIntent;
 use Stripe\StripeClient;
 
 /**
- * Stripe Billing : clients, cartes (SetupIntent + Payment Element côté
- * navigateur, la carte ne touche jamais nos serveurs), abonnements aux
- * formules (prix CHF repérés par lookup_key), achats ponctuels facturés.
- * TVA suisse 8,1 % en sus, par un taux Stripe partagé.
+ * Stripe pour la plateforme : clients, cartes (SetupIntent + Payment
+ * Element côté navigateur, la carte ne touche jamais nos serveurs) et
+ * prélèvements (PaymentIntent confirmé aussitôt sur la carte enregistrée).
+ * Pas de Stripe Billing : seuls les frais de carte s'appliquent.
  */
 class PasserelleAbonnementStripe implements PasserelleAbonnement
 {
@@ -21,7 +21,7 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
         'expired_card' => 'La carte est expirée.',
         'incorrect_cvc' => 'Le code de sécurité de la carte est incorrect.',
         'processing_error' => 'Le paiement n’a pas pu être traité. Réessayez.',
-        'authentication_required' => 'La banque demande une confirmation : enregistrez la carte à nouveau pour la valider.',
+        'authentication_required' => 'Votre banque demande de confirmer le paiement.',
         'resource_missing' => 'Élément introuvable chez Stripe.',
     ];
 
@@ -65,147 +65,62 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
         $this->appel(fn () => $this->client->paymentMethods->detach($moyen));
     }
 
-    public function prixFormule(string $cle, string $produit, int $centimes, string $intervalle): string
+    public function prelever(string $client, string $moyen, int $centimes, string $libelle, array $metadonnees, bool $horsSession, string $cleIdempotence): array
     {
-        return Cache::rememberForever('stripe-prix-'.$cle.'-'.$centimes, function () use ($cle, $produit, $centimes, $intervalle): string {
-            $existants = $this->appel(fn () => $this->client->prices->all(['lookup_keys' => [$cle], 'active' => true, 'limit' => 1]));
-            $prix = $existants->data[0] ?? null;
-            if ($prix && $prix->unit_amount === $centimes) {
-                return $prix->id;
-            }
-
-            // Absent ou prix modifié : nouveau prix, la clé lui est transférée
-            return $this->appel(fn () => $this->client->prices->create([
-                'currency' => 'chf',
-                'unit_amount' => $centimes,
-                'recurring' => ['interval' => $intervalle],
-                'lookup_key' => $cle,
-                'transfer_lookup_key' => true,
-                'product_data' => ['name' => $produit],
-                'metadata' => ['veterinary' => $cle],
-            ]))->id;
-        });
-    }
-
-    public function tauxTva(bool $inclus = false): string
-    {
-        $cle = $inclus ? 'tva-ch-8.1-incluse' : 'tva-ch-8.1';
-
-        return Cache::rememberForever('stripe-'.$cle, function () use ($cle, $inclus): string {
-            $taux = $this->appel(fn () => $this->client->taxRates->all(['active' => true, 'inclusive' => $inclus, 'limit' => 100]));
-            foreach ($taux->data as $t) {
-                if (($t->metadata['veterinary'] ?? null) === $cle) {
-                    return $t->id;
-                }
-            }
-
-            return $this->appel(fn () => $this->client->taxRates->create([
-                'display_name' => 'TVA',
-                'description' => 'TVA suisse, taux normal'.($inclus ? ' (incluse)' : ''),
-                'percentage' => 8.1,
-                'inclusive' => $inclus,
-                'country' => 'CH',
-                'jurisdiction' => 'CH',
-                'tax_type' => 'vat',
-                'metadata' => ['veterinary' => $cle],
-            ]))->id;
-        });
-    }
-
-    public function creerAbonnement(string $client, string $prix, string $tva, array $metadonnees, string $cleIdempotence): array
-    {
-        return $this->appel(fn () => $this->client->subscriptions->create([
-            'customer' => $client,
-            'items' => [['price' => $prix]],
-            'default_tax_rates' => [$tva],
-            // Carte refusée : rien n'est créé, l'erreur remonte
-            'payment_behavior' => 'error_if_incomplete',
-            'metadata' => $metadonnees,
-            'expand' => ['latest_invoice'],
-        ], ['idempotency_key' => $cleIdempotence]))->toArray();
-    }
-
-    public function changerAbonnement(string $abonnement, string $prix, array $metadonnees): array
-    {
-        $actuel = $this->appel(fn () => $this->client->subscriptions->retrieve($abonnement));
-
-        return $this->appel(fn () => $this->client->subscriptions->update($abonnement, [
-            'items' => [['id' => $actuel->items->data[0]->id, 'price' => $prix]],
-            'proration_behavior' => 'always_invoice',
-            'payment_behavior' => 'error_if_incomplete',
-            'cancel_at_period_end' => false,
-            'metadata' => $metadonnees,
-            'expand' => ['latest_invoice'],
-        ]))->toArray();
-    }
-
-    public function finDePeriode(string $abonnement, bool $resilier): array
-    {
-        return $this->appel(fn () => $this->client->subscriptions->update($abonnement, [
-            'cancel_at_period_end' => $resilier,
-        ]))->toArray();
-    }
-
-    public function lireAbonnement(string $abonnement): array
-    {
-        return $this->appel(fn () => $this->client->subscriptions->retrieve($abonnement))->toArray();
-    }
-
-    public function facturerAchat(string $client, int $centimes, string $libelle, string $tva, array $metadonnees, string $cleIdempotence): array
-    {
-        // Devise explicite : sans elle, la facture d'un client sans
-        // historique prend celle du compte Stripe (EUR) et refuse la ligne en CHF
-        $facture = $this->appel(fn () => $this->client->invoices->create([
-            'customer' => $client,
-            'currency' => 'chf',
-            'collection_method' => 'charge_automatically',
-            'auto_advance' => false,
-            'default_tax_rates' => [$tva],
-            'description' => $libelle,
-            'metadata' => $metadonnees,
-        ], ['idempotency_key' => $cleIdempotence.'-facture']));
-
-        $this->appel(fn () => $this->client->invoiceItems->create([
-            'customer' => $client,
-            'invoice' => $facture->id,
-            'amount' => $centimes,
-            'currency' => 'chf',
-            'description' => $libelle,
-        ], ['idempotency_key' => $cleIdempotence.'-ligne']));
-
-        $this->appel(fn () => $this->client->invoices->finalizeInvoice($facture->id, ['auto_advance' => false]));
-
         try {
-            return $this->client->invoices->pay($facture->id)->toArray();
+            $intention = $this->client->paymentIntents->create([
+                'amount' => $centimes,
+                'currency' => 'chf',
+                'customer' => $client,
+                'payment_method' => $moyen,
+                // La carte enregistrée, sans redirection (3-D Secure passe par Stripe.js)
+                'automatic_payment_methods' => ['enabled' => true, 'allow_redirects' => 'never'],
+                'confirm' => true,
+                'off_session' => $horsSession,
+                'description' => $libelle,
+                'statement_descriptor_suffix' => 'VETERINARY',
+                'metadata' => $metadonnees,
+            ], ['idempotency_key' => $cleIdempotence]);
+        } catch (CardException $e) {
+            // Refus ou confirmation exigée hors session : l'intention reste, réglable plus tard
+            $intention = $e->getError()?->payment_intent;
+            $code = $e->getDeclineCode() ?: ($e->getStripeCode() ?? 'card_declined');
+
+            return [
+                'id' => $intention?->id,
+                'statut' => in_array('authentication_required', [$code, $e->getStripeCode()], true) ? 'action_requise' : 'refuse',
+                'client_secret' => $intention?->client_secret,
+                'message' => self::MESSAGES[$code] ?? self::MESSAGES['card_declined'],
+            ];
         } catch (ApiErrorException $e) {
-            // Refus : la facture finalisée est annulée, rien n'est dû
-            try {
-                $this->client->invoices->voidInvoice($facture->id);
-            } catch (ApiErrorException) {
-                // déjà réglée ou annulée : rien à faire
-            }
             throw $this->erreur($e);
         }
+
+        return $this->etat($intention);
     }
 
-    public function ajouterAuProchainCycle(string $client, string $abonnement, int $centimes, string $libelle, string $tva, array $metadonnees, string $cleIdempotence): string
+    public function lirePrelevement(string $id): array
     {
-        // Ligne en attente rattachée à l'abonnement : Stripe la reprend
-        // dans la facture de son prochain renouvellement
-        return $this->appel(fn () => $this->client->invoiceItems->create([
-            'customer' => $client,
-            'subscription' => $abonnement,
-            'amount' => $centimes,
-            'currency' => 'chf',
-            'description' => $libelle,
-            'tax_rates' => [$tva],
-            'metadata' => $metadonnees,
-        ], ['idempotency_key' => $cleIdempotence]))->id;
+        return $this->etat($this->appel(fn () => $this->client->paymentIntents->retrieve($id)));
     }
 
-    public function lireFacture(string $facture): array
+    /** @return array{id: ?string, statut: 'reussi'|'action_requise'|'refuse'|'en_cours', client_secret: ?string, message: ?string} */
+    private function etat(PaymentIntent $intention): array
     {
-        return $this->appel(fn () => $this->client->invoices->retrieve($facture))->toArray();
+        $statut = match ($intention->status) {
+            'succeeded' => 'reussi',
+            'requires_action', 'requires_confirmation' => 'action_requise',
+            'processing' => 'en_cours',
+            default => 'refuse',
+        };
+        $code = $intention->last_payment_error?->code;
+
+        return [
+            'id' => $intention->id,
+            'statut' => $statut,
+            'client_secret' => $intention->client_secret,
+            'message' => $statut === 'refuse' ? (self::MESSAGES[$code ?? ''] ?? self::MESSAGES['card_declined']) : null,
+        ];
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Auth\RolesParDefaut;
+use App\Enums\DomainePermission;
 use App\Enums\FormuleSaas;
 use App\Services\PanelsLaboParDefaut;
 use App\Services\PrestationsParDefaut;
@@ -42,7 +43,9 @@ class Organisation extends Model
         return [
             'plan' => FormuleSaas::class,
             'resilie_le' => 'date',
+            'periode_debut' => 'date',
             'periode_fin' => 'date',
+            'prochaine_tentative_le' => 'datetime',
             'usage_emails' => 'integer',
             'usage_sms' => 'integer',
             'usage_stockage_go' => 'decimal:1',
@@ -155,6 +158,32 @@ class Organisation extends Model
     }
 
     /** La formule plafonne les employés actifs — garde de l'embauche et du rétablissement d'accès. */
+    /**
+     * Adresses des administrateurs (rôles du domaine organisation, accès
+     * actif) : factures, relances, plafonds.
+     *
+     * @return list<string>
+     */
+    public function emailsAdministrateurs(): array
+    {
+        $roles = Role::withoutGlobalScopes()
+            ->where('organisation_id', $this->id)
+            ->get()
+            ->filter(fn (Role $role) => $role->domaines->contains(DomainePermission::Organisation))
+            ->pluck('id');
+
+        return Employe::withoutGlobalScopes()
+            ->whereIn('role_id', $roles)
+            ->where('acces_suspendu', false)
+            ->with('user')
+            ->get()
+            ->map(fn (Employe $employe) => $employe->user?->email)
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     public function limiteEmployesAtteinte(): bool
     {
         $limite = $this->plan->limites()['employes'];

@@ -18,7 +18,8 @@ Schedule::command('sites:verifier-domaines')->everyTenMinutes()->withoutOverlapp
 Schedule::command('catalogue:swissmedic')->monthlyOn(3, '04:00')->environments(['production'])->withoutOverlapping();
 Schedule::command('catalogue:refdata')->weeklyOn(1, '04:30')->environments(['production'])->withoutOverlapping();
 
-// Transcription des consultations : les minutes du mois écoulé facturées
-// le 1er, l'audio resté en erreur effacé chaque nuit
-Schedule::command('transcriptions:facturer')->monthlyOn(1, '03:00')->timezone('Europe/Zurich')->withoutOverlapping();
+// Abonnements maison : renouvellements à la date anniversaire (avec les
+// minutes de transcription de la période) et nouvelles tentatives après un
+// refus ; l'audio de transcription resté en erreur effacé chaque nuit
+Schedule::command('abonnements:renouveler')->hourly()->withoutOverlapping();
 Schedule::command('transcriptions:purger')->dailyAt('03:30')->timezone('Europe/Zurich')->withoutOverlapping();

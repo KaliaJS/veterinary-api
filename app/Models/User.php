@@ -30,8 +30,10 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'periode_debut' => 'date',
             'periode_fin' => 'date',
             'resilie_le' => 'date',
+            'prochaine_tentative_le' => 'datetime',
             'apple_fin' => 'datetime',
             'apple_renouvelle' => 'boolean',
         ];

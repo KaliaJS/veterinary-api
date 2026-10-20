@@ -170,7 +170,7 @@ class EnregistrementConsultationTest extends TestCase
         $enCours->forceFill(['statut' => StatutEnregistrement::Valide])->save();
         $this->demarrer()
             ->assertUnprocessable()
-            ->assertJsonPath('errors.transcription.0', 'Le plafond mensuel de transcription de votre organisation est atteint. Un administrateur peut le relever dans les réglages de l’organisation.');
+            ->assertJsonPath('errors.transcription.0', 'Le plafond de transcription de votre organisation est atteint pour cette période. Un administrateur peut le relever dans les réglages de l’organisation.');
     }
 
     public function test_le_budget_deepgram_vide_est_illimite_sinon_il_previent_puis_bloque(): void
@@ -322,8 +322,8 @@ class EnregistrementConsultationTest extends TestCase
         $this->getJson('/api/v1/transcription', $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonPath('data.disponible', true)
-            ->assertJsonPath('data.minutes_mois', 3)
-            ->assertJsonPath('data.montant_mois', 0.15)
+            ->assertJsonPath('data.minutes_periode', 3)
+            ->assertJsonPath('data.montant_periode', 0.15)
             ->assertJsonPath('data.plafond', 200)
             ->assertJsonPath('data.tarif_minute', 0.05)
             ->assertJsonPath('data.regles.duree_max', 3600)

@@ -23,6 +23,10 @@ class FactureProprietaire extends Model
             'montant_ht' => 'decimal:2',
             'tva' => 'decimal:2',
             'metadonnees' => 'array',
+            'lignes' => 'array',
+            'periode_debut' => 'date',
+            'periode_fin' => 'date',
+            'paye_le' => 'datetime',
         ];
     }
 

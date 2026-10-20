@@ -218,6 +218,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('abonnement/plus', [AbonnementProprietaireController::class, 'souscrire']);
         Route::post('abonnement/resilier', [AbonnementProprietaireController::class, 'resilier']);
         Route::post('abonnement/reactiver', [AbonnementProprietaireController::class, 'reactiver']);
+        Route::get('abonnement/factures/{facture}', [AbonnementProprietaireController::class, 'facture'])->whereNumber('facture');
+        Route::post('abonnement/factures/{facture}/regler', [AbonnementProprietaireController::class, 'regler'])->whereNumber('facture');
+        Route::post('abonnement/factures/{facture}/confirmer', [AbonnementProprietaireController::class, 'confirmer'])->whereNumber('facture');
         // Achats dans l'app iPhone (App Store, StoreKit 2)
         Route::get('app-store', [AppStoreController::class, 'afficher']);
         Route::post('app-store/transactions', [AppStoreController::class, 'transactions']);
@@ -461,6 +464,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('cliniques/{clinique}/horaires', [OrganisationHoraireController::class, 'afficher'])->whereNumber('clinique');
             Route::put('cliniques/{clinique}/horaires', [OrganisationHoraireController::class, 'modifier'])->whereNumber('clinique');
 
+            Route::get('abonnement/apercu', [AbonnementController::class, 'apercu']);
             Route::post('abonnement', [AbonnementController::class, 'changer']);
             Route::post('abonnement/resilier', [AbonnementController::class, 'resilier']);
             Route::post('abonnement/reactiver', [AbonnementController::class, 'reactiver']);
@@ -469,6 +473,9 @@ Route::prefix('v1')->group(function (): void {
             Route::put('moyen-paiement', [MoyenPaiementController::class, 'enregistrer']);
             Route::delete('moyen-paiement', [MoyenPaiementController::class, 'supprimer']);
             Route::get('factures', [OrganisationFactureController::class, 'index']);
+            Route::get('factures/{facture}', [OrganisationFactureController::class, 'show'])->whereNumber('facture');
+            Route::post('factures/{facture}/regler', [OrganisationFactureController::class, 'regler'])->whereNumber('facture');
+            Route::post('factures/{facture}/confirmer', [OrganisationFactureController::class, 'confirmer'])->whereNumber('facture');
             Route::get('transcription', [OrganisationTranscriptionController::class, 'afficher']);
             Route::put('transcription', [OrganisationTranscriptionController::class, 'modifier']);
         });
