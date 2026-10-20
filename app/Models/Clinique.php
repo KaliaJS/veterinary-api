@@ -19,7 +19,7 @@ class Clinique extends Model
     protected $fillable = [
         'societe_id', 'nom', 'raison_sociale', 'rue', 'npa', 'ville',
         'latitude', 'longitude', 'tel', 'email', 'fuseau_horaire', 'nombre_boxes',
-        'stripe_location_id', 'photo_chemin',
+        'stripe_location_id', 'photo_chemin', 'photo_apercu',
     ];
 
     protected function casts(): array
@@ -33,10 +33,25 @@ class Clinique extends Model
 
     /** Cliniques des organisations ouvertes (vérifiées et payées) : annuaire, boutiques, demandes.
      * @param  Builder<Clinique>  $requete */
-    /** URL publique de la photo (nom de fichier imprévisible), ou null. */
-    public function photoUrl(): ?string
+    /**
+     * Ce qui manque pour paraître dans l'annuaire des cliniques : une
+     * photo, l'adresse complète et sa position sur la carte. Sans rien de
+     * manquant, la clinique y est.
+     *
+     * @return list<string> 'photo', 'adresse', 'position'
+     */
+    public function manquesAnnuaire(): array
     {
-        return $this->photo_chemin ? route('clinique.photo', ['fichier' => basename($this->photo_chemin)]) : null;
+        return array_values(array_filter([
+            $this->photo_chemin === null ? 'photo' : null,
+            blank($this->rue) || blank($this->npa) || blank($this->ville) ? 'adresse' : null,
+            $this->latitude === null || $this->longitude === null ? 'position' : null,
+        ]));
+    }
+
+    public function estDansLAnnuaire(): bool
+    {
+        return $this->manquesAnnuaire() === [];
     }
 
     public function scopeOuvertes(Builder $requete): void

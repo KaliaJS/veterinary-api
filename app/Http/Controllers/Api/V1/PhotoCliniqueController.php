@@ -7,49 +7,50 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Organisation\TeleverserPhotoCliniqueRequest;
 use App\Http\Resources\V1\CliniqueResource;
 use App\Models\Clinique;
+use App\Services\Photos\PhotosCliniques;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Photo d'une clinique, posée par l'administrateur de l'organisation
- * (écran Organisation) : elle remplace la vue aérienne dans l'annuaire
- * des cliniques. Fichier privé au nom imprévisible, servi par une route
- * publique en cache.
+ * (écran Organisation) : obligatoire pour paraître dans l'annuaire des
+ * cliniques. Versions WebP et aperçu flou tirés à l'envoi
+ * (PhotosCliniques). Fichiers privés aux noms imprévisibles, servis par
+ * une route publique en cache.
  */
 class PhotoCliniqueController extends Controller
 {
-    public function televerser(TeleverserPhotoCliniqueRequest $request, int $clinique): CliniqueResource
+    public function televerser(TeleverserPhotoCliniqueRequest $request, int $clinique, PhotosCliniques $photos): CliniqueResource
     {
         $fiche = $this->cliniqueDeLOrganisation($clinique);
         $ancien = $fiche->photo_chemin;
 
-        $fiche->update(['photo_chemin' => $request->file('photo')->store('photos-cliniques/'.$this->organisationId(), 'local')]);
-
-        if ($ancien) {
-            Storage::disk('local')->delete($ancien);
-        }
+        $nouvelle = $photos->enregistrer($request->file('photo'), $this->organisationId());
+        $fiche->update(['photo_chemin' => $nouvelle['chemin'], 'photo_apercu' => $nouvelle['apercu']]);
+        $photos->supprimer($ancien);
 
         return new CliniqueResource($fiche);
     }
 
-    public function supprimer(int $clinique): CliniqueResource
+    public function supprimer(int $clinique, PhotosCliniques $photos): CliniqueResource
     {
         $fiche = $this->cliniqueDeLOrganisation($clinique);
 
-        if ($fiche->photo_chemin) {
-            Storage::disk('local')->delete($fiche->photo_chemin);
-            $fiche->update(['photo_chemin' => null]);
-        }
+        $photos->supprimer($fiche->photo_chemin);
+        $fiche->update(['photo_chemin' => null, 'photo_apercu' => null]);
 
         return new CliniqueResource($fiche);
     }
 
+    /** L'originale ou une de ses versions (« …-480.webp »), rangées côte à côte. */
     public function afficher(string $fichier): StreamedResponse
     {
-        $fiche = Clinique::query()->where('photo_chemin', 'like', '%/'.$fichier)->firstOrFail();
-        abort_unless(Storage::disk('local')->exists($fiche->photo_chemin), 404);
+        $base = preg_replace('/(-\d+)?\.[a-z]+$/', '', $fichier);
+        $fiche = Clinique::query()->where('photo_chemin', 'like', '%/'.$base.'.%')->firstOrFail();
+        $chemin = dirname($fiche->photo_chemin).'/'.$fichier;
+        abort_unless(Storage::disk('local')->exists($chemin), 404);
 
-        return Storage::disk('local')->response($fiche->photo_chemin, null, [
+        return Storage::disk('local')->response($chemin, null, [
             'Cache-Control' => 'public, max-age=31536000, immutable',
         ]);
     }

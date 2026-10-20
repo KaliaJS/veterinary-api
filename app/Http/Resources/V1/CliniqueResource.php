@@ -3,6 +3,7 @@
 namespace App\Http\Resources\V1;
 
 use App\Models\Clinique;
+use App\Services\Photos\PhotosCliniques;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -32,7 +33,13 @@ class CliniqueResource extends JsonResource
             'email' => $this->email,
             'fuseau_horaire' => $this->fuseau_horaire,
             'nombre_boxes' => $this->nombre_boxes,
-            'photo_url' => $this->photoUrl(),
+            // Photo : grande version, largeurs pour `srcset`, aperçu flou
+            'photo' => PhotosCliniques::pour($this->resource),
+            // Dans l'annuaire des cliniques, ou ce qui manque pour y paraître
+            'annuaire' => [
+                'est_visible' => $this->estDansLAnnuaire(),
+                'manques' => $this->manquesAnnuaire(),
+            ],
             'equipe' => EmployeResource::collection($this->whenLoaded('employes')),
             'nombre_employes_actifs' => $this->whenLoaded(
                 'employes',

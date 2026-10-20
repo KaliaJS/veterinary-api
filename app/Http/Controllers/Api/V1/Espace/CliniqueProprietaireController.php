@@ -12,6 +12,7 @@ use App\Models\DemandeRendezVous;
 use App\Models\Patient;
 use App\Models\SiteWeb;
 use App\Services\CalculateurCreneaux;
+use App\Services\Photos\PhotosCliniques;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Collection;
@@ -61,7 +62,10 @@ class CliniqueProprietaireController extends Controller
             'site_slug' => ($site = $sites[$clinique->societe->organisation->id] ?? null)?->est_publie ? $site->slug : null,
             'site_url' => $site?->est_publie ? $site->urlPublique() : null,
             'logo_url' => $site?->logoUrl(),
-            'photo_url' => $clinique->photoUrl(),
+            'photo' => PhotosCliniques::pour($clinique),
+            // Sans photo, adresse complète ni position, l'annuaire ne la montre
+            // pas ; elle reste ici pour les créneaux du site de sa clinique
+            'dans_annuaire' => $clinique->estDansLAnnuaire(),
             'creneaux' => $this->retenir($semaines[$clinique->id]),
         ])->all()]);
     }
