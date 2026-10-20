@@ -34,6 +34,8 @@ class User extends Authenticatable
             'periode_fin' => 'date',
             'resilie_le' => 'date',
             'prochaine_tentative_le' => 'datetime',
+            'carte_expire_le' => 'date',
+            'carte_alertee_le' => 'date',
             'apple_fin' => 'datetime',
             'apple_renouvelle' => 'boolean',
             'gln_verifie_le' => 'datetime',

@@ -41,6 +41,8 @@ class WebhooksStripe
                 'payment_intent.payment_failed' => $this->intention($objet, 'requires_payment_method'),
                 'payment_intent.canceled' => $this->intention($objet, 'canceled'),
                 'terminal.reader.action_failed' => $this->echecLecteur($objet),
+                // Carte remplacée par la banque, mise à jour par Stripe
+                'payment_method.automatically_updated' => $this->abonnements->surCarteMiseAJour($objet),
                 default => null,
             };
         } catch (Throwable $e) {

@@ -69,7 +69,7 @@ class EnregistrementConsultationTest extends TestCase
         $this->organisation = $this->clinique->societe->organisation;
         $this->organisation->forceFill([
             'stripe_client_id' => 'cus_1', 'stripe_moyen_paiement_id' => 'pm_1',
-            'stripe_abonnement_id' => 'sub_1', 'statut_abonnement' => 'actif',
+            'statut_abonnement' => 'actif',
         ])->save();
 
         $patient = Patient::factory()->create([

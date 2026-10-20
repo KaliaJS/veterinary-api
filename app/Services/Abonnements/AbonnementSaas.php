@@ -6,6 +6,7 @@ use App\Enums\ArticlePlanete;
 use App\Enums\FormuleSaas;
 use App\Enums\TypePack;
 use App\Enums\VerificationOrganisation;
+use App\Mail\CarteExpireAvantPrelevement;
 use App\Mail\PaiementAbonnementRefuse;
 use App\Models\AchatPlanete;
 use App\Models\FacturationTranscription;
@@ -54,8 +55,16 @@ final class AbonnementSaas
     /** Plus : 12 CHF par an, payé d'avance. */
     public const PLUS_CENTIMES = 1200;
 
-    /** Jours entre deux nouvelles tentatives après un renouvellement refusé. */
-    private const RELANCES = [3, 5, 7];
+    /**
+     * Jours entre deux nouvelles tentatives après un renouvellement refusé :
+     * une par jour pendant 3 jours, l'accès reste ouvert ; la dernière
+     * refusée, il se ferme. Payé entre-temps, la période commence quand même
+     * à l'échéance : aucun jour n'est offert.
+     */
+    private const RELANCES = [1, 1, 1];
+
+    /** Alertes quand la carte expire avant le prochain prélèvement : 14 jours avant, puis la veille. */
+    private const ALERTE_CARTE_JOURS = [14, 1];
 
     private const MARQUES = [
         'visa' => 'Visa', 'mastercard' => 'Mastercard', 'amex' => 'American Express',
@@ -90,6 +99,8 @@ final class AbonnementSaas
         $abonne->forceFill([
             'stripe_moyen_paiement_id' => $moyen,
             'moyen_paiement' => self::libelleCarte($carte),
+            'carte_expire_le' => self::finExpiration($carte),
+            'carte_alertee_le' => null,
         ])->save();
 
         if ($ancienne && $ancienne !== $moyen) {
@@ -103,7 +114,90 @@ final class AbonnementSaas
             $this->detacher($abonne->stripe_moyen_paiement_id);
         }
 
-        $abonne->forceFill(['stripe_moyen_paiement_id' => null, 'moyen_paiement' => null])->save();
+        $abonne->forceFill(['stripe_moyen_paiement_id' => null, 'moyen_paiement' => null, 'carte_expire_le' => null, 'carte_alertee_le' => null])->save();
+    }
+
+    /**
+     * La banque a remplacé la carte (expiration, perte) et Stripe a mis à
+     * jour la carte enregistrée (événement payment_method.automatically_updated) :
+     * son libellé et son expiration suivent.
+     *
+     * @param  array<string, mixed>  $moyen
+     */
+    public function surCarteMiseAJour(array $moyen): void
+    {
+        foreach ([Organisation::query(), User::query()] as $requete) {
+            $requete->where('stripe_moyen_paiement_id', (string) ($moyen['id'] ?? ''))
+                ->get()
+                ->each(fn (Organisation|User $abonne) => $abonne->forceFill([
+                    'moyen_paiement' => self::libelleCarte($moyen),
+                    'carte_expire_le' => self::finExpiration($moyen),
+                    'carte_alertee_le' => null,
+                ])->save());
+        }
+    }
+
+    /**
+     * Cartes qui expirent avant le prochain prélèvement : les
+     * administrateurs (ou le propriétaire) sont prévenus 14 jours avant,
+     * puis la veille, une fois chaque fois. Rien n'est prélevé d'avance.
+     *
+     * @return int Alertes envoyées
+     */
+    public function alerterCartes(): int
+    {
+        $aujourdhui = CarbonImmutable::today('Europe/Zurich');
+        $envoyees = 0;
+
+        foreach ([Organisation::query(), User::query()] as $requete) {
+            $requete->where('statut_abonnement', 'actif')
+                ->whereNull('resilie_le')
+                ->whereNotNull('carte_expire_le')
+                ->whereColumn('carte_expire_le', '<', 'periode_fin')
+                ->whereDate('periode_fin', '>', $aujourdhui->toDateString())
+                ->whereDate('periode_fin', '<=', $aujourdhui->addDays(max(self::ALERTE_CARTE_JOURS))->toDateString())
+                ->get()
+                ->each(function (Organisation|User $abonne) use ($aujourdhui, &$envoyees): void {
+                    $echeance = CarbonImmutable::parse($abonne->periode_fin->toDateString(), 'Europe/Zurich');
+                    // Le palier le plus proche déjà atteint n'a pas encore eu son alerte
+                    $palier = min(array_filter(self::ALERTE_CARTE_JOURS, fn (int $jours) => $aujourdhui->gte($echeance->subDays($jours))));
+                    if ($abonne->carte_alertee_le && $abonne->carte_alertee_le->toDateString() >= $echeance->subDays($palier)->toDateString()) {
+                        return;
+                    }
+
+                    $destinataires = $abonne instanceof Organisation ? $abonne->emailsAdministrateurs() : array_filter([$abonne->email]);
+                    if ($destinataires !== []) {
+                        Mail::to($destinataires)->send(new CarteExpireAvantPrelevement($abonne, $echeance, $abonne instanceof Organisation));
+                    }
+                    $abonne->forceFill(['carte_alertee_le' => $aujourdhui->toDateString()])->save();
+                    $envoyees++;
+                });
+        }
+
+        return $envoyees;
+    }
+
+    /**
+     * Jour où l'accès se ferme si le renouvellement refusé n'est toujours
+     * pas payé : l'échéance, plus les jours de relance.
+     */
+    public static function fermetureLe(Organisation|User $abonne): ?CarbonImmutable
+    {
+        if ($abonne->statut_abonnement !== 'impaye' || ! $abonne->periode_fin) {
+            return null;
+        }
+
+        return CarbonImmutable::parse($abonne->periode_fin->toDateString(), 'Europe/Zurich')->addDays(array_sum(self::RELANCES));
+    }
+
+    /** Dernier jour du mois d'expiration de la carte, ou null. */
+    private static function finExpiration(array $carte): ?string
+    {
+        $c = $carte['card'] ?? [];
+
+        return isset($c['exp_month'], $c['exp_year'])
+            ? CarbonImmutable::create((int) $c['exp_year'], (int) $c['exp_month'], 1)->endOfMonth()->toDateString()
+            : null;
     }
 
     /** « Visa •••• 4242 · exp. 08/28 » */
@@ -137,11 +231,16 @@ final class AbonnementSaas
         }
         $this->exigerCarte($organisation);
 
+        // Une facture due (renouvellement refusé, minutes de transcription
+        // d'un abonnement fermé) se règle avant toute nouvelle formule
+        $due = $this->factures($organisation)->where('statut', 'a_payer')->oldest('id')->get()
+            ->first(fn ($f) => in_array($f->metadonnees['action'] ?? null, ['renouvellement', 'fin'], true));
+        if ($due) {
+            throw ValidationException::withMessages(['plan' => 'Réglez d’abord la facture '.$due->numero.' en attente.']);
+        }
+
         if (! $this->enCours($organisation)) {
             return $this->demarrer($organisation, $cible->value, $cible->prixMensuel() * 100, self::nomCourt($cible), false);
-        }
-        if ($organisation->statut_abonnement === 'impaye') {
-            throw ValidationException::withMessages(['plan' => 'Réglez d’abord la facture en attente de votre abonnement.']);
         }
 
         if ($organisation->plan === $cible) {
@@ -464,15 +563,17 @@ final class AbonnementSaas
     {
         $tentatives = (int) $abonne->tentatives + 1;
         $dernier = $tentatives > count(self::RELANCES);
-        $abonne->forceFill([
-            'statut_abonnement' => $dernier ? 'resilie' : 'impaye',
-            'tentatives' => $tentatives,
-            'prochaine_tentative_le' => $dernier ? null : now()->addDays(self::RELANCES[$tentatives - 1]),
-        ]);
-        if ($dernier && $abonne instanceof User) {
-            $abonne->formule = 'gratuit';
+        $transcription = null;
+
+        if ($dernier) {
+            $transcription = $this->fermerFauteDePaiement($abonne, $reglement->facture);
+        } else {
+            $abonne->forceFill([
+                'statut_abonnement' => 'impaye',
+                'tentatives' => $tentatives,
+                'prochaine_tentative_le' => now()->addDays(self::RELANCES[$tentatives - 1]),
+            ])->save();
         }
-        $abonne->save();
 
         $destinataires = $abonne instanceof Organisation ? $abonne->emailsAdministrateurs() : array_filter([$abonne->email]);
         if ($destinataires !== []) {
@@ -480,9 +581,41 @@ final class AbonnementSaas
                 $reglement->facture,
                 $reglement->message ?? 'La carte a été refusée.',
                 $dernier ? null : $abonne->prochaine_tentative_le,
+                self::fermetureLe($abonne),
                 $abonne instanceof Organisation,
+                $transcription,
             ));
         }
+    }
+
+    /**
+     * Dernière tentative refusée : l'accès se ferme. La facture de la
+     * période qui ne commencera pas est annulée ; une reprise ouvrira une
+     * nouvelle période le jour du paiement. Les minutes de transcription
+     * déjà consommées restent dues, sur leur propre facture.
+     */
+    private function fermerFauteDePaiement(Organisation|User $abonne, OrganisationFacture|FactureProprietaire $facture): ?OrganisationFacture
+    {
+        $this->annuler($facture);
+        $transcription = null;
+
+        if ($abonne instanceof Organisation) {
+            $usage = $this->usageDeLaPeriode($abonne, CarbonImmutable::parse($abonne->periode_fin->toDateString(), 'Europe/Zurich'));
+            if ($usage !== []) {
+                $transcription = $this->creerFacture($abonne, [], ['type' => 'transcription', 'action' => 'fin'], null, null, $usage);
+            }
+            $abonne->forceFill(['formule_suivante' => null]);
+        } else {
+            $abonne->forceFill(['formule' => 'gratuit']);
+        }
+
+        $abonne->forceFill([
+            'statut_abonnement' => 'resilie',
+            'tentatives' => 0,
+            'prochaine_tentative_le' => null,
+        ])->save();
+
+        return $transcription;
     }
 
     /* ————— Interne : factures et paiements ————— */

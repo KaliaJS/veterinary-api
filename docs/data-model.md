@@ -281,10 +281,21 @@ dans `config/plateforme.php`.
   aucun abonnement payant), `periode_debut`, `periode_fin` (prochain
   renouvellement, ou fin d'accès si résilié), `resilie_le`.
 - **Renouvellements** : `abonnements:renouveler` (toutes les heures).
-  Prélèvement hors session ; refusé : `impaye` (l'accès reste), nouvelles
-  tentatives 3, 5 puis 7 jours plus tard (`tentatives`,
-  `prochaine_tentative_le`), e-mail aux administrateurs
-  (`PaiementAbonnementRefuse`) ; après le dernier refus, `resilie`.
+  Prélèvement hors session le jour de l'échéance ; refusé : `impaye`,
+  l'accès reste ouvert et le prélèvement est retenté une fois par jour
+  pendant 3 jours (`tentatives`, `prochaine_tentative_le`), avec un e-mail
+  aux administrateurs à chaque refus (`PaiementAbonnementRefuse`, date de
+  fermeture : `fermeture_le`). Payé entre-temps, la période commence quand
+  même à l'échéance. La dernière tentative refusée ferme l'accès
+  (`resilie`) : la facture de la période qui ne commence pas est annulée,
+  les minutes de transcription déjà consommées restent dues sur leur propre
+  facture, à régler avant toute nouvelle formule ; une reprise ouvre une
+  nouvelle période le jour du paiement.
+- **Cartes** : `carte_expire_le` (fin du mois d'expiration). Une carte qui
+  expire avant le prochain prélèvement est signalée 14 jours avant puis la
+  veille (`CarteExpireAvantPrelevement`, `carte_alertee_le`). Une carte
+  remplacée par la banque est mise à jour par Stripe (webhook
+  `payment_method.automatically_updated`, à abonner aussi en production).
 - **Confirmation bancaire** : quand la banque la demande, la réponse porte
   `paiement {facture_id, client_secret, cle_publique}` ; la page confirme
   avec Stripe.js puis `POST organisation/factures/{id}/confirmer`. Le

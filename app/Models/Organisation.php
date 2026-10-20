@@ -52,6 +52,8 @@ class Organisation extends Model
             'periode_debut' => 'date',
             'periode_fin' => 'date',
             'prochaine_tentative_le' => 'datetime',
+            'carte_expire_le' => 'date',
+            'carte_alertee_le' => 'date',
             'usage_emails' => 'integer',
             'usage_sms' => 'integer',
             'usage_stockage_go' => 'decimal:1',

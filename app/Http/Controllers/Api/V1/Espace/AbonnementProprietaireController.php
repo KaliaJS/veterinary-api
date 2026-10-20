@@ -113,6 +113,8 @@ class AbonnementProprietaireController extends Controller
             'periode_fin' => $user->periode_fin?->toDateString(),
             'resilie_le' => $user->resilie_le?->toDateString(),
             'prochaine_tentative_le' => $user->prochaine_tentative_le?->toIso8601String(),
+            'fermeture_le' => AbonnementSaas::fermetureLe($user)?->toDateString(),
+            'carte_expire_le' => $user->carte_expire_le?->toDateString(),
             'moyen_paiement' => $user->moyen_paiement,
             'factures' => FacturePlateformeResource::collection(
                 $user->facturesPlus()->where('statut', '!=', 'annulee')->latest('emise_le')->latest('id')->get(),

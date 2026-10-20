@@ -27,9 +27,10 @@ return new class extends Migration
             $table->timestamp('apple_fin')->nullable();
             $table->boolean('apple_renouvelle')->nullable();
             $table->string('stripe_client_id')->nullable();
-            $table->string('stripe_abonnement_id')->nullable();
             $table->string('stripe_moyen_paiement_id')->nullable();
             $table->string('moyen_paiement')->nullable()->comment('Libellé masqué « Visa •••• 4242 · exp. 08/28 »');
+            $table->date('carte_expire_le')->nullable()->comment('Fin du mois d’expiration de la carte enregistrée');
+            $table->date('carte_alertee_le')->nullable()->comment('Dernière alerte : la carte expire avant le prochain prélèvement');
             $table->string('statut_abonnement', 12)->nullable()->comment('actif | impaye | incomplet | resilie ; null : jamais abonné');
             $table->date('periode_fin')->nullable();
             $table->date('periode_debut')->nullable();
@@ -42,7 +43,6 @@ return new class extends Migration
             $table->unique('apple_compte');
             $table->unique('email');
             $table->unique('gln');
-            $table->unique('stripe_abonnement_id');
             $table->unique('stripe_client_id');
         });
 

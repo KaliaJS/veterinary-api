@@ -12,9 +12,10 @@ use Throwable;
 
 /**
  * Renouvelle les abonnements arrivés à échéance (organisations et Plus des
- * propriétaires) et retente les prélèvements refusés. Planifiée toutes les
- * heures : chaque abonné n'est traité qu'une fois, son échéance avançant au
- * paiement.
+ * propriétaires), retente les prélèvements refusés (une fois par jour,
+ * 3 jours durant, puis l'accès se ferme) et prévient quand la carte expire
+ * avant le prochain prélèvement. Planifiée toutes les heures : chaque abonné
+ * n'est traité qu'une fois, son échéance avançant au paiement.
  */
 class RenouvelerAbonnements extends Command
 {
@@ -35,7 +36,9 @@ class RenouvelerAbonnements extends Command
             $this->parcourir($aRetenter, fn ($abonne) => $abonnements->retenter($abonne), $traites);
         }
 
-        $this->info($traites.' abonnement(s) traité(s).');
+        $alertes = $abonnements->alerterCartes();
+
+        $this->info($traites.' abonnement(s) traité(s), '.$alertes.' alerte(s) de carte.');
 
         return self::SUCCESS;
     }

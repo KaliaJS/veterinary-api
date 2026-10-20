@@ -4,6 +4,7 @@ namespace App\Http\Resources\V1;
 
 use App\Enums\FormuleSaas;
 use App\Models\Organisation;
+use App\Services\Abonnements\AbonnementSaas;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -45,6 +46,9 @@ class OrganisationResource extends JsonResource
                     ? ['code' => $suivante->value, 'nom' => $suivante->nom(), 'prix_mensuel' => $suivante->prixMensuel()]
                     : null,
                 'prochaine_tentative_le' => $this->prochaine_tentative_le?->toIso8601String(),
+                // Renouvellement refusé : l'accès se ferme ce jour-là sans paiement
+                'fermeture_le' => AbonnementSaas::fermetureLe($this->resource)?->toDateString(),
+                'carte_expire_le' => $this->carte_expire_le?->toDateString(),
             ],
             'usage' => [
                 'emails' => $this->usage_emails,

@@ -15,6 +15,7 @@ use App\Paiements\PasserelleAbonnement;
 use App\Services\Abonnements\AbonnementSaas;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Tests\Doubles\PasserelleAbonnementFactice;
 use Tests\TestCase;
 
@@ -92,6 +93,36 @@ class FacturationTranscriptionTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-30 06:00', 'Europe/Zurich'));
         $this->artisan('abonnements:renouveler')->assertSuccessful();
         $this->assertSame(99900, $this->stripe->dernierPrelevement()['centimes']);
+    }
+
+    public function test_un_acces_ferme_faute_de_paiement_garde_les_minutes_dues_a_regler_avant_de_reprendre(): void
+    {
+        $this->transcrite(1200, '2026-11-02 10:00');
+        $this->stripe->refus = 'Carte bloquée.';
+        foreach (['2026-11-20 06:00', '2026-11-21 07:00', '2026-11-22 07:00', '2026-11-23 07:00'] as $quand) {
+            $this->travelTo(CarbonImmutable::parse($quand, 'Europe/Zurich'));
+            $this->artisan('abonnements:renouveler')->assertSuccessful();
+        }
+
+        $this->assertSame('resilie', $this->organisation->refresh()->statut_abonnement);
+        $due = OrganisationFacture::query()->where('statut', 'a_payer')->sole();
+        // 1200 s : 20 minutes à 5 centimes, sur leur propre facture
+        $this->assertSame('1.00', (string) $due->montant);
+        $this->assertSame('fin', $due->metadonnees['action']);
+
+        $this->stripe->refus = null;
+        try {
+            app(AbonnementSaas::class)->souscrire($this->organisation, FormuleSaas::Cabinet);
+            $this->fail('La reprise aurait dû attendre le règlement des minutes dues.');
+        } catch (ValidationException $e) {
+            $this->assertSame('Réglez d’abord la facture '.$due->numero.' en attente.', $e->errors()['plan'][0]);
+        }
+
+        app(AbonnementSaas::class)->regler($due);
+        $this->assertSame('payee', $due->refresh()->statut);
+        app(AbonnementSaas::class)->souscrire($this->organisation->refresh(), FormuleSaas::Cabinet);
+        $this->assertSame('actif', $this->organisation->refresh()->statut_abonnement);
+        $this->assertSame('2026-11-23', $this->organisation->periode_debut->toDateString());
     }
 
     public function test_la_fin_de_l_abonnement_facture_les_dernieres_minutes(): void

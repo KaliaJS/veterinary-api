@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Auth\EmetteurJetons;
 use App\Auth\RolesParDefaut;
 use App\Enums\FormuleSaas;
+use App\Mail\CarteExpireAvantPrelevement;
 use App\Mail\PaiementAbonnementRefuse;
 use App\Models\Clinique;
 use App\Models\Employe;
@@ -435,35 +436,131 @@ class OrganisationTest extends TestCase
         $this->assertDatabaseHas('organisations', ['id' => $this->organisationId(), 'statut_abonnement' => 'actif']);
     }
 
-    public function test_un_renouvellement_refuse_garde_l_acces_se_retente_puis_prend_fin(): void
+    /** Abonnée le 20.10.2026 à Cabinet, carte enregistrée, le renouvellement du 20.11 sera refusé. */
+    private function abonneeAvecRenouvellementRefuse(): void
     {
         $this->jamaisAbonnee();
-
         Mail::fake();
         $this->voyager('2026-10-20 10:00');
-        $entetes = $this->enTetes($this->jeton);
         $this->avecCarte();
-        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $entetes)->assertOk();
-
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
         $this->stripe->refus = 'Fonds insuffisants sur la carte.';
         $this->voyager('2026-11-20 06:00');
         $this->artisan('abonnements:renouveler')->assertSuccessful();
+    }
+
+    public function test_un_renouvellement_refuse_se_retente_chaque_jour_puis_ferme_l_acces_au_bout_de_trois_jours(): void
+    {
+        $this->abonneeAvecRenouvellementRefuse();
+
         $organisation = Organisation::query()->findOrFail($this->organisationId());
         $this->assertSame('impaye', $organisation->statut_abonnement);
-        $this->assertSame(1, $organisation->tentatives);
-        $this->assertSame('2026-11-23', $organisation->prochaine_tentative_le->timezone('Europe/Zurich')->toDateString());
-        Mail::assertSent(PaiementAbonnementRefuse::class, fn ($mail) => $mail->prochaineTentative !== null);
-        $this->getJson('/api/v1/organisation/factures', $this->enTetes($this->jeton))->assertJsonPath('data.0.statut', 'a_payer');
+        $this->assertSame('2026-11-21', $organisation->prochaine_tentative_le->timezone('Europe/Zurich')->toDateString());
+        Mail::assertSent(PaiementAbonnementRefuse::class, fn ($mail) => $mail->prochaineTentative !== null && $mail->fermetureLe?->toDateString() === '2026-11-23');
 
-        // 3, 5 puis 7 jours plus tard : toujours refusé, l'abonnement prend fin
-        foreach (['2026-11-23 07:00', '2026-11-28 07:00', '2026-12-05 07:00'] as $quand) {
+        // Pendant les relances, l'accès reste ouvert et la date de fermeture est connue
+        $entetes = $this->enTetes($this->jeton);
+        $this->getJson('/api/v1/patients', $entetes)->assertOk();
+        $this->getJson('/api/v1/organisation', $entetes)
+            ->assertJsonPath('data.abonnement.statut', 'impaye')
+            ->assertJsonPath('data.abonnement.fermeture_le', '2026-11-23');
+        $this->getJson('/api/v1/organisation/factures', $entetes)->assertJsonPath('data.0.statut', 'a_payer');
+
+        // Une tentative par jour : encore refusée le 21 et le 22, l'accès tient
+        foreach (['2026-11-21 07:00', '2026-11-22 07:00'] as $quand) {
             $this->travelTo(CarbonImmutable::parse($quand, 'Europe/Zurich'));
             $this->artisan('abonnements:renouveler')->assertSuccessful();
+            $this->assertSame('impaye', $organisation->refresh()->statut_abonnement);
         }
+
+        // Le 23, la dernière est refusée : l'accès se ferme, la période qui ne commence pas est annulée
+        $this->voyager('2026-11-23 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
         $organisation->refresh();
         $this->assertSame('resilie', $organisation->statut_abonnement);
         $this->assertCount(5, $this->stripe->prelevements);
-        Mail::assertSent(PaiementAbonnementRefuse::class, fn ($mail) => $mail->prochaineTentative === null);
+        $this->assertSame('annulee', OrganisationFacture::query()->latest('id')->value('statut'));
+        Mail::assertSent(PaiementAbonnementRefuse::class, fn ($mail) => $mail->prochaineTentative === null && $mail->fermetureLe === null);
+
+        $entetes = $this->enTetes($this->jeton);
+        $this->getJson('/api/v1/patients', $entetes)->assertForbidden()->assertJsonPath('code', 'abonnement_requis');
+
+        // Une reprise ouvre une nouvelle période, le jour du paiement
+        $this->stripe->refus = null;
+        $this->voyager('2026-11-25 10:00');
+        $entetes = $this->enTetes($this->jeton);
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $entetes)->assertOk();
+        $organisation->refresh();
+        $this->assertSame('actif', $organisation->statut_abonnement);
+        $this->assertSame('2026-11-25', $organisation->periode_debut->toDateString());
+        $this->assertSame('2026-12-25', $organisation->periode_fin->toDateString());
+        $this->assertSame(25, $organisation->ancre_jour);
+    }
+
+    public function test_paye_pendant_les_relances_la_periode_commence_quand_meme_a_l_echeance(): void
+    {
+        $this->abonneeAvecRenouvellementRefuse();
+
+        $this->stripe->refus = null;
+        $this->travelTo(CarbonImmutable::parse('2026-11-21 07:00', 'Europe/Zurich'));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame('actif', $organisation->statut_abonnement);
+        $this->assertSame('2026-11-20', $organisation->periode_debut->toDateString());
+        $this->assertSame('2026-12-20', $organisation->periode_fin->toDateString());
+        $this->assertSame(20, $organisation->ancre_jour);
+        $this->assertSame(0, $organisation->tentatives);
+    }
+
+    public function test_une_carte_qui_expire_avant_le_prelevement_est_signalee_14_jours_avant_puis_la_veille(): void
+    {
+        $this->jamaisAbonnee();
+        Mail::fake();
+        $this->voyager('2026-10-20 10:00');
+        $entetes = $this->enTetes($this->jeton);
+        $this->postJson('/api/v1/organisation/moyen-paiement/intention', [], $entetes)->assertOk();
+        $client = Organisation::query()->findOrFail($this->organisationId())->stripe_client_id;
+        $carte = $this->stripe->carteConfirmee($client);
+        $this->stripe->cartes[$carte]['card']['exp_month'] = 10;
+        $this->stripe->cartes[$carte]['card']['exp_year'] = 2026;
+        $this->putJson('/api/v1/organisation/moyen-paiement', ['payment_method' => $carte], $entetes)->assertOk();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $entetes)
+            ->assertOk()
+            ->assertJsonPath('data.abonnement.carte_expire_le', '2026-10-31');
+
+        $alertes = fn () => Mail::sent(CarteExpireAvantPrelevement::class)->count();
+        foreach (['2026-11-05 08:00' => 0, '2026-11-06 08:00' => 1, '2026-11-06 15:00' => 1, '2026-11-12 08:00' => 1, '2026-11-19 08:00' => 2, '2026-11-19 20:00' => 2] as $quand => $attendues) {
+            $this->travelTo(CarbonImmutable::parse($quand, 'Europe/Zurich'));
+            $this->artisan('abonnements:renouveler')->assertSuccessful();
+            $this->assertSame($attendues, $alertes(), "Alertes envoyées le $quand");
+        }
+
+        // Une nouvelle carte efface l'alerte : plus rien à signaler
+        $this->voyager('2026-11-19 21:00');
+        $this->avecCarte('1881');
+        $this->assertNull(Organisation::query()->findOrFail($this->organisationId())->carte_alertee_le);
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertSame(2, $alertes());
+    }
+
+    public function test_une_carte_remplacee_par_la_banque_est_mise_a_jour(): void
+    {
+        $this->jamaisAbonnee();
+        $this->app->instance(PasserellePaiement::class, new PasserellePaiementFactice);
+        $this->avecCarte();
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $organisation->forceFill(['carte_alertee_le' => '2026-10-01'])->save();
+
+        $this->postJson('/api/v1/stripe/webhook', ['id' => 'evt_carte', 'type' => 'payment_method.automatically_updated', 'data' => ['object' => [
+            'id' => $organisation->stripe_moyen_paiement_id,
+            'card' => ['brand' => 'visa', 'last4' => '5556', 'exp_month' => 9, 'exp_year' => 2031],
+        ]]], ['Stripe-Signature' => 'signature-valide'])->assertNoContent();
+
+        $organisation->refresh();
+        $this->assertSame('Visa •••• 5556 · exp. 09/31', $organisation->moyen_paiement);
+        $this->assertSame('2031-09-30', $organisation->carte_expire_le->toDateString());
+        $this->assertNull($organisation->carte_alertee_le);
     }
 
     public function test_une_facture_refusee_se_regle_depuis_l_application(): void
