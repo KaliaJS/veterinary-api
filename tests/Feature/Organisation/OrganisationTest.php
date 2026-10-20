@@ -8,6 +8,7 @@ use App\Auth\RolesParDefaut;
 use App\Enums\FormuleSaas;
 use App\Mail\CarteExpireAvantPrelevement;
 use App\Mail\PaiementAbonnementRefuse;
+use App\Models\Absence;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\Organisation;
@@ -193,6 +194,22 @@ class OrganisationTest extends TestCase
             ->assertNoContent();
 
         $this->assertDatabaseMissing('cliniques', ['id' => $vide->id]);
+    }
+
+    public function test_le_solde_de_conges_compte_aussi_les_conges_des_employes_des_autres_cliniques(): void
+    {
+        $autre = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $employe = Employe::factory()->create(['clinique_id' => $autre->id, 'conges_droit' => 25, 'conges_pris' => 5]);
+        Absence::factory()->create([
+            'employe_id' => $employe->id,
+            'debut_le' => today()->addDays(10),
+            'fin_le' => today()->addDays(14),
+        ]);
+
+        $equipe = collect($this->getJson('/api/v1/organisation/cliniques', $this->enTetes($this->jeton))->assertOk()->json('data'))
+            ->firstWhere('id', $autre->id)['equipe'];
+
+        $this->assertSame(['droit' => 25, 'pris' => 5, 'planifies' => 5, 'solde' => 15], $equipe[0]['conges']);
     }
 
     public function test_le_changement_de_formule_est_bloque_par_les_limites_depassees(): void

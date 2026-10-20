@@ -31,7 +31,7 @@ class OrganisationCliniqueController extends Controller
     {
         $cliniques = $this->organisation()
             ->cliniques()
-            ->with(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique')->orderBy('id')])
+            ->with(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique')->orderBy('id'), 'employes.congesAVenir'])
             ->orderBy('cliniques.id')
             ->get();
 
@@ -79,7 +79,7 @@ class OrganisationCliniqueController extends Controller
             return $clinique;
         });
 
-        return new CliniqueResource($clinique->load(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
+        return new CliniqueResource($clinique->load(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'employes.congesAVenir']));
     }
 
     public function update(ModifierCliniqueRequest $request, int $clinique): CliniqueResource
@@ -88,7 +88,7 @@ class OrganisationCliniqueController extends Controller
 
         $fiche->update($request->validated());
 
-        return new CliniqueResource($fiche->load(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
+        return new CliniqueResource($fiche->load(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'employes.congesAVenir']));
     }
 
     public function destroy(int $clinique): Response

@@ -2,11 +2,13 @@
 
 namespace Tests\Feature\Planning;
 
+use App\Auth\SousContexteClinique;
 use App\Models\Absence;
 use App\Models\Clinique;
 use App\Models\HoraireOuverture;
 use App\Models\LignePlanning;
 use App\Models\RendezVous;
+use App\Services\CalculateurCreneaux;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -249,5 +251,47 @@ class DisponibilitesTest extends TestCase
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('ligne_planning_id');
+    }
+
+    public function test_la_semaine_calculee_d_un_coup_rend_les_memes_creneaux_que_jour_par_jour(): void
+    {
+        $ligneAbsente = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id]);
+        Absence::factory()->create([
+            'employe_id' => $ligneAbsente->employe_id,
+            'debut_le' => $this->lundi->addDay(),
+            'fin_le' => $this->lundi->addDays(2),
+        ]);
+
+        // Un rendez-vous par jour ouvré, à une heure différente, plus un annulé.
+        foreach (range(0, 4) as $i) {
+            $debut = CarbonImmutable::parse($this->lundi->addDays($i)->toDateString(), 'Europe/Zurich')->setTime(9 + $i, 0)->utc();
+            RendezVous::factory()->create([
+                'clinique_id' => $this->clinique->id,
+                'ligne_planning_id' => $this->ligne->id,
+                'starts_at' => $debut,
+                'ends_at' => $debut->addMinutes(45),
+            ]);
+        }
+        RendezVous::factory()->annule()->create([
+            'clinique_id' => $this->clinique->id,
+            'ligne_planning_id' => $ligneAbsente->id,
+            'starts_at' => $this->lundi->setTime(8, 0),
+            'ends_at' => $this->lundi->setTime(9, 0),
+        ]);
+
+        [$semaine, $jourParJour] = app(SousContexteClinique::class)->pour($this->clinique, function (): array {
+            $calculateur = app(CalculateurCreneaux::class);
+
+            return [
+                $calculateur->creneauxDesJours($this->lundi, 7, 20),
+                array_map(fn (int $i) => $calculateur->creneauxLibres($this->lundi->addDays($i), 20), range(0, 6)),
+            ];
+        });
+
+        $this->assertCount(7, $semaine);
+        $this->assertEquals($jourParJour, $semaine);
+        $this->assertEmpty($semaine[6]); // dimanche fermé
+        $this->assertNotContains($ligneAbsente->id, array_column($semaine[1]->all(), 'ligne_planning_id'));
+        $this->assertContains($ligneAbsente->id, array_column($semaine[0]->all(), 'ligne_planning_id'));
     }
 }

@@ -110,10 +110,10 @@ class CliniqueProprietaireController extends Controller
         $jour = $calculateur->aujourdHui();
         $parJour = [];
 
-        for ($i = 0; $i < self::JOURS_EXPLORES; $i++) {
+        foreach ($calculateur->creneauxDesJours($jour, self::JOURS_EXPLORES, self::DUREE_MINUTES) as $trous) {
             $candidats = [];
 
-            foreach ($calculateur->creneauxLibres($jour->addDays($i), self::DUREE_MINUTES) as $trou) {
+            foreach ($trous as $trou) {
                 for ($debut = $trou['debut']; $debut->addMinutes(self::DUREE_MINUTES)->lte($trou['fin']); $debut = $debut->addMinutes(self::DUREE_MINUTES)) {
                     if ($debut->isFuture()) {
                         $candidats[$debut->timestamp] ??= ['debut' => $debut->toIso8601String(), 'ligne_planning_id' => $trou['ligne_planning_id']];

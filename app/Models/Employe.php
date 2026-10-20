@@ -81,6 +81,23 @@ class Employe extends Model
     }
 
     /**
+     * Congés validés en cours ou à venir, la part qui pèse sur le solde.
+     * Sans le scope de clinique des absences : l'employé est déjà
+     * autorisé, et l'écran Organisation montre aussi les employés des
+     * autres cliniques, dont les congés seraient sinon écartés.
+     *
+     * @return HasMany<Absence, $this>
+     */
+    public function congesAVenir(): HasMany
+    {
+        return $this->hasMany(Absence::class)
+            ->withoutGlobalScope('clinique')
+            ->where('type', TypeAbsence::Conge)
+            ->where('statut', StatutAbsence::Validee)
+            ->whereDate('fin_le', '>=', today());
+    }
+
+    /**
      * Solde de congés — DÉRIVÉ, jamais stocké (docs/data-model.md §1) :
      * le droit annuel moins les jours pris et les congés validés à
      * venir (la part restante d'un congé en cours compte).
@@ -89,11 +106,7 @@ class Employe extends Model
      */
     public function soldeConges(): array
     {
-        $planifies = (int) $this->absences()
-            ->where('type', TypeAbsence::Conge)
-            ->where('statut', StatutAbsence::Validee)
-            ->whereDate('fin_le', '>=', today())
-            ->get()
+        $planifies = (int) $this->congesAVenir
             ->sum(function (Absence $absence): int {
                 $depart = $absence->debut_le->greaterThan(today()) ? $absence->debut_le : today();
 

@@ -101,46 +101,137 @@ class CalculateurCreneaux
      */
     public function creneauxLibres(CarbonImmutable $jour, int $dureeMinutes = self::TROU_MINIMAL_MINUTES, ?int $lignePlanningId = null): Collection
     {
-        $fuseau = $this->fuseau();
-        $minuitLocal = CarbonImmutable::parse($jour->toDateString(), $fuseau);
+        return $this->creneauxDesJours($jour, 1, $dureeMinutes, $lignePlanningId)[0];
+    }
 
-        $bornes = $this->bornesDuJour($this->horaires(), $minuitLocal);
+    /**
+     * Les trous libres de plusieurs jours consécutifs, un élément par
+     * jour : le calcul de creneauxLibres, mais horaires, lignes,
+     * absences et rendez-vous sont lus une seule fois pour toute la
+     * période (l'annuaire explore une semaine par clinique).
+     *
+     * @return list<Collection<int, array{ligne_planning_id: int, debut: CarbonImmutable, fin: CarbonImmutable}>>
+     */
+    public function creneauxDesJours(CarbonImmutable $premierJour, int $nombreJours, int $dureeMinutes = self::TROU_MINIMAL_MINUTES, ?int $lignePlanningId = null): array
+    {
+        $fuseau = $this->fuseau();
+        $horaires = $this->horaires();
+
+        // Minuit local de chaque jour, et du lendemain du dernier pour
+        // borner la période. Reparsés par date calendaire : un addDay
+        // d'horloge dériverait au changement d'heure.
+        $minuits = [];
+
+        for ($i = 0; $i <= $nombreJours; $i++) {
+            $minuits[] = CarbonImmutable::parse($premierJour->addDays($i)->toDateString(), $fuseau);
+        }
+
+        $lignes = LignePlanning::query()
+            ->when($lignePlanningId !== null, fn ($requete) => $requete->whereKey($lignePlanningId))
+            ->orderBy('ordre')
+            ->orderBy('id')
+            ->get();
+
+        $absences = Absence::query()
+            ->whereIn('employe_id', $lignes->pluck('employe_id')->filter()->unique()->values())
+            ->where('statut', StatutAbsence::Validee)
+            ->where('type', '!=', TypeAbsence::Garde)
+            ->whereDate('debut_le', '<=', $minuits[$nombreJours - 1]->toDateString())
+            ->whereDate('fin_le', '>=', $minuits[0]->toDateString())
+            ->get();
+
+        $rendezVous = RendezVous::query()
+            ->whereIn('ligne_planning_id', $lignes->pluck('id'))
+            ->where('status', '!=', StatutRendezVous::Annule)
+            ->where('type', '!=', TypeRendezVous::Tampon)
+            ->where('starts_at', '<', $minuits[$nombreJours]->utc())
+            ->where('ends_at', '>', $minuits[0]->utc())
+            ->get();
+
+        $jours = [];
+
+        for ($i = 0; $i < $nombreJours; $i++) {
+            $jours[] = $this->trousDuJour($horaires, $minuits[$i], $minuits[$i + 1], $fuseau, $dureeMinutes, $lignes, $absences, $rendezVous);
+        }
+
+        return $jours;
+    }
+
+    /**
+     * Premier créneau libre du jour pouvant accueillir la durée, toutes
+     * lignes confondues.
+     *
+     * @return array{ligne_planning_id: int, debut: CarbonImmutable}|null
+     */
+    public function prochainCreneau(CarbonImmutable $jour, int $dureeMinutes): ?array
+    {
+        $creneau = $this->creneauxLibres($jour, $dureeMinutes)->first();
+
+        return $creneau === null
+            ? null
+            : ['ligne_planning_id' => $creneau['ligne_planning_id'], 'debut' => $creneau['debut']];
+    }
+
+    /**
+     * Une absence validée hors garde bloque la colonne du praticien —
+     * l'instant (UTC) est ramené au jour calendaire de la clinique.
+     */
+    public function ligneEstBloquee(LignePlanning $ligne, CarbonImmutable $instant): bool
+    {
+        $jourLocal = $instant->setTimezone($this->fuseau())->toDateString();
+
+        return $ligne->employe_id !== null && Absence::query()
+            ->where('employe_id', $ligne->employe_id)
+            ->where('statut', StatutAbsence::Validee)
+            ->where('type', '!=', TypeAbsence::Garde)
+            ->whereDate('debut_le', '<=', $jourLocal)
+            ->whereDate('fin_le', '>=', $jourLocal)
+            ->exists();
+    }
+
+    /**
+     * Le calcul d'un jour, sur les lignes, absences et rendez-vous déjà
+     * lus pour la période.
+     *
+     * @param  Collection<int, LignePlanning>  $lignes
+     * @param  Collection<int, Absence>  $absences
+     * @param  Collection<int, RendezVous>  $rendezVousPeriode
+     * @return Collection<int, array{ligne_planning_id: int, debut: CarbonImmutable, fin: CarbonImmutable}>
+     */
+    private function trousDuJour(HoraireOuverture $horaires, CarbonImmutable $minuitLocal, CarbonImmutable $minuitSuivant, string $fuseau, int $dureeMinutes, Collection $lignes, Collection $absences, Collection $rendezVousPeriode): Collection
+    {
+        $bornes = $this->bornesDuJour($horaires, $minuitLocal);
 
         if ($bornes['fermee']) {
             return collect();
         }
 
-        $lignes = LignePlanning::query()
-            ->when($lignePlanningId !== null, fn ($requete) => $requete->whereKey($lignePlanningId))
-            ->whereNotIn('id', $this->lignesBloquees($minuitLocal))
-            ->orderBy('ordre')
-            ->orderBy('id')
-            ->get();
+        $date = $minuitLocal->toDateString();
+        $absents = $absences
+            ->filter(fn (Absence $absence): bool => $absence->debut_le->toDateString() <= $date && $absence->fin_le->toDateString() >= $date)
+            ->pluck('employe_id');
 
-        // Bornes UTC du jour local — le lendemain est reparsé par date
-        // calendaire (un addDay d'horloge dériverait au changement d'heure).
         $debutJourUtc = $minuitLocal->utc();
-        $finJourUtc = CarbonImmutable::parse($jour->addDay()->toDateString(), $fuseau)->utc();
+        $finJourUtc = $minuitSuivant->utc();
 
-        $occupes = RendezVous::query()
-            ->whereIn('ligne_planning_id', $lignes->pluck('id'))
-            ->where('status', '!=', StatutRendezVous::Annule)
-            ->where('type', '!=', TypeRendezVous::Tampon)
-            ->where('starts_at', '<', $finJourUtc)
-            ->where('ends_at', '>', $debutJourUtc)
-            ->get()
+        $occupes = $rendezVousPeriode
+            ->filter(fn (RendezVous $rendezVous): bool => $rendezVous->starts_at->lt($finJourUtc) && $rendezVous->ends_at->gt($debutJourUtc))
             ->groupBy('ligne_planning_id');
 
         $depart = $bornes['ouverture'];
         $maintenantLocal = now()->setTimezone($fuseau);
 
-        if ($maintenantLocal->toDateString() === $minuitLocal->toDateString()) {
+        if ($maintenantLocal->toDateString() === $date) {
             $depart = max($depart, $maintenantLocal->hour * 60 + $maintenantLocal->minute);
         }
 
         $creneaux = collect();
 
         foreach ($lignes as $ligne) {
+            if ($ligne->employe_id !== null && $absents->contains($ligne->employe_id)) {
+                continue;
+            }
+
             $intervalles = [];
 
             foreach ($occupes->get($ligne->id, collect()) as $rendezVous) {
@@ -183,52 +274,6 @@ class CalculateurCreneaux
         }
 
         return $creneaux->sortBy('debut')->values();
-    }
-
-    /**
-     * Premier créneau libre du jour pouvant accueillir la durée, toutes
-     * lignes confondues.
-     *
-     * @return array{ligne_planning_id: int, debut: CarbonImmutable}|null
-     */
-    public function prochainCreneau(CarbonImmutable $jour, int $dureeMinutes): ?array
-    {
-        $creneau = $this->creneauxLibres($jour, $dureeMinutes)->first();
-
-        return $creneau === null
-            ? null
-            : ['ligne_planning_id' => $creneau['ligne_planning_id'], 'debut' => $creneau['debut']];
-    }
-
-    /**
-     * Une absence validée hors garde bloque la colonne du praticien —
-     * l'instant (UTC) est ramené au jour calendaire de la clinique.
-     */
-    public function ligneEstBloquee(LignePlanning $ligne, CarbonImmutable $instant): bool
-    {
-        $jourLocal = $instant->setTimezone($this->fuseau())->toDateString();
-
-        return $ligne->employe_id !== null && Absence::query()
-            ->where('employe_id', $ligne->employe_id)
-            ->where('statut', StatutAbsence::Validee)
-            ->where('type', '!=', TypeAbsence::Garde)
-            ->whereDate('debut_le', '<=', $jourLocal)
-            ->whereDate('fin_le', '>=', $jourLocal)
-            ->exists();
-    }
-
-    /** @return list<int> */
-    private function lignesBloquees(CarbonImmutable $jourLocal): array
-    {
-        return LignePlanning::query()
-            ->whereNotNull('employe_id')
-            ->whereHas('employe.absences', fn ($requete) => $requete
-                ->where('statut', StatutAbsence::Validee)
-                ->where('type', '!=', TypeAbsence::Garde)
-                ->whereDate('debut_le', '<=', $jourLocal->toDateString())
-                ->whereDate('fin_le', '>=', $jourLocal->toDateString()))
-            ->pluck('id')
-            ->all();
     }
 
     /**
