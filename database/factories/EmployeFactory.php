@@ -7,6 +7,7 @@ use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\Organisation;
 use App\Models\Role;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
@@ -23,7 +24,8 @@ class EmployeFactory extends Factory
         return [
             // Sans dans() : une clinique neuve, dans sa propre organisation
             'organisation_id' => fn (): int => Clinique::factory()->create()->societe->organisation_id,
-            'user_id' => null,
+            // Chaque employé a son compte
+            'user_id' => User::factory(),
             'nom' => 'Dr '.$prenom.' '.$nom,
             'initiales' => Str::upper(Str::substr($prenom, 0, 1).Str::substr($nom, 0, 1)),
             'role_libelle' => 'Vétérinaire',

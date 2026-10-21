@@ -12,6 +12,7 @@ use App\Models\Employe;
 use App\Models\LignePlanning;
 use App\Models\Salle;
 use App\Models\User;
+use Database\Seeders\Concerns\ComptesDeDemo;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
@@ -23,6 +24,7 @@ use Illuminate\Support\Carbon;
  */
 class EquipeSeeder extends Seeder
 {
+    use ComptesDeDemo;
     use WithoutModelEvents;
 
     public function run(): void
@@ -53,7 +55,7 @@ class EquipeSeeder extends Seeder
         foreach ($staff as [$cle, $cliniques, $userId, $nom, $initiales, $role, $taux, $contrat, $entree, $tel, $mail, $droit, $pris]) {
             $employes[$cle] = Employe::create([
                 'organisation_id' => $organisation->id,
-                'user_id' => $userId,
+                'user_id' => $userId ?? $this->compteDeDemo($nom, $mail),
                 'nom' => $nom,
                 'initiales' => $initiales,
                 'role_libelle' => $role,

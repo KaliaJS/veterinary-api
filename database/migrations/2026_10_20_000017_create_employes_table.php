@@ -20,7 +20,10 @@ return new class extends Migration
         Schema::create('employes', function (Blueprint $table) {
             $table->id();
             $table->foreignId('organisation_id')->constrained()->restrictOnDelete();
-            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
+            // Chaque personne a son compte, sans exception (seuls les clients
+            // des cliniques peuvent ne pas en avoir) ; un compte ne se
+            // supprime pas tant qu'une fiche y est rattachée
+            $table->foreignId('user_id')->constrained()->restrictOnDelete();
             $table->string('nom');
             $table->string('initiales', 3);
             $table->string('role_libelle')->comment('« Vétérinaire », « ASV », « ASV · Accueil »…');

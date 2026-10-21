@@ -12,6 +12,7 @@ use App\Models\LignePlanning;
 use App\Models\Organisation;
 use App\Models\Societe;
 use App\Services\Photos\PhotosCliniques;
+use Database\Seeders\Concerns\ComptesDeDemo;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Http\UploadedFile;
@@ -31,6 +32,7 @@ use Illuminate\Support\Str;
  */
 class AnnuaireSeeder extends Seeder
 {
+    use ComptesDeDemo;
     use WithoutModelEvents;
 
     /** Photos Unsplash (identifiants) : consultations, bloc, laboratoire, animaux à la clinique. */
@@ -135,6 +137,7 @@ class AnnuaireSeeder extends Seeder
         // Un vétérinaire et sa colonne : l'annuaire calcule ses créneaux
         $employe = Employe::create([
             'organisation_id' => $organisation->id,
+            'user_id' => $this->compteDeDemo($veterinaire, 'veterinaire.'.$slug.'@demo.veterinary.app'),
             'nom' => $veterinaire,
             'initiales' => Str::upper(collect(explode(' ', $veterinaire))->slice(-2)->map(fn (string $mot): string => Str::substr($mot, 0, 1))->implode('')),
             'role_libelle' => 'Vétérinaire',

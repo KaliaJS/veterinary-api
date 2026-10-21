@@ -11,6 +11,7 @@ use App\Models\Patient;
 use App\Models\Produit;
 use App\Models\Sejour;
 use Carbon\CarbonImmutable;
+use Database\Seeders\Concerns\ComptesDeDemo;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -25,6 +26,7 @@ use Illuminate\Database\Seeder;
  */
 class HospitalisationSeeder extends Seeder
 {
+    use ComptesDeDemo;
     use WithoutModelEvents;
 
     /** id front produit → référence catalogue (products.js). */
@@ -98,6 +100,7 @@ class HospitalisationSeeder extends Seeder
     {
         $favre = Employe::create([
             'organisation_id' => $organisation->id,
+            'user_id' => $this->compteDeDemo('Dr Théo Favre', 't.favre@laveyre.ch'),
             'nom' => 'Dr Théo Favre',
             'initiales' => 'TF',
             'role_libelle' => 'Vétérinaire',
