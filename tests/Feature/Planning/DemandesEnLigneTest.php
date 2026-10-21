@@ -167,8 +167,46 @@ class DemandesEnLigneTest extends TestCase
         $this->assertEqualsCanonicalizing([$ouverte->id, $proposee->id, $traiteeAujourdhui->id], $ids);
     }
 
+    public function test_par_defaut_la_demande_reserve_le_rendez_vous_aussitot(): void
+    {
+        ['user' => $user, 'jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+
+        $this->postJson('/api/v1/espace/demandes', [
+            'clinique_id' => $this->clinique->id,
+            'patient_name' => 'Louison',
+            'espece' => 'RG',
+            'motif' => 'Vaccin annuel',
+            'mode' => 'place',
+            'debut_souhaite' => $this->mardi->toIso8601String(),
+        ], $this->enTetes($jetonProprietaire))
+            ->assertCreated()
+            ->assertJsonPath('data.statut', 'acceptee');
+
+        $rendezVous = RendezVous::withoutGlobalScopes()->sole();
+        $this->assertTrue($rendezVous->starts_at->equalTo($this->mardi));
+        $this->assertSame($this->ligne->id, $rendezVous->ligne_planning_id);
+        $this->assertSame('confirme', DemandeRendezVous::withoutGlobalScopes()->sole()->mode->value);
+        Mail::assertSent(DemandeRendezVousAcceptee::class, fn ($mail) => $mail->hasTo($user->email));
+        Mail::assertNotSent(DemandeRendezVousEnvoyee::class);
+
+        // La même heure, prise entre-temps : refusée, rien n'est créé
+        $this->postJson('/api/v1/espace/demandes', [
+            'clinique_id' => $this->clinique->id,
+            'patient_name' => 'Pacha',
+            'espece' => 'CT',
+            'motif' => 'Contrôle',
+            'mode' => 'place',
+            'debut_souhaite' => $this->mardi->toIso8601String(),
+        ], $this->enTetes($jetonProprietaire))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('debut_souhaite');
+        $this->assertSame(1, DemandeRendezVous::withoutGlobalScopes()->count());
+    }
+
     public function test_le_proprietaire_suit_sa_demande_et_choisit_un_horaire_propose(): void
     {
+        // La clinique valide chaque rendez-vous : la demande attend sa réponse
+        $this->clinique->update(['rdv_a_valider' => true]);
         ['user' => $user, 'jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
         $animal = Patient::factory()->create(['organisation_id' => null, 'client_id' => null, 'proprietaire_id' => $user->id, 'nom' => 'Louison']);
 

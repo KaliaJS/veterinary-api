@@ -49,6 +49,9 @@ class SitePublicController extends Controller
                 'latitude' => $clinique->latitude === null ? null : (float) $clinique->latitude,
                 'longitude' => $clinique->longitude === null ? null : (float) $clinique->longitude,
                 'horaires' => $horaires->pour($clinique),
+                // Prise de rendez-vous : sans compte acceptée, réservée aussitôt ou à valider
+                'rdv_sans_compte' => $clinique->rdv_sans_compte,
+                'rdv_a_valider' => $clinique->rdv_a_valider,
             ])->values()->all(),
         ]]);
     }

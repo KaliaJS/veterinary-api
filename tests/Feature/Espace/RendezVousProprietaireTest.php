@@ -152,7 +152,8 @@ class RendezVousProprietaireTest extends TestCase
     public function test_une_demande_de_rendez_vous_est_deposee_pour_un_animal_du_compte_ou_un_nom_libre(): void
     {
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Anna Meyer']);
-        $clinique = Clinique::factory()->create();
+        // Elle valide chaque rendez-vous : la demande reste dans sa file
+        $clinique = Clinique::factory()->create(['rdv_a_valider' => true]);
         $fiche = Client::factory()->create(['user_id' => $user->id, 'organisation_id' => $clinique->societe->organisation_id]);
         $max = Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Max']);
         $debut = now()->addDays(2)->setTime(14, 30);
@@ -172,7 +173,7 @@ class RendezVousProprietaireTest extends TestCase
         $this->assertDatabaseHas('demandes_rendez_vous', ['clinique_id' => $clinique->id, 'patient_id' => $max->id, 'client_id' => $fiche->id, 'reason' => 'Vaccination', 'mode' => 'valider']);
 
         // Nom libre, en visio, dans une clinique où le compte n'a pas de fiche.
-        $autreClinique = Clinique::factory()->create();
+        $autreClinique = Clinique::factory()->create(['rdv_a_valider' => true]);
         $this->postJson('/api/v1/espace/demandes', [
             'clinique_id' => $autreClinique->id,
             'debut_souhaite' => $debut->toIso8601String(),
@@ -197,7 +198,7 @@ class RendezVousProprietaireTest extends TestCase
     public function test_une_urgence_dit_ce_que_voit_le_proprietaire(): void
     {
         ['jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Anna Meyer']);
-        $clinique = Clinique::factory()->create();
+        $clinique = Clinique::factory()->create(['rdv_a_valider' => true]);
         $demande = [
             'clinique_id' => $clinique->id,
             'debut_souhaite' => now()->addDay()->setTime(9, 0)->toIso8601String(),

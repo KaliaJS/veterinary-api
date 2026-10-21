@@ -66,10 +66,12 @@ class ServicesCliniqueTest extends TestCase
             ->assertJsonPath('data.especes', ['CH', 'CT'])
             ->assertJsonPath('data.affiche_veterinaires', false)
             // Rendez-vous sans compte : non par défaut, inchangé s'il n'est pas envoyé
-            ->assertJsonPath('data.rdv_sans_compte', false);
+            ->assertJsonPath('data.rdv_sans_compte', false)
+            // Rendez-vous en ligne réservés aussitôt, sauf si la clinique les valide
+            ->assertJsonPath('data.rdv_a_valider', false);
 
-        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", [...$this->reglage([['service' => 'hospitalisation']], boxes: 6), 'rdv_sans_compte' => true], $entetes)
-            ->assertOk()->assertJsonPath('data.rdv_sans_compte', true);
+        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", [...$this->reglage([['service' => 'hospitalisation']], boxes: 6), 'rdv_sans_compte' => true, 'rdv_a_valider' => true], $entetes)
+            ->assertOk()->assertJsonPath('data.rdv_sans_compte', true)->assertJsonPath('data.rdv_a_valider', true);
         $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", $this->reglage([
             ['service' => 'hospitalisation'],
             ['service' => 'urgences', 'modalite' => 'permanence'],
@@ -126,7 +128,7 @@ class ServicesCliniqueTest extends TestCase
     public function test_la_boutique_et_la_visio_publiques_suivent_les_services(): void
     {
         ['jeton' => $proprietaire] = $this->proprietaireAvecJeton();
-        $avec = Clinique::factory()->create(['nom' => 'Avec boutique']);
+        $avec = Clinique::factory()->create(['nom' => 'Avec boutique', 'rdv_a_valider' => true]);
         $sans = Clinique::factory()->sansServices()->create(['nom' => 'Sans rien']);
         $entetes = $this->enTetes($proprietaire);
 

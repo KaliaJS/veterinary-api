@@ -48,6 +48,8 @@ class SiteWebResource extends JsonResource
                     'ville' => $clinique->ville,
                     // Pour l'aperçu de l'éditeur : mêmes horaires que le site public.
                     'horaires' => app(HorairesSiteWeb::class)->pour($clinique),
+                    'rdv_sans_compte' => $clinique->rdv_sans_compte,
+                    'rdv_a_valider' => $clinique->rdv_a_valider,
                 ])->values()->all(),
         ];
     }

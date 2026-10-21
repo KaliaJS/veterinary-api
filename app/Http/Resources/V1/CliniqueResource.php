@@ -50,6 +50,8 @@ class CliniqueResource extends JsonResource
                 ->values()->all(),
             'affiche_veterinaires' => $this->affiche_veterinaires,
             'rdv_sans_compte' => $this->rdv_sans_compte,
+            // Rendez-vous en ligne : réservés aussitôt (défaut), ou chacun validé par la clinique
+            'rdv_a_valider' => $this->rdv_a_valider,
             // Photo : grande version, largeurs pour `srcset`, aperçu flou
             'photo' => PhotosCliniques::pour($this->resource),
             // Dans l'annuaire des cliniques, ou ce qui manque pour y paraître

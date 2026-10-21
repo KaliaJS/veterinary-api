@@ -21,14 +21,18 @@ use App\Models\HoraireOuverture;
 use App\Models\Patient;
 use App\Models\SiteWeb;
 use App\Models\SpecialiteVeterinaire;
+use App\Models\User;
 use App\Services\CalculateurCreneaux;
 use App\Services\Photos\PhotosCliniques;
+use App\Services\TraitementDemande;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Prendre rendez-vous : annuaire de toutes les cliniques (carte du
@@ -133,6 +137,8 @@ class CliniqueProprietaireController extends Controller
                 ->values()->all(),
             // Demandes de rendez-vous sans compte acceptées (non par défaut)
             'rdv_sans_compte' => $clinique->rdv_sans_compte,
+            // Rendez-vous réservé aussitôt (défaut), ou demande que la clinique valide
+            'rdv_a_valider' => $clinique->rdv_a_valider,
             // null : la clinique ne montre pas ses vétérinaires (les icônes seules)
             'veterinaires' => $clinique->affiche_veterinaires
                 ? $verifies->map(fn (Employe $fiche): array => [
@@ -161,7 +167,7 @@ class CliniqueProprietaireController extends Controller
         $nomProprietaire = trim((string) ($donnees['nom_proprietaire'] ?? ''))
             ?: ($fiche ? trim($fiche->prenom.' '.$fiche->nom) : $user->name);
 
-        return $this->enregistrer($clinique, $donnees, $sousContexte, [
+        return $this->enregistrer($clinique, $donnees, $sousContexte, auteur: $user, qui: [
             'patient_id' => $patient?->id,
             'client_id' => $fiche?->id ?? $patient?->client_id,
             'user_id' => $user->id,
@@ -195,27 +201,51 @@ class CliniqueProprietaireController extends Controller
      * @param  array<string, mixed>  $donnees
      * @param  array<string, mixed>  $qui  animal et propriétaire
      */
-    private function enregistrer(Clinique $clinique, array $donnees, SousContexteClinique $sousContexte, array $qui): JsonResponse
+    private function enregistrer(Clinique $clinique, array $donnees, SousContexteClinique $sousContexte, array $qui, ?User $auteur = null): JsonResponse
     {
         $debut = CarbonImmutable::parse($donnees['debut_souhaite'])->setTimezone($clinique->fuseau_horaire ?? 'Europe/Zurich');
         $urgence = (bool) ($donnees['urgence'] ?? false);
+        // Par défaut, l'heure libre est réservée aussitôt ; la clinique peut
+        // préférer valider chaque rendez-vous (cliniques.rdv_a_valider)
+        $reserver = ! $clinique->rdv_a_valider;
 
-        $demande = $sousContexte->pour($clinique, fn (): DemandeRendezVous => DemandeRendezVous::create([
-            ...$qui,
-            'reason' => $donnees['motif'],
-            'urgence' => $urgence,
-            'symptomes' => $urgence ? trim((string) ($donnees['symptomes'] ?? '')) : null,
-            'souhait' => ($donnees['mode'] === 'visio' ? 'Téléconsultation vidéo' : 'Sur place').' · '.$debut->format('d.m.Y à H:i').(isset($qui['email']) ? ' (sans compte)' : ' (espace client)'),
-            'debut_souhaite' => $debut->utc(),
-            'teleconsultation' => $donnees['mode'] === 'visio',
-            'mode' => ModeDemandeRendezVous::AValider,
-            'duree_minutes' => self::DUREE_MINUTES,
-        ]));
+        $demande = $sousContexte->pour($clinique, function () use ($qui, $donnees, $urgence, $debut, $reserver, $auteur): DemandeRendezVous {
+            $traitement = app(TraitementDemande::class);
+            $ligne = $reserver ? $traitement->ligneLibreA($debut->utc(), self::DUREE_MINUTES) : null;
 
-        // Accusé de réception, avec le lien où suivre la réponse
-        $adresse = $demande->load(['clinique', 'user'])->adresseDuProprietaire();
-        if ($adresse) {
-            Mail::to($adresse)->send(new DemandeRendezVousEnvoyee($demande));
+            if ($reserver && $ligne === null) {
+                throw ValidationException::withMessages(['debut_souhaite' => 'Cette heure vient d’être prise : choisissez-en une autre.']);
+            }
+
+            return DB::transaction(function () use ($qui, $donnees, $urgence, $debut, $reserver, $auteur, $traitement, $ligne): DemandeRendezVous {
+                $demande = DemandeRendezVous::create([
+                    ...$qui,
+                    'reason' => $donnees['motif'],
+                    'urgence' => $urgence,
+                    'symptomes' => $urgence ? trim((string) ($donnees['symptomes'] ?? '')) : null,
+                    'souhait' => ($donnees['mode'] === 'visio' ? 'Téléconsultation vidéo' : 'Sur place').' · '.$debut->format('d.m.Y à H:i').(isset($qui['email']) ? ' (sans compte)' : ' (espace client)'),
+                    'debut_souhaite' => $debut->utc(),
+                    'teleconsultation' => $donnees['mode'] === 'visio',
+                    // Réservée par le client (confirme), ou à valider par la clinique
+                    'mode' => $reserver ? ModeDemandeRendezVous::Confirmee : ModeDemandeRendezVous::AValider,
+                    'duree_minutes' => self::DUREE_MINUTES,
+                ]);
+
+                // Le rendez-vous est pris, le propriétaire reçoit la confirmation
+                if ($reserver) {
+                    $traitement->accepter($demande->load(['clinique', 'user']), $debut, $ligne, $auteur);
+                }
+
+                return $demande;
+            });
+        });
+
+        // À valider : accusé de réception, avec le lien où suivre la réponse
+        if (! $reserver) {
+            $adresse = $demande->load(['clinique', 'user'])->adresseDuProprietaire();
+            if ($adresse) {
+                Mail::to($adresse)->send(new DemandeRendezVousEnvoyee($demande));
+            }
         }
 
         return response()->json(['data' => [
@@ -226,6 +256,9 @@ class CliniqueProprietaireController extends Controller
             'patient_name' => $demande->patient_name,
             'motif' => $demande->reason,
             'urgence' => $demande->urgence,
+            // `acceptee` : le rendez-vous est réservé ; `a_traiter` : la clinique répond
+            'statut' => $demande->refresh()->statut,
+            'rendez_vous_id' => $demande->rendez_vous_id,
         ]], 201);
     }
 
