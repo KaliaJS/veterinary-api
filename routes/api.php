@@ -96,6 +96,8 @@ use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PhotoCliniqueController;
 use App\Http\Controllers\Api\V1\PhotoEmployeController;
 use App\Http\Controllers\Api\V1\PhotoPatientController;
+use App\Http\Controllers\Api\V1\Plateforme\OrganisationPlateformeController;
+use App\Http\Controllers\Api\V1\Plateforme\VeterinairePlateformeController;
 use App\Http\Controllers\Api\V1\PremiersPasController;
 use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
@@ -162,11 +164,23 @@ Route::prefix('v1')->group(function (): void {
         // Profil vétérinaire du compte : GLN (cherché dans MedReg) et spécialités
         Route::get('profil-veterinaire', [ProfilVeterinaireController::class, 'afficher']);
         Route::put('profil-veterinaire', [ProfilVeterinaireController::class, 'modifier'])->middleware('throttle:20,1');
+        Route::post('profil-veterinaire/verification', [ProfilVeterinaireController::class, 'demanderVerification'])->middleware('throttle:5,1');
 
         Route::get('passkeys', [PasskeyController::class, 'index']);
         Route::post('passkeys/options', [PasskeyController::class, 'options']);
         Route::post('passkeys', [PasskeyController::class, 'enregistrer']);
         Route::delete('passkeys/{passkey}', [PasskeyController::class, 'supprimer']);
+    });
+
+    // Espace Plateforme : réservé aux modérateurs de Veterinary (rôle donné
+    // par la commande plateforme:moderateur), hors contexte clinique.
+    Route::prefix('plateforme')->middleware(['auth:sanctum', 'moderateur'])->group(function (): void {
+        Route::get('veterinaires', [VeterinairePlateformeController::class, 'index']);
+        Route::get('veterinaires/{user}', [VeterinairePlateformeController::class, 'show'])->whereNumber('user');
+        Route::post('veterinaires/{user}/decision', [VeterinairePlateformeController::class, 'decider'])->whereNumber('user');
+        Route::get('organisations', [OrganisationPlateformeController::class, 'index']);
+        Route::post('organisations/{organisation}/valider', [OrganisationPlateformeController::class, 'valider'])->whereNumber('organisation');
+        Route::post('organisations/{organisation}/refuser', [OrganisationPlateformeController::class, 'refuser'])->whereNumber('organisation');
     });
 
     // Invitation à rejoindre une équipe : tout compte connecté, avec ou

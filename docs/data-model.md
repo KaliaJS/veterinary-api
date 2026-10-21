@@ -230,6 +230,15 @@ Chaque personne qui travaille dans l'application a son compte, sans exception : 
 - **Code employé** : la personne donne le code de son compte (`POST /equipe/employes`, vérifié d'abord par `GET /equipe/comptes/{code}`).
 - **Invitation par e-mail** : `invitations_employe` (organisation, `email` en minuscules, `nom`, `donnees` de la fiche à créer, empreinte SHA-256 du jeton du lien, `invitee_par`, `expire_le` à 14 jours, `acceptee_le`/`employe_id`, `annulee_le`). `POST /equipe/invitations` envoie l'e-mail (une nouvelle invitation à la même adresse remplace la précédente), `GET` liste celles en attente, `…/renvoyer` change le lien, `DELETE` annule. La personne ouvre `/invitation/{jeton}`, se connecte avec l'adresse invitée (son compte naît alors s'il n'existe pas), et `POST /invitations/{jeton}/accepter` crée sa fiche ; seule l'adresse invitée peut accepter. Rien n'est créé avant.
 
+### Vérification manuelle des vétérinaires, espace Plateforme (21.10.2026)
+
+Le registre MedReg confirme qu'un GLN existe au nom du compte, pas que la personne est ce vétérinaire. La plateforme vérifie donc à la main et appose un badge « Vérifié manuellement » :
+
+- **`users.verification_veterinaire`** (`StatutVerificationVeterinaire` : `en_attente`, `verifie`, `refuse`, null) et `verification_veterinaire_le`. Le vétérinaire demande depuis son profil (`POST /auth/profil-veterinaire/verification`, GLN requis ; les modérateurs reçoivent un e-mail à `plateforme.verification_email`). Changer de GLN retire le badge.
+- **`decisions_verification`** : l'historique (demandée, vérifié, refusé, badge retiré), avec le modérateur et le motif (obligatoire pour refuser ou retirer, montré au vétérinaire).
+- **`users.est_moderateur`** : rôle de modérateur, donné seulement par `php artisan plateforme:moderateur email [--retirer]`, jamais depuis l'application.
+- **Espace Plateforme** (`/api/v1/plateforme`, middleware `moderateur`) : `GET veterinaires?statut=`, `GET veterinaires/{id}` (MedReg consulté en direct, historique), `POST veterinaires/{id}/decision` ; `GET organisations?verification=`, `POST organisations/{id}/valider|refuser` (les mêmes décisions que les liens de l'e-mail de vérification des cliniques).
+
 ### Services, animaux soignés, spécialités (21.10.2026)
 
 Ce qu'une clinique propose, coché par l'administrateur (écran Organisation, `PUT /organisation/cliniques/{id}/services`, domaine `organisation`, tout l'état d'un coup) :

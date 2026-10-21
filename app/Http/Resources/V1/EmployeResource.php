@@ -29,6 +29,8 @@ class EmployeResource extends JsonResource
             'role_libelle' => $this->role_libelle,
             // Spécialités : celles d'un vétérinaire de métier (intitulé)
             'est_veterinaire' => $this->estVeterinaire(),
+            // Badge « Vérifié manuellement » de la plateforme
+            'verifie' => (bool) $this->user?->estVerifie(),
             // Celles que le vétérinaire déclare sur son compte
             'specialites' => ($this->user?->specialites ?? collect())
                 ->sortBy(fn (SpecialiteVeterinaire $ligne): int => array_search($ligne->specialite, Specialite::cases(), true))

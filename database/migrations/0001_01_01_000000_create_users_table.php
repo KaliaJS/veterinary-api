@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\StatutVerificationVeterinaire;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -18,6 +19,9 @@ return new class extends Migration
             $table->string('gln', 13)->nullable()->comment('GLN du vétérinaire, retrouvé dans MedReg ou validé à la main');
             $table->unsignedInteger('medreg_id')->nullable();
             $table->timestamp('gln_verifie_le')->nullable();
+            $table->enum('verification_veterinaire', array_column(StatutVerificationVeterinaire::cases(), 'value'))->nullable()->comment('Vérification manuelle par la plateforme (badge) : en_attente, verifie, refuse');
+            $table->timestamp('verification_veterinaire_le')->nullable()->comment('Dernière demande ou décision');
+            $table->boolean('est_moderateur')->default(false)->comment('Modérateur de la plateforme Veterinary : donné par commande, jamais par l’application');
             $table->char('code_employe', 6)->nullable()->unique()->comment('Code court que la personne donne pour être embauchée (« K7F3QZ », affiché « K7F-3QZ »)');
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');

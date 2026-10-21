@@ -24,6 +24,8 @@ class UtilisateurResource extends JsonResource
             'last' => $this->nomFamille(),
             // À donner à une clinique pour s'y faire embaucher
             'code_employe' => User::formaterCodeEmploye($this->codeEmploye()),
+            // Ouvre l'espace Plateforme (vérifications)
+            'est_moderateur' => (bool) $this->est_moderateur,
         ];
     }
 }

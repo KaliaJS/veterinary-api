@@ -3,6 +3,8 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Enums\DecisionVerification as Decision;
+use App\Enums\StatutVerificationVeterinaire;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -10,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 
@@ -41,7 +44,34 @@ class User extends Authenticatable
             'apple_fin' => 'datetime',
             'apple_renouvelle' => 'boolean',
             'gln_verifie_le' => 'datetime',
+            'verification_veterinaire' => StatutVerificationVeterinaire::class,
+            'verification_veterinaire_le' => 'datetime',
+            'est_moderateur' => 'boolean',
         ];
+    }
+
+    /** Vétérinaire vérifié à la main par la plateforme (badge « Vérifié manuellement »). */
+    public function estVerifie(): bool
+    {
+        return $this->verification_veterinaire === StatutVerificationVeterinaire::Verifie;
+    }
+
+    /**
+     * Demande ou décision de vérification : le statut du compte change
+     * et l'historique garde qui, quand et pourquoi.
+     */
+    public function consignerVerification(Decision $decision, ?StatutVerificationVeterinaire $statut, ?string $note = null, ?User $moderateur = null): void
+    {
+        DB::transaction(function () use ($decision, $statut, $note, $moderateur): void {
+            $this->forceFill(['verification_veterinaire' => $statut, 'verification_veterinaire_le' => now()])->save();
+            $this->decisionsVerification()->create(['decision' => $decision, 'note' => $note, 'moderateur_id' => $moderateur?->id]);
+        });
+    }
+
+    /** @return HasMany<DecisionVerification, $this> */
+    public function decisionsVerification(): HasMany
+    {
+        return $this->hasMany(DecisionVerification::class)->latest()->latest('id');
     }
 
     /** Plus payé par Stripe (site) : abonnement en cours, même résilié d'ici la fin du mois. */

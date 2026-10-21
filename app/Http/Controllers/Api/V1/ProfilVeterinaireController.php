@@ -2,15 +2,19 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\DecisionVerification;
 use App\Enums\Specialite;
+use App\Enums\StatutVerificationVeterinaire;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Auth\ModifierProfilVeterinaireRequest;
+use App\Mail\VerificationVeterinaireAFaire;
 use App\Models\SpecialiteVeterinaire;
 use App\Models\User;
 use App\Services\Inscription\VerificationVeterinaire;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -37,6 +41,10 @@ class ProfilVeterinaireController extends Controller
         $registre = null;
 
         if ($gln !== $compte->gln) {
+            // Le badge vaut pour un GLN : en changer, c'est à revérifier
+            if ($compte->verification_veterinaire !== null) {
+                $compte->consignerVerification(DecisionVerification::Retire, null, 'GLN modifié par le vétérinaire');
+            }
             if ($gln === null) {
                 $compte->forceFill(['gln' => null, 'medreg_id' => null, 'gln_verifie_le' => null])->save();
             } else {
@@ -65,13 +73,44 @@ class ProfilVeterinaireController extends Controller
         return response()->json(['data' => [...$this->profil($compte->fresh()), 'registre_resultat' => $registre]]);
     }
 
+    /**
+     * Demande de vérification manuelle à la plateforme (badge « Vérifié
+     * manuellement ») : il faut un GLN ; les modérateurs sont prévenus.
+     */
+    public function demanderVerification(Request $request): JsonResponse
+    {
+        $compte = $request->user();
+        if ($compte->gln === null) {
+            throw ValidationException::withMessages(['gln' => 'Indiquez d’abord votre GLN.']);
+        }
+        if (in_array($compte->verification_veterinaire, [StatutVerificationVeterinaire::EnAttente, StatutVerificationVeterinaire::Verifie], true)) {
+            throw ValidationException::withMessages(['verification' => 'Votre vérification est déjà demandée ou faite.']);
+        }
+
+        $compte->consignerVerification(DecisionVerification::Demandee, StatutVerificationVeterinaire::EnAttente);
+        $destinataire = config('plateforme.verification_email');
+        if ($destinataire) {
+            Mail::to($destinataire)->send(new VerificationVeterinaireAFaire($compte));
+        }
+
+        return response()->json(['data' => $this->profil($compte->fresh())]);
+    }
+
     /** @return array<string, mixed> */
     private function profil(User $compte): array
     {
+        $derniere = $compte->decisionsVerification()->first();
+
         return [
             'gln' => $compte->gln,
             // Trouvé dans MedReg au nom du compte
             'gln_au_registre' => $compte->gln_verifie_le !== null,
+            // Vérification manuelle par la plateforme (badge)
+            'verification' => [
+                'statut' => $compte->verification_veterinaire?->value,
+                'le' => $compte->verification_veterinaire_le?->toIso8601String(),
+                'note' => $derniere?->decision === DecisionVerification::Refuse || $derniere?->decision === DecisionVerification::Retire ? $derniere->note : null,
+            ],
             'specialites' => $compte->specialites()->get()
                 ->sortBy(fn (SpecialiteVeterinaire $ligne): int => array_search($ligne->specialite, Specialite::cases(), true))
                 ->map(fn (SpecialiteVeterinaire $ligne): string => $ligne->specialite->value)
