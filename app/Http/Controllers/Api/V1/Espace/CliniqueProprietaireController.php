@@ -180,16 +180,30 @@ class CliniqueProprietaireController extends Controller
         ]);
     }
 
+    /** « Personnaliser » : le délai et le moment, tels que la clinique les lit */
+    private const PERIODES = [
+        'cette_semaine' => 'cette semaine',
+        'semaine_prochaine' => 'la semaine prochaine',
+        'deux_semaines' => 'dans 2 semaines',
+        'un_mois' => 'dans un mois',
+    ];
+
+    private const MOMENTS = ['matin' => 'le matin', 'apres_midi' => 'l’après-midi'];
+
     /**
-     * La demande dans la file de la clinique : le créneau souhaité, le
-     * mode, le motif, et pour une urgence ce que voit le propriétaire.
+     * La demande dans la file de la clinique : le créneau souhaité (ou un
+     * jour, ou un délai), le mode, le motif, et pour une urgence ce que
+     * voit le propriétaire.
      *
      * @param  array<string, mixed>  $donnees
      * @param  array<string, mixed>  $qui  animal et propriétaire
      */
     private function enregistrer(Clinique $clinique, array $donnees, SousContexteClinique $sousContexte, array $qui): JsonResponse
     {
-        $debut = CarbonImmutable::parse($donnees['debut_souhaite'])->setTimezone($clinique->fuseau_horaire ?? 'Europe/Zurich');
+        $debut = isset($donnees['debut_souhaite'])
+            ? CarbonImmutable::parse($donnees['debut_souhaite'])->setTimezone($clinique->fuseau_horaire ?? 'Europe/Zurich')
+            : null;
+        $quand = $debut?->format('d.m.Y à H:i') ?? $this->souhaitLibre($donnees);
         $urgence = (bool) ($donnees['urgence'] ?? false);
 
         $demande = $sousContexte->pour($clinique, fn (): DemandeRendezVous => DemandeRendezVous::create([
@@ -197,7 +211,7 @@ class CliniqueProprietaireController extends Controller
             'reason' => $donnees['motif'],
             'urgence' => $urgence,
             'symptomes' => $urgence ? trim((string) ($donnees['symptomes'] ?? '')) : null,
-            'souhait' => ($donnees['mode'] === 'visio' ? 'Téléconsultation vidéo' : 'Sur place').' · '.$debut->format('d.m.Y à H:i').(isset($qui['email']) ? ' (sans compte)' : ' (espace client)'),
+            'souhait' => ($donnees['mode'] === 'visio' ? 'Téléconsultation vidéo' : 'Sur place').' · '.$quand.(isset($qui['email']) ? ' (sans compte)' : ' (espace client)'),
             'mode' => ModeDemandeRendezVous::AValider,
             'duree_minutes' => self::DUREE_MINUTES,
         ]));
@@ -205,12 +219,28 @@ class CliniqueProprietaireController extends Controller
         return response()->json(['data' => [
             'demande_id' => $demande->id,
             'clinique' => ['id' => $clinique->id, 'nom' => $clinique->nom, 'ville' => $clinique->ville],
-            'debut_souhaite' => $debut->toIso8601String(),
+            'debut_souhaite' => $debut?->toIso8601String(),
+            'souhait' => $quand,
             'mode' => $donnees['mode'],
             'patient_name' => $demande->patient_name,
             'motif' => $demande->reason,
             'urgence' => $demande->urgence,
         ]], 201);
+    }
+
+    /**
+     * « le 28.10.2026, le matin », « la semaine prochaine » : le souhait
+     * d'un propriétaire à qui aucun créneau ne convient.
+     *
+     * @param  array<string, mixed>  $donnees
+     */
+    private function souhaitLibre(array $donnees): string
+    {
+        $quand = isset($donnees['jour_souhaite'])
+            ? 'le '.CarbonImmutable::parse($donnees['jour_souhaite'])->format('d.m.Y')
+            : self::PERIODES[$donnees['periode']];
+
+        return isset($donnees['moment']) ? $quand.', '.self::MOMENTS[$donnees['moment']] : $quand;
     }
 
     /**

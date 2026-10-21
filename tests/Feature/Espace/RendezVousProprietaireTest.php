@@ -220,4 +220,32 @@ class RendezVousProprietaireTest extends TestCase
             ->assertCreated()->assertJsonPath('data.urgence', false);
         $this->assertDatabaseHas('demandes_rendez_vous', ['patient_name' => 'Rex', 'urgence' => false, 'symptomes' => null]);
     }
+
+    public function test_sans_creneau_qui_convient_le_proprietaire_dit_quand(): void
+    {
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Anna Meyer']);
+        $clinique = Clinique::factory()->create();
+        $demande = ['clinique_id' => $clinique->id, 'mode' => 'place', 'patient_name' => 'Nala', 'espece' => 'CH', 'motif' => 'Vaccination'];
+
+        // Un délai et le moment de la journée
+        $this->postJson('/api/v1/espace/demandes', [...$demande, 'periode' => 'semaine_prochaine', 'moment' => 'matin'], $this->enTetes($jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.debut_souhaite', null)
+            ->assertJsonPath('data.souhait', 'la semaine prochaine, le matin');
+        $this->assertDatabaseHas('demandes_rendez_vous', ['patient_name' => 'Nala', 'souhait' => 'Sur place · la semaine prochaine, le matin (espace client)']);
+
+        // Un jour précis
+        $jour = now()->addDays(9)->toDateString();
+        $this->postJson('/api/v1/espace/demandes', [...$demande, 'patient_name' => 'Rex', 'jour_souhaite' => $jour], $this->enTetes($jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.souhait', 'le '.now()->addDays(9)->format('d.m.Y'));
+
+        // Ni créneau, ni jour, ni délai ; un jour passé ; un délai inconnu
+        $this->postJson('/api/v1/espace/demandes', $demande, $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('debut_souhaite');
+        $this->postJson('/api/v1/espace/demandes', [...$demande, 'jour_souhaite' => now()->subDay()->toDateString()], $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('jour_souhaite');
+        $this->postJson('/api/v1/espace/demandes', [...$demande, 'periode' => 'un_jour'], $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('periode');
+    }
 }
