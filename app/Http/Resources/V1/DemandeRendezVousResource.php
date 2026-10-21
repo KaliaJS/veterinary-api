@@ -21,7 +21,12 @@ class DemandeRendezVousResource extends JsonResource
             'patient_name' => $this->patient_name,
             'species' => $this->species,
             'owner_name' => $this->owner_name,
+            // Demande sans compte : de quoi répondre au propriétaire
+            'email' => $this->email,
+            'telephone' => $this->telephone,
             'reason' => $this->reason,
+            'urgence' => $this->urgence,
+            'symptomes' => $this->symptomes,
             'souhait' => $this->souhait,
             'mode' => $this->mode,
             'duree_minutes' => $this->duree_minutes,

@@ -31,6 +31,7 @@ class ModifierServicesCliniqueRequest extends FormRequest
                 'nullable', 'integer', 'between:1,50',
             ],
             'affiche_veterinaires' => ['required', 'boolean'],
+            'rdv_sans_compte' => ['sometimes', 'boolean'],
         ];
     }
 

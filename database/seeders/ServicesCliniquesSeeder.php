@@ -17,8 +17,9 @@ use Illuminate\Database\Seeder;
  * propose tout, Le Lac presque tout, le Cabinet du Jorat est rural ; les
  * cliniques de l'annuaire reçoivent des profils variés mais toujours les
  * mêmes (tirés de leur nom). Vétérinaires du Léman ne montre pas ses
- * vétérinaires dans l'annuaire (seulement leurs spécialités). Idempotent :
- * rejouable sur une base remplie.
+ * vétérinaires dans l'annuaire (seulement leurs spécialités) ; Le Lac
+ * accepte les rendez-vous sans compte. Idempotent : rejouable sur une base
+ * remplie.
  */
 class ServicesCliniquesSeeder extends Seeder
 {
@@ -43,6 +44,9 @@ class ServicesCliniquesSeeder extends Seeder
     /** Clinique qui garde ses vétérinaires hors de l'annuaire */
     private const SANS_VETERINAIRES_AFFICHES = 'Vétérinaires du Léman';
 
+    /** Clinique qui accepte les demandes de rendez-vous sans compte */
+    private const RDV_SANS_COMPTE = 'Le Lac';
+
     public function run(): void
     {
         Clinique::withoutGlobalScopes()->orderBy('id')->get()->each(function (Clinique $clinique): void {
@@ -62,6 +66,9 @@ class ServicesCliniquesSeeder extends Seeder
             }
             if ($clinique->nom === self::SANS_VETERINAIRES_AFFICHES) {
                 $clinique->update(['affiche_veterinaires' => false]);
+            }
+            if ($clinique->nom === self::RDV_SANS_COMPTE) {
+                $clinique->update(['rdv_sans_compte' => true]);
             }
         });
 

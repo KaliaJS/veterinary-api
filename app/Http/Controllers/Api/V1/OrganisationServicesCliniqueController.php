@@ -47,6 +47,7 @@ class OrganisationServicesCliniqueController extends Controller
             $fiche->update([
                 'nombre_boxes' => $boxes,
                 'affiche_veterinaires' => $request->boolean('affiche_veterinaires'),
+                'rdv_sans_compte' => $request->has('rdv_sans_compte') ? $request->boolean('rdv_sans_compte') : $fiche->rdv_sans_compte,
             ]);
 
             $fiche->services()->whereNotIn('service', $codes)->delete();

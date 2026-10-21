@@ -49,6 +49,7 @@ class CliniqueResource extends JsonResource
                 ->map(fn (CliniqueEspece $ligne): string => $ligne->espece->value)
                 ->values()->all(),
             'affiche_veterinaires' => $this->affiche_veterinaires,
+            'rdv_sans_compte' => $this->rdv_sans_compte,
             // Photo : grande version, largeurs pour `srcset`, aperçu flou
             'photo' => PhotosCliniques::pour($this->resource),
             // Dans l'annuaire des cliniques, ou ce qui manque pour y paraître

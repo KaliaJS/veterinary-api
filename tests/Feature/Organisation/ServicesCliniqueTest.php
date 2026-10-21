@@ -64,7 +64,17 @@ class ServicesCliniqueTest extends TestCase
                 ['service' => 'urgences', 'modalite' => 'permanence'],
             ])
             ->assertJsonPath('data.especes', ['CH', 'CT'])
-            ->assertJsonPath('data.affiche_veterinaires', false);
+            ->assertJsonPath('data.affiche_veterinaires', false)
+            // Rendez-vous sans compte : non par défaut, inchangé s'il n'est pas envoyé
+            ->assertJsonPath('data.rdv_sans_compte', false);
+
+        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", [...$this->reglage([['service' => 'hospitalisation']], boxes: 6), 'rdv_sans_compte' => true], $entetes)
+            ->assertOk()->assertJsonPath('data.rdv_sans_compte', true);
+        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", $this->reglage([
+            ['service' => 'hospitalisation'],
+            ['service' => 'urgences', 'modalite' => 'permanence'],
+        ], boxes: 6, affiche: false), $entetes)
+            ->assertOk()->assertJsonPath('data.rdv_sans_compte', true);
 
         $this->getJson('/api/v1/hospitalisation/sejours', $entetes)->assertOk();
         $this->getJson('/api/v1/bloc/interventions', $entetes)->assertForbidden();

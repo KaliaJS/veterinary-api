@@ -13,7 +13,8 @@ use Illuminate\Validation\Validator;
 /**
  * Demande de rendez-vous depuis la carte (proto « FINALISER ») : une
  * clinique, un créneau souhaité, un animal du compte OU un nom libre
- * avec son espèce, un motif, sur place ou en visio.
+ * avec son espèce, un motif, sur place ou en visio. Une urgence dit ce
+ * que le propriétaire voit (symptômes).
  */
 class DeposerDemandeRendezVousRequest extends FormRequest
 {
@@ -31,6 +32,16 @@ class DeposerDemandeRendezVousRequest extends FormRequest
             'espece' => ['required_without:patient_id', 'nullable', Rule::enum(Espece::class)],
             'motif' => ['required', 'string', 'max:120'],
             'nom_proprietaire' => ['nullable', 'string', 'max:120'],
+            ...self::reglesUrgence(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    protected static function reglesUrgence(): array
+    {
+        return [
+            'urgence' => ['sometimes', 'boolean'],
+            'symptomes' => ['nullable', 'required_if_accepted:urgence', 'string', 'max:2000'],
         ];
     }
 
@@ -54,6 +65,7 @@ class DeposerDemandeRendezVousRequest extends FormRequest
         return [
             'patient_name.required_without' => 'Indiquez le nom de votre animal',
             'patient_id.in' => 'Cet animal n’est pas dans votre compte.',
+            'symptomes.required_if_accepted' => 'Dites ce que vous voyez : la clinique se prépare avant votre arrivée.',
         ];
     }
 }

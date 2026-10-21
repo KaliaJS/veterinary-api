@@ -192,4 +192,32 @@ class RendezVousProprietaireTest extends TestCase
         $this->postJson('/api/v1/espace/demandes', ['clinique_id' => $clinique->id, 'debut_souhaite' => $debut->toIso8601String(), 'mode' => 'place', 'patient_id' => $intrus->id, 'motif' => 'Consultation'], $this->enTetes($jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('patient_id');
     }
+
+    public function test_une_urgence_dit_ce_que_voit_le_proprietaire(): void
+    {
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Anna Meyer']);
+        $clinique = Clinique::factory()->create();
+        $demande = [
+            'clinique_id' => $clinique->id,
+            'debut_souhaite' => now()->addDay()->setTime(9, 0)->toIso8601String(),
+            'mode' => 'place',
+            'patient_name' => 'Nala',
+            'espece' => 'CH',
+            'motif' => 'Urgence',
+            'urgence' => true,
+        ];
+
+        // Une urgence sans symptômes : refusée
+        $this->postJson('/api/v1/espace/demandes', $demande, $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('symptomes');
+
+        $this->postJson('/api/v1/espace/demandes', [...$demande, 'symptomes' => 'Vomit depuis ce matin, ne boit plus'], $this->enTetes($jeton))
+            ->assertCreated()->assertJsonPath('data.urgence', true);
+        $this->assertDatabaseHas('demandes_rendez_vous', ['patient_name' => 'Nala', 'urgence' => true, 'symptomes' => 'Vomit depuis ce matin, ne boit plus']);
+
+        // Pas urgent : les symptômes ne sont pas gardés
+        $this->postJson('/api/v1/espace/demandes', [...$demande, 'patient_name' => 'Rex', 'motif' => 'Vaccination', 'urgence' => false, 'symptomes' => 'rien'], $this->enTetes($jeton))
+            ->assertCreated()->assertJsonPath('data.urgence', false);
+        $this->assertDatabaseHas('demandes_rendez_vous', ['patient_name' => 'Rex', 'urgence' => false, 'symptomes' => null]);
+    }
 }

@@ -209,10 +209,13 @@ Route::prefix('v1')->group(function (): void {
     // Vitrine publique (visiteur non connecté, depuis l'accueil) :
     // boutiques des cliniques et annuaire avec créneaux. Leur contenu ne
     // dépend d'aucun compte — mêmes actions que dans l'espace, sans
-    // jeton ; commander ou déposer une demande exige toujours une session.
+    // jeton ; commander exige une session, déposer une demande aussi sauf
+    // chez une clinique qui accepte les rendez-vous sans compte.
     Route::prefix('public')->middleware('throttle:60,1')->group(function (): void {
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
+        // Demande de rendez-vous sans compte, chez une clinique qui l'accepte
+        Route::post('demandes', [CliniqueProprietaireController::class, 'deposerSansCompte'])->middleware('throttle:5,1');
         // Site web publié d'une organisation et de toutes ses cliniques.
         Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
         // Domaines personnalisés : site d'un domaine actif ; autorisation de certificat (on-demand TLS)

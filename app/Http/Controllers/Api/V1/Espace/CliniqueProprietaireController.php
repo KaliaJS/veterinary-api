@@ -10,6 +10,7 @@ use App\Enums\ServiceClinique;
 use App\Enums\Specialite;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\DeposerDemandeRendezVousRequest;
+use App\Http\Requests\V1\Espace\DeposerDemandeSansCompteRequest;
 use App\Models\Clinique;
 use App\Models\CliniqueEspece;
 use App\Models\CliniqueService;
@@ -125,6 +126,8 @@ class CliniqueProprietaireController extends Controller
                 ->filter(fn (Specialite $specialite): bool => $verifies->contains(fn (Employe $fiche): bool => in_array($specialite->value, $specialitesDe($fiche), true)))
                 ->map(fn (Specialite $specialite): string => $specialite->value)
                 ->values()->all(),
+            // Demandes de rendez-vous sans compte acceptées (non par défaut)
+            'rdv_sans_compte' => $clinique->rdv_sans_compte,
             // null : la clinique ne montre pas ses vétérinaires (les icônes seules)
             'veterinaires' => $clinique->affiche_veterinaires
                 ? $verifies->map(fn (Employe $fiche): array => ['nom' => $fiche->nom, 'specialites' => $specialitesDe($fiche)])->all()
@@ -147,16 +150,48 @@ class CliniqueProprietaireController extends Controller
         $nomProprietaire = trim((string) ($donnees['nom_proprietaire'] ?? ''))
             ?: ($fiche ? trim($fiche->prenom.' '.$fiche->nom) : $user->name);
 
-        $debut = CarbonImmutable::parse($donnees['debut_souhaite'])->setTimezone($clinique->fuseau_horaire ?? 'Europe/Zurich');
-
-        $demande = $sousContexte->pour($clinique, fn (): DemandeRendezVous => DemandeRendezVous::create([
+        return $this->enregistrer($clinique, $donnees, $sousContexte, [
             'patient_id' => $patient?->id,
             'client_id' => $fiche?->id ?? $patient?->client_id,
             'patient_name' => $patient?->nom ?? $donnees['patient_name'],
             'species' => $patient?->espece ?? $donnees['espece'],
             'owner_name' => $nomProprietaire,
+        ]);
+    }
+
+    /** Sans compte, chez une clinique qui l'accepte : ses coordonnées pour lui répondre. */
+    public function deposerSansCompte(DeposerDemandeSansCompteRequest $request, SousContexteClinique $sousContexte): JsonResponse
+    {
+        $donnees = $request->validated();
+        $clinique = Clinique::withoutGlobalScopes()->ouvertes()->findOrFail((int) $donnees['clinique_id']);
+
+        return $this->enregistrer($clinique, $donnees, $sousContexte, [
+            'patient_name' => trim($donnees['patient_name']),
+            'species' => $donnees['espece'],
+            'owner_name' => trim($donnees['nom_proprietaire']),
+            'email' => mb_strtolower(trim($donnees['email'])),
+            'telephone' => trim($donnees['telephone']),
+        ]);
+    }
+
+    /**
+     * La demande dans la file de la clinique : le créneau souhaité, le
+     * mode, le motif, et pour une urgence ce que voit le propriétaire.
+     *
+     * @param  array<string, mixed>  $donnees
+     * @param  array<string, mixed>  $qui  animal et propriétaire
+     */
+    private function enregistrer(Clinique $clinique, array $donnees, SousContexteClinique $sousContexte, array $qui): JsonResponse
+    {
+        $debut = CarbonImmutable::parse($donnees['debut_souhaite'])->setTimezone($clinique->fuseau_horaire ?? 'Europe/Zurich');
+        $urgence = (bool) ($donnees['urgence'] ?? false);
+
+        $demande = $sousContexte->pour($clinique, fn (): DemandeRendezVous => DemandeRendezVous::create([
+            ...$qui,
             'reason' => $donnees['motif'],
-            'souhait' => ($donnees['mode'] === 'visio' ? 'Téléconsultation vidéo' : 'Sur place').' · '.$debut->format('d.m.Y à H:i').' (espace client)',
+            'urgence' => $urgence,
+            'symptomes' => $urgence ? trim((string) ($donnees['symptomes'] ?? '')) : null,
+            'souhait' => ($donnees['mode'] === 'visio' ? 'Téléconsultation vidéo' : 'Sur place').' · '.$debut->format('d.m.Y à H:i').(isset($qui['email']) ? ' (sans compte)' : ' (espace client)'),
             'mode' => ModeDemandeRendezVous::AValider,
             'duree_minutes' => self::DUREE_MINUTES,
         ]));
@@ -168,6 +203,7 @@ class CliniqueProprietaireController extends Controller
             'mode' => $donnees['mode'],
             'patient_name' => $demande->patient_name,
             'motif' => $demande->reason,
+            'urgence' => $demande->urgence,
         ]], 201);
     }
 

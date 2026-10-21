@@ -19,7 +19,8 @@ class DemandeRendezVous extends Model
 
     protected $fillable = [
         'clinique_id', 'patient_id', 'client_id', 'patient_name',
-        'species', 'owner_name', 'reason', 'souhait', 'mode', 'duree_minutes',
+        'species', 'owner_name', 'email', 'telephone', 'reason', 'urgence',
+        'symptomes', 'souhait', 'mode', 'duree_minutes',
     ];
 
     protected function casts(): array
@@ -27,6 +28,7 @@ class DemandeRendezVous extends Model
         return [
             'species' => Espece::class,
             'mode' => ModeDemandeRendezVous::class,
+            'urgence' => 'boolean',
             'duree_minutes' => 'integer',
         ];
     }
