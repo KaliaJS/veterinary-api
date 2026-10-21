@@ -100,6 +100,7 @@ use App\Http\Controllers\Api\V1\PremiersPasController;
 use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
 use App\Http\Controllers\Api\V1\ProduitController;
+use App\Http\Controllers\Api\V1\ProfilVeterinaireController;
 use App\Http\Controllers\Api\V1\RegistreStupefiantController;
 use App\Http\Controllers\Api\V1\ReleveDentaireController;
 use App\Http\Controllers\Api\V1\ReleveOphtalmologiqueController;
@@ -118,7 +119,6 @@ use App\Http\Controllers\Api\V1\SiteWebController;
 use App\Http\Controllers\Api\V1\SocieteController;
 use App\Http\Controllers\Api\V1\SoinSejourController;
 use App\Http\Controllers\Api\V1\SortieSejourController;
-use App\Http\Controllers\Api\V1\SpecialitesEmployeController;
 use App\Http\Controllers\Api\V1\StatistiquesBoutiqueController;
 use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
@@ -159,6 +159,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('rafraichir', [SessionController::class, 'rafraichir']);
         Route::post('clinique', ChangementCliniqueController::class);
         Route::post('deconnexion', [SessionController::class, 'deconnexion']);
+        // Profil vétérinaire du compte : GLN (cherché dans MedReg) et spécialités
+        Route::get('profil-veterinaire', [ProfilVeterinaireController::class, 'afficher']);
+        Route::put('profil-veterinaire', [ProfilVeterinaireController::class, 'modifier'])->middleware('throttle:20,1');
 
         Route::get('passkeys', [PasskeyController::class, 'index']);
         Route::post('passkeys/options', [PasskeyController::class, 'options']);
@@ -542,8 +545,6 @@ Route::prefix('v1')->group(function (): void {
             Route::post('employes/{employe}/licencier', [LicenciementEmployeController::class, 'licencier'])->whereNumber('employe');
             Route::post('employes/{employe}/annuler-licenciement', [LicenciementEmployeController::class, 'annuler'])->whereNumber('employe');
             Route::put('employes/{employe}/cliniques', AffectationsEmployeController::class)->whereNumber('employe');
-            // Spécialités d'un vétérinaire (celles de ses cliniques dans l'annuaire)
-            Route::put('employes/{employe}/specialites', SpecialitesEmployeController::class)->whereNumber('employe');
             // Embauche : à qui appartient le code employé donné par la personne
             Route::get('comptes/{code}', CompteEmployeController::class)->middleware('throttle:20,1');
             // Ou invitation par e-mail : la personne accepte avec l'adresse invitée

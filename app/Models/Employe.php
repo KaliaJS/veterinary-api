@@ -76,12 +76,6 @@ class Employe extends Model
         return str_starts_with((string) $this->role_libelle, 'Vétérinaire');
     }
 
-    /** @return HasMany<EmployeSpecialite, $this> */
-    public function specialites(): HasMany
-    {
-        return $this->hasMany(EmployeSpecialite::class);
-    }
-
     /**
      * Cliniques où la personne travaille (affectations).
      *

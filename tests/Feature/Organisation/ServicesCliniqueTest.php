@@ -4,7 +4,6 @@ namespace Tests\Feature\Organisation;
 
 use App\Auth\RolesParDefaut;
 use App\Models\Clinique;
-use App\Models\Employe;
 use App\Models\Role;
 use App\Models\Sejour;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -112,28 +111,6 @@ class ServicesCliniqueTest extends TestCase
 
         $this->putJson("/api/v1/organisation/cliniques/{$ailleurs->id}/services", $this->reglage([]), $this->enTetes($this->jeton))
             ->assertNotFound();
-    }
-
-    public function test_les_specialites_sont_celles_des_veterinaires(): void
-    {
-        $veterinaire = Employe::factory()->dans($this->clinique)->create(['role_libelle' => 'Vétérinaire']);
-        $asv = Employe::factory()->dans($this->clinique)->create(['role_libelle' => 'ASV']);
-        $entetes = $this->enTetes($this->jeton);
-
-        $this->putJson("/api/v1/equipe/employes/{$veterinaire->id}/specialites", ['specialites' => ['orthopedie', 'ophtalmologie']], $entetes)
-            ->assertOk()
-            ->assertJsonPath('data.est_veterinaire', true)
-            ->assertJsonPath('data.specialites', ['orthopedie', 'ophtalmologie']);
-
-        $this->putJson("/api/v1/equipe/employes/{$veterinaire->id}/specialites", ['specialites' => ['ophtalmologie']], $entetes)
-            ->assertOk()
-            ->assertJsonPath('data.specialites', ['ophtalmologie']);
-
-        $this->putJson("/api/v1/equipe/employes/{$asv->id}/specialites", ['specialites' => ['orthopedie']], $entetes)
-            ->assertUnprocessable()->assertJsonValidationErrors('specialites');
-
-        $this->putJson("/api/v1/equipe/employes/{$veterinaire->id}/specialites", ['specialites' => ['hanche']], $entetes)
-            ->assertUnprocessable()->assertJsonValidationErrors('specialites.0');
     }
 
     public function test_la_boutique_et_la_visio_publiques_suivent_les_services(): void

@@ -6,10 +6,10 @@ use App\Enums\Specialite;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-/** Une spécialité d'un vétérinaire, sur sa fiche de l'organisation. */
-class EmployeSpecialite extends Model
+/** Une spécialité d'un vétérinaire, sur son compte (il la déclare lui-même). */
+class SpecialiteVeterinaire extends Model
 {
-    protected $table = 'employe_specialites';
+    protected $table = 'specialites_veterinaire';
 
     protected $fillable = ['specialite'];
 
@@ -18,9 +18,9 @@ class EmployeSpecialite extends Model
         return ['specialite' => Specialite::class];
     }
 
-    /** @return BelongsTo<Employe, $this> */
-    public function employe(): BelongsTo
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Employe::class);
+        return $this->belongsTo(User::class);
     }
 }

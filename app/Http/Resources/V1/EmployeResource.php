@@ -4,7 +4,7 @@ namespace App\Http\Resources\V1;
 
 use App\Enums\Specialite;
 use App\Models\Employe;
-use App\Models\EmployeSpecialite;
+use App\Models\SpecialiteVeterinaire;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -29,9 +29,10 @@ class EmployeResource extends JsonResource
             'role_libelle' => $this->role_libelle,
             // Spécialités : celles d'un vétérinaire de métier (intitulé)
             'est_veterinaire' => $this->estVeterinaire(),
-            'specialites' => $this->specialites
-                ->sortBy(fn (EmployeSpecialite $ligne): int => array_search($ligne->specialite, Specialite::cases(), true))
-                ->map(fn (EmployeSpecialite $ligne): string => $ligne->specialite->value)
+            // Celles que le vétérinaire déclare sur son compte
+            'specialites' => ($this->user?->specialites ?? collect())
+                ->sortBy(fn (SpecialiteVeterinaire $ligne): int => array_search($ligne->specialite, Specialite::cases(), true))
+                ->map(fn (SpecialiteVeterinaire $ligne): string => $ligne->specialite->value)
                 ->values()->all(),
             'photo_url' => $this->photoUrl(),
             'role_id' => $this->role_id,

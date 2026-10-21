@@ -55,7 +55,7 @@ class ServicesCliniquesSeeder extends Seeder
             }
         });
 
-        // Une ou deux spécialités pour la plupart des vétérinaires
+        // Une ou deux spécialités pour la plupart des vétérinaires (sur leur compte)
         Employe::withoutGlobalScopes()->orderBy('id')->get()
             ->filter(fn (Employe $employe): bool => $employe->estVeterinaire())
             ->each(function (Employe $employe): void {
@@ -63,7 +63,8 @@ class ServicesCliniquesSeeder extends Seeder
                 $toutes = Specialite::cases();
                 $nombre = $graine % 4 === 0 ? 0 : ($graine % 3 === 0 ? 2 : 1);
                 for ($i = 0; $i < $nombre; $i++) {
-                    $employe->specialites()->firstOrCreate(['specialite' => $toutes[($graine >> (4 * $i)) % count($toutes)]]);
+                    // Sur le compte du vétérinaire : il les déclare lui-même
+                    $employe->user->specialites()->firstOrCreate(['specialite' => $toutes[($graine >> (4 * $i)) % count($toutes)]]);
                 }
             });
     }

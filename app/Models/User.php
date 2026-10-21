@@ -127,4 +127,15 @@ class User extends Authenticatable
     {
         return Str::contains($this->name, ' ') ? Str::after($this->name, ' ') : '';
     }
+
+    /**
+     * Spécialités déclarées par le vétérinaire lui-même (Réglages,
+     * Profil) : elles le suivent dans toutes ses cliniques.
+     *
+     * @return HasMany<SpecialiteVeterinaire, $this>
+     */
+    public function specialites(): HasMany
+    {
+        return $this->hasMany(SpecialiteVeterinaire::class);
+    }
 }
