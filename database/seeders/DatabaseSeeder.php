@@ -40,6 +40,8 @@ class DatabaseSeeder extends Seeder
             AnnuaireSeeder::class,
             // Après toutes les cliniques et leurs équipes
             ServicesCliniquesSeeder::class,
+            // Des heures déjà prises dans le calendrier de la prise de rendez-vous
+            RendezVousAVenirSeeder::class,
         ]);
     }
 }

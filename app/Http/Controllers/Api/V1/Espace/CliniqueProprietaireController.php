@@ -42,9 +42,6 @@ class CliniqueProprietaireController extends Controller
 
     private const int DUREE_MINUTES = 20;
 
-    /** Le calendrier des disponibilités s'ouvre sur ce nombre de semaines */
-    private const int SEMAINES_OUVERTES = 8;
-
     /** Les créneaux proposés tombent au quart d'heure (horaires suisses : décalage en heures entières). */
     private const int QUART = 900;
 
@@ -222,8 +219,10 @@ class CliniqueProprietaireController extends Controller
      * Calendrier de la prise de rendez-vous : une semaine (du lundi au
      * dimanche) de la clinique, chaque jour avec toutes ses heures
      * d'ouverture au pas d'un rendez-vous, libres ou non (pause exclue,
-     * passé jamais libre). De cette semaine à SEMAINES_OUVERTES plus
-     * loin ; `precedente` et `suivante` en donnent les lundis.
+     * heure passée jamais libre). D'aujourd'hui à un mois plus tard : les
+     * jours hors de cette période restent à leur place dans la semaine,
+     * `visible` à faux et sans heures. `precedente` et `suivante` donnent
+     * les lundis des semaines voisines.
      */
     public function disponibilites(Request $request, CalculateurCreneaux $calculateur, int $clinique): JsonResponse
     {
@@ -231,8 +230,10 @@ class CliniqueProprietaireController extends Controller
         $request->validate(['semaine' => ['nullable', 'date_format:Y-m-d']]);
 
         $fuseau = $fiche->fuseau_horaire ?? 'Europe/Zurich';
-        $cetteSemaine = CarbonImmutable::today($fuseau)->startOfWeek();
-        $derniere = $cetteSemaine->addWeeks(self::SEMAINES_OUVERTES - 1);
+        $aujourdhui = CarbonImmutable::today($fuseau);
+        $limite = $aujourdhui->addMonth();
+        $cetteSemaine = $aujourdhui->startOfWeek();
+        $derniere = $limite->startOfWeek();
         $lundi = $request->filled('semaine') ? CarbonImmutable::parse($request->query('semaine'), $fuseau)->startOfWeek() : $cetteSemaine;
         $lundi = $lundi->max($cetteSemaine)->min($derniere);
 
@@ -245,6 +246,11 @@ class CliniqueProprietaireController extends Controller
         $jours = [];
         foreach (range(0, 6) as $i) {
             $jour = $lundi->addDays($i);
+            if ($jour->lessThan($aujourdhui) || $jour->greaterThan($limite)) {
+                $jours[] = ['date' => $jour->toDateString(), 'visible' => false, 'ferme' => true, 'heures' => []];
+
+                continue;
+            }
             $bornes = $calculateur->bornesDuJour($horaires, $jour);
             // Les trous du jour en horodatages : une heure est libre si un trou la contient entière
             $libres = $trous[$i]->map(fn (array $trou): array => [$trou['debut']->getTimestamp(), $trou['fin']->getTimestamp()])->all();
@@ -260,7 +266,7 @@ class CliniqueProprietaireController extends Controller
                     'libre' => $instant > $maintenant && collect($libres)->contains(fn (array $trou): bool => $trou[0] <= $instant && $trou[1] >= $instant + $pas),
                 ];
             }
-            $jours[] = ['date' => $jour->toDateString(), 'ferme' => $bornes['fermee'], 'heures' => $heures];
+            $jours[] = ['date' => $jour->toDateString(), 'visible' => true, 'ferme' => $bornes['fermee'], 'heures' => $heures];
         }
 
         return response()->json(['data' => [

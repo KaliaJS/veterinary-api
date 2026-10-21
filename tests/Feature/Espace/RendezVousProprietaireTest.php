@@ -254,10 +254,21 @@ class RendezVousProprietaireTest extends TestCase
         $this->assertTrue($semaine['jours'][6]['ferme']);
         $this->assertSame([], $semaine['jours'][6]['heures']);
 
-        // Pas avant cette semaine, pas plus loin que la huitième
-        $this->getJson("/api/v1/public/cliniques/{$clinique->id}/disponibilites?semaine=2020-01-06")
-            ->assertOk()->assertJsonPath('data.precedente', null);
-        $this->getJson("/api/v1/public/cliniques/{$clinique->id}/disponibilites?semaine=2099-01-05")
-            ->assertOk()->assertJsonPath('data.suivante', null);
+        // Cette semaine : les jours passés ne sont pas proposés
+        $aujourdhui = CarbonImmutable::today('Europe/Zurich');
+        $courante = $this->getJson("/api/v1/public/cliniques/{$clinique->id}/disponibilites?semaine=2020-01-06")
+            ->assertOk()->assertJsonPath('data.precedente', null)->json('data.jours');
+        foreach ($courante as $jour) {
+            $this->assertSame($jour['date'] >= $aujourdhui->toDateString(), $jour['visible']);
+        }
+
+        // Un mois au plus : la dernière semaine s'arrête au même jour du mois suivant
+        $derniere = $this->getJson("/api/v1/public/cliniques/{$clinique->id}/disponibilites?semaine=2099-01-05")
+            ->assertOk()->assertJsonPath('data.suivante', null)
+            ->assertJsonPath('data.semaine', $aujourdhui->addMonth()->startOfWeek()->toDateString())
+            ->json('data.jours');
+        foreach ($derniere as $jour) {
+            $this->assertSame($jour['date'] <= $aujourdhui->addMonth()->toDateString(), $jour['visible']);
+        }
     }
 }
