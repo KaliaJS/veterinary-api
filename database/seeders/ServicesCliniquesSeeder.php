@@ -2,10 +2,12 @@
 
 namespace Database\Seeders;
 
+use App\Enums\DecisionVerification;
 use App\Enums\Espece;
 use App\Enums\ModaliteUrgences;
 use App\Enums\ServiceClinique;
 use App\Enums\Specialite;
+use App\Enums\StatutVerificationVeterinaire;
 use App\Models\Clinique;
 use App\Models\Employe;
 use Illuminate\Database\Seeder;
@@ -55,13 +57,18 @@ class ServicesCliniquesSeeder extends Seeder
             }
         });
 
-        // Une ou deux spécialités pour la plupart des vétérinaires (sur leur compte)
+        // Une ou deux spécialités pour la plupart des vétérinaires (sur leur compte),
+        // et la vérification de la plateforme pour la plupart
         Employe::withoutGlobalScopes()->orderBy('id')->get()
             ->filter(fn (Employe $employe): bool => $employe->estVeterinaire())
             ->each(function (Employe $employe): void {
                 $graine = crc32($employe->nom.$employe->id);
                 $toutes = Specialite::cases();
                 $nombre = $graine % 4 === 0 ? 0 : ($graine % 3 === 0 ? 2 : 1);
+                // Deux sur trois sont vérifiés par la plateforme (l'annuaire ne montre qu'eux)
+                if ($graine % 3 !== 1 && $employe->user->verification_veterinaire === null) {
+                    $employe->user->consignerVerification(DecisionVerification::Verifie, StatutVerificationVeterinaire::Verifie, 'Données de démonstration');
+                }
                 for ($i = 0; $i < $nombre; $i++) {
                     // Sur le compte du vétérinaire : il les déclare lui-même
                     $employe->user->specialites()->firstOrCreate(['specialite' => $toutes[($graine >> (4 * $i)) % count($toutes)]]);

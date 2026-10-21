@@ -4,13 +4,20 @@ namespace App\Http\Controllers\Api\V1\Espace;
 
 use App\Auth\ContexteProprietaire;
 use App\Auth\SousContexteClinique;
+use App\Enums\Espece;
 use App\Enums\ModeDemandeRendezVous;
+use App\Enums\ServiceClinique;
+use App\Enums\Specialite;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\DeposerDemandeRendezVousRequest;
 use App\Models\Clinique;
+use App\Models\CliniqueEspece;
+use App\Models\CliniqueService;
 use App\Models\DemandeRendezVous;
+use App\Models\Employe;
 use App\Models\Patient;
 use App\Models\SiteWeb;
+use App\Models\SpecialiteVeterinaire;
 use App\Services\CalculateurCreneaux;
 use App\Services\Photos\PhotosCliniques;
 use Carbon\CarbonImmutable;
@@ -39,7 +46,14 @@ class CliniqueProprietaireController extends Controller
     {
         $cliniques = Clinique::withoutGlobalScopes()
             ->ouvertes()
-            ->with('societe.organisation')
+            ->with([
+                'societe.organisation',
+                'services',
+                'especes',
+                // Les vétérinaires de la clinique, leur compte (badge) et leurs spécialités
+                'employes' => fn ($employes) => $employes->withoutGlobalScope('clinique')->where('acces_suspendu', false),
+                'employes.user.specialites',
+            ])
             ->orderBy('id')
             ->get();
 
@@ -67,7 +81,55 @@ class CliniqueProprietaireController extends Controller
             // pas ; elle reste ici pour les créneaux du site de sa clinique
             'dans_annuaire' => $clinique->estDansLAnnuaire(),
             'creneaux' => $this->retenir($semaines[$clinique->id]),
+            ...$this->offre($clinique),
         ])->all()]);
+    }
+
+    /**
+     * Ce que la clinique propose, pour sa fiche, les filtres et la
+     * recherche : ses services (cochés par l'administrateur), les animaux
+     * soignés, et ses vétérinaires vérifiés par la plateforme avec leurs
+     * spécialités. Un vétérinaire non vérifié n'y paraît pas ; si la
+     * clinique masque ses vétérinaires, seules leurs spécialités restent.
+     *
+     * @return array<string, mixed>
+     */
+    private function offre(Clinique $clinique): array
+    {
+        $ordre = fn (array $cas): \Closure => fn ($valeur): int => (int) array_search($valeur, $cas, true);
+
+        $services = $clinique->services
+            ->sortBy(fn (CliniqueService $ligne): int => $ordre(ServiceClinique::cases())($ligne->service))
+            ->values();
+
+        $verifies = $clinique->employes
+            ->filter(fn (Employe $fiche): bool => $fiche->estVeterinaire() && (bool) $fiche->user?->estVerifie())
+            ->sortBy('nom')
+            ->values();
+        $specialitesDe = fn (Employe $fiche): array => $fiche->user->specialites
+            ->map(fn (SpecialiteVeterinaire $ligne): Specialite => $ligne->specialite)
+            ->sortBy($ordre(Specialite::cases()))
+            ->map(fn (Specialite $specialite): string => $specialite->value)
+            ->values()->all();
+
+        return [
+            'services' => $services->map(fn (CliniqueService $ligne): array => ['service' => $ligne->service->value, 'modalite' => $ligne->modalite?->value])->all(),
+            'nombre_boxes' => $clinique->aService(ServiceClinique::Hospitalisation) ? $clinique->nombre_boxes : null,
+            'especes' => $clinique->especes
+                ->map(fn (CliniqueEspece $ligne): Espece => $ligne->espece)
+                ->sortBy($ordre(Espece::cases()))
+                ->map(fn (Espece $espece): string => $espece->value)
+                ->values()->all(),
+            // Toutes celles de ses vétérinaires vérifiés (filtres, recherche, icônes)
+            'specialites' => collect(Specialite::cases())
+                ->filter(fn (Specialite $specialite): bool => $verifies->contains(fn (Employe $fiche): bool => in_array($specialite->value, $specialitesDe($fiche), true)))
+                ->map(fn (Specialite $specialite): string => $specialite->value)
+                ->values()->all(),
+            // null : la clinique ne montre pas ses vétérinaires (les icônes seules)
+            'veterinaires' => $clinique->affiche_veterinaires
+                ? $verifies->map(fn (Employe $fiche): array => ['nom' => $fiche->nom, 'specialites' => $specialitesDe($fiche)])->all()
+                : null,
+        ];
     }
 
     public function deposer(DeposerDemandeRendezVousRequest $request, ContexteProprietaire $contexte, SousContexteClinique $sousContexte): JsonResponse
