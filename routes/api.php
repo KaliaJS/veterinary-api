@@ -70,6 +70,8 @@ use App\Http\Controllers\Api\V1\HoraireOuvertureController;
 use App\Http\Controllers\Api\V1\ImageriePatientController;
 use App\Http\Controllers\Api\V1\InscriptionCliniqueController;
 use App\Http\Controllers\Api\V1\InterventionController;
+use App\Http\Controllers\Api\V1\InvitationController;
+use App\Http\Controllers\Api\V1\InvitationEquipeController;
 use App\Http\Controllers\Api\V1\LicenciementEmployeController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
@@ -162,6 +164,13 @@ Route::prefix('v1')->group(function (): void {
         Route::post('passkeys/options', [PasskeyController::class, 'options']);
         Route::post('passkeys', [PasskeyController::class, 'enregistrer']);
         Route::delete('passkeys/{passkey}', [PasskeyController::class, 'supprimer']);
+    });
+
+    // Invitation à rejoindre une équipe : tout compte connecté, avec ou
+    // sans clinique ; seule l'adresse invitée peut accepter.
+    Route::prefix('invitations')->middleware(['auth:sanctum', 'throttle:30,1'])->group(function (): void {
+        Route::get('{jeton}', [InvitationController::class, 'afficher']);
+        Route::post('{jeton}/accepter', [InvitationController::class, 'accepter']);
     });
 
     // Inscription d'une clinique : tout compte connecté, avec ou sans
@@ -537,6 +546,11 @@ Route::prefix('v1')->group(function (): void {
             Route::put('employes/{employe}/specialites', SpecialitesEmployeController::class)->whereNumber('employe');
             // Embauche : à qui appartient le code employé donné par la personne
             Route::get('comptes/{code}', CompteEmployeController::class)->middleware('throttle:20,1');
+            // Ou invitation par e-mail : la personne accepte avec l'adresse invitée
+            Route::get('invitations', [InvitationEquipeController::class, 'index']);
+            Route::post('invitations', [InvitationEquipeController::class, 'store'])->middleware('throttle:30,1');
+            Route::post('invitations/{invitation}/renvoyer', [InvitationEquipeController::class, 'renvoyer'])->whereNumber('invitation')->middleware('throttle:30,1');
+            Route::delete('invitations/{invitation}', [InvitationEquipeController::class, 'annuler'])->whereNumber('invitation');
 
             Route::get('gardes', [GardeWeekendController::class, 'index']);
             Route::put('gardes', [GardeWeekendController::class, 'modifier']);

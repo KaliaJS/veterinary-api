@@ -223,6 +223,13 @@ au dossier RH »). En base, ces états vivent sur `employes` (cf.
 divergence section 1) : `acces_suspendu`, `contrat_statut`,
 `licencie_le` / dossier RH.
 
+### Comptes du personnel, embauche et invitation (21.10.2026)
+
+Chaque personne qui travaille dans l'application a son compte, sans exception : `employes.user_id` est obligatoire, et un compte ne se supprime pas tant qu'une fiche y est rattachée. Seuls les **clients** des cliniques peuvent exister sans compte (`clients.user_id` facultatif). Deux chemins mènent à une fiche, tous deux par le service `Embauche` (doublon, place dans la formule, rôle, cliniques) :
+
+- **Code employé** : la personne donne le code de son compte (`POST /equipe/employes`, vérifié d'abord par `GET /equipe/comptes/{code}`).
+- **Invitation par e-mail** : `invitations_employe` (organisation, `email` en minuscules, `nom`, `donnees` de la fiche à créer, empreinte SHA-256 du jeton du lien, `invitee_par`, `expire_le` à 14 jours, `acceptee_le`/`employe_id`, `annulee_le`). `POST /equipe/invitations` envoie l'e-mail (une nouvelle invitation à la même adresse remplace la précédente), `GET` liste celles en attente, `…/renvoyer` change le lien, `DELETE` annule. La personne ouvre `/invitation/{jeton}`, se connecte avec l'adresse invitée (son compte naît alors s'il n'existe pas), et `POST /invitations/{jeton}/accepter` crée sa fiche ; seule l'adresse invitée peut accepter. Rien n'est créé avant.
+
 ### Services, animaux soignés, spécialités (21.10.2026)
 
 Ce qu'une clinique propose, coché par l'administrateur (écran Organisation, `PUT /organisation/cliniques/{id}/services`, domaine `organisation`, tout l'état d'un coup) :
