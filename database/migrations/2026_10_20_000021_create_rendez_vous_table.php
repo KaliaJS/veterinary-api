@@ -42,10 +42,18 @@ return new class extends Migration
             $table->index(['clinique_id', 'starts_at']);
             $table->index(['patient_id', 'starts_at']);
         });
+
+        // La demande en ligne acceptée pointe son rendez-vous (table créée avant celle-ci)
+        Schema::table('demandes_rendez_vous', function (Blueprint $table) {
+            $table->foreign('rendez_vous_id')->references('id')->on('rendez_vous')->nullOnDelete();
+        });
     }
 
     public function down(): void
     {
+        Schema::table('demandes_rendez_vous', function (Blueprint $table) {
+            $table->dropForeign(['rendez_vous_id']);
+        });
         Schema::dropIfExists('rendez_vous');
     }
 };

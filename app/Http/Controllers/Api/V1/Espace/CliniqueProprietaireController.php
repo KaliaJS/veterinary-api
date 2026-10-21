@@ -11,6 +11,7 @@ use App\Enums\Specialite;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\DeposerDemandeRendezVousRequest;
 use App\Http\Requests\V1\Espace\DeposerDemandeSansCompteRequest;
+use App\Mail\DemandeRendezVousEnvoyee;
 use App\Models\Clinique;
 use App\Models\CliniqueEspece;
 use App\Models\CliniqueService;
@@ -26,6 +27,8 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 /**
  * Prendre rendez-vous : annuaire de toutes les cliniques (carte du
@@ -161,6 +164,7 @@ class CliniqueProprietaireController extends Controller
         return $this->enregistrer($clinique, $donnees, $sousContexte, [
             'patient_id' => $patient?->id,
             'client_id' => $fiche?->id ?? $patient?->client_id,
+            'user_id' => $user->id,
             'patient_name' => $patient?->nom ?? $donnees['patient_name'],
             'species' => $patient?->espece ?? $donnees['espece'],
             'owner_name' => $nomProprietaire,
@@ -179,6 +183,8 @@ class CliniqueProprietaireController extends Controller
             'owner_name' => trim($donnees['nom_proprietaire']),
             'email' => mb_strtolower(trim($donnees['email'])),
             'telephone' => trim($donnees['telephone']),
+            // Le lien de ses e-mails, pour suivre la demande sans compte
+            'jeton' => Str::random(48),
         ]);
     }
 
@@ -200,9 +206,17 @@ class CliniqueProprietaireController extends Controller
             'urgence' => $urgence,
             'symptomes' => $urgence ? trim((string) ($donnees['symptomes'] ?? '')) : null,
             'souhait' => ($donnees['mode'] === 'visio' ? 'Téléconsultation vidéo' : 'Sur place').' · '.$debut->format('d.m.Y à H:i').(isset($qui['email']) ? ' (sans compte)' : ' (espace client)'),
+            'debut_souhaite' => $debut->utc(),
+            'teleconsultation' => $donnees['mode'] === 'visio',
             'mode' => ModeDemandeRendezVous::AValider,
             'duree_minutes' => self::DUREE_MINUTES,
         ]));
+
+        // Accusé de réception, avec le lien où suivre la réponse
+        $adresse = $demande->load(['clinique', 'user'])->adresseDuProprietaire();
+        if ($adresse) {
+            Mail::to($adresse)->send(new DemandeRendezVousEnvoyee($demande));
+        }
 
         return response()->json(['data' => [
             'demande_id' => $demande->id,

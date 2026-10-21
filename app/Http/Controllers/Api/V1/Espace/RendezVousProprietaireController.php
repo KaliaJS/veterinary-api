@@ -10,6 +10,7 @@ use App\Http\Resources\V1\Espace\RendezVousProprietaireResource;
 use App\Models\DemandeRendezVous;
 use App\Models\RendezVous;
 use App\Services\MutationRendezVous;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -28,7 +29,7 @@ class RendezVousProprietaireController extends Controller
     {
         $base = fn () => RendezVous::withoutGlobalScopes()
             ->with(['clinique', 'lignePlanning', 'patient'])
-            ->where(fn ($q) => $q->whereIn('client_id', $contexte->clientIds())->orWhereIn('patient_id', $contexte->patientIds()))
+            ->where(fn ($q) => $this->miens($q, $contexte))
             ->where('type', '!=', 'tampon');
 
         $aVenir = $base()
@@ -80,6 +81,7 @@ class RendezVousProprietaireController extends Controller
             'clinique_id' => $rendezVous->clinique_id,
             'patient_id' => $rendezVous->patient_id,
             'client_id' => $rendezVous->client_id,
+            'user_id' => $contexte->user()->id,
             'patient_name' => $rendezVous->patient_name,
             'species' => $rendezVous->species,
             'owner_name' => $rendezVous->owner_name,
@@ -100,7 +102,21 @@ class RendezVousProprietaireController extends Controller
     {
         return RendezVous::withoutGlobalScopes()
             ->with(['clinique', 'lignePlanning', 'patient'])
-            ->where(fn ($q) => $q->whereIn('client_id', $contexte->clientIds())->orWhereIn('patient_id', $contexte->patientIds()))
+            ->where(fn ($q) => $this->miens($q, $contexte))
             ->findOrFail($rendezVousId);
+    }
+
+    /**
+     * Les rendez-vous du compte : ses fiches et ses animaux dans les
+     * cliniques, et ceux pris par ses demandes en ligne acceptées (un
+     * animal du compte n'est pas forcément une fiche de la clinique).
+     *
+     * @param  Builder<RendezVous>  $requete
+     */
+    private function miens(Builder $requete, ContexteProprietaire $contexte): void
+    {
+        $requete->whereIn('client_id', $contexte->clientIds())
+            ->orWhereIn('patient_id', $contexte->patientIds())
+            ->orWhereIn('id', DemandeProprietaireController::miennes($contexte)->whereNotNull('rendez_vous_id')->select('rendez_vous_id'));
     }
 }

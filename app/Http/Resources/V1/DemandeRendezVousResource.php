@@ -28,8 +28,22 @@ class DemandeRendezVousResource extends JsonResource
             'urgence' => $this->urgence,
             'symptomes' => $this->symptomes,
             'souhait' => $this->souhait,
+            // L'heure choisie dans le calendrier (UTC), sur place ou en vidéo
+            'debut_souhaite' => $this->debut_souhaite?->toIso8601String(),
+            'teleconsultation' => $this->teleconsultation,
             'mode' => $this->mode,
             'duree_minutes' => $this->duree_minutes,
+            // La réponse de la clinique
+            'statut' => $this->statut,
+            'creneaux_proposes' => $this->creneaux_proposes ?? [],
+            'motif_refus' => $this->motif_refus,
+            'message' => $this->message,
+            'rendez_vous_id' => $this->rendez_vous_id,
+            'rendez_vous_debut' => $this->whenLoaded('rendezVous', fn () => $this->rendezVous?->starts_at->toIso8601String()),
+            // Les réponses lui sont écrites (compte ou adresse laissée) ; sinon, l'appeler
+            'prevenu_par_email' => $this->adresseDuProprietaire() !== null,
+            'traitee_le' => $this->traitee_le?->toIso8601String(),
+            'created_at' => $this->created_at?->toIso8601String(),
         ];
     }
 }

@@ -17,7 +17,8 @@ use Tests\TestCase;
 /**
  * Files alimentant le planning : « placer » crée le rendez-vous (une
  * urgence arrive en salle, une demande ou un inscrit en prévu marqué
- * nouveau) et retire l'entrée — le RDV créé fait foi.
+ * nouveau) et retire l'entrée de la file ; une demande en ligne, elle,
+ * reste acceptée (DemandesEnLigneTest).
  */
 class FilesAttenteTest extends TestCase
 {
@@ -115,7 +116,7 @@ class FilesAttenteTest extends TestCase
         $this->assertDatabaseHas('urgences_attente', ['id' => $urgence->id]);
     }
 
-    public function test_placer_une_demande_cree_un_rendez_vous_prevu_marque_nouveau(): void
+    public function test_placer_une_demande_cree_un_rendez_vous_prevu_marque_nouveau_et_l_accepte(): void
     {
         $demande = DemandeRendezVous::factory()->create([
             'clinique_id' => $this->clinique->id,
@@ -124,14 +125,15 @@ class FilesAttenteTest extends TestCase
 
         $reponse = $this->postJson("/api/v1/demandes/{$demande->id}/placer", [
             'ligne_planning_id' => $this->ligne->id,
-            'starts_at' => today()->addDay()->setTime(16, 0)->toISOString(),
+            'starts_at' => now()->addDay()->setTime(16, 0)->toISOString(),
         ], $this->enTetes($this->jeton))->assertCreated();
 
         $reponse->assertJsonPath('data.status', 'prevu')
             ->assertJsonPath('data.type', 'consult')
             ->assertJsonPath('data.flags', ['neuf']);
 
-        $this->assertDatabaseMissing('demandes_rendez_vous', ['id' => $demande->id]);
+        // La demande reste, acceptée : le propriétaire en suit l'issue
+        $this->assertDatabaseHas('demandes_rendez_vous', ['id' => $demande->id, 'statut' => 'acceptee', 'rendez_vous_id' => $reponse->json('data.id')]);
     }
 
     public function test_retirer_une_demande_la_sort_de_la_file_sans_creer_de_rendez_vous(): void

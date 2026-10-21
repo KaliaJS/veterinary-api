@@ -52,6 +52,8 @@ use App\Http\Controllers\Api\V1\Espace\AppStoreController;
 use App\Http\Controllers\Api\V1\Espace\BoutiqueProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\CliniqueProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\CoordonneesProprietaireController;
+use App\Http\Controllers\Api\V1\Espace\DemandeProprietaireController;
+use App\Http\Controllers\Api\V1\Espace\DemandePubliqueController;
 use App\Http\Controllers\Api\V1\Espace\DocumentProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\MessageProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\PlaneteController;
@@ -222,6 +224,9 @@ Route::prefix('v1')->group(function (): void {
         Route::get('veterinaires/{veterinaire}', [VeterinairePublicController::class, 'afficher'])->whereNumber('veterinaire');
         // Demande de rendez-vous sans compte, chez une clinique qui l'accepte
         Route::post('demandes', [CliniqueProprietaireController::class, 'deposerSansCompte'])->middleware('throttle:5,1');
+        // Son suivi par le lien des e-mails, et le choix d'un horaire proposé
+        Route::get('demandes/{jeton}', [DemandePubliqueController::class, 'afficher'])->where('jeton', '[A-Za-z0-9]{48}');
+        Route::post('demandes/{jeton}/choisir', [DemandePubliqueController::class, 'choisir'])->where('jeton', '[A-Za-z0-9]{48}')->middleware('throttle:10,1');
         // Site web publié d'une organisation et de toutes ses cliniques.
         Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
         // Domaines personnalisés : site d'un domaine actif ; autorisation de certificat (on-demand TLS)
@@ -287,6 +292,8 @@ Route::prefix('v1')->group(function (): void {
         Route::post('devis/{devis}/signer', [DocumentProprietaireController::class, 'signerDevis']);
         Route::post('ordonnances/{ordonnance}/renouvellement', [DocumentProprietaireController::class, 'demanderRenouvellement']);
         Route::post('demandes', [CliniqueProprietaireController::class, 'deposer']);
+        Route::get('demandes', [DemandeProprietaireController::class, 'index']);
+        Route::post('demandes/{demande}/choisir', [DemandeProprietaireController::class, 'choisir'])->whereNumber('demande');
         Route::post('email/envoyer', [VerificationEmailController::class, 'envoyer'])->middleware('throttle:auth');
         Route::post('email/verifier', [VerificationEmailController::class, 'verifier'])->middleware('throttle:auth');
     });
@@ -357,6 +364,8 @@ Route::prefix('v1')->group(function (): void {
 
         Route::get('demandes', [DemandeRendezVousController::class, 'index']);
         Route::post('demandes/{demande}/placer', [DemandeRendezVousController::class, 'placer']);
+        Route::post('demandes/{demande}/proposer', [DemandeRendezVousController::class, 'proposer']);
+        Route::post('demandes/{demande}/refuser', [DemandeRendezVousController::class, 'refuser']);
         Route::delete('demandes/{demande}', [DemandeRendezVousController::class, 'destroy']);
 
         Route::get('liste-attente', [ListeAttenteController::class, 'index']);

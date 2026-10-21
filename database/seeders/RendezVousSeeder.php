@@ -16,6 +16,7 @@ use App\Models\UrgenceAttente;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Str;
 
 /**
  * Rendez-vous du jour du front (planning.seed.js, minutes depuis minuit
@@ -44,7 +45,7 @@ class RendezVousSeeder extends Seeder
         ['Dr Meyer', 840, 20, 'Cannelle', 'CH', 'M. Kessler', 'vaccin', 'prevu', [], 'Rappel CHPPiL', null],
         ['Dr Meyer', 860, 30, 'Sushi', 'CT', 'Mme Diaz', 'consult', 'prevu', [], 'Prurit et léchage excessif', null],
         ['Dr Meyer', 900, 30, 'Iroise', 'CH', 'M. Baldi', 'consult', 'prevu', ['iso'], 'Toux persistante depuis 6 jours', null],
-        ['Dr Meyer', 930, 20, 'Filou', 'CH', 'M. Baranov', 'tele', 'prevu', [], 'Contrôle vidéo — plaie post-opératoire', null],
+        ['Dr Meyer', 930, 20, 'Filou', 'CH', 'M. Baranov', 'tele', 'prevu', [], 'Contrôle vidéo, plaie post-opératoire', null],
         ['Dr Meyer', 960, 30, null, null, null, 'tampon', 'prevu', [], null, null],
         ['Dr Meyer', 990, 20, 'Pistache', 'CT', 'Mme Nkomo', 'vaccin', 'prevu', [], 'Primo-vaccination', null],
         ['Dr Meyer', 1050, 30, 'Bourbon', 'CH', 'M. Tissier', 'consult', 'prevu', [], 'Bilan gériatrique annuel', null],
@@ -55,12 +56,12 @@ class RendezVousSeeder extends Seeder
         ['Dr Solal', 570, 20, 'Biscuit', 'FU', 'M. Léandre', 'vaccin', 'fini', [], 'Vaccin maladie de Carré', null],
         ['Dr Solal', 600, 30, 'Orion', 'CH', 'Mme Cortès', 'consult', 'fini', [], 'Contrôle cardiaque', null],
         ['Dr Solal', 670, 20, 'Nino', 'CH', 'M. Fabre', 'vaccin', 'cours', [], 'Rappel annuel', null],
-        ['Dr Solal', 700, 20, 'Pilou', 'CH', 'Mme Ottavi', 'consult', 'salle', [], 'Cochon d’Inde — grattage intense', 668],
-        ['Dr Solal', 725, 30, 'Ourson', 'CH', 'M. Grangé', 'consult', 'prevu', ['neuf'], 'Première visite — chiot 3 mois', null],
+        ['Dr Solal', 700, 20, 'Pilou', 'CH', 'Mme Ottavi', 'consult', 'salle', [], 'Cochon d’Inde, grattage intense', 668],
+        ['Dr Solal', 725, 30, 'Ourson', 'CH', 'M. Grangé', 'consult', 'prevu', ['neuf'], 'Première visite, chiot 3 mois', null],
         ['Dr Solal', 840, 30, null, null, null, 'tampon', 'prevu', [], null, null],
         ['Dr Solal', 870, 20, 'Prune', 'CH', 'Mme Weiss', 'ctrl', 'prevu', [], 'Suivi traitement anti-inflammatoire', null],
-        ['Dr Solal', 900, 30, 'Ramen', 'CH', 'M. Ilyas', 'consult', 'prevu', ['neuf'], 'Boiterie patte arrière — réservé en ligne', null],
-        ['Dr Solal', 960, 30, 'Câline', 'CT', 'Mme Perez', 'vaccin', 'prevu', [], 'Rappel vaccin — réservé en ligne', null],
+        ['Dr Solal', 900, 30, 'Ramen', 'CH', 'M. Ilyas', 'consult', 'prevu', ['neuf'], 'Boiterie patte arrière, réservé en ligne', null],
+        ['Dr Solal', 960, 30, 'Câline', 'CT', 'Mme Perez', 'vaccin', 'prevu', [], 'Rappel vaccin, réservé en ligne', null],
         ['Dr Solal', 1080, 20, 'Tofu', 'CT', 'M. Baranov', 'tele', 'prevu', [], 'Suivi alimentation rénale', null],
 
         ['Dr Adjei', 540, 40, 'Tempête', 'CT', 'Mme Sicard', 'urgence', 'fini', [], 'Détresse respiratoire', null],
@@ -136,7 +137,7 @@ class RendezVousSeeder extends Seeder
         $urgences = [
             ['Filou', 'CH', 'M. Rebours', 'Abdomen distendu, tentatives de vomissement improductives', 3, 45, '11:08'],
             ['Réglisse', 'CT', 'Mme Dubost', 'Œil gauche fermé, écoulement purulent', 2, 20, '11:15'],
-            ['Plume', 'OI', 'M. Cadéac', 'Perruche — refuse de s’alimenter depuis hier', 1, 20, '10:52'],
+            ['Plume', 'OI', 'M. Cadéac', 'Perruche, refuse de s’alimenter depuis hier', 1, 20, '10:52'],
         ];
         foreach ($urgences as [$nom, $espece, $proprietaire, $motif, $triage, $duree, $heure]) {
             UrgenceAttente::create([
@@ -151,21 +152,27 @@ class RendezVousSeeder extends Seeder
             ]);
         }
 
+        // Déposées sans compte (l'e-mail reçoit les réponses, dans Mailpit en local),
+        // chacune avec l'heure choisie dans le calendrier : demain, après-demain
         $demandes = [
-            ['Grisou', 'CT', 'Mme Pineau', 'Vomit depuis 2 jours, reste prostré', 'Aujourd’hui après 16:00', ModeDemandeRendezVous::AValider, 30],
-            ['Mango', 'CH', 'Mme Estève', 'Rappel vaccin + antiparasitaire', 'Cette semaine, le matin', ModeDemandeRendezVous::AValider, 20],
-            ['Vanille', 'CT', 'M. Sorel', 'Griffes trop longues, gêne à la marche', 'Créneau ouvert pris : jeudi 14 · 10:30', ModeDemandeRendezVous::Confirmee, 20],
+            ['Grisou', 'CT', 'Mme Pineau', 'pineau@exemple.ch', '079 512 44 08', 'Vomit depuis 2 jours, reste prostré', $jour->addDay()->setTime(16, 0), 30],
+            ['Mango', 'CH', 'Mme Estève', 'esteve@exemple.ch', '078 220 61 35', 'Rappel vaccin + antiparasitaire', $jour->addDays(2)->setTime(9, 0), 20],
+            ['Vanille', 'CT', 'M. Sorel', 'sorel@exemple.ch', '076 431 90 12', 'Griffes trop longues, gêne à la marche', $jour->addDay()->setTime(10, 20), 20],
         ];
-        foreach ($demandes as [$nom, $espece, $proprietaire, $motif, $souhait, $mode, $duree]) {
+        foreach ($demandes as [$nom, $espece, $proprietaire, $email, $telephone, $motif, $debut, $duree]) {
             DemandeRendezVous::create([
                 'clinique_id' => $clinique->id,
                 'patient_name' => $nom,
                 'species' => Espece::from($espece),
                 'owner_name' => $proprietaire,
+                'email' => $email,
+                'telephone' => $telephone,
                 'reason' => $motif,
-                'souhait' => $souhait,
-                'mode' => $mode,
+                'souhait' => 'Sur place · '.$debut->format('d.m.Y à H:i').' (sans compte)',
+                'debut_souhaite' => $debut->utc(),
+                'mode' => ModeDemandeRendezVous::AValider,
                 'duree_minutes' => $duree,
+                'jeton' => Str::random(48),
             ]);
         }
 
