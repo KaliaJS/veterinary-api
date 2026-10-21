@@ -20,7 +20,8 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * Annuaire de démonstration : des cliniques fictives à travers la Suisse
+ * Annuaire de démonstration : des cliniques fictives à travers la Suisse,
+ * plus serrées autour de Lausanne (regroupements, noms qui se gênent)
  * (romande, alémanique, italienne), chacune dans sa propre organisation
  * ouverte, avec un vétérinaire et sa colonne de planning (des créneaux
  * réels dans l'annuaire) et une photo. Les cliniques de Deux Rives
@@ -51,6 +52,14 @@ class AnnuaireSeeder extends Seeder
         // Lausanne : trois cliniques proches avec Deux Rives, regroupées en dézoomant
         ['Clinique vétérinaire d’Ouchy', 'Avenue d’Ouchy 58', '1006', 'Lausanne', 46.5121, 6.6302, '+41 21 616 24 30', 'Dre Camille Rossier'],
         ['Cabinet vétérinaire de la Pontaise', 'Rue de la Pontaise 21', '1018', 'Lausanne', 46.5309, 6.6262, '+41 21 646 13 52', 'Dr Hugo Blanc'],
+        // Lausanne et ses abords, à quelques rues les unes des autres : regroupements et noms qui se gênent
+        ['Clinique vétérinaire du Flon', 'Rue du Port-Franc 16', '1003', 'Lausanne', 46.5214, 6.6281, '+41 21 312 40 18', 'Dre Léa Monod'],
+        ['Vétérinaires de la Gare', 'Avenue de la Gare 29', '1003', 'Lausanne', 46.5179, 6.6327, '+41 21 320 55 61', 'Dr Samuel Rey'],
+        ['Cabinet vétérinaire de la Harpe', 'Avenue de la Harpe 12', '1007', 'Lausanne', 46.5108, 6.6229, '+41 21 617 32 04', 'Dre Inès Perret'],
+        ['Cabinet vétérinaire de Chailly', 'Avenue de Chailly 30', '1012', 'Lausanne', 46.5274, 6.6508, '+41 21 652 18 77', 'Dr Victor Gaillard'],
+        ['Clinique vétérinaire de Malley', 'Route de Renens 4', '1008', 'Prilly', 46.5298, 6.6052, '+41 21 624 41 26', 'Dre Manon Aubert'],
+        ['Cabinet vétérinaire de Renens', 'Rue de Lausanne 25', '1020', 'Renens', 46.5391, 6.5886, '+41 21 634 27 83', 'Dr Noah Cuendet'],
+        ['Clinique vétérinaire de Lavaux', 'Avenue de Lavaux 30', '1009', 'Pully', 46.5104, 6.6611, '+41 21 728 15 49', 'Dre Zoé Bovet'],
         ['Clinique vétérinaire de la Riviera', 'Avenue des Alpes 54', '1820', 'Montreux', 46.4335, 6.9108, '+41 21 963 27 15', 'Dre Laure Chevalley'],
         ['Clinique vétérinaire du Littoral', 'Rue de l’Hôpital 11', '2000', 'Neuchâtel', 46.9925, 6.9311, '+41 32 725 40 12', 'Dr Olivier Matthey'],
         ['Cabinet vétérinaire des Montagnes', 'Avenue Léopold-Robert 66', '2300', 'La Chaux-de-Fonds', 47.1012, 6.8287, '+41 32 913 55 21', 'Dre Anne Huguenin'],
