@@ -22,6 +22,8 @@ return new class extends Migration
             $table->enum('verification_veterinaire', array_column(StatutVerificationVeterinaire::cases(), 'value'))->nullable()->comment('Vérification manuelle par la plateforme (badge) : en_attente, verifie, refuse');
             $table->timestamp('verification_veterinaire_le')->nullable()->comment('Dernière demande ou décision');
             $table->boolean('est_moderateur')->default(false)->comment('Modérateur de la plateforme Veterinary : donné par commande, jamais par l’application');
+            $table->text('presentation')->nullable()->comment('Fiche publique d’un vétérinaire : quelques lignes sur lui');
+            $table->json('langues')->nullable()->comment('Fiche publique d’un vétérinaire : langues parlées (fr, de, it, en…)');
             $table->char('code_employe', 6)->nullable()->unique()->comment('Code court que la personne donne pour être embauchée (« K7F3QZ », affiché « K7F-3QZ »)');
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');

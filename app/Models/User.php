@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
@@ -43,6 +44,7 @@ class User extends Authenticatable
             'carte_alertee_le' => 'date',
             'apple_fin' => 'datetime',
             'apple_renouvelle' => 'boolean',
+            'langues' => 'array',
             'gln_verifie_le' => 'datetime',
             'verification_veterinaire' => StatutVerificationVeterinaire::class,
             'verification_veterinaire_le' => 'datetime',
@@ -167,5 +169,35 @@ class User extends Authenticatable
     public function specialites(): HasMany
     {
         return $this->hasMany(SpecialiteVeterinaire::class);
+    }
+
+    /**
+     * Parcours déclaré par le vétérinaire (postes et formations), dans
+     * l'ordre où il les a rangés.
+     *
+     * @return HasMany<ParcoursVeterinaire, $this>
+     */
+    public function parcours(): HasMany
+    {
+        return $this->hasMany(ParcoursVeterinaire::class)->orderBy('ordre')->orderBy('id');
+    }
+
+    /**
+     * Ses fiches employé de vétérinaire, actives, dans des cliniques de
+     * l'annuaire qui montrent leurs vétérinaires : ce que la fiche
+     * publique peut montrer.
+     *
+     * @return Collection<int, Employe>
+     */
+    public function postesVisibles(): Collection
+    {
+        return Employe::withoutGlobalScopes()
+            ->where('user_id', $this->id)
+            ->with(['organisation', 'cliniques' => fn ($cliniques) => $cliniques->withoutGlobalScopes()->ouvertes()->where('affiche_veterinaires', true)])
+            ->get()
+            ->filter(fn (Employe $fiche): bool => $fiche->estVeterinaire() && $fiche->estPresentable())
+            ->each(fn (Employe $fiche) => $fiche->setRelation('cliniques', $fiche->cliniques->filter(fn (Clinique $clinique): bool => $clinique->estDansLAnnuaire())->values()))
+            ->filter(fn (Employe $fiche): bool => $fiche->cliniques->isNotEmpty())
+            ->values();
     }
 }

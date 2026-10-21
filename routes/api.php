@@ -58,6 +58,7 @@ use App\Http\Controllers\Api\V1\Espace\PlaneteController;
 use App\Http\Controllers\Api\V1\Espace\ReglagesProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\RendezVousProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\VerificationEmailController;
+use App\Http\Controllers\Api\V1\Espace\VeterinairePublicController;
 use App\Http\Controllers\Api\V1\ExamenImagerieController;
 use App\Http\Controllers\Api\V1\FactureController;
 use App\Http\Controllers\Api\V1\FactureDevisController;
@@ -165,6 +166,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('profil-veterinaire', [ProfilVeterinaireController::class, 'afficher']);
         Route::put('profil-veterinaire', [ProfilVeterinaireController::class, 'modifier'])->middleware('throttle:20,1');
         Route::post('profil-veterinaire/verification', [ProfilVeterinaireController::class, 'demanderVerification'])->middleware('throttle:5,1');
+        Route::put('profil-veterinaire/fiche', [ProfilVeterinaireController::class, 'modifierFiche']);
 
         Route::get('passkeys', [PasskeyController::class, 'index']);
         Route::post('passkeys/options', [PasskeyController::class, 'options']);
@@ -214,6 +216,8 @@ Route::prefix('v1')->group(function (): void {
     Route::prefix('public')->middleware('throttle:60,1')->group(function (): void {
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
+        // Fiche publique d'un vétérinaire vérifié, montré par une clinique de l'annuaire
+        Route::get('veterinaires/{veterinaire}', [VeterinairePublicController::class, 'afficher'])->whereNumber('veterinaire');
         // Demande de rendez-vous sans compte, chez une clinique qui l'accepte
         Route::post('demandes', [CliniqueProprietaireController::class, 'deposerSansCompte'])->middleware('throttle:5,1');
         // Site web publié d'une organisation et de toutes ses cliniques.

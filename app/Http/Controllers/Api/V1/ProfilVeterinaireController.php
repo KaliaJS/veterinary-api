@@ -6,8 +6,10 @@ use App\Enums\DecisionVerification;
 use App\Enums\Specialite;
 use App\Enums\StatutVerificationVeterinaire;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\V1\Auth\ModifierFichePubliqueRequest;
 use App\Http\Requests\V1\Auth\ModifierProfilVeterinaireRequest;
 use App\Mail\VerificationVeterinaireAFaire;
+use App\Models\ParcoursVeterinaire;
 use App\Models\SpecialiteVeterinaire;
 use App\Models\User;
 use App\Services\Inscription\VerificationVeterinaire;
@@ -23,7 +25,8 @@ use Illuminate\Validation\ValidationException;
  * lui-même et qui le suivent dans toutes ses cliniques. Un GLN est
  * public : le registre écarte les fautes et les inventions, il ne
  * prouve pas l'identité (vérification manuelle de la plateforme, à
- * part).
+ * part). Sa fiche publique de l'annuaire : présentation, langues et
+ * parcours (postes et formations), qu'il écrit lui-même.
  */
 class ProfilVeterinaireController extends Controller
 {
@@ -73,6 +76,34 @@ class ProfilVeterinaireController extends Controller
         return response()->json(['data' => [...$this->profil($compte->fresh()), 'registre_resultat' => $registre]]);
     }
 
+    /** Fiche publique : présentation, langues, et tout le parcours d'un coup (dans l'ordre reçu). */
+    public function modifierFiche(ModifierFichePubliqueRequest $request): JsonResponse
+    {
+        $compte = $request->user();
+        $donnees = $request->validated();
+
+        DB::transaction(function () use ($compte, $donnees): void {
+            $compte->forceFill([
+                'presentation' => trim((string) ($donnees['presentation'] ?? '')) ?: null,
+                'langues' => array_values($donnees['langues']),
+            ])->save();
+            $compte->parcours()->delete();
+            foreach (array_values($donnees['parcours']) as $ordre => $ligne) {
+                $compte->parcours()->create([
+                    'type' => $ligne['type'],
+                    'titre' => trim($ligne['titre']),
+                    'lieu' => trim((string) ($ligne['lieu'] ?? '')) ?: null,
+                    'ville' => trim((string) ($ligne['ville'] ?? '')) ?: null,
+                    'annee_debut' => $ligne['annee_debut'] ?? null,
+                    'annee_fin' => $ligne['annee_fin'] ?? null,
+                    'ordre' => $ordre,
+                ]);
+            }
+        });
+
+        return response()->json(['data' => $this->profil($compte->fresh())]);
+    }
+
     /**
      * Demande de vérification manuelle à la plateforme (badge « Vérifié
      * manuellement ») : il faut un GLN ; les modérateurs sont prévenus.
@@ -115,6 +146,10 @@ class ProfilVeterinaireController extends Controller
                 ->sortBy(fn (SpecialiteVeterinaire $ligne): int => array_search($ligne->specialite, Specialite::cases(), true))
                 ->map(fn (SpecialiteVeterinaire $ligne): string => $ligne->specialite->value)
                 ->values()->all(),
+            // Fiche publique de l'annuaire
+            'presentation' => $compte->presentation,
+            'langues' => $compte->langues ?? [],
+            'parcours' => $compte->parcours()->get()->map(fn (ParcoursVeterinaire $ligne): array => $ligne->versTableau())->all(),
         ];
     }
 }

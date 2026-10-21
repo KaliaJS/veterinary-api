@@ -88,7 +88,54 @@ class ServicesCliniquesSeeder extends Seeder
                     // Sur le compte du vétérinaire : il les déclare lui-même
                     $employe->user->specialites()->firstOrCreate(['specialite' => $toutes[($graine >> (4 * $i)) % count($toutes)]]);
                 }
+                $this->fichePublique($employe, $graine);
             });
+    }
+
+    private const FACULTES = [
+        ['Vetsuisse, Université de Berne', 'Berne'],
+        ['Vetsuisse, Université de Zurich', 'Zurich'],
+        ['École nationale vétérinaire de Lyon', 'Lyon'],
+        ['Université de Liège', 'Liège'],
+    ];
+
+    private const POSTES = [
+        ['Vétérinaire assistant', 'Clinique vétérinaire des Alpes', 'Sion'],
+        ['Interne en médecine des petits animaux', 'Hôpital vétérinaire universitaire', 'Berne'],
+        ['Vétérinaire', 'Cabinet vétérinaire du Vieux-Bourg', 'Neuchâtel'],
+        ['Vétérinaire urgentiste', 'Centre d’urgences vétérinaires', 'Genève'],
+    ];
+
+    /**
+     * Fiche publique de démonstration : langues selon la région de la
+     * clinique, une présentation, une formation et un ancien poste. Une
+     * fiche déjà remplie n'est pas touchée.
+     */
+    private function fichePublique(Employe $employe, int $graine): void
+    {
+        $compte = $employe->user;
+        if ($compte->presentation !== null || $compte->parcours()->exists()) {
+            return;
+        }
+        $npa = (int) ($employe->cliniques()->withoutGlobalScopes()->first()?->npa ?? 1000);
+        $langues = match (true) {
+            $npa >= 6500 && $npa < 7000 => ['it', 'fr', 'de'],
+            $npa >= 3000 => ['de', 'fr', 'en'],
+            default => ['fr', 'en'],
+        };
+        if ($graine % 5 === 0) {
+            $langues[] = 'es';
+        }
+        $diplome = 2004 + $graine % 15;
+        [$faculte, $villeFaculte] = self::FACULTES[$graine % count(self::FACULTES)];
+        [$poste, $lieu, $ville] = self::POSTES[($graine >> 3) % count(self::POSTES)];
+
+        $compte->forceFill([
+            'presentation' => 'La médecine des petits animaux est mon métier : je prends le temps d’expliquer chaque étape aux propriétaires.',
+            'langues' => array_values(array_unique($langues)),
+        ])->save();
+        $compte->parcours()->create(['type' => 'experience', 'titre' => $poste, 'lieu' => $lieu, 'ville' => $ville, 'annee_debut' => $diplome, 'annee_fin' => $diplome + 2 + $graine % 4, 'ordre' => 0]);
+        $compte->parcours()->create(['type' => 'formation', 'titre' => 'Doctorat en médecine vétérinaire', 'lieu' => $faculte, 'ville' => $villeFaculte, 'annee_fin' => $diplome, 'ordre' => 1]);
     }
 
     /** @return array{services: list<string>, urgences: ?ModaliteUrgences, especes: list<string>} */

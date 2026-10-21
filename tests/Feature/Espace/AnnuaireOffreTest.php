@@ -41,7 +41,7 @@ class AnnuaireOffreTest extends TestCase
         $this->assertSame(6, $fiche['nombre_boxes']);
         $this->assertSame(['CH', 'CT'], $fiche['especes']);
         $this->assertSame(['ophtalmologie'], $fiche['specialites']);
-        $this->assertSame([['nom' => 'Dr Léa Fontaine', 'specialites' => ['ophtalmologie']]], $fiche['veterinaires']);
+        $this->assertSame([['id' => $verifiee->id, 'nom' => 'Dr Léa Fontaine', 'photo_url' => null, 'specialites' => ['ophtalmologie']]], $fiche['veterinaires']);
 
         // Vétérinaires masqués : leurs spécialités restent, sans les noms
         $clinique->update(['affiche_veterinaires' => false]);

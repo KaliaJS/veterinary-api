@@ -130,7 +130,13 @@ class CliniqueProprietaireController extends Controller
             'rdv_sans_compte' => $clinique->rdv_sans_compte,
             // null : la clinique ne montre pas ses vétérinaires (les icônes seules)
             'veterinaires' => $clinique->affiche_veterinaires
-                ? $verifies->map(fn (Employe $fiche): array => ['nom' => $fiche->nom, 'specialites' => $specialitesDe($fiche)])->all()
+                ? $verifies->map(fn (Employe $fiche): array => [
+                    // Le compte : sa fiche publique (public/veterinaires/{id})
+                    'id' => $fiche->user_id,
+                    'nom' => $fiche->nom,
+                    'photo_url' => $fiche->photoUrl(),
+                    'specialites' => $specialitesDe($fiche),
+                ])->all()
                 : null,
         ];
     }
