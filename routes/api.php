@@ -216,6 +216,8 @@ Route::prefix('v1')->group(function (): void {
     Route::prefix('public')->middleware('throttle:60,1')->group(function (): void {
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
+        // Calendrier de la prise de rendez-vous : une semaine d'heures, libres ou non
+        Route::get('cliniques/{clinique}/disponibilites', [CliniqueProprietaireController::class, 'disponibilites'])->whereNumber('clinique');
         // Fiche publique d'un vétérinaire vérifié, montré par une clinique de l'annuaire
         Route::get('veterinaires/{veterinaire}', [VeterinairePublicController::class, 'afficher'])->whereNumber('veterinaire');
         // Demande de rendez-vous sans compte, chez une clinique qui l'accepte

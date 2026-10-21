@@ -20,7 +20,7 @@ class DeposerDemandeSansCompteRequest extends DeposerDemandeRendezVousRequest
     {
         return [
             'clinique_id' => ['required', 'integer', 'exists:cliniques,id'],
-            ...self::reglesQuand(),
+            'debut_souhaite' => ['required', 'date', 'after:now'],
             'mode' => ['required', Rule::in(['place', 'visio'])],
             'patient_name' => ['required', 'string', 'max:120'],
             'espece' => ['required', Rule::enum(Espece::class)],

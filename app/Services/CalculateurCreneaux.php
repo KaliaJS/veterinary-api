@@ -150,13 +150,14 @@ class CalculateurCreneaux
      * contexte (annuaire des cliniques) : horaires, lignes, absences et
      * rendez-vous de toutes les cliniques sont lus en quatre requêtes,
      * quel que soit leur nombre. Chaque clinique part de son propre
-     * aujourd'hui, dans son fuseau ; sans horaires enregistrés, ce sont
-     * les horaires par défaut.
+     * aujourd'hui, dans son fuseau (ou du jour donné : une semaine du
+     * calendrier de prise de rendez-vous) ; sans horaires enregistrés, ce
+     * sont les horaires par défaut.
      *
      * @param  Collection<int, Clinique>  $cliniques
      * @return array<int, list<Collection<int, array{ligne_planning_id: int, debut: CarbonImmutable, fin: CarbonImmutable}>>> par id de clinique, un élément par jour
      */
-    public function creneauxDesCliniques(Collection $cliniques, int $nombreJours, int $dureeMinutes = self::TROU_MINIMAL_MINUTES): array
+    public function creneauxDesCliniques(Collection $cliniques, int $nombreJours, int $dureeMinutes = self::TROU_MINIMAL_MINUTES, ?CarbonImmutable $premierJour = null): array
     {
         if ($cliniques->isEmpty()) {
             return [];
@@ -164,7 +165,7 @@ class CalculateurCreneaux
 
         $ids = $cliniques->modelKeys();
         $fuseaux = $cliniques->mapWithKeys(fn (Clinique $clinique): array => [$clinique->id => $clinique->fuseau_horaire ?? 'Europe/Zurich']);
-        $minuits = $fuseaux->map(fn (string $fuseau): array => $this->minuits(CarbonImmutable::today($fuseau), $nombreJours, $fuseau));
+        $minuits = $fuseaux->map(fn (string $fuseau): array => $this->minuits($premierJour ?? CarbonImmutable::today($fuseau), $nombreJours, $fuseau));
 
         // Période commune : du premier minuit au dernier, tous fuseaux confondus.
         $debut = $minuits->map(fn (array $m): CarbonImmutable => $m[0])->min();

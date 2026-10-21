@@ -16,6 +16,7 @@ use App\Models\CliniqueEspece;
 use App\Models\CliniqueService;
 use App\Models\DemandeRendezVous;
 use App\Models\Employe;
+use App\Models\HoraireOuverture;
 use App\Models\Patient;
 use App\Models\SiteWeb;
 use App\Models\SpecialiteVeterinaire;
@@ -23,6 +24,7 @@ use App\Services\CalculateurCreneaux;
 use App\Services\Photos\PhotosCliniques;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 
 /**
@@ -39,6 +41,9 @@ class CliniqueProprietaireController extends Controller
     private const int JOURS_EXPLORES = 7;
 
     private const int DUREE_MINUTES = 20;
+
+    /** Le calendrier des disponibilités s'ouvre sur ce nombre de semaines */
+    private const int SEMAINES_OUVERTES = 8;
 
     /** Les créneaux proposés tombent au quart d'heure (horaires suisses : décalage en heures entières). */
     private const int QUART = 900;
@@ -180,30 +185,16 @@ class CliniqueProprietaireController extends Controller
         ]);
     }
 
-    /** « Personnaliser » : le délai et le moment, tels que la clinique les lit */
-    private const PERIODES = [
-        'cette_semaine' => 'cette semaine',
-        'semaine_prochaine' => 'la semaine prochaine',
-        'deux_semaines' => 'dans 2 semaines',
-        'un_mois' => 'dans un mois',
-    ];
-
-    private const MOMENTS = ['matin' => 'le matin', 'apres_midi' => 'l’après-midi'];
-
     /**
-     * La demande dans la file de la clinique : le créneau souhaité (ou un
-     * jour, ou un délai), le mode, le motif, et pour une urgence ce que
-     * voit le propriétaire.
+     * La demande dans la file de la clinique : le créneau souhaité, le
+     * mode, le motif, et pour une urgence ce que voit le propriétaire.
      *
      * @param  array<string, mixed>  $donnees
      * @param  array<string, mixed>  $qui  animal et propriétaire
      */
     private function enregistrer(Clinique $clinique, array $donnees, SousContexteClinique $sousContexte, array $qui): JsonResponse
     {
-        $debut = isset($donnees['debut_souhaite'])
-            ? CarbonImmutable::parse($donnees['debut_souhaite'])->setTimezone($clinique->fuseau_horaire ?? 'Europe/Zurich')
-            : null;
-        $quand = $debut?->format('d.m.Y à H:i') ?? $this->souhaitLibre($donnees);
+        $debut = CarbonImmutable::parse($donnees['debut_souhaite'])->setTimezone($clinique->fuseau_horaire ?? 'Europe/Zurich');
         $urgence = (bool) ($donnees['urgence'] ?? false);
 
         $demande = $sousContexte->pour($clinique, fn (): DemandeRendezVous => DemandeRendezVous::create([
@@ -211,7 +202,7 @@ class CliniqueProprietaireController extends Controller
             'reason' => $donnees['motif'],
             'urgence' => $urgence,
             'symptomes' => $urgence ? trim((string) ($donnees['symptomes'] ?? '')) : null,
-            'souhait' => ($donnees['mode'] === 'visio' ? 'Téléconsultation vidéo' : 'Sur place').' · '.$quand.(isset($qui['email']) ? ' (sans compte)' : ' (espace client)'),
+            'souhait' => ($donnees['mode'] === 'visio' ? 'Téléconsultation vidéo' : 'Sur place').' · '.$debut->format('d.m.Y à H:i').(isset($qui['email']) ? ' (sans compte)' : ' (espace client)'),
             'mode' => ModeDemandeRendezVous::AValider,
             'duree_minutes' => self::DUREE_MINUTES,
         ]));
@@ -219,8 +210,7 @@ class CliniqueProprietaireController extends Controller
         return response()->json(['data' => [
             'demande_id' => $demande->id,
             'clinique' => ['id' => $clinique->id, 'nom' => $clinique->nom, 'ville' => $clinique->ville],
-            'debut_souhaite' => $debut?->toIso8601String(),
-            'souhait' => $quand,
+            'debut_souhaite' => $debut->toIso8601String(),
             'mode' => $donnees['mode'],
             'patient_name' => $demande->patient_name,
             'motif' => $demande->reason,
@@ -229,18 +219,57 @@ class CliniqueProprietaireController extends Controller
     }
 
     /**
-     * « le 28.10.2026, le matin », « la semaine prochaine » : le souhait
-     * d'un propriétaire à qui aucun créneau ne convient.
-     *
-     * @param  array<string, mixed>  $donnees
+     * Calendrier de la prise de rendez-vous : une semaine (du lundi au
+     * dimanche) de la clinique, chaque jour avec toutes ses heures
+     * d'ouverture au pas d'un rendez-vous, libres ou non (pause exclue,
+     * passé jamais libre). De cette semaine à SEMAINES_OUVERTES plus
+     * loin ; `precedente` et `suivante` en donnent les lundis.
      */
-    private function souhaitLibre(array $donnees): string
+    public function disponibilites(Request $request, CalculateurCreneaux $calculateur, int $clinique): JsonResponse
     {
-        $quand = isset($donnees['jour_souhaite'])
-            ? 'le '.CarbonImmutable::parse($donnees['jour_souhaite'])->format('d.m.Y')
-            : self::PERIODES[$donnees['periode']];
+        $fiche = Clinique::withoutGlobalScopes()->ouvertes()->findOrFail($clinique);
+        $request->validate(['semaine' => ['nullable', 'date_format:Y-m-d']]);
 
-        return isset($donnees['moment']) ? $quand.', '.self::MOMENTS[$donnees['moment']] : $quand;
+        $fuseau = $fiche->fuseau_horaire ?? 'Europe/Zurich';
+        $cetteSemaine = CarbonImmutable::today($fuseau)->startOfWeek();
+        $derniere = $cetteSemaine->addWeeks(self::SEMAINES_OUVERTES - 1);
+        $lundi = $request->filled('semaine') ? CarbonImmutable::parse($request->query('semaine'), $fuseau)->startOfWeek() : $cetteSemaine;
+        $lundi = $lundi->max($cetteSemaine)->min($derniere);
+
+        $trous = $calculateur->creneauxDesCliniques($fiche->newCollection([$fiche]), 7, self::DUREE_MINUTES, $lundi)[$fiche->id];
+        $horaires = HoraireOuverture::withoutGlobalScope('clinique')->where('clinique_id', $fiche->id)->first()
+            ?? new HoraireOuverture(HoraireOuverture::DEFAUTS);
+        $maintenant = now()->getTimestamp();
+        $pas = self::DUREE_MINUTES * 60;
+
+        $jours = [];
+        foreach (range(0, 6) as $i) {
+            $jour = $lundi->addDays($i);
+            $bornes = $calculateur->bornesDuJour($horaires, $jour);
+            // Les trous du jour en horodatages : une heure est libre si un trou la contient entière
+            $libres = $trous[$i]->map(fn (array $trou): array => [$trou['debut']->getTimestamp(), $trou['fin']->getTimestamp()])->all();
+            $heures = [];
+            for ($minute = $bornes['ouverture']; ! $bornes['fermee'] && $minute + self::DUREE_MINUTES <= $bornes['fermeture']; $minute += self::DUREE_MINUTES) {
+                if ($bornes['pause'] && $minute < $bornes['pause'][1] && $minute + self::DUREE_MINUTES > $bornes['pause'][0]) {
+                    continue;
+                }
+                $debut = $jour->setTime(intdiv($minute, 60), $minute % 60);
+                $instant = $debut->getTimestamp();
+                $heures[] = [
+                    'debut' => $debut->toIso8601String(),
+                    'libre' => $instant > $maintenant && collect($libres)->contains(fn (array $trou): bool => $trou[0] <= $instant && $trou[1] >= $instant + $pas),
+                ];
+            }
+            $jours[] = ['date' => $jour->toDateString(), 'ferme' => $bornes['fermee'], 'heures' => $heures];
+        }
+
+        return response()->json(['data' => [
+            'semaine' => $lundi->toDateString(),
+            'precedente' => $lundi->greaterThan($cetteSemaine) ? $lundi->subWeek()->toDateString() : null,
+            'suivante' => $lundi->lessThan($derniere) ? $lundi->addWeek()->toDateString() : null,
+            'duree_minutes' => self::DUREE_MINUTES,
+            'jours' => $jours,
+        ]]);
     }
 
     /**

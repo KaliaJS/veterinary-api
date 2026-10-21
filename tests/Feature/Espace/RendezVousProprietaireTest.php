@@ -9,6 +9,7 @@ use App\Models\LignePlanning;
 use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -221,31 +222,42 @@ class RendezVousProprietaireTest extends TestCase
         $this->assertDatabaseHas('demandes_rendez_vous', ['patient_name' => 'Rex', 'urgence' => false, 'symptomes' => null]);
     }
 
-    public function test_sans_creneau_qui_convient_le_proprietaire_dit_quand(): void
+    public function test_le_calendrier_donne_une_semaine_d_heures_libres_ou_prises(): void
     {
-        ['jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Anna Meyer']);
         $clinique = Clinique::factory()->create();
-        $demande = ['clinique_id' => $clinique->id, 'mode' => 'place', 'patient_name' => 'Nala', 'espece' => 'CH', 'motif' => 'Vaccination'];
+        $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+        $lundi = CarbonImmutable::today('Europe/Zurich')->startOfWeek()->addWeek();
+        // Un rendez-vous le mardi de 10:00 à 10:40 : 10:00 et 10:20 sont prises
+        RendezVous::factory()->create([
+            'clinique_id' => $clinique->id,
+            'ligne_planning_id' => $ligne->id,
+            'starts_at' => $lundi->addDay()->setTime(10, 0)->utc(),
+            'ends_at' => $lundi->addDay()->setTime(10, 40)->utc(),
+        ]);
 
-        // Un délai et le moment de la journée
-        $this->postJson('/api/v1/espace/demandes', [...$demande, 'periode' => 'semaine_prochaine', 'moment' => 'matin'], $this->enTetes($jeton))
-            ->assertCreated()
-            ->assertJsonPath('data.debut_souhaite', null)
-            ->assertJsonPath('data.souhait', 'la semaine prochaine, le matin');
-        $this->assertDatabaseHas('demandes_rendez_vous', ['patient_name' => 'Nala', 'souhait' => 'Sur place · la semaine prochaine, le matin (espace client)']);
+        $semaine = $this->getJson("/api/v1/public/cliniques/{$clinique->id}/disponibilites?semaine={$lundi->addDays(2)->toDateString()}")
+            ->assertOk()
+            ->assertJsonPath('data.semaine', $lundi->toDateString())
+            ->assertJsonPath('data.precedente', $lundi->subWeek()->toDateString())
+            ->assertJsonPath('data.duree_minutes', 20)
+            ->assertJsonCount(7, 'data.jours')
+            ->json('data');
 
-        // Un jour précis
-        $jour = now()->addDays(9)->toDateString();
-        $this->postJson('/api/v1/espace/demandes', [...$demande, 'patient_name' => 'Rex', 'jour_souhaite' => $jour], $this->enTetes($jeton))
-            ->assertCreated()
-            ->assertJsonPath('data.souhait', 'le '.now()->addDays(9)->format('d.m.Y'));
+        // Horaires par défaut : 08:00 à 19:30, pause de 12:30 à 14:00, dimanche fermé
+        $mardi = collect($semaine['jours'][1]['heures'])->keyBy(fn (array $h): string => CarbonImmutable::parse($h['debut'])->setTimezone('Europe/Zurich')->format('H:i'));
+        $this->assertSame('08:00', $mardi->keys()->first());
+        $this->assertTrue($mardi['09:40']['libre']);
+        $this->assertFalse($mardi['10:00']['libre']);
+        $this->assertFalse($mardi['10:20']['libre']);
+        $this->assertTrue($mardi['10:40']['libre']);
+        $this->assertFalse($mardi->has('12:40'));
+        $this->assertTrue($semaine['jours'][6]['ferme']);
+        $this->assertSame([], $semaine['jours'][6]['heures']);
 
-        // Ni créneau, ni jour, ni délai ; un jour passé ; un délai inconnu
-        $this->postJson('/api/v1/espace/demandes', $demande, $this->enTetes($jeton))
-            ->assertUnprocessable()->assertJsonValidationErrors('debut_souhaite');
-        $this->postJson('/api/v1/espace/demandes', [...$demande, 'jour_souhaite' => now()->subDay()->toDateString()], $this->enTetes($jeton))
-            ->assertUnprocessable()->assertJsonValidationErrors('jour_souhaite');
-        $this->postJson('/api/v1/espace/demandes', [...$demande, 'periode' => 'un_jour'], $this->enTetes($jeton))
-            ->assertUnprocessable()->assertJsonValidationErrors('periode');
+        // Pas avant cette semaine, pas plus loin que la huitième
+        $this->getJson("/api/v1/public/cliniques/{$clinique->id}/disponibilites?semaine=2020-01-06")
+            ->assertOk()->assertJsonPath('data.precedente', null);
+        $this->getJson("/api/v1/public/cliniques/{$clinique->id}/disponibilites?semaine=2099-01-05")
+            ->assertOk()->assertJsonPath('data.suivante', null);
     }
 }
