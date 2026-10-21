@@ -83,6 +83,7 @@ use App\Http\Controllers\Api\V1\OrganisationController;
 use App\Http\Controllers\Api\V1\OrganisationFactureController;
 use App\Http\Controllers\Api\V1\OrganisationHoraireController;
 use App\Http\Controllers\Api\V1\OrganisationPrestationController;
+use App\Http\Controllers\Api\V1\OrganisationServicesCliniqueController;
 use App\Http\Controllers\Api\V1\OrganisationTranscriptionController;
 use App\Http\Controllers\Api\V1\PackQuotaController;
 use App\Http\Controllers\Api\V1\PaiementCaisseController;
@@ -115,6 +116,7 @@ use App\Http\Controllers\Api\V1\SiteWebController;
 use App\Http\Controllers\Api\V1\SocieteController;
 use App\Http\Controllers\Api\V1\SoinSejourController;
 use App\Http\Controllers\Api\V1\SortieSejourController;
+use App\Http\Controllers\Api\V1\SpecialitesEmployeController;
 use App\Http\Controllers\Api\V1\StatistiquesBoutiqueController;
 use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
@@ -496,6 +498,9 @@ Route::prefix('v1')->group(function (): void {
             // sœur) — /horaires ne vise que la clinique du jeton.
             Route::get('cliniques/{clinique}/horaires', [OrganisationHoraireController::class, 'afficher'])->whereNumber('clinique');
             Route::put('cliniques/{clinique}/horaires', [OrganisationHoraireController::class, 'modifier'])->whereNumber('clinique');
+            // Services, animaux soignés, vétérinaires dans l'annuaire : ouvrent
+            // les modules de l'espace vétérinaire et paraissent dans l'annuaire
+            Route::put('cliniques/{clinique}/services', OrganisationServicesCliniqueController::class)->whereNumber('clinique');
 
             Route::post('abonnement/resilier', [AbonnementController::class, 'resilier']);
             Route::post('abonnement/reactiver', [AbonnementController::class, 'reactiver']);
@@ -528,6 +533,8 @@ Route::prefix('v1')->group(function (): void {
             Route::post('employes/{employe}/licencier', [LicenciementEmployeController::class, 'licencier'])->whereNumber('employe');
             Route::post('employes/{employe}/annuler-licenciement', [LicenciementEmployeController::class, 'annuler'])->whereNumber('employe');
             Route::put('employes/{employe}/cliniques', AffectationsEmployeController::class)->whereNumber('employe');
+            // Spécialités d'un vétérinaire (celles de ses cliniques dans l'annuaire)
+            Route::put('employes/{employe}/specialites', SpecialitesEmployeController::class)->whereNumber('employe');
             // Embauche : à qui appartient le code employé donné par la personne
             Route::get('comptes/{code}', CompteEmployeController::class)->middleware('throttle:20,1');
 
@@ -579,7 +586,7 @@ Route::prefix('v1')->group(function (): void {
         // PAR CLINIQUE (le box est un lit physique), enfants (soins,
         // constantes) résolus via le séjour. Jamais de suppression : la
         // sortie clôt le séjour et facture (effet système).
-        Route::middleware('can:patients')->prefix('hospitalisation')->group(function (): void {
+        Route::middleware(['can:patients', 'service:hospitalisation'])->prefix('hospitalisation')->group(function (): void {
             Route::get('sejours', [SejourController::class, 'index']);
             Route::post('sejours', [SejourController::class, 'store']);
             Route::get('sejours/{sejour}', [SejourController::class, 'show']);
@@ -599,7 +606,7 @@ Route::prefix('v1')->group(function (): void {
         // attente → cours → valid → ok un cran à la fois ; résultats
         // aux bornes instantanées, figés par la validation signée.
         // Jamais de suppression.
-        Route::middleware('can:patients')->prefix('laboratoire')->group(function (): void {
+        Route::middleware(['can:patients', 'service:laboratoire'])->prefix('laboratoire')->group(function (): void {
             Route::get('panels', [PanelLaboController::class, 'index']);
 
             Route::get('analyses', [AnalyseController::class, 'index']);
@@ -618,7 +625,7 @@ Route::prefix('v1')->group(function (): void {
         // planning — la signature du compte rendu fige l'examen, clôt
         // le RDV et facture l'acte. Flux DICOM idempotent par SOP
         // Instance UID. Jamais de suppression.
-        Route::middleware('can:patients')->prefix('imagerie')->group(function (): void {
+        Route::middleware(['can:patients', 'service:imagerie'])->prefix('imagerie')->group(function (): void {
             Route::get('trames', TrameImagerieController::class);
 
             Route::get('examens', [ExamenImagerieController::class, 'index']);
@@ -635,7 +642,7 @@ Route::prefix('v1')->group(function (): void {
         // dossier maître ; le RDV `chir` lié n'est que sa projection
         // planning. Cycle un cran à la fois, checklist bloquante avant
         // l'incision, consentement coché par sa seule signature.
-        Route::middleware('can:bloc')->prefix('bloc')->group(function (): void {
+        Route::middleware(['can:bloc', 'service:chirurgie'])->prefix('bloc')->group(function (): void {
             Route::get('interventions', [InterventionController::class, 'index']);
             Route::post('interventions', [InterventionController::class, 'store']);
             Route::get('interventions/{intervention}', [InterventionController::class, 'show']);
@@ -654,7 +661,7 @@ Route::prefix('v1')->group(function (): void {
         // projection : démarrage → cours, « Terminer » → fini +
         // facture (effet système), « Quitter » ne touche à rien. La
         // durée est servie par le serveur. Jamais de suppression.
-        Route::middleware('can:planning')->prefix('tele')->group(function (): void {
+        Route::middleware(['can:planning', 'service:teleconsultation'])->prefix('tele')->group(function (): void {
             Route::get('sessions', [SessionTeleconsultationController::class, 'index']);
             Route::post('sessions', [SessionTeleconsultationController::class, 'store']);
             Route::get('sessions/{session}', [SessionTeleconsultationController::class, 'show']);
@@ -665,7 +672,7 @@ Route::prefix('v1')->group(function (): void {
         // le stock de la clinique qui bouge). La vente comptoir crée sa
         // facture payée comme effet système ; la remise d'une commande
         // en ligne sort le stock de la clinique de retrait.
-        Route::middleware('can:stocks')->prefix('boutique')->group(function (): void {
+        Route::middleware(['can:stocks', 'service:boutique'])->prefix('boutique')->group(function (): void {
             Route::get('commandes', [CommandeBoutiqueController::class, 'index']);
             Route::post('commandes', [CommandeBoutiqueController::class, 'store']);
             Route::post('commandes/{commande}/preparer', [CommandeBoutiqueController::class, 'preparer']);

@@ -4,6 +4,7 @@ use App\Http\Middleware\AppliquerContexteClinique;
 use App\Http\Middleware\AppliquerContexteProprietaire;
 use App\Http\Middleware\AutoriserDomainesSites;
 use App\Http\Middleware\ExigerOrganisationOuverte;
+use App\Http\Middleware\ExigerServiceClinique;
 use App\Http\Middleware\ForcerReponseJson;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -28,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'clinique' => AppliquerContexteClinique::class,
             'organisation.ouverte' => ExigerOrganisationOuverte::class,
             'proprietaire' => AppliquerContexteProprietaire::class,
+            'service' => ExigerServiceClinique::class,
         ]);
 
         // Le contexte clinique doit être posé AVANT la résolution des

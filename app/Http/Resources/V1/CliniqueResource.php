@@ -2,7 +2,11 @@
 
 namespace App\Http\Resources\V1;
 
+use App\Enums\Espece;
+use App\Enums\ServiceClinique;
 use App\Models\Clinique;
+use App\Models\CliniqueEspece;
+use App\Models\CliniqueService;
 use App\Services\Photos\PhotosCliniques;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -33,6 +37,18 @@ class CliniqueResource extends JsonResource
             'email' => $this->email,
             'fuseau_horaire' => $this->fuseau_horaire,
             'nombre_boxes' => $this->nombre_boxes,
+            // Ce que la clinique propose (ouvre les modules de l'espace
+            // vétérinaire, paraît dans l'annuaire), les animaux soignés, et
+            // si l'annuaire montre ses vétérinaires
+            'services' => $this->services
+                ->sortBy(fn (CliniqueService $ligne): int => array_search($ligne->service, ServiceClinique::cases(), true))
+                ->map(fn (CliniqueService $ligne): array => ['service' => $ligne->service->value, 'modalite' => $ligne->modalite?->value])
+                ->values()->all(),
+            'especes' => $this->especes
+                ->sortBy(fn (CliniqueEspece $ligne): int => array_search($ligne->espece, Espece::cases(), true))
+                ->map(fn (CliniqueEspece $ligne): string => $ligne->espece->value)
+                ->values()->all(),
+            'affiche_veterinaires' => $this->affiche_veterinaires,
             // Photo : grande version, largeurs pour `srcset`, aperçu flou
             'photo' => PhotosCliniques::pour($this->resource),
             // Dans l'annuaire des cliniques, ou ce qui manque pour y paraître

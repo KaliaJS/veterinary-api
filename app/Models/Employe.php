@@ -70,6 +70,18 @@ class Employe extends Model
         return $this->belongsTo(Organisation::class);
     }
 
+    /** Vétérinaire de métier (l'intitulé de la fiche, pas le rôle : un administrateur peut l'être). */
+    public function estVeterinaire(): bool
+    {
+        return str_starts_with((string) $this->role_libelle, 'Vétérinaire');
+    }
+
+    /** @return HasMany<EmployeSpecialite, $this> */
+    public function specialites(): HasMany
+    {
+        return $this->hasMany(EmployeSpecialite::class);
+    }
+
     /**
      * Cliniques où la personne travaille (affectations).
      *

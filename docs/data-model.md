@@ -223,6 +223,17 @@ au dossier RH »). En base, ces états vivent sur `employes` (cf.
 divergence section 1) : `acces_suspendu`, `contrat_statut`,
 `licencie_le` / dossier RH.
 
+### Services, animaux soignés, spécialités (21.10.2026)
+
+Ce qu'une clinique propose, coché par l'administrateur (écran Organisation, `PUT /organisation/cliniques/{id}/services`, domaine `organisation`, tout l'état d'un coup) :
+
+- **`clinique_services`** (`clinique_id`, `service`, `modalite`) : un service par ligne, enum `ServiceClinique` (`hospitalisation`, `chirurgie`, `imagerie`, `laboratoire`, `boutique`, `teleconsultation`, `urgences`, `domicile`). Les urgences précisent `modalite` (`ModaliteUrgences` : `permanence` 24 h sur 24, `horaires` aux heures d'ouverture). L'hospitalisation exige `cliniques.nombre_boxes` (1 à 50) ; la couper est refusé tant qu'un séjour est en cours, et réduire les boxes sous un box occupé aussi.
+- **`clinique_especes`** (`clinique_id`, `espece`) : animaux soignés, mêmes codes que les patients (`Espece`).
+- **`cliniques.affiche_veterinaires`** (vrai par défaut) : l'annuaire public montre la liste des vétérinaires et de leurs spécialités ; sinon les icônes seules.
+- **`employe_specialites`** (`employe_id`, `specialite`) : spécialités d'un vétérinaire (enum `Specialite`, avec mots-clés de recherche : « hanche » mène à l'orthopédie), sur sa fiche de l'organisation, `PUT /equipe/employes/{id}/specialites`. Réservées aux vétérinaires de métier (`role_libelle` commençant par « Vétérinaire », pas le rôle de permissions). Celles d'une clinique se déduisent de ses vétérinaires affectés.
+
+**Effet dans l'espace vétérinaire :** un module n'est ouvert que si la clinique du jeton a le service (middleware `service:`), en plus de la permission du rôle : hospitalisation, laboratoire, imagerie, bloc (`chirurgie`), téléconsultation, boutique. La session (`clinique.services`) les liste pour les menus. Côté public, la vitrine et les commandes de la boutique ne montrent que les cliniques qui ont `boutique`, et une demande en visio exige `teleconsultation`. Une clinique créée n'a aucun service.
+
 ### Inscription d'une clinique, vérification MedReg, accès (20.10.2026)
 
 Un vétérinaire inscrit son organisation depuis son compte (connecté,

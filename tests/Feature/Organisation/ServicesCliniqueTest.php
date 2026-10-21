@@ -1,0 +1,162 @@
+<?php
+
+namespace Tests\Feature\Organisation;
+
+use App\Auth\RolesParDefaut;
+use App\Models\Clinique;
+use App\Models\Employe;
+use App\Models\Role;
+use App\Models\Sejour;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\EmetDesJetonsApi;
+use Tests\TestCase;
+
+/**
+ * Services d'une clinique, cochés par l'administrateur : ils ouvrent
+ * les modules de l'espace vétérinaire (en plus de la permission du
+ * rôle) et paraissent dans la session. Une clinique créée n'en a aucun.
+ */
+class ServicesCliniqueTest extends TestCase
+{
+    use EmetDesJetonsApi;
+    use RefreshDatabase;
+
+    private Clinique $clinique;
+
+    private string $jeton;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->clinique = Clinique::factory()->sansServices()->create(['nombre_boxes' => 0]);
+        ['employe' => $administrateur, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        $administrateur->update([
+            'role_id' => Role::withoutGlobalScope('organisation')
+                ->where('organisation_id', $this->clinique->societe->organisation_id)
+                ->where('nom', RolesParDefaut::ADMINISTRATEUR)
+                ->value('id'),
+        ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function reglage(array $services, array $especes = ['CH', 'CT'], ?int $boxes = null, bool $affiche = true): array
+    {
+        return ['services' => $services, 'especes' => $especes, 'nombre_boxes' => $boxes, 'affiche_veterinaires' => $affiche];
+    }
+
+    public function test_un_module_s_ouvre_quand_l_administrateur_coche_le_service(): void
+    {
+        $entetes = $this->enTetes($this->jeton);
+
+        // Sans service : modules fermés, session sans service
+        $this->getJson('/api/v1/hospitalisation/sejours', $entetes)->assertForbidden();
+        $this->getJson('/api/v1/bloc/interventions', $entetes)->assertForbidden();
+        $this->getJson('/api/v1/auth/moi', $entetes)->assertJsonPath('data.clinique.services', []);
+
+        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", $this->reglage([
+            ['service' => 'hospitalisation'],
+            ['service' => 'urgences', 'modalite' => 'permanence'],
+        ], boxes: 6, affiche: false), $entetes)
+            ->assertOk()
+            ->assertJsonPath('data.nombre_boxes', 6)
+            ->assertJsonPath('data.services', [
+                ['service' => 'hospitalisation', 'modalite' => null],
+                ['service' => 'urgences', 'modalite' => 'permanence'],
+            ])
+            ->assertJsonPath('data.especes', ['CH', 'CT'])
+            ->assertJsonPath('data.affiche_veterinaires', false);
+
+        $this->getJson('/api/v1/hospitalisation/sejours', $entetes)->assertOk();
+        $this->getJson('/api/v1/bloc/interventions', $entetes)->assertForbidden();
+        $this->getJson('/api/v1/auth/moi', $entetes)->assertJsonPath('data.clinique.services', ['hospitalisation', 'urgences']);
+
+        // Tout l'état d'un coup : ce qui n'est pas renvoyé est retiré
+        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", $this->reglage([['service' => 'chirurgie']], especes: []), $entetes)
+            ->assertOk()
+            ->assertJsonPath('data.services', [['service' => 'chirurgie', 'modalite' => null]])
+            ->assertJsonPath('data.nombre_boxes', 0)
+            ->assertJsonPath('data.especes', []);
+
+        $this->getJson('/api/v1/hospitalisation/sejours', $entetes)->assertForbidden();
+        $this->getJson('/api/v1/bloc/interventions', $entetes)->assertOk();
+    }
+
+    public function test_les_urgences_demandent_leur_modalite_et_l_hospitalisation_ses_boxes(): void
+    {
+        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", $this->reglage([
+            ['service' => 'urgences'],
+            ['service' => 'hospitalisation'],
+        ]), $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['services.0.modalite', 'nombre_boxes']);
+    }
+
+    public function test_l_hospitalisation_ne_se_coupe_pas_tant_qu_un_animal_y_sejourne(): void
+    {
+        $this->clinique->services()->create(['service' => 'hospitalisation']);
+        $this->clinique->update(['nombre_boxes' => 8]);
+        Sejour::factory()->create(['clinique_id' => $this->clinique->id, 'box' => 5]);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", $this->reglage([]), $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('services');
+
+        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", $this->reglage([['service' => 'hospitalisation']], boxes: 4), $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('nombre_boxes');
+    }
+
+    public function test_une_clinique_d_une_autre_organisation_est_introuvable(): void
+    {
+        $ailleurs = Clinique::factory()->create();
+
+        $this->putJson("/api/v1/organisation/cliniques/{$ailleurs->id}/services", $this->reglage([]), $this->enTetes($this->jeton))
+            ->assertNotFound();
+    }
+
+    public function test_les_specialites_sont_celles_des_veterinaires(): void
+    {
+        $veterinaire = Employe::factory()->dans($this->clinique)->create(['role_libelle' => 'Vétérinaire']);
+        $asv = Employe::factory()->dans($this->clinique)->create(['role_libelle' => 'ASV']);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->putJson("/api/v1/equipe/employes/{$veterinaire->id}/specialites", ['specialites' => ['orthopedie', 'ophtalmologie']], $entetes)
+            ->assertOk()
+            ->assertJsonPath('data.est_veterinaire', true)
+            ->assertJsonPath('data.specialites', ['orthopedie', 'ophtalmologie']);
+
+        $this->putJson("/api/v1/equipe/employes/{$veterinaire->id}/specialites", ['specialites' => ['ophtalmologie']], $entetes)
+            ->assertOk()
+            ->assertJsonPath('data.specialites', ['ophtalmologie']);
+
+        $this->putJson("/api/v1/equipe/employes/{$asv->id}/specialites", ['specialites' => ['orthopedie']], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('specialites');
+
+        $this->putJson("/api/v1/equipe/employes/{$veterinaire->id}/specialites", ['specialites' => ['hanche']], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('specialites.0');
+    }
+
+    public function test_la_boutique_et_la_visio_publiques_suivent_les_services(): void
+    {
+        ['jeton' => $proprietaire] = $this->proprietaireAvecJeton();
+        $avec = Clinique::factory()->create(['nom' => 'Avec boutique']);
+        $sans = Clinique::factory()->sansServices()->create(['nom' => 'Sans rien']);
+        $entetes = $this->enTetes($proprietaire);
+
+        $noms = collect($this->getJson('/api/v1/espace/boutique', $entetes)->assertOk()->json('data'))->pluck('nom');
+        $this->assertContains('Avec boutique', $noms);
+        $this->assertNotContains('Sans rien', $noms);
+
+        $demande = fn (Clinique $clinique) => [
+            'clinique_id' => $clinique->id,
+            'debut_souhaite' => now()->addDays(2)->setTime(14, 30)->toIso8601String(),
+            'mode' => 'visio',
+            'patient_name' => 'Nala',
+            'espece' => 'CH',
+            'motif' => 'Consultation',
+        ];
+        $this->postJson('/api/v1/espace/demandes', $demande($sans), $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('mode');
+        $this->postJson('/api/v1/espace/demandes', $demande($avec), $entetes)->assertCreated();
+    }
+}

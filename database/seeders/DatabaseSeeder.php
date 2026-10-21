@@ -38,6 +38,8 @@ class DatabaseSeeder extends Seeder
             ImagerieSeeder::class,
             SiteWebSeeder::class,
             AnnuaireSeeder::class,
+            // Après toutes les cliniques et leurs équipes
+            ServicesCliniquesSeeder::class,
         ]);
     }
 }

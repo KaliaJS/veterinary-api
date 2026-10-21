@@ -4,8 +4,11 @@ namespace App\Http\Requests\V1\Espace;
 
 use App\Auth\ContexteProprietaire;
 use App\Enums\Espece;
+use App\Enums\ServiceClinique;
+use App\Models\Clinique;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * Demande de rendez-vous depuis la carte (proto « FINALISER ») : une
@@ -29,6 +32,20 @@ class DeposerDemandeRendezVousRequest extends FormRequest
             'motif' => ['required', 'string', 'max:120'],
             'nom_proprietaire' => ['nullable', 'string', 'max:120'],
         ];
+    }
+
+    /** La visio n'est proposée que par les cliniques qui ont la téléconsultation. */
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            if ($this->input('mode') !== 'visio' || $validator->errors()->has('clinique_id')) {
+                return;
+            }
+            $clinique = Clinique::withoutGlobalScopes()->find((int) $this->input('clinique_id'));
+            if ($clinique && ! $clinique->aService(ServiceClinique::Teleconsultation)) {
+                $validator->errors()->add('mode', 'Cette clinique ne propose pas la téléconsultation.');
+            }
+        }];
     }
 
     /** @return array<string, string> */

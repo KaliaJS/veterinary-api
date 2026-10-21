@@ -35,7 +35,7 @@ class EquipeEmployeController extends Controller
         $this->authorize('viewAny', Employe::class);
 
         $employes = Employe::query()
-            ->with(['cliniques', 'lignePlanning', 'congesAVenir'])
+            ->with(['cliniques', 'lignePlanning', 'congesAVenir', 'specialites'])
             ->orderBy('id')
             ->paginate($this->parPage($request));
 

@@ -5,6 +5,8 @@ namespace App\Http\Resources\V1;
 use App\Auth\CalculateurPermissions;
 use App\Auth\EmetteurJetons;
 use App\Auth\Rattachement;
+use App\Enums\ServiceClinique;
+use App\Models\CliniqueService;
 use App\Models\Employe;
 use App\Models\JetonApi;
 use App\Models\User;
@@ -52,6 +54,11 @@ class SessionResource extends JsonResource
             'clinique' => $this->employe && $this->jeton->clinique ? [
                 'id' => $this->jeton->clinique->id,
                 'nom' => $this->jeton->clinique->nom,
+                // Ses services ouvrent les modules (menus) de l'espace vétérinaire
+                'services' => $this->jeton->clinique->services
+                    ->sortBy(fn (CliniqueService $ligne): int => array_search($ligne->service, ServiceClinique::cases(), true))
+                    ->map(fn (CliniqueService $ligne): string => $ligne->service->value)
+                    ->values()->all(),
             ] : null,
             // L'organisation de la clinique du jeton : ouverte, ou fermée
             // et pourquoi (vérification, abonnement) — page d'accès du front

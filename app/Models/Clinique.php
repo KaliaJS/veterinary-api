@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ServiceClinique;
 use Database\Factories\CliniqueFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -18,7 +19,7 @@ class Clinique extends Model
 
     protected $fillable = [
         'societe_id', 'nom', 'raison_sociale', 'rue', 'npa', 'ville',
-        'latitude', 'longitude', 'tel', 'email', 'fuseau_horaire', 'nombre_boxes',
+        'latitude', 'longitude', 'tel', 'email', 'fuseau_horaire', 'nombre_boxes', 'affiche_veterinaires',
         'stripe_location_id', 'photo_chemin', 'photo_apercu',
     ];
 
@@ -28,7 +29,31 @@ class Clinique extends Model
             'latitude' => 'decimal:5',
             'longitude' => 'decimal:5',
             'nombre_boxes' => 'integer',
+            'affiche_veterinaires' => 'boolean',
         ];
+    }
+
+    /**
+     * La clinique propose-t-elle ce service ? (relation chargée si elle
+     * l'est, sinon une requête)
+     */
+    public function aService(ServiceClinique $service): bool
+    {
+        return $this->relationLoaded('services')
+            ? $this->services->contains(fn (CliniqueService $ligne): bool => $ligne->service === $service)
+            : $this->services()->where('service', $service)->exists();
+    }
+
+    /** @return HasMany<CliniqueService, $this> */
+    public function services(): HasMany
+    {
+        return $this->hasMany(CliniqueService::class);
+    }
+
+    /** @return HasMany<CliniqueEspece, $this> */
+    public function especes(): HasMany
+    {
+        return $this->hasMany(CliniqueEspece::class);
     }
 
     /** Cliniques des organisations ouvertes (vérifiées et payées) : annuaire, boutiques, demandes.
@@ -52,6 +77,13 @@ class Clinique extends Model
     public function estDansLAnnuaire(): bool
     {
         return $this->manquesAnnuaire() === [];
+    }
+
+    /** Cliniques qui proposent ce service.
+     * @param  Builder<Clinique>  $requete */
+    public function scopeAvecService(Builder $requete, ServiceClinique $service): void
+    {
+        $requete->whereHas('services', fn (Builder $services) => $services->where('service', $service));
     }
 
     public function scopeOuvertes(Builder $requete): void

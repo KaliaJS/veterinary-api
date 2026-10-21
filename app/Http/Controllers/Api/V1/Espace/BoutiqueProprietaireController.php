@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Espace;
 use App\Auth\ContexteProprietaire;
 use App\Auth\SousContexteClinique;
 use App\Enums\PieceNumerotee;
+use App\Enums\ServiceClinique;
 use App\Enums\StatutCommandeBoutique;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\PasserCommandesRequest;
@@ -33,7 +34,8 @@ class BoutiqueProprietaireController extends Controller
 
     public function vitrine(): JsonResponse
     {
-        $cliniques = Clinique::withoutGlobalScopes()->ouvertes()->with('societe.organisation')->orderBy('id')->get();
+        // Seules les cliniques qui ont la boutique (service coché par l'administrateur)
+        $cliniques = Clinique::withoutGlobalScopes()->ouvertes()->avecService(ServiceClinique::Boutique)->with('societe.organisation')->orderBy('id')->get();
 
         $produitsParOrganisation = Produit::withoutGlobalScopes()
             ->where('est_boutique', true)
@@ -95,7 +97,7 @@ class BoutiqueProprietaireController extends Controller
             $creees = [];
 
             foreach ($donnees['commandes'] as $indexCommande => $panier) {
-                $clinique = Clinique::withoutGlobalScopes()->ouvertes()->with('societe')->findOrFail((int) $panier['clinique_id']);
+                $clinique = Clinique::withoutGlobalScopes()->ouvertes()->avecService(ServiceClinique::Boutique)->with('societe')->findOrFail((int) $panier['clinique_id']);
                 $fiche = $contexte->clients()->firstWhere('organisation_id', $clinique->societe->organisation_id);
                 $nom = trim((string) ($donnees['nom'] ?? '')) ?: ($fiche ? trim($fiche->prenom.' '.$fiche->nom) : $user->name);
 

@@ -2,6 +2,8 @@
 
 namespace Database\Factories;
 
+use App\Enums\ModaliteUrgences;
+use App\Enums\ServiceClinique;
 use App\Models\Clinique;
 use App\Models\Societe;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -28,5 +30,27 @@ class CliniqueFactory extends Factory
             'fuseau_horaire' => 'Europe/Zurich',
             'nombre_boxes' => fake()->numberBetween(4, 10),
         ];
+    }
+
+    /**
+     * Une clinique de test propose tous les services : les modules de
+     * l'espace vétérinaire lui sont ouverts (voir `sansServices()`).
+     */
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Clinique $clinique): void {
+            foreach (ServiceClinique::cases() as $service) {
+                $clinique->services()->create([
+                    'service' => $service,
+                    'modalite' => $service === ServiceClinique::Urgences ? ModaliteUrgences::Horaires : null,
+                ]);
+            }
+        });
+    }
+
+    /** Clinique sans aucun service, comme une clinique créée par l'administrateur. */
+    public function sansServices(): static
+    {
+        return $this->afterCreating(fn (Clinique $clinique) => $clinique->services()->delete());
     }
 }
