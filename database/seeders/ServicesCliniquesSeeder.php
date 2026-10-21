@@ -16,7 +16,9 @@ use Illuminate\Database\Seeder;
  * Services, animaux soignés et spécialités de démonstration. Deux Rives
  * propose tout, Le Lac presque tout, le Cabinet du Jorat est rural ; les
  * cliniques de l'annuaire reçoivent des profils variés mais toujours les
- * mêmes (tirés de leur nom). Idempotent : rejouable sur une base remplie.
+ * mêmes (tirés de leur nom). Vétérinaires du Léman ne montre pas ses
+ * vétérinaires dans l'annuaire (seulement leurs spécialités). Idempotent :
+ * rejouable sur une base remplie.
  */
 class ServicesCliniquesSeeder extends Seeder
 {
@@ -38,6 +40,9 @@ class ServicesCliniquesSeeder extends Seeder
         ],
     ];
 
+    /** Clinique qui garde ses vétérinaires hors de l'annuaire */
+    private const SANS_VETERINAIRES_AFFICHES = 'Vétérinaires du Léman';
+
     public function run(): void
     {
         Clinique::withoutGlobalScopes()->orderBy('id')->get()->each(function (Clinique $clinique): void {
@@ -54,6 +59,9 @@ class ServicesCliniquesSeeder extends Seeder
             }
             foreach ($profil['especes'] as $espece) {
                 $clinique->especes()->firstOrCreate(['espece' => Espece::from($espece)]);
+            }
+            if ($clinique->nom === self::SANS_VETERINAIRES_AFFICHES) {
+                $clinique->update(['affiche_veterinaires' => false]);
             }
         });
 
