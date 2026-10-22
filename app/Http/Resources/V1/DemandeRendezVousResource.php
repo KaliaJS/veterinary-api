@@ -42,6 +42,8 @@ class DemandeRendezVousResource extends JsonResource
             'rendez_vous_debut' => $this->whenLoaded('rendezVous', fn () => $this->rendezVous?->starts_at->toIso8601String()),
             // Les réponses lui sont écrites (compte ou adresse laissée) ; sinon, l'appeler
             'prevenu_par_email' => $this->adresseDuProprietaire() !== null,
+            // Acompte payé et gardé (francs), déduit de la facture du rendez-vous
+            'acompte' => $this->acompteRetenu(),
             'traitee_le' => $this->traitee_le?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
         ];

@@ -16,6 +16,7 @@ use App\Models\LignePlanning;
 use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\User;
+use App\Services\Paiements\AcomptesRendezVous;
 use Carbon\CarbonImmutable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Support\Facades\DB;
@@ -98,7 +99,10 @@ class TraitementDemande
             'owner_name' => $demande->owner_name,
             'type' => $demande->teleconsultation ? TypeRendezVous::Teleconsultation : TypeRendezVous::Consultation,
             'status' => StatutRendezVous::Prevu,
-            'flags' => $patientId === null && $demande->client_id === null ? [DrapeauRendezVous::NouveauClient] : [],
+            'flags' => array_values(array_filter([
+                $patientId === null && $demande->client_id === null ? DrapeauRendezVous::NouveauClient : null,
+                $demande->acompteRetenu() > 0 ? DrapeauRendezVous::Acompte : null,
+            ])),
             'reason' => $demande->reason,
         ]);
         $attributs['client_id'] ??= $demande->client_id;
@@ -156,6 +160,8 @@ class TraitementDemande
             'message' => $message,
             'traitee_le' => now(),
         ]);
+        // Un acompte payé (heure prise pendant le paiement) est rendu
+        app(AcomptesRendezVous::class)->rembourser($demande);
 
         $this->ecrire($demande, new DemandeRendezVousRefusee($demande->load('clinique')));
     }

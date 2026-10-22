@@ -25,6 +25,9 @@ return new class extends Migration
             $table->boolean('affiche_veterinaires')->default(true)->comment('Annuaire public : liste des vétérinaires et de leurs spécialités, sinon les icônes seules');
             $table->boolean('rdv_sans_compte')->default(false)->comment('Demandes de rendez-vous en ligne sans compte Veterinary (nom, e-mail et téléphone)');
             $table->boolean('rdv_a_valider')->default(false)->comment('Chaque rendez-vous pris en ligne attend la réponse de la clinique ; sinon l’heure libre est réservée aussitôt');
+            $table->boolean('urgences_a_valider')->default(true)->comment('Une urgence prise en ligne attend la réponse de la clinique');
+            $table->unsignedInteger('acompte_centimes')->nullable()->comment('Acompte payé en ligne pour réserver (contre les rendez-vous non honorés), déduit de la facture ; null : aucun');
+            $table->unsignedSmallInteger('acompte_delai_heures')->default(24)->comment('Acompte remboursé si le client annule au moins tant d’heures avant');
             $table->string('photo_chemin')->nullable()->comment('Photo de la clinique (annuaire), posée par l’administrateur');
             $table->text('photo_apercu')->nullable()->comment('Aperçu flou de la photo, quelques centaines d’octets en data URI');
             $table->string('stripe_location_id')->nullable();

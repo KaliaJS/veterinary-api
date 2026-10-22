@@ -50,6 +50,9 @@ class SiteWebResource extends JsonResource
                     'horaires' => app(HorairesSiteWeb::class)->pour($clinique),
                     'rdv_sans_compte' => $clinique->rdv_sans_compte,
                     'rdv_a_valider' => $clinique->rdv_a_valider,
+                    'urgences_a_valider' => $clinique->urgences_a_valider,
+                    'acompte_centimes' => $clinique->acompte_centimes,
+                    'acompte_delai_heures' => $clinique->acompte_delai_heures,
                 ])->values()->all(),
         ];
     }

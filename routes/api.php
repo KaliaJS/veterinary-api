@@ -223,10 +223,14 @@ Route::prefix('v1')->group(function (): void {
         // Fiche publique d'un vétérinaire vérifié, montré par une clinique de l'annuaire
         Route::get('veterinaires/{veterinaire}', [VeterinairePublicController::class, 'afficher'])->whereNumber('veterinaire');
         // Demande de rendez-vous sans compte, chez une clinique qui l'accepte
-        Route::post('demandes', [CliniqueProprietaireController::class, 'deposerSansCompte'])->middleware('throttle:5,1');
+        // Compteurs à part (3e paramètre) : sinon ils partagent celui du groupe,
+        // et quelques semaines du calendrier suffiraient à bloquer la demande
+        Route::post('demandes', [CliniqueProprietaireController::class, 'deposerSansCompte'])->middleware('throttle:5,1,demandes');
         // Son suivi par le lien des e-mails, et le choix d'un horaire proposé
         Route::get('demandes/{jeton}', [DemandePubliqueController::class, 'afficher'])->where('jeton', '[A-Za-z0-9]{48}');
-        Route::post('demandes/{jeton}/choisir', [DemandePubliqueController::class, 'choisir'])->where('jeton', '[A-Za-z0-9]{48}')->middleware('throttle:10,1');
+        Route::post('demandes/{jeton}/choisir', [DemandePubliqueController::class, 'choisir'])->where('jeton', '[A-Za-z0-9]{48}')->middleware('throttle:10,1,choix');
+        // L'acompte payé : la réservation se confirme (aussi par le webhook de Stripe)
+        Route::post('demandes/{jeton}/paiement', [DemandePubliqueController::class, 'paiement'])->where('jeton', '[A-Za-z0-9]{48}')->middleware('throttle:20,1,paiement');
         // Site web publié d'une organisation et de toutes ses cliniques.
         Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
         // Domaines personnalisés : site d'un domaine actif ; autorisation de certificat (on-demand TLS)

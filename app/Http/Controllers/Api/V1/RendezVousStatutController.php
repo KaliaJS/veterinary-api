@@ -11,6 +11,7 @@ use App\Http\Resources\V1\RendezVousResource;
 use App\Models\RendezVous;
 use App\Services\CreationFacture;
 use App\Services\MutationRendezVous;
+use App\Services\Paiements\AcomptesRendezVous;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -97,6 +98,8 @@ class RendezVousStatutController extends Controller
             $request->user(),
             entreesSupplementaires: $motif === '' ? [] : ['motifAnnulation' => [null, $motif]],
         );
+        // Réservé en ligne avec un acompte : la clinique annule, il est rendu
+        app(AcomptesRendezVous::class)->surAnnulationDeLaClinique($rendezVous);
 
         return new RendezVousResource($rendezVous);
     }

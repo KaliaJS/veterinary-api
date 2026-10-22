@@ -37,7 +37,8 @@ class StatistiquesCaisseController extends Controller
         $totalPar = fn (MoyenPaiement $moyen): float => round(
             (float) $duJour
                 ->filter(fn (Facture $facture): bool => $facture->moyen_paiement === $moyen)
-                ->sum(fn (Facture $facture): float => $facture->totalTtc()),
+                // Ce qui est passé à la caisse : l'acompte en ligne n'y est pas
+                ->sum(fn (Facture $facture): float => $facture->resteAPayer()),
             2,
         );
 
@@ -61,11 +62,13 @@ class StatistiquesCaisseController extends Controller
                 'tpe' => $totalPar(MoyenPaiement::Tpe),
                 'twint' => $totalPar(MoyenPaiement::Twint),
                 'especes' => $totalPar(MoyenPaiement::Especes),
+                // Acomptes payés en ligne à la réservation, déduits des factures du jour
+                'acomptes' => round((float) $duJour->sum(fn (Facture $facture): float => (float) $facture->acompte), 2),
                 'total' => round((float) $duJour->sum(fn (Facture $facture): float => $facture->totalTtc()), 2),
             ],
             'en_attente' => [
                 'nombre' => $enAttente->count(),
-                'total' => round((float) $enAttente->sum(fn (Facture $facture): float => $facture->totalTtc()), 2),
+                'total' => round((float) $enAttente->sum(fn (Facture $facture): float => $facture->resteAPayer()), 2),
             ],
             'mois' => [
                 'ca_par_clinique' => $duMois

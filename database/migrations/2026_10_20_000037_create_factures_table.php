@@ -35,7 +35,8 @@ return new class extends Migration
             $table->foreignId('rendez_vous_id')->nullable()->constrained('rendez_vous')->restrictOnDelete();
             $table->foreignId('ordonnance_id')->nullable()->constrained()->nullOnDelete();
             $table->enum('statut', array_column(StatutFacture::cases(), 'value'))->default('due');
-            $table->enum('moyen_paiement', array_column(MoyenPaiement::cases(), 'value'))->nullable();
+            $table->enum('moyen_paiement', array_column(MoyenPaiement::cases(), 'value'))->nullable()->comment('Null sur une facture payée : réglée entièrement par l’acompte');
+            $table->decimal('acompte', 10, 2)->default(0)->comment('Acompte payé en ligne à la réservation du rendez-vous, déduit du total');
             $table->dateTime('payee_le')->nullable();
             $table->boolean('stock_sorti')->default(false)->comment('Sortie de stock des lignes med déjà effectuée — évite le double décrément');
             $table->foreignId('cloture_caisse_id')->nullable()->constrained('clotures_caisse')->nullOnDelete();

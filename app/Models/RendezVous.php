@@ -90,6 +90,13 @@ class RendezVous extends Model
         return $this->hasOne(CompteRendu::class, 'rendez_vous_id');
     }
 
+    /** La demande en ligne qui l'a réservé (acompte compris), s'il y en a une.
+     * @return HasOne<DemandeRendezVous, $this> */
+    public function demandeEnLigne(): HasOne
+    {
+        return $this->hasOne(DemandeRendezVous::class, 'rendez_vous_id')->withoutGlobalScopes();
+    }
+
     /** Créneau réservé sans patient — jamais facturé, non déplaçable. */
     public function estTampon(): bool
     {

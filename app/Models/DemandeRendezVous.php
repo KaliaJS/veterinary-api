@@ -30,7 +30,8 @@ class DemandeRendezVous extends Model
         'species', 'owner_name', 'email', 'telephone', 'reason', 'urgence',
         'symptomes', 'souhait', 'debut_souhaite', 'teleconsultation', 'mode',
         'duree_minutes', 'statut', 'creneaux_proposes', 'motif_refus', 'message',
-        'rendez_vous_id', 'traitee_le', 'jeton',
+        'rendez_vous_id', 'traitee_le', 'jeton', 'acompte_centimes',
+        'acompte_intention_id', 'acompte_paye_le', 'acompte_rembourse_le',
     ];
 
     protected $hidden = ['jeton'];
@@ -51,6 +52,9 @@ class DemandeRendezVous extends Model
             'debut_souhaite' => 'immutable_datetime',
             'traitee_le' => 'immutable_datetime',
             'creneaux_proposes' => 'array',
+            'acompte_centimes' => 'integer',
+            'acompte_paye_le' => 'immutable_datetime',
+            'acompte_rembourse_le' => 'immutable_datetime',
         ];
     }
 
@@ -84,6 +88,12 @@ class DemandeRendezVous extends Model
         return $this->belongsTo(RendezVous::class);
     }
 
+    /** Acompte payé et pas remboursé : en francs, sinon 0. */
+    public function acompteRetenu(): float
+    {
+        return $this->acompte_paye_le && ! $this->acompte_rembourse_le ? round(($this->acompte_centimes ?? 0) / 100, 2) : 0.0;
+    }
+
     /** À qui écrire la réponse : le compte, sinon l'adresse laissée sans compte. */
     public function adresseDuProprietaire(): ?string
     {
@@ -98,5 +108,11 @@ class DemandeRendezVous extends Model
         return $this->user_id === null && $this->jeton
             ? $front.'/demande/'.$this->jeton
             : $front.'/espace/rendez-vous';
+    }
+
+    /** Retour du paiement de l'acompte (TWINT et banques qui redirigent) : la page de la demande. */
+    public function lienDeRetourPaiement(): string
+    {
+        return rtrim((string) config('app.frontend_url'), '/').'/demande/'.$this->jeton.'?paiement=1';
     }
 }

@@ -32,6 +32,11 @@ class CreationFacture
     public function nouvelle(array $attributs, array $lignes, ?User $auteur): Facture
     {
         return DB::transaction(function () use ($attributs, $lignes, $auteur): Facture {
+            // Le rendez-vous réservé en ligne avec un acompte : il est déduit
+            if (! empty($attributs['rendez_vous_id']) && ! isset($attributs['acompte'])) {
+                $attributs['acompte'] = RendezVous::query()->find($attributs['rendez_vous_id'])?->demandeEnLigne?->acompteRetenu() ?? 0;
+            }
+
             $facture = Facture::create([
                 'clinique_id' => app(ContexteClinique::class)->cliniqueId(),
                 'numero' => $this->numeroteur->attribuer(PieceNumerotee::Facture),

@@ -18,7 +18,7 @@ use Throwable;
  */
 class WebhooksStripe
 {
-    public function __construct(private PaiementsCaisse $paiements, private AbonnementSaas $abonnements) {}
+    public function __construct(private PaiementsCaisse $paiements, private AbonnementSaas $abonnements, private AcomptesRendezVous $acomptes) {}
 
     /** @param  array{id: string, type: string, objet: array<string, mixed>}  $evenement */
     public function traiter(array $evenement): void
@@ -55,6 +55,15 @@ class WebhooksStripe
     /** @param  array<string, mixed>  $intention */
     private function intention(array $intention, string $statut): void
     {
+        // Acompte d'une réservation en ligne : payé, l'heure est réservée
+        if (($intention['metadata']['objet'] ?? null) === 'acompte_rdv') {
+            if ($statut === 'succeeded') {
+                $this->acomptes->surPaiementReussi($intention['id']);
+            }
+
+            return;
+        }
+
         // Prélèvement de la plateforme (abonnement, pack, objet de la planète)
         if (($intention['metadata']['plateforme'] ?? null) === 'veterinary') {
             $this->abonnements->surPrelevement($intention);

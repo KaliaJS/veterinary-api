@@ -49,6 +49,9 @@ class OrganisationServicesCliniqueController extends Controller
                 'affiche_veterinaires' => $request->boolean('affiche_veterinaires'),
                 'rdv_sans_compte' => $request->has('rdv_sans_compte') ? $request->boolean('rdv_sans_compte') : $fiche->rdv_sans_compte,
                 'rdv_a_valider' => $request->has('rdv_a_valider') ? $request->boolean('rdv_a_valider') : $fiche->rdv_a_valider,
+                'urgences_a_valider' => $request->has('urgences_a_valider') ? $request->boolean('urgences_a_valider') : $fiche->urgences_a_valider,
+                'acompte_centimes' => $request->has('acompte_centimes') ? $request->validated('acompte_centimes') : $fiche->acompte_centimes,
+                'acompte_delai_heures' => $request->has('acompte_delai_heures') ? (int) $request->validated('acompte_delai_heures') : $fiche->acompte_delai_heures,
             ]);
 
             $fiche->services()->whereNotIn('service', $codes)->delete();

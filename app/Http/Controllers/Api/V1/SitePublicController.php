@@ -52,6 +52,10 @@ class SitePublicController extends Controller
                 // Prise de rendez-vous : sans compte acceptée, réservée aussitôt ou à valider
                 'rdv_sans_compte' => $clinique->rdv_sans_compte,
                 'rdv_a_valider' => $clinique->rdv_a_valider,
+                'urgences_a_valider' => $clinique->urgences_a_valider,
+                // Acompte pour réserver (centimes, null : aucun) et délai de remboursement
+                'acompte_centimes' => $clinique->acompte_centimes,
+                'acompte_delai_heures' => $clinique->acompte_delai_heures,
             ])->values()->all(),
         ]]);
     }

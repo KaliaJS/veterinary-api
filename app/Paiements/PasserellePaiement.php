@@ -36,6 +36,18 @@ interface PasserellePaiement
     /** Libère le lecteur (annule l'action en cours, s'il y en a une). */
     public function annulerSurLecteur(string $lecteurId): void;
 
+    /**
+     * Paiement en ligne par le client (Payment Element de Stripe.js : carte,
+     * TWINT, ce que le compte accepte) : acompte d'une réservation.
+     *
+     * @param  array<string, string>  $metadonnees
+     * @return array{id: string, statut: string, client_secret: string}
+     */
+    public function creerIntentionEnLigne(int $centimes, array $metadonnees, string $cleIdempotence): array;
+
+    /** Rembourse entièrement une intention payée. */
+    public function rembourser(string $intentionId, string $cleIdempotence): void;
+
     /** @return array{id: string, statut: string, erreur: ?string} */
     public function lireIntention(string $intentionId): array;
 

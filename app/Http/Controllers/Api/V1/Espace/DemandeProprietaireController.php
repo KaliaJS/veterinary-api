@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Espace;
 
 use App\Auth\ContexteProprietaire;
 use App\Auth\SousContexteClinique;
+use App\Enums\StatutDemandeRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\ChoisirCreneauDemandeRequest;
 use App\Http\Resources\V1\Espace\DemandeProprietaireResource;
@@ -26,6 +27,7 @@ class DemandeProprietaireController extends Controller
     {
         return DemandeProprietaireResource::collection(
             self::miennes($contexte)
+                ->where('statut', '!=', StatutDemandeRendezVous::APayer)
                 ->with(['clinique', 'rendezVous'])
                 ->latest()
                 ->latest('id')

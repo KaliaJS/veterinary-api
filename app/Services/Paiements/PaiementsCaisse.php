@@ -188,7 +188,7 @@ class PaiementsCaisse
             ->latest('id')
             ->first();
 
-        if (! $echec || (float) $echec->montant !== $facture->loadMissing('lignes')->totalTtc()
+        if (! $echec || (float) $echec->montant !== $facture->loadMissing('lignes')->resteAPayer()
             || $facture->paiements()->where('id', '>', $echec->id)->exists()) {
             return null;
         }
@@ -233,7 +233,7 @@ class PaiementsCaisse
             'facture_id' => $facture->id,
             'clinique_id' => $facture->clinique_id,
             'moyen' => $moyen,
-            'montant' => $facture->totalTtc(),
+            'montant' => $facture->resteAPayer(),
             'stripe_payment_intent_id' => $intentionId,
             'statut' => StatutPaiement::EnAttente,
             'user_id' => $auteur?->id,
@@ -285,7 +285,8 @@ class PaiementsCaisse
 
     private function centimes(Facture $facture): int
     {
-        return (int) round($facture->loadMissing('lignes')->totalTtc() * 100);
+        // Le reste : l'acompte payé en ligne à la réservation est déjà encaissé
+        return (int) round($facture->loadMissing('lignes')->resteAPayer() * 100);
     }
 
     /** @return array<string, string> */

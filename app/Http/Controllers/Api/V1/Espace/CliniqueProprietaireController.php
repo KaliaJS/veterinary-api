@@ -8,6 +8,7 @@ use App\Enums\Espece;
 use App\Enums\ModeDemandeRendezVous;
 use App\Enums\ServiceClinique;
 use App\Enums\Specialite;
+use App\Enums\StatutDemandeRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\DeposerDemandeRendezVousRequest;
 use App\Http\Requests\V1\Espace\DeposerDemandeSansCompteRequest;
@@ -22,7 +23,9 @@ use App\Models\Patient;
 use App\Models\SiteWeb;
 use App\Models\SpecialiteVeterinaire;
 use App\Models\User;
+use App\Paiements\ErreurPaiement;
 use App\Services\CalculateurCreneaux;
+use App\Services\Paiements\AcomptesRendezVous;
 use App\Services\Photos\PhotosCliniques;
 use App\Services\TraitementDemande;
 use Carbon\CarbonImmutable;
@@ -139,6 +142,10 @@ class CliniqueProprietaireController extends Controller
             'rdv_sans_compte' => $clinique->rdv_sans_compte,
             // Rendez-vous réservé aussitôt (défaut), ou demande que la clinique valide
             'rdv_a_valider' => $clinique->rdv_a_valider,
+            'urgences_a_valider' => $clinique->urgences_a_valider,
+            // Acompte pour réserver (centimes, null : aucun) et délai de remboursement
+            'acompte_centimes' => $clinique->acompte_centimes,
+            'acompte_delai_heures' => $clinique->acompte_delai_heures,
             // null : la clinique ne montre pas ses vétérinaires (les icônes seules)
             'veterinaires' => $clinique->affiche_veterinaires
                 ? $verifies->map(fn (Employe $fiche): array => [
@@ -205,11 +212,14 @@ class CliniqueProprietaireController extends Controller
     {
         $debut = CarbonImmutable::parse($donnees['debut_souhaite'])->setTimezone($clinique->fuseau_horaire ?? 'Europe/Zurich');
         $urgence = (bool) ($donnees['urgence'] ?? false);
-        // Par défaut, l'heure libre est réservée aussitôt ; la clinique peut
-        // préférer valider chaque rendez-vous (cliniques.rdv_a_valider)
-        $reserver = ! $clinique->rdv_a_valider;
+        // Par défaut, l'heure libre est réservée aussitôt ; une urgence attend
+        // la clinique (sauf si elle ne veut pas les valider), et la clinique
+        // peut préférer valider chaque rendez-vous (déconseillé)
+        $reserver = $urgence ? ! $clinique->urgences_a_valider : ! $clinique->rdv_a_valider;
+        // Acompte de la clinique : seulement pour une réservation directe, jamais pour une urgence
+        $acompte = $reserver && ! $urgence && $clinique->acompte_centimes > 0 ? $clinique->acompte_centimes : null;
 
-        $demande = $sousContexte->pour($clinique, function () use ($qui, $donnees, $urgence, $debut, $reserver, $auteur): DemandeRendezVous {
+        $demande = $sousContexte->pour($clinique, function () use ($qui, $donnees, $urgence, $debut, $reserver, $acompte, $auteur): DemandeRendezVous {
             $traitement = app(TraitementDemande::class);
             $ligne = $reserver ? $traitement->ligneLibreA($debut->utc(), self::DUREE_MINUTES) : null;
 
@@ -217,9 +227,13 @@ class CliniqueProprietaireController extends Controller
                 throw ValidationException::withMessages(['debut_souhaite' => 'Cette heure vient d’être prise : choisissez-en une autre.']);
             }
 
-            return DB::transaction(function () use ($qui, $donnees, $urgence, $debut, $reserver, $auteur, $traitement, $ligne): DemandeRendezVous {
+            return DB::transaction(function () use ($qui, $donnees, $urgence, $debut, $reserver, $acompte, $auteur, $traitement, $ligne): DemandeRendezVous {
                 $demande = DemandeRendezVous::create([
                     ...$qui,
+                    // Avec acompte : réservée une fois payée ; le jeton ramène le client après le paiement
+                    'statut' => $acompte ? StatutDemandeRendezVous::APayer : StatutDemandeRendezVous::ATraiter,
+                    'acompte_centimes' => $acompte,
+                    'jeton' => $qui['jeton'] ?? ($acompte ? Str::random(48) : null),
                     'reason' => $donnees['motif'],
                     'urgence' => $urgence,
                     'symptomes' => $urgence ? trim((string) ($donnees['symptomes'] ?? '')) : null,
@@ -232,13 +246,24 @@ class CliniqueProprietaireController extends Controller
                 ]);
 
                 // Le rendez-vous est pris, le propriétaire reçoit la confirmation
-                if ($reserver) {
+                if ($reserver && ! $acompte) {
                     $traitement->accepter($demande->load(['clinique', 'user']), $debut, $ligne, $auteur);
                 }
 
                 return $demande;
             });
         });
+
+        // Acompte : le paiement s'ouvre dans le parcours
+        $paiement = null;
+        if ($acompte) {
+            try {
+                $paiement = app(AcomptesRendezVous::class)->ouvrir($demande);
+            } catch (ErreurPaiement $e) {
+                $demande->delete();
+                throw ValidationException::withMessages(['paiement' => $e->getMessage()]);
+            }
+        }
 
         // À valider : accusé de réception, avec le lien où suivre la réponse
         if (! $reserver) {
@@ -256,9 +281,13 @@ class CliniqueProprietaireController extends Controller
             'patient_name' => $demande->patient_name,
             'motif' => $demande->reason,
             'urgence' => $demande->urgence,
-            // `acceptee` : le rendez-vous est réservé ; `a_traiter` : la clinique répond
+            // `acceptee` : le rendez-vous est réservé ; `a_traiter` : la clinique
+            // répond ; `a_payer` : l'acompte d'abord (`paiement`), puis la
+            // confirmation par le jeton (public/demandes/{jeton}/paiement)
             'statut' => $demande->refresh()->statut,
             'rendez_vous_id' => $demande->rendez_vous_id,
+            'paiement' => $paiement,
+            'jeton' => $paiement ? $demande->jeton : null,
         ]], 201);
     }
 

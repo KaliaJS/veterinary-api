@@ -4,6 +4,7 @@ namespace App\Http\Resources\V1\Espace;
 
 use App\Enums\StatutRendezVous;
 use App\Models\RendezVous;
+use App\Services\Paiements\AcomptesRendezVous;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -35,6 +36,25 @@ class RendezVousProprietaireResource extends JsonResource
             'veterinaire' => $this->lignePlanning?->nom,
             'peut_annuler' => $aVenir,
             'peut_reporter' => $aVenir,
+            // Acompte payé à la réservation : rendu si l'on annule assez tôt
+            'acompte' => $this->acompte($aVenir),
+        ];
+    }
+
+    /** @return array{montant: float, rembourse: bool, remboursable: bool, delai_heures: int}|null */
+    private function acompte(bool $aVenir): ?array
+    {
+        $demande = $this->relationLoaded('demandeEnLigne') ? $this->demandeEnLigne : null;
+
+        if (! $demande?->acompte_paye_le) {
+            return null;
+        }
+
+        return [
+            'montant' => round(($demande->acompte_centimes ?? 0) / 100, 2),
+            'rembourse' => $demande->acompte_rembourse_le !== null,
+            'remboursable' => $aVenir && $demande->acompte_rembourse_le === null && app(AcomptesRendezVous::class)->estRemboursable($this->resource, $demande),
+            'delai_heures' => $demande->clinique?->acompte_delai_heures ?? 24,
         ];
     }
 }

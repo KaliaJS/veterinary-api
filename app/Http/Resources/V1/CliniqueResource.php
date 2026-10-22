@@ -52,6 +52,11 @@ class CliniqueResource extends JsonResource
             'rdv_sans_compte' => $this->rdv_sans_compte,
             // Rendez-vous en ligne : réservés aussitôt (défaut), ou chacun validé par la clinique
             'rdv_a_valider' => $this->rdv_a_valider,
+            // Une urgence prise en ligne attend la clinique (défaut)
+            'urgences_a_valider' => $this->urgences_a_valider,
+            // Acompte pour réserver (centimes, null : aucun), remboursé si annulé tant d'heures avant
+            'acompte_centimes' => $this->acompte_centimes,
+            'acompte_delai_heures' => $this->acompte_delai_heures,
             // Photo : grande version, largeurs pour `srcset`, aperçu flou
             'photo' => PhotosCliniques::pour($this->resource),
             // Dans l'annuaire des cliniques, ou ce qui manque pour y paraître

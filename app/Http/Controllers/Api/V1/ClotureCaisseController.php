@@ -71,7 +71,8 @@ class ClotureCaisseController extends Controller
         $totalPar = fn (MoyenPaiement $moyen): float => round(
             (float) $aClorer
                 ->filter(fn (Facture $facture): bool => $facture->moyen_paiement === $moyen)
-                ->sum(fn (Facture $facture): float => $facture->totalTtc()),
+                // Ce qui est passé à la caisse : l'acompte en ligne n'y est pas
+                ->sum(fn (Facture $facture): float => $facture->resteAPayer()),
             2,
         );
 

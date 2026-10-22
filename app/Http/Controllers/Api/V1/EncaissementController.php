@@ -29,12 +29,16 @@ class EncaissementController extends Controller
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
 
-        $moyen = MoyenPaiement::from($request->validated('moyen_paiement'));
+        $facture->loadMissing('lignes');
+        $moyen = $request->filled('moyen_paiement') ? MoyenPaiement::from($request->validated('moyen_paiement')) : null;
+
+        // Réglée par l'acompte de la réservation : rien à encaisser, sans moyen
+        if ($moyen === null && $facture->resteAPayer() > 0) {
+            throw ValidationException::withMessages(['moyen_paiement' => 'Choisissez le moyen de paiement.']);
+        }
 
         if ($moyen === MoyenPaiement::Especes && $request->filled('montant_recu')) {
-            $facture->loadMissing('lignes');
-
-            if ((float) $request->validated('montant_recu') < $facture->totalTtc()) {
+            if ((float) $request->validated('montant_recu') < $facture->resteAPayer()) {
                 throw ValidationException::withMessages([
                     'montant_recu' => 'Montant reçu insuffisant.',
                 ]);

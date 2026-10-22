@@ -43,6 +43,9 @@ class FactureResource extends JsonResource
                 fn (): bool => (bool) $this->paye_par_stripe,
             ),
             'total_ttc' => $this->whenLoaded('lignes', fn (): float => $this->totalTtc()),
+            // Acompte payé en ligne à la réservation, et ce qui reste à encaisser
+            'acompte' => (float) $this->acompte,
+            'reste_a_payer' => $this->whenLoaded('lignes', fn (): float => $this->resteAPayer()),
             'montant_tva' => $this->whenLoaded('lignes', fn (): float => $this->montantTva()),
             'lignes' => $this->whenLoaded(
                 'lignes',

@@ -12,7 +12,8 @@ class EncaisserFactureRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'moyen_paiement' => ['required', Rule::enum(MoyenPaiement::class)],
+            // Sans moyen : seulement une facture réglée entièrement par l'acompte payé en ligne
+            'moyen_paiement' => ['nullable', Rule::enum(MoyenPaiement::class)],
             'montant_recu' => ['sometimes', 'numeric', 'min:0', 'max:999999'],
         ];
     }

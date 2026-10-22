@@ -10,6 +10,7 @@ use App\Http\Resources\V1\Espace\RendezVousProprietaireResource;
 use App\Models\DemandeRendezVous;
 use App\Models\RendezVous;
 use App\Services\MutationRendezVous;
+use App\Services\Paiements\AcomptesRendezVous;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,7 +29,7 @@ class RendezVousProprietaireController extends Controller
     public function index(ContexteProprietaire $contexte): JsonResponse
     {
         $base = fn () => RendezVous::withoutGlobalScopes()
-            ->with(['clinique', 'lignePlanning', 'patient'])
+            ->with(['clinique', 'lignePlanning', 'patient', 'demandeEnLigne.clinique'])
             ->where(fn ($q) => $this->miens($q, $contexte))
             ->where('type', '!=', 'tampon');
 
@@ -65,8 +66,10 @@ class RendezVousProprietaireController extends Controller
             $request->user(),
             entreesSupplementaires: ['motifAnnulation' => [null, 'Annulé par le propriétaire depuis l’espace client']],
         );
+        // Acompte : rendu s'il annule assez tôt (délai de la clinique), gardé sinon
+        app(AcomptesRendezVous::class)->surAnnulationDuProprietaire($rendezVous);
 
-        return new RendezVousProprietaireResource($rendezVous->refresh()->load(['clinique', 'lignePlanning', 'patient']));
+        return new RendezVousProprietaireResource($rendezVous->refresh()->load(['clinique', 'lignePlanning', 'patient', 'demandeEnLigne.clinique']));
     }
 
     public function reporter(ContexteProprietaire $contexte, int $rendezVousId): JsonResponse

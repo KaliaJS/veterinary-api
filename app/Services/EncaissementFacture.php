@@ -19,7 +19,7 @@ class EncaissementFacture
 {
     public function __construct(private GestionnaireStock $stock) {}
 
-    public function encaisser(Facture $facture, MoyenPaiement $moyen, ?User $auteur): Facture
+    public function encaisser(Facture $facture, ?MoyenPaiement $moyen, ?User $auteur): Facture
     {
         return DB::transaction(function () use ($facture, $moyen, $auteur): Facture {
             $this->sortirStock($facture, $auteur);

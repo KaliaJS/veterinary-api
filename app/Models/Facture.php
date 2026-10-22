@@ -32,7 +32,7 @@ class Facture extends Model
         'organisation_id', 'clinique_id', 'numero', 'emise_le', 'patient_id',
         'client_id', 'patient_name', 'species', 'owner_name', 'ligne_planning_id',
         'rendez_vous_id', 'ordonnance_id', 'statut', 'moyen_paiement', 'payee_le',
-        'stock_sorti', 'cloture_caisse_id', 'cree_par_id',
+        'stock_sorti', 'cloture_caisse_id', 'cree_par_id', 'acompte',
     ];
 
     /** Miroir des défauts de la base. */
@@ -50,6 +50,7 @@ class Facture extends Model
             'moyen_paiement' => MoyenPaiement::class,
             'payee_le' => 'datetime',
             'stock_sorti' => 'boolean',
+            'acompte' => 'decimal:2',
         ];
     }
 
@@ -126,6 +127,12 @@ class Facture extends Model
         $lignes = $this->relationLoaded('lignes') ? $this->lignes : $this->lignes()->get();
 
         return round((float) $lignes->sum(fn (FactureLigne $ligne): float => $ligne->quantite * (float) $ligne->prix_chf), 2);
+    }
+
+    /** Ce qui reste à encaisser : le total moins l'acompte payé en ligne à la réservation. */
+    public function resteAPayer(): float
+    {
+        return max(0.0, round($this->totalTtc() - (float) $this->acompte, 2));
     }
 
     public function montantTva(): float

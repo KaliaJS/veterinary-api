@@ -19,7 +19,8 @@ class Clinique extends Model
 
     protected $fillable = [
         'societe_id', 'nom', 'raison_sociale', 'rue', 'npa', 'ville',
-        'latitude', 'longitude', 'tel', 'email', 'fuseau_horaire', 'nombre_boxes', 'affiche_veterinaires', 'rdv_sans_compte', 'rdv_a_valider',
+        'latitude', 'longitude', 'tel', 'email', 'fuseau_horaire', 'nombre_boxes', 'affiche_veterinaires', 'rdv_sans_compte', 'rdv_a_valider', 'urgences_a_valider',
+        'acompte_centimes', 'acompte_delai_heures',
         'stripe_location_id', 'photo_chemin', 'photo_apercu',
     ];
 
@@ -32,6 +33,9 @@ class Clinique extends Model
             'affiche_veterinaires' => 'boolean',
             'rdv_sans_compte' => 'boolean',
             'rdv_a_valider' => 'boolean',
+            'urgences_a_valider' => 'boolean',
+            'acompte_centimes' => 'integer',
+            'acompte_delai_heures' => 'integer',
         ];
     }
 

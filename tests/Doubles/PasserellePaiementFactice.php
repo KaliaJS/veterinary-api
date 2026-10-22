@@ -23,6 +23,9 @@ class PasserellePaiementFactice implements PasserellePaiement
     /** @var list<string> */
     public array $locations = [];
 
+    /** @var list<string> intentions remboursées */
+    public array $remboursements = [];
+
     public ?ErreurPaiement $erreurLecteur = null;
 
     private int $sequence = 0;
@@ -37,6 +40,18 @@ class PasserellePaiementFactice implements PasserellePaiement
         $id = $this->intention($centimes, $metadonnees, 'requires_action');
 
         return ['id' => $id, 'statut' => 'requires_action', 'url' => 'https://pm-redirects.stripe.com/twint/'.$id];
+    }
+
+    public function creerIntentionEnLigne(int $centimes, array $metadonnees, string $cleIdempotence): array
+    {
+        $id = $this->intention($centimes, $metadonnees, 'requires_payment_method');
+
+        return ['id' => $id, 'statut' => 'requires_payment_method', 'client_secret' => $id.'_secret_test'];
+    }
+
+    public function rembourser(string $intentionId, string $cleIdempotence): void
+    {
+        $this->remboursements[] = $intentionId;
     }
 
     public function presenterSurLecteur(string $lecteurId, string $intentionId): void
