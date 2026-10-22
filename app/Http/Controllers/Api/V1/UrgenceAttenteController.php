@@ -65,18 +65,26 @@ class UrgenceAttenteController extends Controller
 
         $donnees = $request->validated();
 
-        if (isset($donnees['starts_at'])) {
-            $ligneId = (int) $donnees['ligne_planning_id'];
-            $debut = CarbonImmutable::parse($donnees['starts_at']);
+        if (! empty($donnees['starts_at'])) {
+            // Une heure choisie : sur la ligne donnée (grille), sinon une ligne libre
+            $debut = CarbonImmutable::parse($donnees['starts_at'])->utc();
+            $ligneId = isset($donnees['ligne_planning_id']) ? (int) $donnees['ligne_planning_id'] : $calculateur->ligneLibreA($debut, $urgence->duree_minutes);
+
+            if ($ligneId === null) {
+                throw ValidationException::withMessages(['starts_at' => 'Cette heure n’est plus libre au planning.']);
+            }
         } else {
-            $creneau = $calculateur->prochainCreneau($calculateur->aujourdHui(), $urgence->duree_minutes);
+            // Au plus tôt : aujourd'hui, sinon les jours suivants
+            $creneau = $calculateur->premierCreneauLibre($urgence->duree_minutes);
 
             if ($creneau === null) {
-                throw ValidationException::withMessages(['starts_at' => 'Aucun créneau libre aujourd’hui.']);
+                throw ValidationException::withMessages(['starts_at' => 'Aucun créneau libre dans les 30 prochains jours.']);
             }
 
             [$ligneId, $debut] = [$creneau['ligne_planning_id'], $creneau['debut']];
         }
+
+        $estAujourdhui = $debut->setTimezone($calculateur->fuseau())->isSameDay($calculateur->aujourdHui());
 
         $attributs = $mutation->preparerCreation([
             'ligne_planning_id' => $ligneId,
@@ -87,9 +95,10 @@ class UrgenceAttenteController extends Controller
             'species' => $urgence->species,
             'owner_name' => $urgence->owner_name,
             'type' => TypeRendezVous::Urgence,
-            'status' => StatutRendezVous::Salle,
+            // Casée aujourd'hui : déjà en salle d'attente ; un autre jour : elle reviendra
+            'status' => $estAujourdhui ? StatutRendezVous::Salle : StatutRendezVous::Prevu,
             'reason' => $urgence->reason,
-            'arrived_at' => now(),
+            'arrived_at' => $estAujourdhui ? now() : null,
         ]);
 
         $rendezVous = DB::transaction(function () use ($mutation, $attributs, $request, $urgence) {

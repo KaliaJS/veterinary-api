@@ -18,7 +18,6 @@ use App\Models\CliniqueEspece;
 use App\Models\CliniqueService;
 use App\Models\DemandeRendezVous;
 use App\Models\Employe;
-use App\Models\HoraireOuverture;
 use App\Models\Patient;
 use App\Models\SiteWeb;
 use App\Models\SpecialiteVeterinaire;
@@ -27,6 +26,7 @@ use App\Paiements\ErreurPaiement;
 use App\Services\CalculateurCreneaux;
 use App\Services\Paiements\AcomptesRendezVous;
 use App\Services\Photos\PhotosCliniques;
+use App\Services\SemaineDisponible;
 use App\Services\TraitementDemande;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -300,58 +300,14 @@ class CliniqueProprietaireController extends Controller
      * `visible` à faux et sans heures. `precedente` et `suivante` donnent
      * les lundis des semaines voisines.
      */
-    public function disponibilites(Request $request, CalculateurCreneaux $calculateur, int $clinique): JsonResponse
+    public function disponibilites(Request $request, SemaineDisponible $semaines, int $clinique): JsonResponse
     {
         $fiche = Clinique::withoutGlobalScopes()->ouvertes()->findOrFail($clinique);
         $request->validate(['semaine' => ['nullable', 'date_format:Y-m-d']]);
 
-        $fuseau = $fiche->fuseau_horaire ?? 'Europe/Zurich';
-        $aujourdhui = CarbonImmutable::today($fuseau);
-        $limite = $aujourdhui->addMonth();
-        $cetteSemaine = $aujourdhui->startOfWeek();
-        $derniere = $limite->startOfWeek();
-        $lundi = $request->filled('semaine') ? CarbonImmutable::parse($request->query('semaine'), $fuseau)->startOfWeek() : $cetteSemaine;
-        $lundi = $lundi->max($cetteSemaine)->min($derniere);
+        $limite = CarbonImmutable::today($fiche->fuseau_horaire ?? 'Europe/Zurich')->addMonth();
 
-        $trous = $calculateur->creneauxDesCliniques($fiche->newCollection([$fiche]), 7, self::DUREE_MINUTES, $lundi)[$fiche->id];
-        $horaires = HoraireOuverture::withoutGlobalScope('clinique')->where('clinique_id', $fiche->id)->first()
-            ?? new HoraireOuverture(HoraireOuverture::DEFAUTS);
-        $maintenant = now()->getTimestamp();
-        $pas = self::DUREE_MINUTES * 60;
-
-        $jours = [];
-        foreach (range(0, 6) as $i) {
-            $jour = $lundi->addDays($i);
-            if ($jour->lessThan($aujourdhui) || $jour->greaterThan($limite)) {
-                $jours[] = ['date' => $jour->toDateString(), 'visible' => false, 'ferme' => true, 'heures' => []];
-
-                continue;
-            }
-            $bornes = $calculateur->bornesDuJour($horaires, $jour);
-            // Les trous du jour en horodatages : une heure est libre si un trou la contient entière
-            $libres = $trous[$i]->map(fn (array $trou): array => [$trou['debut']->getTimestamp(), $trou['fin']->getTimestamp()])->all();
-            $heures = [];
-            for ($minute = $bornes['ouverture']; ! $bornes['fermee'] && $minute + self::DUREE_MINUTES <= $bornes['fermeture']; $minute += self::DUREE_MINUTES) {
-                if ($bornes['pause'] && $minute < $bornes['pause'][1] && $minute + self::DUREE_MINUTES > $bornes['pause'][0]) {
-                    continue;
-                }
-                $debut = $jour->setTime(intdiv($minute, 60), $minute % 60);
-                $instant = $debut->getTimestamp();
-                $heures[] = [
-                    'debut' => $debut->toIso8601String(),
-                    'libre' => $instant > $maintenant && collect($libres)->contains(fn (array $trou): bool => $trou[0] <= $instant && $trou[1] >= $instant + $pas),
-                ];
-            }
-            $jours[] = ['date' => $jour->toDateString(), 'visible' => true, 'ferme' => $bornes['fermee'], 'heures' => $heures];
-        }
-
-        return response()->json(['data' => [
-            'semaine' => $lundi->toDateString(),
-            'precedente' => $lundi->greaterThan($cetteSemaine) ? $lundi->subWeek()->toDateString() : null,
-            'suivante' => $lundi->lessThan($derniere) ? $lundi->addWeek()->toDateString() : null,
-            'duree_minutes' => self::DUREE_MINUTES,
-            'jours' => $jours,
-        ]]);
+        return response()->json(['data' => $semaines->pour($fiche, $request->query('semaine'), $limite, self::DUREE_MINUTES)]);
     }
 
     /**

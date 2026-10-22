@@ -58,7 +58,7 @@ class FilesAttenteTest extends TestCase
         $this->assertNotNull(UrgenceAttente::withoutGlobalScopes()->sole()->arrivee_le);
     }
 
-    public function test_placer_une_urgence_cree_le_rendez_vous_en_salle_et_retire_l_entree(): void
+    public function test_placer_une_urgence_un_autre_jour_la_prevoit_et_retire_l_entree(): void
     {
         $urgence = UrgenceAttente::factory()->create([
             'clinique_id' => $this->clinique->id,
@@ -74,8 +74,9 @@ class FilesAttenteTest extends TestCase
         $rendezVous = RendezVous::withoutGlobalScopes()->findOrFail($reponse->json('data.id'));
 
         $this->assertSame('urgence', $rendezVous->type->value);
-        $this->assertSame('salle', $rendezVous->status->value);
-        $this->assertNotNull($rendezVous->arrived_at);
+        // Demain : l'animal reviendra, il n'est pas en salle d'attente
+        $this->assertSame('prevu', $rendezVous->status->value);
+        $this->assertNull($rendezVous->arrived_at);
         $this->assertSame($urgence->patient_name, $rendezVous->patient_name);
         $this->assertTrue($rendezVous->ends_at->equalTo($debut->clone()->addMinutes(45)));
         $this->assertSame('création', $rendezVous->audits()->sole()->champ);
@@ -101,19 +102,53 @@ class FilesAttenteTest extends TestCase
         $this->assertSame($this->ligne->id, $reponse->json('data.ligne_planning_id'));
     }
 
-    public function test_placer_une_urgence_sans_aucun_creneau_repond_422(): void
+    public function test_caser_une_urgence_au_plus_tot_passe_aux_jours_suivants(): void
     {
+        // Un dimanche (fermé) : le premier trou est le lundi
         $dimancheFerme = CarbonImmutable::today()->next('Sunday');
         $this->travelTo($dimancheFerme->setTime(10, 0));
         ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
 
         $urgence = UrgenceAttente::factory()->create(['clinique_id' => $this->clinique->id]);
 
-        $this->postJson("/api/v1/urgences/{$urgence->id}/placer", [], $this->enTetes($jeton))
+        $reponse = $this->postJson("/api/v1/urgences/{$urgence->id}/placer", [], $this->enTetes($jeton))->assertCreated();
+
+        $this->assertTrue(CarbonImmutable::parse($reponse->json('data.starts_at'))->setTimezone('Europe/Zurich')->isMonday());
+        $this->assertSame('prevu', $reponse->json('data.status'));
+    }
+
+    public function test_placer_une_urgence_sans_aucun_creneau_repond_422(): void
+    {
+        // Plus aucune ligne au planning : rien de libre
+        $this->ligne->delete();
+        $urgence = UrgenceAttente::factory()->create(['clinique_id' => $this->clinique->id]);
+
+        $this->postJson("/api/v1/urgences/{$urgence->id}/placer", [], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('starts_at');
 
         $this->assertDatabaseHas('urgences_attente', ['id' => $urgence->id]);
+    }
+
+    public function test_placer_a_une_heure_sans_ligne_prend_une_ligne_libre(): void
+    {
+        $inscription = ListeAttente::factory()->create(['clinique_id' => $this->clinique->id, 'duree_minutes' => 20]);
+        $debut = CarbonImmutable::now('Europe/Zurich')->addDays(2)->next(CarbonImmutable::TUESDAY)->setTime(10, 0);
+
+        $this->postJson("/api/v1/liste-attente/{$inscription->id}/placer", ['starts_at' => $debut->toIso8601String()], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.ligne_planning_id', $this->ligne->id);
+    }
+
+    public function test_le_calendrier_de_la_clinique_va_au_dela_d_un_mois(): void
+    {
+        $dansUnAn = CarbonImmutable::today()->addYear()->startOfWeek()->toDateString();
+
+        $this->getJson("/api/v1/planning/semaine?semaine={$dansUnAn}&duree=45", $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.semaine', $dansUnAn)
+            ->assertJsonPath('data.duree_minutes', 45)
+            ->assertJsonPath('data.jours.0.visible', true);
     }
 
     public function test_placer_une_demande_cree_un_rendez_vous_prevu_marque_nouveau_et_l_accepte(): void

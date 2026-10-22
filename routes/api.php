@@ -116,6 +116,7 @@ use App\Http\Controllers\Api\V1\RendezVousStatutController;
 use App\Http\Controllers\Api\V1\ResultatAnalyseController;
 use App\Http\Controllers\Api\V1\SalleController;
 use App\Http\Controllers\Api\V1\SejourController;
+use App\Http\Controllers\Api\V1\SemainePlanningController;
 use App\Http\Controllers\Api\V1\SessionTeleconsultationController;
 use App\Http\Controllers\Api\V1\SiteDomaineController;
 use App\Http\Controllers\Api\V1\SiteLogoController;
@@ -341,6 +342,8 @@ Route::prefix('v1')->group(function (): void {
         Route::get('planning/employes', AnnuaireEmployeController::class);
 
         Route::get('planning/disponibilites', DisponibiliteController::class);
+        // Calendrier de la clinique pour placer ou proposer : une semaine, sans la limite d'un mois
+        Route::get('planning/semaine', SemainePlanningController::class);
 
         Route::post('rendez-vous/prochain-creneau', ProchainCreneauController::class);
         Route::post('rendez-vous/{rendezVous}/statut', [RendezVousStatutController::class, 'changer']);

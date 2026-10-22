@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Auth\ContexteClinique;
+use App\Enums\RoleLignePlanning;
 use App\Enums\StatutAbsence;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeAbsence;
@@ -223,6 +224,45 @@ class CalculateurCreneaux
         return $creneau === null
             ? null
             : ['ligne_planning_id' => $creneau['ligne_planning_id'], 'debut' => $creneau['debut']];
+    }
+
+    /**
+     * Le premier créneau libre à partir de maintenant, aujourd'hui ou l'un
+     * des jours suivants (urgence ou liste d'attente « au plus tôt »).
+     *
+     * @return array{ligne_planning_id: int, debut: CarbonImmutable}|null
+     */
+    public function premierCreneauLibre(int $dureeMinutes, int $nombreJours = 30): ?array
+    {
+        foreach ($this->creneauxDesJours($this->aujourdHui(), $nombreJours, $dureeMinutes) as $jour) {
+            $creneau = $jour->first();
+            if ($creneau !== null) {
+                return ['ligne_planning_id' => $creneau['ligne_planning_id'], 'debut' => $creneau['debut']];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Une ligne du planning libre de ce début pour la durée : les lignes
+     * de consultation d'abord, puis les autres, dans l'ordre du planning.
+     */
+    public function ligneLibreA(CarbonImmutable $debut, int $dureeMinutes): ?int
+    {
+        $fin = $debut->addMinutes($dureeMinutes);
+        $libres = $this->creneauxLibres($debut->setTimezone($this->fuseau()), $dureeMinutes)
+            ->filter(fn (array $trou): bool => $trou['debut']->lessThanOrEqualTo($debut) && $trou['fin']->greaterThanOrEqualTo($fin))
+            ->pluck('ligne_planning_id');
+
+        if ($libres->isEmpty()) {
+            return null;
+        }
+
+        $roles = LignePlanning::query()->whereKey($libres)->pluck('role', 'id');
+        $estConsultation = fn (int $id): bool => ($roles[$id] instanceof RoleLignePlanning ? $roles[$id] : RoleLignePlanning::tryFrom((string) $roles[$id])) === RoleLignePlanning::Consultation;
+
+        return $libres->sortBy(fn (int $id): int => $estConsultation($id) ? 0 : 1)->first();
     }
 
     /**

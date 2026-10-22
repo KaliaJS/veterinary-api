@@ -68,14 +68,20 @@ class ListeAttenteController extends Controller
         $donnees = $request->validated();
         $duree = min((int) ($donnees['duree_minutes'] ?? $inscription->duree_minutes), $inscription->duree_minutes);
 
-        if (isset($donnees['starts_at'])) {
-            $ligneId = (int) $donnees['ligne_planning_id'];
-            $debut = CarbonImmutable::parse($donnees['starts_at']);
+        if (! empty($donnees['starts_at'])) {
+            // Une heure choisie : sur la ligne donnée (grille), sinon une ligne libre
+            $debut = CarbonImmutable::parse($donnees['starts_at'])->utc();
+            $ligneId = isset($donnees['ligne_planning_id']) ? (int) $donnees['ligne_planning_id'] : $calculateur->ligneLibreA($debut, $duree);
+
+            if ($ligneId === null) {
+                throw ValidationException::withMessages(['starts_at' => 'Cette heure n’est plus libre au planning.']);
+            }
         } else {
-            $creneau = $calculateur->prochainCreneau($calculateur->aujourdHui(), $duree);
+            // Au plus tôt : aujourd'hui, sinon les jours suivants
+            $creneau = $calculateur->premierCreneauLibre($duree);
 
             if ($creneau === null) {
-                throw ValidationException::withMessages(['starts_at' => 'Aucun créneau libre aujourd’hui.']);
+                throw ValidationException::withMessages(['starts_at' => 'Aucun créneau libre dans les 30 prochains jours.']);
             }
 
             [$ligneId, $debut] = [$creneau['ligne_planning_id'], $creneau['debut']];

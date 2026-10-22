@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Enums\DrapeauRendezVous;
 use App\Enums\MotifRefusDemande;
-use App\Enums\RoleLignePlanning;
 use App\Enums\StatutDemandeRendezVous;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
@@ -12,7 +11,6 @@ use App\Mail\DemandeRendezVousAcceptee;
 use App\Mail\DemandeRendezVousProposee;
 use App\Mail\DemandeRendezVousRefusee;
 use App\Models\DemandeRendezVous;
-use App\Models\LignePlanning;
 use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\User;
@@ -39,27 +37,10 @@ class TraitementDemande
         private MutationRendezVous $mutation,
     ) {}
 
-    /**
-     * Une ligne du planning libre de ce début pour la durée : les lignes
-     * de consultation d'abord, puis les autres, dans l'ordre du planning.
-     */
+    /** Une ligne libre de ce début pour la durée (CalculateurCreneaux). */
     public function ligneLibreA(CarbonImmutable $debut, int $dureeMinutes): ?int
     {
-        $fin = $debut->addMinutes($dureeMinutes);
-        $libres = $this->calculateur
-            ->creneauxLibres($debut->setTimezone($this->calculateur->fuseau()), $dureeMinutes)
-            ->filter(fn (array $trou): bool => $trou['debut']->lessThanOrEqualTo($debut) && $trou['fin']->greaterThanOrEqualTo($fin))
-            ->pluck('ligne_planning_id');
-
-        if ($libres->isEmpty()) {
-            return null;
-        }
-
-        $roles = LignePlanning::query()->whereKey($libres)->pluck('role', 'id');
-
-        $estConsultation = fn (int $id): bool => ($roles[$id] instanceof RoleLignePlanning ? $roles[$id] : RoleLignePlanning::tryFrom((string) $roles[$id])) === RoleLignePlanning::Consultation;
-
-        return $libres->sortBy(fn (int $id): int => $estConsultation($id) ? 0 : 1)->first();
+        return $this->calculateur->ligneLibreA($debut, $dureeMinutes);
     }
 
     /**
