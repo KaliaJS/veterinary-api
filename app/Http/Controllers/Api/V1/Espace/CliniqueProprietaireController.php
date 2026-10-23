@@ -13,6 +13,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\DeposerDemandeRendezVousRequest;
 use App\Http\Requests\V1\Espace\DeposerDemandeSansCompteRequest;
 use App\Mail\DemandeRendezVousEnvoyee;
+use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\CliniqueEspece;
 use App\Models\CliniqueService;
@@ -24,11 +25,14 @@ use App\Models\SpecialiteVeterinaire;
 use App\Models\User;
 use App\Paiements\ErreurPaiement;
 use App\Services\CalculateurCreneaux;
+use App\Services\Captcha\Turnstile;
+use App\Services\CodeDemandePublique;
 use App\Services\Paiements\AcomptesRendezVous;
 use App\Services\Photos\PhotosCliniques;
 use App\Services\SemaineDisponible;
 use App\Services\TraitementDemande;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -51,6 +55,9 @@ class CliniqueProprietaireController extends Controller
     private const int JOURS_EXPLORES = 7;
 
     private const int DUREE_MINUTES = 20;
+
+    /** Demandes ou rendez-vous à venir par personne et par clinique */
+    private const int DEMANDES_OUVERTES_MAX = 5;
 
     /** Les créneaux proposés tombent au quart d'heure (horaires suisses : décalage en heures entières). */
     private const int QUART = 900;
@@ -162,6 +169,15 @@ class CliniqueProprietaireController extends Controller
     {
         $donnees = $request->validated();
         $clinique = Clinique::withoutGlobalScopes()->ouvertes()->with('societe')->findOrFail((int) $donnees['clinique_id']);
+        $user = $contexte->user();
+
+        // Une adresse prouvée : la clinique ne réserve pas pour une adresse inventée
+        if ($user->email_verified_at === null) {
+            throw ValidationException::withMessages([
+                'email' => 'Confirmez d’abord votre adresse e-mail (Réglages, Mon compte) : un code vous y attend.',
+            ]);
+        }
+        $this->plafond($clinique, fn ($q) => $q->where('user_id', $user->id));
 
         $patient = isset($donnees['patient_id'])
             ? Patient::withoutGlobalScopes()->find((int) $donnees['patient_id'])
@@ -169,13 +185,15 @@ class CliniqueProprietaireController extends Controller
 
         // Fiche du compte dans l'organisation de la clinique, si elle existe.
         $fiche = $contexte->clients()->firstWhere('organisation_id', $clinique->societe->organisation_id);
-        $user = $contexte->user();
+        // Jamais la fiche d'une autre organisation (animal suivi ailleurs)
+        $clientDuPatient = $patient && Client::withoutGlobalScopes()->whereKey($patient->client_id)
+            ->where('organisation_id', $clinique->societe->organisation_id)->exists() ? $patient->client_id : null;
         $nomProprietaire = trim((string) ($donnees['nom_proprietaire'] ?? ''))
             ?: ($fiche ? trim($fiche->prenom.' '.$fiche->nom) : $user->name);
 
         return $this->enregistrer($clinique, $donnees, $sousContexte, auteur: $user, qui: [
             'patient_id' => $patient?->id,
-            'client_id' => $fiche?->id ?? $patient?->client_id,
+            'client_id' => $fiche?->id ?? $clientDuPatient,
             'user_id' => $user->id,
             'patient_name' => $patient?->nom ?? $donnees['patient_name'],
             'species' => $patient?->espece ?? $donnees['espece'],
@@ -183,13 +201,41 @@ class CliniqueProprietaireController extends Controller
         ]);
     }
 
-    /** Sans compte, chez une clinique qui l'accepte : ses coordonnées pour lui répondre. */
-    public function deposerSansCompte(DeposerDemandeSansCompteRequest $request, SousContexteClinique $sousContexte): JsonResponse
+    /**
+     * Sans compte, d'abord : le code qui prouve l'adresse, envoyé seulement
+     * si le captcha a passé (un robot ne fait partir aucun e-mail).
+     */
+    public function codeSansCompte(Request $request, Turnstile $captcha, CodeDemandePublique $codes): JsonResponse
+    {
+        $donnees = $request->validate([
+            'clinique_id' => ['required', 'integer'],
+            'email' => ['required', 'email', 'max:190'],
+            'captcha' => ['required', 'string', 'max:4096'],
+        ], [
+            'captcha.required' => 'Cochez la vérification anti-robot.',
+        ]);
+        $clinique = Clinique::withoutGlobalScopes()->ouvertes()->where('rdv_sans_compte', true)->findOrFail((int) $donnees['clinique_id']);
+
+        if (! $captcha->verifier($donnees['captcha'], $request->ip())) {
+            throw ValidationException::withMessages(['captcha' => 'La vérification anti-robot n’a pas abouti : réessayez.']);
+        }
+
+        $codes->envoyer(mb_strtolower(trim($donnees['email'])), $clinique);
+
+        return response()->json(['message' => 'Un code a été envoyé.'], 202);
+    }
+
+    /** Puis la demande, avec le code reçu : ses coordonnées pour lui répondre. */
+    public function deposerSansCompte(DeposerDemandeSansCompteRequest $request, SousContexteClinique $sousContexte, CodeDemandePublique $codes): JsonResponse
     {
         $donnees = $request->validated();
         $clinique = Clinique::withoutGlobalScopes()->ouvertes()->findOrFail((int) $donnees['clinique_id']);
+        $email = mb_strtolower(trim($donnees['email']));
 
-        return $this->enregistrer($clinique, $donnees, $sousContexte, [
+        $codes->verifier($email, $clinique, $donnees['code']);
+        $this->plafond($clinique, fn ($q) => $q->whereNull('user_id')->where('email', $email));
+
+        $reponse = $this->enregistrer($clinique, $donnees, $sousContexte, [
             'patient_name' => trim($donnees['patient_name']),
             'species' => $donnees['espece'],
             'owner_name' => trim($donnees['nom_proprietaire']),
@@ -198,6 +244,32 @@ class CliniqueProprietaireController extends Controller
             // Le lien de ses e-mails, pour suivre la demande sans compte
             'jeton' => Str::random(48),
         ]);
+        $codes->consommer($email, $clinique);
+
+        return $reponse;
+    }
+
+    /**
+     * Pas plus de DEMANDES_OUVERTES_MAX demandes ou rendez-vous à venir
+     * par personne et par clinique : un script ne remplit pas un agenda.
+     *
+     * @param  callable(Builder<DemandeRendezVous>): mixed  $qui
+     */
+    private function plafond(Clinique $clinique, callable $qui): void
+    {
+        $ouvertes = DemandeRendezVous::withoutGlobalScopes()
+            ->where('clinique_id', $clinique->id)
+            ->where($qui)
+            ->where(fn ($q) => $q
+                ->whereIn('statut', [StatutDemandeRendezVous::ATraiter, StatutDemandeRendezVous::APayer, StatutDemandeRendezVous::Proposee])
+                ->orWhere(fn ($acceptee) => $acceptee->where('statut', StatutDemandeRendezVous::Acceptee)->where('debut_souhaite', '>', now())))
+            ->count();
+
+        if ($ouvertes >= self::DEMANDES_OUVERTES_MAX) {
+            throw ValidationException::withMessages([
+                'clinique_id' => 'Vous avez déjà '.self::DEMANDES_OUVERTES_MAX.' demandes ou rendez-vous à venir chez '.$clinique->nom.' : attendez sa réponse, ou appelez la clinique.',
+            ]);
+        }
     }
 
     /**
@@ -331,8 +403,9 @@ class CliniqueProprietaireController extends Controller
 
             foreach ($trous as $trou) {
                 $fin = $trou['fin']->getTimestamp();
-                // Au quart d'heure : aujourd'hui, un trou commence à l'heure qu'il est (« 17:56 »)
-                $premier = (int) (ceil($trou['debut']->getTimestamp() / self::QUART) * self::QUART);
+                // Au quart d'heure strictement à venir : aujourd'hui, un trou commence
+                // à l'heure qu'il est (« 17:56 », ou « 14:00 » à 14:00:20 : 14:15)
+                $premier = (int) (ceil(max($trou['debut']->getTimestamp(), $maintenant + 1) / self::QUART) * self::QUART);
 
                 for ($debut = $premier; $debut + $pas <= $fin; $debut += $pas) {
                     if ($debut > $maintenant) {

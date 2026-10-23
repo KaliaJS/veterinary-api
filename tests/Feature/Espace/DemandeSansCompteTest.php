@@ -4,6 +4,7 @@ namespace Tests\Feature\Espace;
 
 use App\Models\Clinique;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\DeposeSansCompte;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -14,6 +15,7 @@ use Tests\TestCase;
  */
 class DemandeSansCompteTest extends TestCase
 {
+    use DeposeSansCompte;
     use EmetDesJetonsApi;
     use RefreshDatabase;
 
@@ -30,6 +32,7 @@ class DemandeSansCompteTest extends TestCase
             'nom_proprietaire' => 'Léa Rochat',
             'email' => 'Lea.Rochat@example.ch',
             'telephone' => '+41 79 123 45 67',
+            'code' => '000000',
             ...$champs,
         ];
     }
@@ -52,7 +55,8 @@ class DemandeSansCompteTest extends TestCase
         $this->getJson('/api/v1/public/cliniques')->assertOk()
             ->assertJsonPath('data.0.rdv_sans_compte', true);
 
-        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['urgence' => true, 'symptomes' => 'Boite depuis hier']))
+        $code = $this->codeDeDemande($clinique->id, 'Lea.Rochat@example.ch');
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['urgence' => true, 'symptomes' => 'Boite depuis hier', 'code' => $code]))
             ->assertCreated()
             ->assertJsonPath('data.patient_name', 'Pacha')
             ->assertJsonPath('data.urgence', true);

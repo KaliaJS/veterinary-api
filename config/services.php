@@ -89,6 +89,12 @@ return [
         'modele' => env('ANTHROPIC_MODELE', 'claude-opus-5-5'),
     ],
 
+    // Captcha des formulaires publics (demande de rendez-vous sans compte)
+    'turnstile' => [
+        'secret' => env('TURNSTILE_SECRET'),
+        'url' => env('TURNSTILE_URL', 'https://challenges.cloudflare.com/turnstile/v0/siteverify'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

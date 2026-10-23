@@ -119,6 +119,20 @@ class RendezVousProprietaireTest extends TestCase
         $this->assertCount(3, array_unique(array_map(fn (array $c): string => substr($c['debut'], 0, 10), $creneaux)));
     }
 
+    public function test_a_14h00_et_quelques_secondes_le_premier_creneau_est_14h15(): void
+    {
+        // Un mardi en heures d'ouverture, quelques secondes après l'heure ronde
+        $this->travelTo(CarbonImmutable::parse('next tuesday 14:00:20', 'Europe/Zurich'));
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+
+        $premier = $this->getJson('/api/v1/espace/cliniques', $this->enTetes($jeton))->assertOk()->json('data.0.creneaux.0.debut');
+
+        // 14:00 est passé de 20 secondes : le quart d'heure suivant, pas 14:20
+        $this->assertSame('14:15', CarbonImmutable::parse($premier)->setTimezone('Europe/Zurich')->format('H:i'));
+    }
+
     public function test_le_nombre_de_requetes_de_l_annuaire_ne_depend_pas_du_nombre_de_cliniques(): void
     {
         $peupler = function (int $nombre): void {

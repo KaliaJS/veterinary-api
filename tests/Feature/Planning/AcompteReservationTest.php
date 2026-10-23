@@ -16,6 +16,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Testing\TestResponse;
+use Tests\Concerns\DeposeSansCompte;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserellePaiementFactice;
 use Tests\TestCase;
@@ -29,6 +30,7 @@ use Tests\TestCase;
  */
 class AcompteReservationTest extends TestCase
 {
+    use DeposeSansCompte;
     use EmetDesJetonsApi;
     use RefreshDatabase;
 
@@ -58,7 +60,10 @@ class AcompteReservationTest extends TestCase
     /** Dépôt sans compte, à l'heure donnée */
     private function deposer(array $attributs = []): TestResponse
     {
+        $code = $this->codeDeDemande($this->clinique->id, $attributs['email'] ?? 'pineau@exemple.ch');
+
         return $this->postJson('/api/v1/public/demandes', [
+            'code' => $code,
             'clinique_id' => $this->clinique->id,
             'patient_name' => 'Louison',
             'espece' => 'CH',

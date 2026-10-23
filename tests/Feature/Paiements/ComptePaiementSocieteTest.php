@@ -18,6 +18,7 @@ use App\Services\Paiements\ComptesPaiement;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
+use Tests\Concerns\DeposeSansCompte;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserellePaiementFactice;
 use Tests\TestCase;
@@ -30,6 +31,7 @@ use Tests\TestCase;
  */
 class ComptePaiementSocieteTest extends TestCase
 {
+    use DeposeSansCompte;
     use EmetDesJetonsApi;
     use RefreshDatabase;
 
@@ -153,7 +155,9 @@ class ComptePaiementSocieteTest extends TestCase
         LignePlanning::factory()->create(['clinique_id' => $this->clinique->id]);
         $mardi = CarbonImmutable::now('Europe/Zurich')->addDays(2)->next(CarbonImmutable::TUESDAY)->setTime(10, 0);
 
+        $code = $this->codeDeDemande($this->clinique->id, 'pineau@exemple.ch');
         $paiement = $this->postJson('/api/v1/public/demandes', [
+            'code' => $code,
             'clinique_id' => $this->clinique->id, 'patient_name' => 'Louison', 'espece' => 'CH', 'nom_proprietaire' => 'Mme Pineau',
             'email' => 'pineau@exemple.ch', 'telephone' => '079 512 44 08', 'motif' => 'Vaccin', 'mode' => 'place',
             'debut_souhaite' => $mardi->toIso8601String(),

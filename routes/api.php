@@ -231,6 +231,8 @@ Route::prefix('v1')->group(function (): void {
         // Demande de rendez-vous sans compte, chez une clinique qui l'accepte
         // Compteurs à part (3e paramètre) : sinon ils partagent celui du groupe,
         // et quelques semaines du calendrier suffiraient à bloquer la demande
+        // D'abord le code qui prouve l'adresse (captcha), puis la demande avec ce code
+        Route::post('demandes/code', [CliniqueProprietaireController::class, 'codeSansCompte'])->middleware(['throttle:5,1,demandes-code', 'throttle:code-email']);
         Route::post('demandes', [CliniqueProprietaireController::class, 'deposerSansCompte'])->middleware('throttle:5,1,demandes');
         // Son suivi par le lien des e-mails, et le choix d'un horaire proposé
         Route::get('demandes/{jeton}', [DemandePubliqueController::class, 'afficher'])->where('jeton', '[A-Za-z0-9]{48}');

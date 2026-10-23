@@ -47,6 +47,7 @@
         <env name="AWS_SECRET_ACCESS_KEY" value="" force="true"/>
         <env name="MAIL_PASSWORD" value="" force="true"/>
         <env name="APPLE_STOREKIT_XCODE" value="false" force="true"/>
+        <env name="TURNSTILE_SECRET" value="secret-de-test" force="true"/>
         <env name="CORS_ALLOWED_ORIGINS" value="https://app.veterinary.test,capacitor://localhost" force="true"/>
     </php>
 </phpunit>
