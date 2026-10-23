@@ -36,6 +36,7 @@ return new class extends Migration
             $table->dateTime('incision_a')->nullable()->comment('Heure réelle de l\'incision (chrono du front)');
             $table->dateTime('consentement_signe_le')->nullable();
             $table->foreignId('consentement_document_id')->nullable()->constrained('documents')->nullOnDelete();
+            $table->foreignId('consentement_recueilli_par_id')->nullable()->comment('Employé qui a recueilli la signature (23.10.2026)')->constrained('employes')->nullOnDelete();
             $table->foreignId('cree_par_id')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 

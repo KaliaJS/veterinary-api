@@ -190,6 +190,13 @@ class ExamenImagerieTest extends TestCase
         $this->patchJson("/api/v1/imagerie/examens/{$examen->id}", [
             'libelle' => 'Autre libellé',
         ], $this->jeton())->assertUnprocessable();
+
+        // Ni de nouveau cliché
+        $this->postJson("/api/v1/imagerie/examens/{$examen->id}/cliches", [
+            'sop_instance_uid' => '1.2.840.113619.2.55.3.604688.9',
+            'study_instance_uid' => '1.2.840.113619.2.55.3.604688',
+            'nom_fichier' => 'ajout.dcm',
+        ], $this->jeton())->assertUnprocessable()->assertJsonValidationErrors('sop_instance_uid');
     }
 
     public function test_la_signature_clot_le_rdv_lie_et_facture_l_acte_d_imagerie(): void

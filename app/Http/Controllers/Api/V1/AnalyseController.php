@@ -15,13 +15,14 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Demandes d'analyses du laboratoire de la clinique du jeton
  * (docs/data-model.md §9). La demande naît en `attente` avec ses
  * lignes de résultats vides — instantané des panels et bornes du
  * référentiel au moment de la demande. Jamais de suppression ; une
- * demande ne se réécrit pas, seule la note bouge.
+ * demande ne se réécrit pas, seule la note bouge, jusqu'à la validation.
  */
 class AnalyseController extends Controller
 {
@@ -107,6 +108,11 @@ class AnalyseController extends Controller
     public function update(ModifierAnalyseRequest $request, Analyse $analyse): AnalyseResource
     {
         $this->authorize('update', $analyse);
+
+        // Validée, l'analyse est figée, sa note comprise (23.10.2026)
+        if ($analyse->estValidee()) {
+            throw ValidationException::withMessages(['note' => 'Une analyse validée est figée, sa note comprise.']);
+        }
 
         $analyse->update($request->validated());
 

@@ -52,7 +52,7 @@ class Intervention extends Model
         'chirurgien_id', 'rendez_vous_id', 'procedure', 'prevu_le',
         'duree_minutes', 'statut', 'protocole_anesthesique',
         'note_operatoire', 'incision_a', 'consentement_signe_le',
-        'consentement_document_id', 'cree_par_id',
+        'consentement_document_id', 'consentement_recueilli_par_id', 'cree_par_id',
     ];
 
     protected function casts(): array

@@ -40,12 +40,6 @@ parameters:
 			message: '#^Access to an undefined property App\\Models\\Client\:\:\$nom_affiche\.$#'
 			identifier: property.notFound
 			count: 1
-			path: app/Http/Controllers/Api/V1/ConsentementInterventionController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Client\:\:\$nom_affiche\.$#'
-			identifier: property.notFound
-			count: 1
 			path: app/Http/Controllers/Api/V1/DemandeRattachementController.php
 
 		-

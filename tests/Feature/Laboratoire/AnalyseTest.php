@@ -205,6 +205,11 @@ class AnalyseTest extends TestCase
         $this->putJson("/api/v1/laboratoire/analyses/{$analyse->id}/resultats", [
             'resultats' => [['id' => $analyse->resultats()->first()->id, 'valeur' => 1]],
         ], $this->jeton())->assertUnprocessable();
+
+        // Ni la note
+        $this->patchJson("/api/v1/laboratoire/analyses/{$analyse->id}", ['note' => 'Réécrite après coup.'], $this->jeton())
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('note');
     }
 
     public function test_seule_la_note_se_modifie(): void

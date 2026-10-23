@@ -17,6 +17,7 @@ use App\Models\RendezVous;
 use App\Models\RendezVousAudit;
 use App\Models\Salle;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -137,7 +138,7 @@ class InterventionTest extends TestCase
         $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/avancer", [], $this->jeton())
             ->assertUnprocessable();
 
-        $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", [], $this->jeton())->assertOk();
+        $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", $this->signature(), $this->jeton())->assertOk();
 
         $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/avancer", [], $this->jeton())
             ->assertOk()
@@ -148,12 +149,19 @@ class InterventionTest extends TestCase
 
     public function test_le_consentement_ne_se_coche_que_par_sa_signature(): void
     {
+        Storage::fake('local');
         $intervention = $this->intervention();
+
+        // Sans signature tracée, ou avec autre chose qu'une image : refusé
+        $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", ['signataire' => 'Mme Pineau'], $this->jeton())
+            ->assertUnprocessable()->assertJsonValidationErrors('signature');
+        $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", ['signataire' => 'Mme Pineau', 'signature' => 'data:image/png;base64,'.base64_encode('<svg/>')], $this->jeton())
+            ->assertUnprocessable()->assertJsonValidationErrors('signature');
 
         $this->putJson("/api/v1/bloc/interventions/{$intervention->id}/checklist/consent", ['est_coche' => true], $this->jeton())
             ->assertUnprocessable();
 
-        $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", [], $this->jeton())
+        $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", $this->signature(), $this->jeton())
             ->assertOk()
             ->assertJsonPath('data.checklist.1.est_coche', true);
 
@@ -165,8 +173,13 @@ class InterventionTest extends TestCase
         $this->assertSame($this->patient->id, $document->patient_id);
         $this->assertSame('consentement', $document->type);
 
+        // La preuve : l'image de la signature, qui a signé, qui l'a recueillie
+        $this->assertSame('Mme Pineau', $document->signataire);
+        $this->assertStringStartsWith("\x89PNG", Storage::disk('local')->get($document->chemin));
+        $this->assertNotNull($intervention->consentement_recueilli_par_id);
+
         // Une seule signature.
-        $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", [], $this->jeton())
+        $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", $this->signature(), $this->jeton())
             ->assertUnprocessable();
     }
 
@@ -349,5 +362,16 @@ class InterventionTest extends TestCase
 
         $this->deleteJson("/api/v1/bloc/interventions/{$intervention->id}", [], $this->jeton())
             ->assertStatus(405);
+    }
+
+    /** Une signature tracée : une image PNG, et le nom de qui consent */
+    private function signature(): array
+    {
+        $image = imagecreatetruecolor(240, 90);
+        imageline($image, 10, 60, 230, 30, imagecolorallocate($image, 255, 255, 255));
+        ob_start();
+        imagepng($image);
+
+        return ['signataire' => 'Mme Pineau', 'signature' => 'data:image/png;base64,'.base64_encode((string) ob_get_clean())];
     }
 }
