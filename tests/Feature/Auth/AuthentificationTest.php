@@ -165,7 +165,7 @@ class AuthentificationTest extends TestCase
         $this->getJson('/api/v1/auth/moi', $this->enTetes($nouveau))->assertUnauthorized();
     }
 
-    public function test_un_rattachement_multiple_propose_les_cliniques_sans_consommer_le_code(): void
+    public function test_un_rattachement_multiple_propose_les_cliniques_et_un_choix_a_usage_unique(): void
     {
         Notification::fake();
 
@@ -176,46 +176,46 @@ class AuthentificationTest extends TestCase
 
         $code = $this->envoyerEtRecupererLeCode($user);
 
-        // Sans choix : la liste des cliniques, pas de jeton — et le code
-        // n'est pas consommé (le rattachement est contrôlé avant).
-        $this->postJson('/api/v1/auth/code-email/verifier', [
+        // Sans choix : la liste des cliniques et un jeton de choix, pas de
+        // jeton d'API ; le code est consommé (23.10.2026), il ne se rejoue plus
+        $reponse = $this->postJson('/api/v1/auth/code-email/verifier', [
             'email' => $user->email,
             'code' => $code,
         ])
             ->assertOk()
             ->assertJsonPath('data.choix_clinique', true)
             ->assertJsonMissingPath('data.token')
-            ->assertExactJson(['data' => [
-                'choix_clinique' => true,
-                'cliniques' => [
-                    ['id' => $employeA->cliniques->sole()->id, 'nom' => $employeA->cliniques->sole()->nom],
-                    ['id' => $cliniqueB->id, 'nom' => $cliniqueB->nom],
-                ],
-            ]]);
+            ->assertJsonPath('data.cliniques', [
+                ['id' => $employeA->cliniques->sole()->id, 'nom' => $employeA->cliniques->sole()->nom],
+                ['id' => $cliniqueB->id, 'nom' => $cliniqueB->nom],
+            ]);
+        $choix = $reponse->json('data.choix');
+        $this->assertSame(48, strlen($choix));
 
-        // Une clinique étrangère au compte : refusée, code toujours valide.
-        $this->postJson('/api/v1/auth/code-email/verifier', [
-            'email' => $user->email,
-            'code' => $code,
-            'clinique_id' => Clinique::factory()->create()->id,
-        ])->assertUnprocessable()->assertJsonValidationErrors('clinique_id');
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $code, 'clinique_id' => $cliniqueB->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('code');
 
-        // Le même code, avec le choix : jeton émis pour cette clinique.
-        $this->postJson('/api/v1/auth/code-email/verifier', [
-            'email' => $user->email,
-            'code' => $code,
-            'clinique_id' => $cliniqueB->id,
-        ])
+        // Le choix donne le jeton de la clinique choisie, une seule fois
+        $this->postJson('/api/v1/auth/choix-clinique', ['choix' => $choix, 'clinique_id' => $cliniqueB->id])
             ->assertOk()
             ->assertJsonPath('data.clinique.id', $cliniqueB->id)
             ->assertJsonPath('data.employe.id', $employeB->id);
+        $this->postJson('/api/v1/auth/choix-clinique', ['choix' => $choix, 'clinique_id' => $cliniqueB->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('choix');
+    }
 
-        // … et seulement maintenant, il est consommé.
-        $this->postJson('/api/v1/auth/code-email/verifier', [
-            'email' => $user->email,
-            'code' => $code,
-            'clinique_id' => $employeA->cliniques->sole()->id,
-        ])->assertUnprocessable()->assertJsonValidationErrors('code');
+    public function test_un_choix_ne_mene_pas_a_une_clinique_etrangere_au_compte(): void
+    {
+        Notification::fake();
+        $user = User::factory()->create();
+        Employe::factory()->create(['user_id' => $user->id]);
+        Employe::factory()->dans(Clinique::factory()->create())->create(['user_id' => $user->id]);
+        $code = $this->envoyerEtRecupererLeCode($user);
+
+        $choix = $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $code])->json('data.choix');
+
+        $this->postJson('/api/v1/auth/choix-clinique', ['choix' => $choix, 'clinique_id' => Clinique::factory()->create()->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('clinique_id');
     }
 
     public function test_un_compte_sans_rattachement_consomme_son_code(): void

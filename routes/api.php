@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\AnnuaireCliniqueController;
 use App\Http\Controllers\Api\V1\AnnuaireEmployeController;
 use App\Http\Controllers\Api\V1\AppStoreNotificationsController;
 use App\Http\Controllers\Api\V1\Auth\ChangementCliniqueController;
+use App\Http\Controllers\Api\V1\Auth\ChoixCliniqueController;
 use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
 use App\Http\Controllers\Api\V1\Auth\EmailConnuController;
 use App\Http\Controllers\Api\V1\Auth\InscriptionPasskeyController;
@@ -156,6 +157,8 @@ Route::prefix('v1')->group(function (): void {
         Route::post('code-email/verifier', [CodeEmailController::class, 'verifier']);
         Route::post('passkey/options', [PasskeyConnexionController::class, 'options']);
         Route::post('passkey/verifier', [PasskeyConnexionController::class, 'verifier']);
+        // Compte multi-clinique : le jeton de choix et la clinique choisie
+        Route::post('choix-clinique', ChoixCliniqueController::class);
 
         // Inscription publique (e-mail inconnu) : compte sans clinique,
         // créé avec sa première passkey.

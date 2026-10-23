@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Auth\Concerns;
 
+use App\Auth\ChoixClinique;
 use App\Auth\EmetteurJetons;
 use App\Http\Resources\V1\ChoixCliniqueResource;
 use App\Http\Resources\V1\JetonEmisResource;
@@ -10,12 +11,13 @@ use Closure;
 use Illuminate\Http\Request;
 
 /**
- * Fin commune des voies de connexion : le secret a été contrôlé mais
- * pas consommé. Le rattachement clinique est résolu D'ABORD — un
- * compte multi-clinique sans `clinique_id` reçoit la liste des
- * cliniques et garde son secret pour rejouer la requête —, puis le
- * secret est consommé et le jeton émis. Un compte sans rattachement
- * (inscription publique) reçoit une session sans clinique.
+ * Fin commune des voies de connexion : le secret a été contrôlé. Le
+ * rattachement clinique est résolu, puis le secret est consommé et le
+ * jeton émis. Un compte multi-clinique sans `clinique_id` reçoit la
+ * liste des cliniques et un jeton de choix (23.10.2026 : à usage unique,
+ * cinq minutes, lié au compte) ; le secret est consommé tout de suite,
+ * il ne se rejoue plus. Un compte sans rattachement (inscription
+ * publique) reçoit une session sans clinique.
  */
 trait ConnecteAvecChoixDeClinique
 {
@@ -41,7 +43,9 @@ trait ConnecteAvecChoixDeClinique
         );
 
         if ($rattachement === null) {
-            return new ChoixCliniqueResource($rattachements);
+            $consommerLeSecret();
+
+            return new ChoixCliniqueResource($rattachements, ChoixClinique::ouvrir($user, $appareil));
         }
 
         $consommerLeSecret();

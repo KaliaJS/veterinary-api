@@ -122,7 +122,7 @@ class PasskeyTest extends TestCase
      * la liste des cliniques sans consommer son défi, puis rejoue la
      * même assertion avec `clinique_id`.
      */
-    public function test_un_rattachement_multiple_propose_les_cliniques_avant_de_consommer_le_defi(): void
+    public function test_un_rattachement_multiple_consomme_le_defi_et_donne_un_choix(): void
     {
         $user = User::factory()->create();
         $employeA = Employe::factory()->create(['user_id' => $user->id]);
@@ -134,11 +134,12 @@ class PasskeyTest extends TestCase
         $credentialRecord = Mockery::mock(CredentialRecord::class);
 
         $service = $this->mock(PasskeyAuthService::class);
-        $service->shouldReceive('controler')->twice()->with(Mockery::type('string'), 'defi')
+        $service->shouldReceive('controler')->once()->with(Mockery::type('string'), 'defi')
             ->andReturn(['passkey' => $passkey, 'credentialRecord' => $credentialRecord]);
+        // Le défi est consommé dès la liste (il ne se rejoue plus)
         $service->shouldReceive('consommer')->once()->with('defi', $passkey, $credentialRecord);
 
-        $this->postJson('/api/v1/auth/passkey/verifier', [
+        $choix = $this->postJson('/api/v1/auth/passkey/verifier', [
             'defi_id' => 'defi',
             'credential' => self::CREDENTIAL_BIDON,
         ])
@@ -146,13 +147,10 @@ class PasskeyTest extends TestCase
             ->assertJsonPath('data.choix_clinique', true)
             ->assertJsonPath('data.cliniques.0.id', $employeA->cliniques->sole()->id)
             ->assertJsonPath('data.cliniques.1.id', $cliniqueB->id)
-            ->assertJsonMissingPath('data.token');
+            ->assertJsonMissingPath('data.token')
+            ->json('data.choix');
 
-        $this->postJson('/api/v1/auth/passkey/verifier', [
-            'defi_id' => 'defi',
-            'credential' => self::CREDENTIAL_BIDON,
-            'clinique_id' => $cliniqueB->id,
-        ])
+        $this->postJson('/api/v1/auth/choix-clinique', ['choix' => $choix, 'clinique_id' => $cliniqueB->id])
             ->assertOk()
             ->assertJsonStructure(['data' => ['token']])
             ->assertJsonPath('data.clinique.id', $cliniqueB->id)

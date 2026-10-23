@@ -9,14 +9,14 @@ use Illuminate\Support\Collection;
 
 /**
  * Connexion réussie mais compte rattaché à plusieurs cliniques : pas
- * de jeton, la liste des cliniques pour que le front fasse choisir.
- * Le secret (code e-mail, défi passkey) n'est pas consommé : le front
- * rejoue la même requête avec `clinique_id`.
+ * de jeton d'API, la liste des cliniques pour que le front fasse
+ * choisir, et le jeton de choix (`choix`) à rendre avec la clinique
+ * choisie (POST auth/choix-clinique).
  */
 class ChoixCliniqueResource extends JsonResource
 {
     /** @param  Collection<int, Rattachement>  $rattachements */
-    public function __construct(private readonly Collection $rattachements)
+    public function __construct(private readonly Collection $rattachements, private readonly ?string $choix = null)
     {
         parent::__construct($rattachements);
     }
@@ -26,6 +26,7 @@ class ChoixCliniqueResource extends JsonResource
     {
         return [
             'choix_clinique' => true,
+            'choix' => $this->choix,
             'cliniques' => $this->rattachements
                 ->map(fn (Rattachement $rattachement): array => [
                     'id' => $rattachement->clinique->id,
