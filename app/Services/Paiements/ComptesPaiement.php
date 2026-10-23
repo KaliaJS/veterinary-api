@@ -36,6 +36,10 @@ class ComptesPaiement
         $clinique = $clinique instanceof Clinique ? $clinique : Clinique::withoutGlobalScopes()->findOrFail($clinique);
         $societe = $clinique->societe;
 
+        if ($pourEncaisser && ! $clinique->paiements_integres) {
+            throw ValidationException::withMessages(['paiements' => $clinique->nom.' encaisse les cartes et TWINT sur son propre terminal : marquez le paiement comme payé.']);
+        }
+
         if (! $societe?->stripe_compte_id || ($pourEncaisser && ! $societe->paiements_actifs)) {
             throw ValidationException::withMessages(['paiements' => 'Les paiements par carte et TWINT ne sont pas encore activés pour '
                 .($societe?->nom ?? 'cette clinique').'. Un administrateur les active dans Réglages, Paiements.']);

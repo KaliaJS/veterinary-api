@@ -918,7 +918,14 @@ caisse.
   Stripe, prélevés par Stripe, s'affichent dans Réglages, Paiements
   (`frais_stripe` de `config/services.php`, relevés à la main : Stripe ne
   publie pas d'API de ses tarifs ; les frais réels de chaque paiement se
-  lisent après coup). Sans compte actif,
+  lisent après coup). **Paiements intégrés ou terminal propre**
+  (`cliniques.paiements_integres`, vrai par défaut ; switch en tête de
+  Réglages, Paiements, administrateur : `PUT facturation/compte-paiement/integration`) :
+  une clinique peut garder son terminal (Worldline, SumUp…). Carte et TWINT
+  se marquent alors payés à la caisse comme les espèces (`POST factures/{id}/encaisser`
+  avec `tpe` ou `twint`), sans terminal appairé, sans TWINT par QR ni acompte en
+  ligne (`Clinique::encaisseAvecVeterinary`, 422 `paiements` sinon). La caisse lit
+  le mode sans appeler Stripe (`GET facturation/mode-encaissement`). Sans compte actif,
   ni terminal, ni TWINT, ni acompte (422 `paiements`, `acompte_centimes`).
 
 ---

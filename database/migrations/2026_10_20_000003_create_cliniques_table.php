@@ -27,6 +27,7 @@ return new class extends Migration
             $table->boolean('rdv_a_valider')->default(false)->comment('Chaque rendez-vous pris en ligne attend la réponse de la clinique ; sinon l’heure libre est réservée aussitôt');
             $table->boolean('urgences_a_valider')->default(true)->comment('Une urgence prise en ligne attend la réponse de la clinique');
             $table->unsignedInteger('acompte_centimes')->nullable()->comment('Acompte payé en ligne pour réserver (contre les rendez-vous non honorés), déduit de la facture, jamais rendu d’office ; null : aucun');
+            $table->boolean('paiements_integres')->default(true)->comment('Cartes et TWINT encaissés par Veterinary (compte de paiement de la société) ; faux : la clinique garde son terminal (Worldline…) et l’équipe marque les paiements comme payés');
             $table->string('photo_chemin')->nullable()->comment('Photo de la clinique (annuaire), posée par l’administrateur');
             $table->text('photo_apercu')->nullable()->comment('Aperçu flou de la photo, quelques centaines d’octets en data URI');
             $table->string('stripe_location_id')->nullable();

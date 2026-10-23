@@ -170,6 +170,48 @@ class ComptePaiementSocieteTest extends TestCase
         $this->assertTrue($societe->paiements_a_completer);
     }
 
+    public function test_une_clinique_qui_garde_son_terminal_marque_les_paiements_comme_payes(): void
+    {
+        $this->clinique->societe->update(['stripe_compte_id' => 'acct_deux_rives', 'paiements_actifs' => true]);
+        $this->getJson('/api/v1/facturation/mode-encaissement', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.integre', true);
+
+        // Seul un administrateur choisit
+        $this->putJson('/api/v1/facturation/compte-paiement/integration', ['integres' => false], $this->enTetes($this->jeton))->assertForbidden();
+        $this->administrateur();
+        $this->putJson('/api/v1/facturation/compte-paiement/integration', ['integres' => false], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.integres', false);
+        $this->getJson('/api/v1/facturation/mode-encaissement', $this->enTetes($this->jeton))
+            ->assertJsonPath('data.integre', false)
+            ->assertJsonPath('data.paiements_integres', false);
+
+        // Ni terminal, ni TWINT, ni acompte par Veterinary : la caisse marque la carte comme payée
+        $facture = Facture::factory()->create(['clinique_id' => $this->clinique->id]);
+        FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => 80, 'quantite' => 1]);
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/paiements", ['moyen' => 'twint'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('paiements');
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/encaisser", ['moyen_paiement' => 'tpe'], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'payee')
+            ->assertJsonPath('data.moyen_paiement', 'tpe');
+        $this->assertSame([], $this->stripe->intentions);
+
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        $this->assertNull($this->clinique->refresh()->acompteExigible());
+        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", [
+            'services' => [], 'especes' => ['CH'], 'affiche_veterinaires' => true, 'acompte_centimes' => 3000,
+        ], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('acompte_centimes');
+
+        // Et l'on peut revenir aux paiements intégrés
+        $this->putJson('/api/v1/facturation/compte-paiement/integration', ['integres' => true], $this->enTetes($this->jeton))->assertOk();
+        $this->assertSame(3000, $this->clinique->refresh()->acompteExigible());
+    }
+
     /** L'employé du jeton devient administrateur : le domaine organisation s'ouvre. */
     private function administrateur(): void
     {

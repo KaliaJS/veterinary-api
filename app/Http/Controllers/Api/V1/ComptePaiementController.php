@@ -39,6 +39,31 @@ class ComptePaiementController extends Controller
         return $this->reponse($this->sansErreur(fn () => $this->comptes->ouvrir($this->societe(), $request->user()->email)));
     }
 
+    /**
+     * Paiements intégrés ou non (administrateur) : une clinique peut garder
+     * son propre terminal (Worldline…) ; l'équipe marque alors les paiements
+     * par carte et TWINT comme payés, et l'acompte en ligne n'est pas demandé.
+     */
+    public function integration(Request $request): JsonResponse
+    {
+        Gate::authorize(DomainePermission::Organisation->value);
+        $integres = $request->validate(['integres' => ['required', 'boolean']])['integres'];
+        app(ContexteClinique::class)->clinique()->update(['paiements_integres' => $integres]);
+
+        return $this->reponse($this->societe()->refresh());
+    }
+
+    /** Pour la caisse, sans appel au prestataire : carte et TWINT passent-ils par Veterinary ? */
+    public function mode(): JsonResponse
+    {
+        $clinique = app(ContexteClinique::class)->clinique();
+
+        return response()->json(['data' => [
+            'integre' => $clinique->encaisseAvecVeterinary(),
+            'paiements_integres' => (bool) $clinique->paiements_integres,
+        ]]);
+    }
+
     public function session(Request $request): JsonResponse
     {
         $composants = $request->validate([
@@ -84,6 +109,7 @@ class ComptePaiementController extends Controller
     {
         return response()->json(['data' => [
             'societe' => ['id' => $societe->id, 'nom' => $societe->nom],
+            'integres' => (bool) app(ContexteClinique::class)->clinique()->paiements_integres,
             'ouvert' => $societe->stripe_compte_id !== null,
             'paiements_actifs' => $societe->paiements_actifs,
             'virements_actifs' => $societe->virements_actifs,

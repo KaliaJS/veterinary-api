@@ -43,10 +43,13 @@ class OrganisationServicesCliniqueController extends Controller
             ]);
         }
 
-        // L'acompte est encaissé sur le compte de paiement de la société : il doit être actif
-        if ($request->validated('acompte_centimes') && ! $fiche->societe?->encaisseEnLigne()) {
+        // L'acompte est encaissé sur le compte de paiement de la société : il doit être actif,
+        // et la clinique doit encaisser avec Veterinary (pas avec son propre terminal)
+        if ($request->validated('acompte_centimes') && ! $fiche->encaisseAvecVeterinary()) {
             throw ValidationException::withMessages([
-                'acompte_centimes' => 'Activez d’abord les paiements de '.($fiche->societe?->nom ?? 'la société').' (Réglages, Paiements) : l’acompte y est encaissé.',
+                'acompte_centimes' => $fiche->paiements_integres
+                    ? 'Activez d’abord les paiements de '.($fiche->societe?->nom ?? 'la société').' (Réglages, Paiements) : l’acompte y est encaissé.'
+                    : 'L’acompte en ligne demande les paiements intégrés (Réglages, Paiements).',
             ]);
         }
 

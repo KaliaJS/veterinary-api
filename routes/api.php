@@ -519,6 +519,8 @@ Route::prefix('v1')->group(function (): void {
             Route::get('compte-paiement', [ComptePaiementController::class, 'afficher']);
             Route::post('compte-paiement', [ComptePaiementController::class, 'ouvrir']);
             Route::post('compte-paiement/session', [ComptePaiementController::class, 'session'])->middleware('throttle:30,1,session-paiement');
+            Route::put('compte-paiement/integration', [ComptePaiementController::class, 'integration']);
+            Route::get('mode-encaissement', [ComptePaiementController::class, 'mode']);
             Route::get('terminaux', [TerminalPaiementController::class, 'index']);
             Route::post('terminaux', [TerminalPaiementController::class, 'store']);
             Route::delete('terminaux/{terminal}', [TerminalPaiementController::class, 'destroy']);

@@ -20,7 +20,7 @@ class Clinique extends Model
     protected $fillable = [
         'societe_id', 'nom', 'raison_sociale', 'rue', 'npa', 'ville',
         'latitude', 'longitude', 'tel', 'email', 'fuseau_horaire', 'nombre_boxes', 'affiche_veterinaires', 'rdv_sans_compte', 'rdv_a_valider', 'urgences_a_valider',
-        'acompte_centimes',
+        'acompte_centimes', 'paiements_integres',
         'stripe_location_id', 'photo_chemin', 'photo_apercu',
     ];
 
@@ -35,6 +35,7 @@ class Clinique extends Model
             'rdv_a_valider' => 'boolean',
             'urgences_a_valider' => 'boolean',
             'acompte_centimes' => 'integer',
+            'paiements_integres' => 'boolean',
         ];
     }
 
@@ -99,7 +100,17 @@ class Clinique extends Model
     /** L'acompte demandé pour réserver en ligne, si la société peut l'encaisser (sinon aucun). */
     public function acompteExigible(): ?int
     {
-        return $this->acompte_centimes > 0 && $this->societe?->encaisseEnLigne() ? $this->acompte_centimes : null;
+        return $this->acompte_centimes > 0 && $this->encaisseAvecVeterinary() ? $this->acompte_centimes : null;
+    }
+
+    /**
+     * Cartes, TWINT et acomptes passent par Veterinary : la clinique n'a pas
+     * choisi de garder son propre terminal et le compte de la société encaisse.
+     * Sinon la caisse marque les paiements par carte et TWINT comme payés.
+     */
+    public function encaisseAvecVeterinary(): bool
+    {
+        return $this->paiements_integres !== false && (bool) $this->societe?->encaisseEnLigne();
     }
 
     /** @return BelongsTo<Societe, $this> */
