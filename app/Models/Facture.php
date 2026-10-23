@@ -143,6 +143,12 @@ class Facture extends Model
         return round($total - $total / (1 + self::TAUX_TVA), 2);
     }
 
+    /** Total hors taxe : le TTC moins la TVA qu'il contient. */
+    public function totalHt(): float
+    {
+        return round($this->totalTtc() - $this->montantTva(), 2);
+    }
+
     /** Un paiement Stripe attend le client : la facture ne change plus d'ici là. */
     public function aUnPaiementEnCours(): bool
     {

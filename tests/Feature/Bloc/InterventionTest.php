@@ -193,6 +193,19 @@ class InterventionTest extends TestCase
         $this->assertStringStartsWith("\x89PNG", Storage::disk('prive')->get($document->chemin));
         $this->assertNotNull($intervention->consentement_recueilli_par_id);
 
+        // Il se télécharge depuis le dossier, par sa route privée
+        $this->getJson("/api/v1/patients/{$this->patient->id}/documents", $this->jeton())
+            ->assertOk()
+            ->assertJsonPath('data.0.a_fichier', true);
+        $fichier = $this->get("/api/v1/patients/{$this->patient->id}/documents/{$document->id}/fichier", $this->jeton())->assertOk();
+        $this->assertStringStartsWith("\x89PNG", $fichier->streamedContent());
+
+        // Pas par le dossier d'un autre patient, ni sans fichier
+        $autre = Patient::factory()->for($this->patient->client)->create();
+        $this->getJson("/api/v1/patients/{$autre->id}/documents/{$document->id}/fichier", $this->jeton())->assertNotFound();
+        $sansFichier = $this->patient->documents()->create(['nom' => 'Ancien courrier', 'etabli_le' => today()]);
+        $this->getJson("/api/v1/patients/{$this->patient->id}/documents/{$sansFichier->id}/fichier", $this->jeton())->assertNotFound();
+
         // Une seule signature.
         $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", $this->signature(), $this->jeton())
             ->assertUnprocessable();

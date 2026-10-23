@@ -106,6 +106,24 @@ class Devis extends Model
         return round($total - $total / (1 + Facture::TAUX_TVA), 2);
     }
 
+    /** Total hors taxe du devis remisé. */
+    public function totalHt(): float
+    {
+        return round($this->totalTtc() - $this->montantTva(), 2);
+    }
+
+    /** Haut de la fourchette quand des aléas sont annoncés. */
+    public function totalAvecAlea(): float
+    {
+        return round($this->totalTtc() * (1 + $this->alea_pct / 100), 2);
+    }
+
+    /** Montant de la remise commerciale. */
+    public function montantRemise(): float
+    {
+        return round($this->sousTotal() - $this->totalTtc(), 2);
+    }
+
     public function montantAcompte(): float
     {
         return round($this->totalTtc() * $this->acompte_pct / 100, 2);

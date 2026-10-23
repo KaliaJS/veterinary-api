@@ -4,6 +4,7 @@ namespace App\Http\Resources\V1;
 
 use App\Models\Devis;
 use App\Models\DevisLigne;
+use App\Models\Facture;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -42,6 +43,11 @@ class DevisResource extends JsonResource
             'sous_total' => $this->whenLoaded('lignes', fn (): float => $this->sousTotal()),
             'total_ttc' => $this->whenLoaded('lignes', fn (): float => $this->totalTtc()),
             'montant_tva' => $this->whenLoaded('lignes', fn (): float => $this->montantTva()),
+            'total_ht' => $this->whenLoaded('lignes', fn (): float => $this->totalHt()),
+            'montant_remise' => $this->whenLoaded('lignes', fn (): float => $this->montantRemise()),
+            'montant_acompte' => $this->whenLoaded('lignes', fn (): float => $this->montantAcompte()),
+            'total_avec_alea' => $this->whenLoaded('lignes', fn (): float => $this->totalAvecAlea()),
+            'taux_tva' => Facture::TAUX_TVA * 100,
             'lignes' => $this->whenLoaded(
                 'lignes',
                 fn () => $this->lignes->map(fn (DevisLigne $ligne): array => [
@@ -49,6 +55,7 @@ class DevisResource extends JsonResource
                     'libelle' => $ligne->libelle,
                     'quantite' => $ligne->quantite,
                     'prix_chf' => (float) $ligne->prix_chf,
+                    'total_chf' => round($ligne->quantite * (float) $ligne->prix_chf, 2),
                     'type' => $ligne->type,
                     'produit_id' => $ligne->produit_id,
                 ])->values(),

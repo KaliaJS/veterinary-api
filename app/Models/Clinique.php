@@ -114,6 +114,24 @@ class Clinique extends Model
         return $this->paiements_integres !== false && (bool) $this->societe?->encaisseEnLigne();
     }
 
+    /**
+     * En-tête des pièces émises par la clinique (factures, devis,
+     * ordonnances, registres) : son nom, son adresse, ses contacts et la
+     * société qui facture, avec son numéro IDE (23.10.2026).
+     *
+     * @return array{nom: string, adresse: string, contact: string, societe: ?string, ide: ?string}
+     */
+    public function enTeteDocument(): array
+    {
+        return [
+            'nom' => $this->raison_sociale ?: $this->nom,
+            'adresse' => implode(', ', array_filter([$this->rue, trim(($this->npa ?? '').' '.($this->ville ?? ''))])),
+            'contact' => implode(' · ', array_filter([$this->tel, $this->email])),
+            'societe' => $this->societe?->nom,
+            'ide' => $this->societe?->ide,
+        ];
+    }
+
     /** @return BelongsTo<Societe, $this> */
     public function societe(): BelongsTo
     {

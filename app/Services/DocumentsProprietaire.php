@@ -48,7 +48,7 @@ class DocumentsProprietaire
 
     /**
      * @param  list<int>  $patientIds
-     * @return Collection<int, array<string, mixed>>
+     * @return Collection<int, covariant array<string, mixed>>
      */
     private function ordonnances(array $patientIds): Collection
     {
@@ -82,6 +82,7 @@ class DocumentsProprietaire
                         'espece' => $o->patient->espece?->libelle(),
                         'veterinaire' => $o->employe?->nom,
                         'clinique' => $o->clinique->nom,
+                        'en_tete' => $o->clinique->enTeteDocument(),
                         'signee_le' => $o->signee_le?->toDateString(),
                         'note' => $o->note,
                         'lignes' => $o->lignes->map(fn ($l): array => [
@@ -96,7 +97,7 @@ class DocumentsProprietaire
 
     /**
      * @param  list<int>  $clientIds
-     * @return Collection<int, array<string, mixed>>
+     * @return Collection<int, covariant array<string, mixed>>
      */
     private function factures(array $clientIds): Collection
     {
@@ -126,12 +127,15 @@ class DocumentsProprietaire
                         'patient' => $f->patient_name,
                         'proprietaire' => $f->owner_name,
                         'clinique' => $f->clinique->nom,
+                        'en_tete' => $f->clinique->enTeteDocument(),
                         'emise_le' => $f->emise_le?->toIso8601String(),
                         'statut' => $f->statut->value,
                         'payee_le' => $f->payee_le?->toIso8601String(),
                         'total_ttc' => round($f->totalTtc(), 2),
                         'montant_tva' => round($f->montantTva(), 2),
-                        'lignes' => $f->lignes->map(fn ($l): array => ['libelle' => $l->libelle, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf])->values()->all(),
+                        'total_ht' => $f->totalHt(),
+                        'taux_tva' => Facture::TAUX_TVA * 100,
+                        'lignes' => $f->lignes->map(fn ($l): array => ['libelle' => $l->libelle, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf, 'total_chf' => round($l->quantite * (float) $l->prix_chf, 2)])->values()->all(),
                     ],
                 ];
             });
@@ -139,7 +143,7 @@ class DocumentsProprietaire
 
     /**
      * @param  list<int>  $patientIds
-     * @return Collection<int, array<string, mixed>>
+     * @return Collection<int, covariant array<string, mixed>>
      */
     private function devis(array $patientIds): Collection
     {
@@ -185,7 +189,11 @@ class DocumentsProprietaire
                         'sous_total' => round($d->sousTotal(), 2),
                         'total_ttc' => round($d->totalTtc(), 2),
                         'montant_tva' => round($d->montantTva(), 2),
-                        'lignes' => $d->lignes->map(fn ($l): array => ['libelle' => $l->libelle, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf])->values()->all(),
+                        'montant_remise' => $d->montantRemise(),
+                        'montant_acompte' => $d->montantAcompte(),
+                        'total_avec_alea' => $d->totalAvecAlea(),
+                        'taux_tva' => Facture::TAUX_TVA * 100,
+                        'lignes' => $d->lignes->map(fn ($l): array => ['libelle' => $l->libelle, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf, 'total_chf' => round($l->quantite * (float) $l->prix_chf, 2)])->values()->all(),
                     ],
                 ];
             });
@@ -193,7 +201,7 @@ class DocumentsProprietaire
 
     /**
      * @param  list<int>  $patientIds
-     * @return Collection<int, array<string, mixed>>
+     * @return Collection<int, covariant array<string, mixed>>
      */
     private function carnets(array $patientIds): Collection
     {
@@ -235,7 +243,7 @@ class DocumentsProprietaire
 
     /**
      * @param  list<int>  $patientIds
-     * @return Collection<int, array<string, mixed>>
+     * @return Collection<int, covariant array<string, mixed>>
      */
     private function documents(array $patientIds): Collection
     {

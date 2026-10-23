@@ -619,36 +619,6 @@ parameters:
 			path: app/Services/Catalogue/ImportSwissmedic.php
 
 		-
-			message: '#^Method App\\Services\\DocumentsProprietaire\:\:carnets\(\) should return Illuminate\\Support\\Collection\<int, array\<string, mixed\>\> but returns Illuminate\\Support\\Collection\<int, array\{type\: string, id\: int, date\: mixed, titre\: string, sous_ligne\: string, pdf\: array\{patient\: string, espece\: string, race\: string\|null, puce\: string\|null, vaccinations\: array\<int, array\{nom\: string, marque\: string\|null, lot\: string\|null, injectee_le\: string, echeance_le\: string\|null\}\>\}\}\>\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Services/DocumentsProprietaire.php
-
-		-
-			message: '#^Method App\\Services\\DocumentsProprietaire\:\:devis\(\) should return Illuminate\\Support\\Collection\<int, array\<string, mixed\>\> but returns Illuminate\\Support\\Collection\<int, array\{type\: string, id\: int, date\: string, titre\: string, sous_ligne\: string, a_signer\: bool, pdf\: array\{numero\: string, patient\: string, motif\: string, emis_le\: string, valide_jusquau\: string\|null, remise_pct\: int, alea_pct\: int, acompte_pct\: int, \.\.\.\}\}\>\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Services/DocumentsProprietaire.php
-
-		-
-			message: '#^Method App\\Services\\DocumentsProprietaire\:\:documents\(\) should return Illuminate\\Support\\Collection\<int, array\<string, mixed\>\> but returns Illuminate\\Support\\Collection\<int, array\{type\: string, id\: int, date\: string, titre\: string, sous_ligne\: string, pdf\: null\}\>\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Services/DocumentsProprietaire.php
-
-		-
-			message: '#^Method App\\Services\\DocumentsProprietaire\:\:factures\(\) should return Illuminate\\Support\\Collection\<int, array\<string, mixed\>\> but returns Illuminate\\Support\\Collection\<int, array\{type\: string, id\: int, date\: string, titre\: string, sous_ligne\: string, pdf\: array\{numero\: string, patient\: string\|null, proprietaire\: string\|null, clinique\: string, emise_le\: string, statut\: string, payee_le\: string\|null, total_ttc\: float, \.\.\.\}\}\>\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Services/DocumentsProprietaire.php
-
-		-
-			message: '#^Method App\\Services\\DocumentsProprietaire\:\:ordonnances\(\) should return Illuminate\\Support\\Collection\<int, array\<string, mixed\>\> but returns Illuminate\\Support\\Collection\<int, array\{type\: string, id\: int, date\: string, titre\: string, sous_ligne\: string, peut_renouveler\: bool, renouvellement_en_attente\: bool, pdf\: array\{numero\: string, patient\: string, espece\: string, veterinaire\: string\|null, clinique\: string, signee_le\: string, note\: string\|null, lignes\: array\<int, array\{produit\: string, posologie\: string, duree\: string\}\>\}\}\>\.$#'
-			identifier: return.type
-			count: 1
-			path: app/Services/DocumentsProprietaire.php
-
-		-
 			message: '#^Using nullsafe method call on non\-nullable type App\\Enums\\Espece\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 2

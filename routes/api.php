@@ -80,6 +80,7 @@ use App\Http\Controllers\Api\V1\InscriptionCliniqueController;
 use App\Http\Controllers\Api\V1\InterventionController;
 use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\InvitationEquipeController;
+use App\Http\Controllers\Api\V1\JournalFacturesController;
 use App\Http\Controllers\Api\V1\LicenciementEmployeController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
@@ -451,6 +452,7 @@ Route::prefix('v1')->group(function (): void {
 
         Route::get('patients/{patient}/documents', [DocumentController::class, 'index']);
         Route::post('patients/{patient}/documents', [DocumentController::class, 'store']);
+        Route::get('patients/{patient}/documents/{document}/fichier', [DocumentController::class, 'fichier'])->whereNumber('document');
 
         Route::get('patients/{patient}/releves-ophtalmologiques', [ReleveOphtalmologiqueController::class, 'index']);
         Route::post('patients/{patient}/releves-ophtalmologiques', [ReleveOphtalmologiqueController::class, 'store']);
@@ -518,6 +520,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('statistiques', StatistiquesCaisseController::class);
 
             Route::get('factures', [FactureController::class, 'index']);
+            Route::get('factures/journal', JournalFacturesController::class);
             Route::post('factures', [FactureController::class, 'store']);
             Route::get('factures/{facture}', [FactureController::class, 'show']);
             Route::delete('factures/{facture}', [FactureController::class, 'destroy']);

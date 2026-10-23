@@ -47,6 +47,8 @@ class FactureResource extends JsonResource
             'acompte' => (float) $this->acompte,
             'reste_a_payer' => $this->whenLoaded('lignes', fn (): float => $this->resteAPayer()),
             'montant_tva' => $this->whenLoaded('lignes', fn (): float => $this->montantTva()),
+            'total_ht' => $this->whenLoaded('lignes', fn (): float => $this->totalHt()),
+            'taux_tva' => Facture::TAUX_TVA * 100,
             'lignes' => $this->whenLoaded(
                 'lignes',
                 fn () => $this->lignes->map(fn (FactureLigne $ligne): array => [
@@ -54,6 +56,7 @@ class FactureResource extends JsonResource
                     'libelle' => $ligne->libelle,
                     'quantite' => $ligne->quantite,
                     'prix_chf' => (float) $ligne->prix_chf,
+                    'total_chf' => round($ligne->quantite * (float) $ligne->prix_chf, 2),
                     'type' => $ligne->type,
                     'produit_id' => $ligne->produit_id,
                 ])->values(),
@@ -69,6 +72,7 @@ class FactureResource extends JsonResource
             ),
             'assureur' => $this->whenLoaded('decompte', fn (): ?string => $this->decompte?->assureur),
             'decompte' => new DecompteAssuranceResource($this->whenLoaded('decompte')),
+            'en_tete' => $this->whenLoaded('clinique', fn (): array => $this->clinique->enTeteDocument()),
         ];
     }
 }

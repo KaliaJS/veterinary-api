@@ -8,6 +8,9 @@ use App\Http\Resources\V1\DocumentResource;
 use App\Models\Patient;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Dossier documentaire : certificats, consentements, comptes rendus
@@ -40,5 +43,22 @@ class DocumentController extends Controller
         ]);
 
         return new DocumentResource($document);
+    }
+
+    /**
+     * Fichier d'un document du dossier (consentement signé…), lu sur le
+     * disque privé : jamais d'URL publique, le droit de voir le patient
+     * suffit (23.10.2026).
+     */
+    public function fichier(Patient $patient, int $document): StreamedResponse
+    {
+        $this->authorize('view', $patient);
+
+        $piece = $patient->documents()->findOrFail($document);
+        abort_if($piece->chemin === null || ! Storage::disk('prive')->exists($piece->chemin), 404);
+
+        $extension = pathinfo($piece->chemin, PATHINFO_EXTENSION);
+
+        return Storage::disk('prive')->download($piece->chemin, Str::slug($piece->nom).($extension ? '.'.$extension : ''));
     }
 }

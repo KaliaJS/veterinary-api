@@ -7,8 +7,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * Le chemin du fichier stocké reste interne — le téléchargement aura
- * son endpoint quand le stockage réel arrivera.
+ * Le chemin du fichier stocké reste interne : `a_fichier` dit s'il se
+ * télécharge (`GET …/documents/{document}/fichier`).
  *
  * @mixin Document
  */
@@ -23,6 +23,7 @@ class DocumentResource extends JsonResource
             'type' => $this->type,
             'signataire' => $this->signataire,
             'etabli_le' => $this->etabli_le->toDateString(),
+            'a_fichier' => $this->chemin !== null,
         ];
     }
 }

@@ -57,6 +57,8 @@ class SessionResource extends JsonResource
                 'id' => $this->jeton->clinique->id,
                 'nom' => $this->jeton->clinique->nom,
                 'nombre_boxes' => $this->jeton->clinique->nombre_boxes,
+                // En-tête des pièces qu'elle émet (PDF)
+                'en_tete' => $this->jeton->clinique->enTeteDocument(),
                 // Ses services ouvrent les modules (menus) de l'espace vétérinaire
                 'services' => $this->jeton->clinique->services
                     ->sortBy(fn (CliniqueService $ligne): int => array_search($ligne->service, ServiceClinique::cases(), true))
