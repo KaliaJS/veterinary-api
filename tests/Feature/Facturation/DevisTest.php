@@ -72,7 +72,12 @@ class DevisTest extends TestCase
             ->assertJsonPath('data.sous_total', 660)
             ->assertJsonPath('data.total_ttc', 594)
             // TVA 8.1 % extraite du TTC remisé, comme sur la facture.
-            ->assertJsonPath('data.montant_tva', 44.51);
+            ->assertJsonPath('data.montant_tva', 44.51)
+            // Établi par la clinique du jeton, son en-tête sur les pièces
+            ->assertJsonPath('data.clinique_id', $this->clinique->id)
+            ->assertJsonPath('data.en_tete.nom', $this->clinique->raison_sociale ?: $this->clinique->nom)
+            ->assertJsonPath('data.montant_remise', 66)
+            ->assertJsonPath('data.montant_acompte', 178.2);
     }
 
     public function test_l_envoi_pose_la_validite_et_choisit_le_portail_quand_le_proprietaire_a_un_compte(): void

@@ -40,7 +40,7 @@ class CycleDevisController extends Controller
             'valide_jusquau' => aujourdhui()->addDays($devis->validite_jours),
         ]);
 
-        return new DevisResource($devis->load(['lignes', 'patient.client']));
+        return new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe']));
     }
 
     public function accepter(Request $request, Devis $devis): DevisResource
@@ -67,7 +67,7 @@ class CycleDevisController extends Controller
                 : 'Signature papier « bon pour accord », classée au dossier, enregistrée par '.$parQui,
         ]);
 
-        return new DevisResource($devis->load(['lignes', 'patient.client']));
+        return new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe']));
     }
 
     public function refuser(Request $request, Devis $devis): DevisResource
@@ -80,7 +80,7 @@ class CycleDevisController extends Controller
 
         $devis->update(['statut' => StatutDevis::Refuse]);
 
-        return new DevisResource($devis->load(['lignes', 'patient.client']));
+        return new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe']));
     }
 
     /** Repart en brouillon daté du jour — validité, canal, signature et factures remis à zéro. */
@@ -90,6 +90,7 @@ class CycleDevisController extends Controller
 
         $copie = DB::transaction(function () use ($devis): Devis {
             $copie = Devis::create([
+                'clinique_id' => app(ContexteClinique::class)->cliniqueId(),
                 'numero' => $this->numeroteur->attribuer(PieceNumerotee::Devis),
                 'emis_le' => aujourdhui(),
                 'patient_id' => $devis->patient_id,
@@ -115,6 +116,6 @@ class CycleDevisController extends Controller
             return $copie;
         });
 
-        return new DevisResource($copie->load(['lignes', 'patient.client']));
+        return new DevisResource($copie->load(['lignes', 'patient.client', 'clinique.societe']));
     }
 }

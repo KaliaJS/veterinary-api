@@ -25,7 +25,7 @@ class Devis extends Model
     protected $table = 'devis';
 
     protected $fillable = [
-        'organisation_id', 'numero', 'emis_le', 'patient_id', 'motif',
+        'organisation_id', 'clinique_id', 'numero', 'emis_le', 'patient_id', 'motif',
         'remise_pct', 'alea_pct', 'validite_jours', 'valide_jusquau',
         'acompte_pct', 'conditions', 'statut', 'canal', 'signe_le',
         'signe_par', 'acompte_facture_id', 'facture_finale_id',
@@ -59,6 +59,16 @@ class Devis extends Model
     public function organisation(): BelongsTo
     {
         return $this->belongsTo(Organisation::class);
+    }
+
+    /**
+     * La clinique qui établit le devis (en-tête des pièces).
+     *
+     * @return BelongsTo<Clinique, $this>
+     */
+    public function clinique(): BelongsTo
+    {
+        return $this->belongsTo(Clinique::class);
     }
 
     /** @return BelongsTo<Patient, $this> */

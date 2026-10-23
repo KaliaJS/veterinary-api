@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Auth\ContexteClinique;
 use App\Enums\PieceNumerotee;
 use App\Enums\StatutDevis;
 use App\Http\Controllers\Controller;
@@ -33,7 +34,7 @@ class DevisController extends Controller
         $statut = $request->string('statut')->toString();
 
         $devis = Devis::query()
-            ->with(['lignes', 'patient.client'])
+            ->with(['lignes', 'patient.client', 'clinique.societe'])
             ->when($statut === StatutDevis::EXPIRE, fn (Builder $requete) => $requete
                 ->where('statut', StatutDevis::Envoye)
                 ->whereDate('valide_jusquau', '<', aujourdhui()))
@@ -67,6 +68,8 @@ class DevisController extends Controller
 
         $devis = DB::transaction(function () use ($donnees): Devis {
             $devis = Devis::create([
+                // La clinique qui l'établit : celle du jeton (en-tête des pièces)
+                'clinique_id' => app(ContexteClinique::class)->cliniqueId(),
                 'numero' => $this->numeroteur->attribuer(PieceNumerotee::Devis),
                 'emis_le' => aujourdhui(),
                 'patient_id' => $donnees['patient_id'],
@@ -84,14 +87,14 @@ class DevisController extends Controller
             return $devis;
         });
 
-        return new DevisResource($devis->load(['lignes', 'patient.client']));
+        return new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe']));
     }
 
     public function show(Devis $devis): DevisResource
     {
         $this->authorize('view', $devis);
 
-        return new DevisResource($devis->load(['lignes', 'patient.client']));
+        return new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe']));
     }
 
     public function update(ModifierDevisRequest $request, Devis $devis): DevisResource
@@ -116,7 +119,7 @@ class DevisController extends Controller
             }
         });
 
-        return new DevisResource($devis->load(['lignes', 'patient.client']));
+        return new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe']));
     }
 
     /** Suppression tolérée : le brouillon seulement. */

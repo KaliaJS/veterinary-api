@@ -24,6 +24,7 @@ class DevisResource extends JsonResource
         return [
             'id' => $this->id,
             'numero' => $this->numero,
+            'clinique_id' => $this->clinique_id,
             'emis_le' => $this->emis_le->toDateString(),
             'patient_id' => $this->patient_id,
             'motif' => $this->motif,
@@ -61,6 +62,8 @@ class DevisResource extends JsonResource
                 ])->values(),
             ),
             'patient' => new PatientResource($this->whenLoaded('patient')),
+            // En-tête de la clinique qui l'établit (PDF)
+            'en_tete' => $this->whenLoaded('clinique', fn (): array => $this->clinique->enTeteDocument()),
         ];
     }
 }

@@ -20,6 +20,7 @@ return new class extends Migration
         Schema::create('devis', function (Blueprint $table) {
             $table->id();
             $table->foreignId('organisation_id')->constrained()->restrictOnDelete();
+            $table->foreignId('clinique_id')->comment('Clinique qui établit le devis (en-tête des pièces)')->constrained()->restrictOnDelete();
             $table->string('numero', 20);
             $table->date('emis_le');
             $table->foreignId('patient_id')->constrained()->restrictOnDelete();

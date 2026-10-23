@@ -56,6 +56,9 @@ class DocumentsProprietaireTest extends TestCase
         $this->assertStringStartsWith('Facture consultation, CHF 85.00', $parType['FACTURE']['titre']);
         $this->assertStringStartsWith('PAYÉE · ', $parType['FACTURE']['sous_ligne']);
         $this->assertEquals(85, $parType['FACTURE']['pdf']['total_ttc']);
+        // Chaque pièce porte l'en-tête de la clinique qui l'a établie
+        $this->assertNotEmpty($parType['FACTURE']['pdf']['en_tete']['nom']);
+        $this->assertNotEmpty($parType['DEVIS']['pdf']['en_tete']['nom']);
         $this->assertSame($ordonnance->id, $parType['ORDONNANCE']['id']);
         $this->assertTrue($parType['ORDONNANCE']['peut_renouveler']);
         $this->assertSame('Carnet de vaccination : Max', $parType['CARNET']['titre']);

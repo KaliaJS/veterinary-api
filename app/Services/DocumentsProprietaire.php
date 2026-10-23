@@ -152,7 +152,7 @@ class DocumentsProprietaire
         }
 
         return Devis::withoutGlobalScopes()
-            ->with(['patient', 'lignes'])
+            ->with(['patient', 'lignes', 'clinique.societe'])
             ->whereIn('patient_id', $patientIds)
             ->where('canal', CanalDevis::Portail)
             ->whereIn('statut', [StatutDevis::Envoye, StatutDevis::Accepte, StatutDevis::Refuse])
@@ -176,6 +176,7 @@ class DocumentsProprietaire
                     'a_signer' => $aSigner,
                     'pdf' => [
                         'numero' => $d->numero,
+                        'en_tete' => $d->clinique->enTeteDocument(),
                         'patient' => $d->patient->nom,
                         'motif' => $d->motif,
                         'emis_le' => $d->emis_le?->toDateString(),

@@ -18,6 +18,11 @@ class DevisFactory extends Factory
     {
         return [
             'organisation_id' => fn (): int => Clinique::factory()->create()->societe->organisation_id,
+            // Une clinique de l'organisation du devis (la première), sinon une nouvelle
+            'clinique_id' => fn (array $attributs): int => Clinique::query()
+                ->whereHas('societe', fn ($societe) => $societe->where('organisation_id', $attributs['organisation_id']))
+                ->orderBy('id')
+                ->value('id') ?? Clinique::factory()->create()->id,
             'numero' => 'DV-'.now()->year.'-'.fake()->unique()->numerify('###'),
             'emis_le' => fake()->dateTimeBetween('-10 days'),
             'patient_id' => fn (array $attributes) => Patient::factory()->create([

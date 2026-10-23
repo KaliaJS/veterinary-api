@@ -145,6 +145,7 @@ class FacturationSeeder extends Seeder
 
             $unDevis = Devis::create([
                 'organisation_id' => $organisation->id,
+                'clinique_id' => $deuxRives->id,
                 'numero' => "DV-{$annee}-{$numero}",
                 'emis_le' => now()->subDays($jours),
                 'patient_id' => $fiche->id,
