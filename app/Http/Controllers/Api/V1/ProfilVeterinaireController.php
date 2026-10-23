@@ -55,7 +55,11 @@ class ProfilVeterinaireController extends Controller
                 if ($resultat->raison === 'gln_deja_utilise') {
                     throw ValidationException::withMessages(['gln' => 'Ce GLN est déjà celui d’un autre compte. Écrivez-nous si c’est le vôtre.']);
                 }
-                // Gardé dans tous les cas ; « trouvé au registre » seulement si MedReg confirme le nom
+                // Gardé dans tous les cas (un modérateur vérifie à la main) ;
+                // « trouvé au registre » seulement si MedReg confirme le nom.
+                // Un autre compte qui l'avait saisi sans vérification le perd
+                // (23.10.2026 : saisir un GLN ne le réserve pas)
+                User::libererGlnNonVerifie($gln, $compte);
                 $compte->forceFill([
                     'gln' => $gln,
                     'medreg_id' => $resultat->fiche?->id,

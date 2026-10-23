@@ -18,8 +18,12 @@ final class VerificationVeterinaire
 
     public function verifier(string $gln, string $prenom, string $nom, ?User $compte = null): ResultatVerification
     {
+        // Seul un GLN déjà vérifié chez un autre compte bloque : un GLN
+        // seulement saisi ne réserve rien (23.10.2026, sinon n'importe qui
+        // pouvait bloquer le GLN d'un vrai vétérinaire)
         $pris = User::query()
             ->where('gln', $gln)
+            ->whereNotNull('gln_verifie_le')
             ->when($compte, fn ($requete) => $requete->whereKeyNot($compte->id))
             ->exists();
 

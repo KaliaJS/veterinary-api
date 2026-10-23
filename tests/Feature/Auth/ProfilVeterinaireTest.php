@@ -80,12 +80,23 @@ class ProfilVeterinaireTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('gln');
     }
 
-    public function test_un_gln_deja_pris_par_un_autre_compte_est_refuse(): void
+    public function test_un_gln_deja_verifie_chez_un_autre_compte_est_refuse(): void
     {
-        User::factory()->create(['gln' => self::GLN]);
+        User::factory()->create(['gln' => self::GLN, 'gln_verifie_le' => now()]);
         ['jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
 
         $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('gln');
+    }
+
+    public function test_un_gln_seulement_saisi_par_un_autre_compte_ne_bloque_pas_son_titulaire(): void
+    {
+        $squatteur = User::factory()->create(['gln' => self::GLN, 'gln_verifie_le' => null]);
+        ['user' => $lea, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jeton))->assertOk();
+
+        $this->assertSame(self::GLN, $lea->fresh()->gln);
+        $this->assertNull($squatteur->fresh()->gln);
     }
 }

@@ -229,6 +229,7 @@ final class InscriptionClinique
 
     private function retenirGln(User $user, string $gln, ?int $medregId): void
     {
+        User::libererGlnNonVerifie($gln, $user);
         $user->forceFill(['gln' => $gln, 'medreg_id' => $medregId, 'gln_verifie_le' => now()])->save();
     }
 

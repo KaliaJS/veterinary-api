@@ -275,7 +275,7 @@ class InscriptionCliniqueTest extends TestCase
 
     public function test_un_gln_deja_celui_d_un_autre_compte_passe_a_la_main_sans_interroger_medreg(): void
     {
-        User::factory()->create()->forceFill(['gln' => self::GLN])->save();
+        User::factory()->create()->forceFill(['gln' => self::GLN, 'gln_verifie_le' => now()])->save();
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
 
         $this->postJson('/api/v1/inscription-clinique', $this->inscription(), $this->enTetes($jeton))

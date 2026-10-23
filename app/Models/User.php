@@ -125,6 +125,16 @@ class User extends Authenticatable
         return $this->code_employe;
     }
 
+    /**
+     * Un GLN saisi sans vérification ailleurs ne réserve rien : il est
+     * retiré de l'autre compte quand quelqu'un le prend (23.10.2026).
+     */
+    public static function libererGlnNonVerifie(string $gln, self $preneur): void
+    {
+        self::query()->where('gln', $gln)->whereKeyNot($preneur->id)->whereNull('gln_verifie_le')
+            ->update(['gln' => null, 'medreg_id' => null]);
+    }
+
     /** Un code neuf (Réglages, Profil) : l'ancien ne retrouve plus le compte. */
     public function nouveauCodeEmploye(): string
     {
