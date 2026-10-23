@@ -44,6 +44,7 @@ class User extends Authenticatable
             'carte_expire_le' => 'date',
             'carte_alertee_le' => 'date',
             'apple_fin' => 'datetime',
+            'apple_signe_le' => 'datetime',
             'apple_renouvelle' => 'boolean',
             'langues' => 'array',
             'gln_verifie_le' => 'datetime',

@@ -65,6 +65,9 @@ return [
         'bundle_id' => env('APPLE_BUNDLE_ID', 'ch.veterinary.client'),
         'racines' => [resource_path('apple/AppleRootCA-G3.pem')],
         'accepte_xcode' => env('APP_ENV') === 'local' && (bool) env('APPLE_STOREKIT_XCODE', false),
+        // En production, les achats de test (Sandbox) ne valent que pour ces
+        // comptes (adresses séparées par des virgules : la revue d'Apple, Jim)
+        'comptes_sandbox' => array_values(array_filter(array_map('trim', explode(',', (string) env('APPLE_COMPTES_SANDBOX', ''))))),
     ],
 
     // Transcription des consultations : fichier entier envoyé après la

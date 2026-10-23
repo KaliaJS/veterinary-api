@@ -135,4 +135,45 @@ class AchatsAppStoreTest extends TestCase
         $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$jws]], $entetes)->assertOk();
         $this->getJson('/api/v1/espace/planete', $entetes)->assertOk()->assertJsonPath('data.possedes', ['balle']);
     }
+
+    public function test_un_achat_rembourse_ne_revient_pas_avec_une_ancienne_transaction(): void
+    {
+        ['entetes' => $entetes, 'compte' => $compte] = $this->compte();
+        $niche = 'ch.veterinary.client.planete.niche';
+        $ancienne = $this->store->transaction($niche, $compte, ['originalTransactionId' => '3000000077']);
+        $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$ancienne]], $entetes)->assertOk();
+
+        $rembourse = $this->store->transaction($niche, $compte, ['originalTransactionId' => '3000000077', 'revocationDate' => now()->getTimestampMs()]);
+        $this->postJson('/api/v1/app-store/notifications', ['signedPayload' => $this->store->notification('REFUND', $rembourse)])->assertOk();
+
+        // L'app renvoie la transaction d'avant le remboursement : rien ne revient
+        $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$ancienne]], $entetes)->assertOk();
+        $this->getJson('/api/v1/espace/planete', $entetes)->assertOk()->assertJsonPath('data.possedes', []);
+    }
+
+    public function test_une_transaction_plus_plus_ancienne_que_la_derniere_est_ignoree(): void
+    {
+        ['user' => $user, 'entetes' => $entetes, 'compte' => $compte] = $this->compte();
+        $plus = AchatsAppStore::produitPlus();
+        $ancienne = $this->store->transaction($plus, $compte, ['expiresDate' => now()->addDays(30)->getTimestampMs(), 'signedDate' => now()->getTimestampMs()]);
+        $this->travel(1)->minutes();
+        $recente = $this->store->transaction($plus, $compte, ['expiresDate' => now()->addDays(3)->getTimestampMs(), 'signedDate' => now()->getTimestampMs()]);
+
+        $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$recente, $ancienne]], $entetes)->assertOk();
+        $this->assertTrue($user->refresh()->apple_fin->lessThan(now()->addDays(4)));
+    }
+
+    public function test_en_production_un_achat_de_test_ne_vaut_que_pour_un_compte_liste(): void
+    {
+        ['user' => $user, 'entetes' => $entetes, 'compte' => $compte] = $this->compte();
+        $balle = $this->store->transaction('ch.veterinary.client.planete.balle', $compte);
+        $this->app->detectEnvironment(fn () => 'production');
+
+        $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$balle]], $entetes)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('jws');
+
+        config(['services.apple.comptes_sandbox' => [$user->email]]);
+        $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$balle]], $entetes)->assertOk();
+    }
 }

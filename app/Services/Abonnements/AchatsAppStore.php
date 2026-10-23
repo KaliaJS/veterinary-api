@@ -4,6 +4,7 @@ namespace App\Services\Abonnements;
 
 use App\Enums\ArticlePlanete;
 use App\Models\AchatPlanete;
+use App\Models\RevocationAppStore;
 use App\Models\User;
 use App\Paiements\AppStore\JwsInvalide;
 use App\Paiements\AppStore\VerificateurJws;
@@ -24,6 +25,12 @@ use Illuminate\Validation\ValidationException;
  * l'a passée (appAccountToken = users.apple_compte). Plus d'Apple vaut
  * jusqu'à la fin de la période achetée (users.apple_fin), à côté de
  * l'abonnement Stripe ; un objet acheté est posé comme un achat du site.
+ *
+ * Depuis le 23.10.2026 : un achat remboursé est gardé
+ * (`revocations_app_store`) et une ancienne transaction ne le rend plus ;
+ * une transaction Plus signée avant la dernière appliquée est ignorée ;
+ * en production, un achat de test (Sandbox) ne vaut que pour les comptes
+ * listés (`services.apple.comptes_sandbox`).
  */
 class AchatsAppStore
 {
@@ -64,6 +71,7 @@ class AchatsAppStore
         if (($transaction['appAccountToken'] ?? null) !== $this->compte($user)) {
             throw ValidationException::withMessages(['jws' => 'Cet achat appartient à un autre compte.']);
         }
+        $this->verifierSandbox($transaction, $user);
         $this->appliquer($user, $transaction);
     }
 
@@ -81,6 +89,7 @@ class AchatsAppStore
 
         $user = $this->proprietaire($transaction);
         if ($user) {
+            $this->verifierSandbox($transaction, $user);
             $this->appliquer($user, $transaction, $renouvellement);
         }
     }
@@ -112,6 +121,15 @@ class AchatsAppStore
         }
     }
 
+    /** Un achat de test ne vaut, en production, que pour un compte listé. */
+    private function verifierSandbox(array $transaction, User $user): void
+    {
+        if (($transaction['environment'] ?? null) === 'Sandbox' && app()->isProduction()
+            && ! in_array(mb_strtolower((string) $user->email), array_map('mb_strtolower', (array) config('services.apple.comptes_sandbox')), true)) {
+            throw ValidationException::withMessages(['jws' => 'Achat de test refusé pour ce compte.']);
+        }
+    }
+
     private function proprietaire(array $transaction): ?User
     {
         $jeton = $transaction['appAccountToken'] ?? null;
@@ -127,6 +145,18 @@ class AchatsAppStore
         $produit = (string) ($transaction['productId'] ?? '');
         $original = (string) ($transaction['originalTransactionId'] ?? $transaction['transactionId'] ?? '');
         $revoque = ! empty($transaction['revocationDate']);
+        $signeLe = isset($transaction['signedDate']) ? CarbonImmutable::createFromTimestampMs((int) $transaction['signedDate']) : null;
+
+        // Remboursé : gardé ; une ancienne transaction ne le rend jamais
+        if ($revoque && $original !== '') {
+            RevocationAppStore::query()->firstOrCreate(['transaction_id' => $original], [
+                'produit' => $produit,
+                'user_id' => $user->id,
+                'revoquee_le' => CarbonImmutable::createFromTimestampMs((int) $transaction['revocationDate']),
+            ]);
+        } elseif ($original !== '' && RevocationAppStore::query()->where('transaction_id', $original)->exists()) {
+            return;
+        }
 
         if ($produit === self::produitPlus()) {
             $fin = isset($transaction['expiresDate']) ? CarbonImmutable::createFromTimestampMs((int) $transaction['expiresDate']) : null;
@@ -138,6 +168,10 @@ class AchatsAppStore
 
                 return;
             }
+            // Signée avant la dernière appliquée : elle ne dit plus rien de neuf
+            if ($memeAbonnement && $signeLe && $user->apple_signe_le && $signeLe->lessThan($user->apple_signe_le)) {
+                return;
+            }
             // Transactions dans le désordre : on garde la fin la plus lointaine
             if ($memeAbonnement && $user->apple_fin && $fin && $fin->lessThan($user->apple_fin)) {
                 $fin = CarbonImmutable::instance($user->apple_fin);
@@ -146,6 +180,7 @@ class AchatsAppStore
                 'apple_abonnement_id' => $original,
                 'apple_fin' => $fin,
                 'apple_renouvelle' => $renouvellement ? ((int) ($renouvellement['autoRenewStatus'] ?? 1)) === 1 : ($user->apple_renouvelle ?? true),
+                'apple_signe_le' => $signeLe ?? $user->apple_signe_le,
             ])->save();
 
             return;

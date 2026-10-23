@@ -40,6 +40,7 @@ return new class extends Migration
             $table->string('apple_abonnement_id')->nullable();
             $table->timestamp('apple_fin')->nullable();
             $table->boolean('apple_renouvelle')->nullable();
+            $table->timestamp('apple_signe_le')->nullable()->comment('Date de signature de la dernière transaction Plus appliquée : une plus ancienne est ignorée (23.10.2026)');
             $table->string('stripe_client_id')->nullable();
             $table->string('stripe_moyen_paiement_id')->nullable();
             $table->string('moyen_paiement')->nullable()->comment('Libellé masqué « Visa •••• 4242 · exp. 08/28 »');
