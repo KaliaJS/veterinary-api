@@ -39,6 +39,7 @@ class BoutiquePermissionsTest extends TestCase
         $this->produit = Produit::factory()->create([
             'organisation_id' => $this->clinique->societe->organisation_id,
             'est_boutique' => true,
+            'est_sur_ordonnance' => false,
         ]);
     }
 

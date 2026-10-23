@@ -67,7 +67,7 @@ class BoutiqueProprietaireController extends Controller
                         'est_vedette' => (bool) $produit->est_vedette,
                         'est_sur_ordonnance' => (bool) $produit->est_sur_ordonnance,
                         'stock' => $stock,
-                        'disponible' => $stock > 0 && ! $produit->est_sur_ordonnance,
+                        'disponible' => $stock > 0 && ! $produit->refusVenteLibre(),
                     ];
                 })->values()->all(),
             ];
@@ -118,8 +118,8 @@ class BoutiqueProprietaireController extends Controller
                             throw ValidationException::withMessages([$champ => 'Seul un article visible en boutique se commande en ligne.']);
                         }
 
-                        if ($produit->est_sur_ordonnance) {
-                            throw ValidationException::withMessages([$champ => $produit->nom.' — en clinique uniquement (sur ordonnance).']);
+                        if ($produit->refusVenteLibre()) {
+                            throw ValidationException::withMessages([$champ => $produit->nom.' : en clinique uniquement, sur ordonnance.']);
                         }
 
                         $stockLocal = (int) Stock::query()->where('produit_id', $produit->id)->where('clinique_id', $clinique->id)->value('quantite');

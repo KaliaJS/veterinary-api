@@ -98,6 +98,21 @@ class Produit extends Model
         return $this->peremption_le?->format('m.Y');
     }
 
+    /**
+     * Pourquoi le produit ne se vend pas sans ordonnance (comptoir,
+     * boutique), ou null (23.10.2026). Il se délivre alors depuis la
+     * facture de la consultation, avec sa prescription ; un stupéfiant
+     * passe en plus par le registre.
+     */
+    public function refusVenteLibre(): ?string
+    {
+        return match (true) {
+            $this->est_stupefiant => $this->nom.' : stupéfiant, délivré seulement sur ordonnance et inscrit au registre.',
+            $this->est_sur_ordonnance => $this->nom.' : sur ordonnance, à délivrer depuis la facture de la consultation.',
+            default => null,
+        };
+    }
+
     /** Prix vitrine, promotion déduite — le prix vendu en boutique. */
     public function prixEffectif(): float
     {

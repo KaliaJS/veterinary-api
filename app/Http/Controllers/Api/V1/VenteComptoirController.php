@@ -20,7 +20,8 @@ use Illuminate\Validation\ValidationException;
  * Caisse comptoir de la boutique. La vente EST une facture payée de
  * lignes produit (la cible de docs/data-model.md §14 — pas d'entité
  * « vente » parallèle) : prix effectif vitrine, panier borné au stock
- * local, stock sorti à l'encaissement, mouvements tracés. La facture
+ * local, stock sorti à l'encaissement, mouvements tracés. Jamais un
+ * produit sur ordonnance ni un stupéfiant (23.10.2026). La facture
  * naît comme effet système du geste boutique (domaine stocks) — le
  * ticket est renvoyé au vendeur, la comptabilité reste au domaine
  * facturation.
@@ -44,6 +45,11 @@ class VenteComptoirController extends Controller
 
             foreach ($donnees['lignes'] as $index => $ligne) {
                 $produit = Produit::findOrFail($ligne['produit_id']);
+
+                // Ni ordonnance ni stupéfiant au comptoir
+                if ($refus = $produit->refusVenteLibre()) {
+                    throw ValidationException::withMessages(["lignes.{$index}.produit_id" => $refus]);
+                }
 
                 $stockLocal = (int) Stock::query()
                     ->where('produit_id', $produit->id)

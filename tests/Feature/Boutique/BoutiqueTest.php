@@ -42,6 +42,7 @@ class BoutiqueTest extends TestCase
         $produit = Produit::factory()->create([
             'organisation_id' => $this->clinique->societe->organisation_id,
             'est_boutique' => true,
+            'est_sur_ordonnance' => false,
             'prix' => 30,
             'promo_pct' => 0,
             ...$attributs,
@@ -172,6 +173,53 @@ class BoutiqueTest extends TestCase
         $this->assertSame(StatutFacture::Payee, $facture->statut);
         $this->assertSame($this->clinique->id, $facture->clinique_id);
         $this->assertStringStartsWith('FC-', $facture->numero);
+    }
+
+    public function test_ni_ordonnance_ni_stupefiant_au_comptoir_ni_en_commande(): void
+    {
+        $surOrdonnance = $this->produitEnRayon(5, ['nom' => 'Antibiotique', 'est_sur_ordonnance' => true]);
+        $stupefiant = $this->produitEnRayon(5, ['nom' => 'Kétamine', 'est_stupefiant' => true]);
+
+        foreach ([$surOrdonnance, $stupefiant] as $produit) {
+            $this->postJson('/api/v1/boutique/vente', [
+                'moyen_paiement' => 'cash',
+                'lignes' => [['produit_id' => $produit->id, 'quantite' => 1]],
+            ], $this->enTetes($this->jeton))
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('lignes.0.produit_id');
+
+            $this->postJson('/api/v1/boutique/commandes', [
+                'client_nom' => 'Mme Pineau',
+                'lignes' => [['produit_id' => $produit->id, 'quantite' => 1]],
+            ], $this->enTetes($this->jeton))
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('lignes.0.produit_id');
+
+            $this->assertSame(5, $this->stockDe($produit));
+        }
+        $this->assertSame(0, Facture::withoutGlobalScopes()->count());
+
+        // Et jamais un stupéfiant en vitrine
+        $stupefiant->update(['est_boutique' => false]);
+        $this->patchJson("/api/v1/boutique/produits/{$stupefiant->id}/vitrine", ['est_boutique' => true], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('est_boutique');
+    }
+
+    public function test_un_article_passe_sur_ordonnance_ne_se_remet_plus(): void
+    {
+        $produit = $this->produitEnRayon(5);
+        $id = $this->postJson('/api/v1/boutique/commandes', [
+            'client_nom' => 'Mme Pineau',
+            'lignes' => [['produit_id' => $produit->id, 'quantite' => 1]],
+        ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
+        $this->postJson("/api/v1/boutique/commandes/{$id}/preparer", [], $this->enTetes($this->jeton))->assertOk();
+
+        $produit->update(['est_sur_ordonnance' => true]);
+        $this->postJson("/api/v1/boutique/commandes/{$id}/retirer", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('lignes.0.produit_id');
+        $this->assertSame(5, $this->stockDe($produit));
     }
 
     public function test_le_panier_est_borne_au_stock_local(): void

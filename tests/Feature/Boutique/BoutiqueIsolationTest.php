@@ -54,6 +54,7 @@ class BoutiqueIsolationTest extends TestCase
         $produit = Produit::factory()->create([
             'organisation_id' => $this->clinique->societe->organisation_id,
             'est_boutique' => true,
+            'est_sur_ordonnance' => false,
         ]);
 
         // Tout le stock est chez la sœur : ici, c'est une rupture.
@@ -77,6 +78,7 @@ class BoutiqueIsolationTest extends TestCase
         $produitEtranger = Produit::factory()->create([
             'organisation_id' => $etrangere->societe->organisation_id,
             'est_boutique' => true,
+            'est_sur_ordonnance' => false,
         ]);
 
         $this->postJson('/api/v1/boutique/vente', [
@@ -96,6 +98,7 @@ class BoutiqueIsolationTest extends TestCase
         $produit = Produit::factory()->create([
             'organisation_id' => $this->clinique->societe->organisation_id,
             'est_boutique' => true,
+            'est_sur_ordonnance' => false,
         ]);
 
         $reponse = $this->postJson('/api/v1/boutique/commandes', [

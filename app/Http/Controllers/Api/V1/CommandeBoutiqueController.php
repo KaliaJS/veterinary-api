@@ -63,8 +63,11 @@ class CommandeBoutiqueController extends Controller
                 'passee_le' => now(),
             ]);
 
-            foreach ($donnees['lignes'] as $ligne) {
+            foreach ($donnees['lignes'] as $index => $ligne) {
                 $produit = Produit::findOrFail($ligne['produit_id']);
+                if ($refus = $produit->refusVenteLibre()) {
+                    throw ValidationException::withMessages(["lignes.{$index}.produit_id" => $refus]);
+                }
 
                 // Prix effectif vitrine figé à la commande, promotion
                 // comprise.
@@ -98,17 +101,24 @@ class CommandeBoutiqueController extends Controller
     {
         $this->authorize('update', $commande);
 
-        if ($commande->statut !== StatutCommandeBoutique::Prete) {
-            throw ValidationException::withMessages(['statut' => 'Seule une commande prête se remet au client.']);
-        }
-
         DB::transaction(function () use ($request, $commande): void {
+            // Sous verrou : remise deux fois, le stock ne sortirait pas deux fois
+            $tenue = CommandeBoutique::query()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
+            if ($tenue->statut !== StatutCommandeBoutique::Prete) {
+                throw ValidationException::withMessages(['statut' => 'Seule une commande prête se remet au client.']);
+            }
+
             $lignes = $commande->lignes()->with('produit')->get();
 
             // La commande en ligne ne réserve pas le stock : la rupture
             // se constate à la remise et refuse le geste (422 par ligne,
             // comme la vente comptoir) — jamais de sortie partielle.
             foreach ($lignes->values() as $index => $ligne) {
+                // Passé sur ordonnance depuis la commande : se délivre en consultation
+                if ($refus = $ligne->produit->refusVenteLibre()) {
+                    throw ValidationException::withMessages(["lignes.{$index}.produit_id" => $refus]);
+                }
+
                 $stockLocal = (int) Stock::query()
                     ->where('produit_id', $ligne->produit_id)
                     ->where('clinique_id', $commande->clinique_id)
