@@ -108,7 +108,7 @@ class RendezVousProprietaireTest extends TestCase
 
         $creneaux = $reponse->json('data.0.creneaux');
         $this->assertCount(3, $creneaux);
-        $this->assertTrue(strtotime($creneaux[0]['debut']) > time());
+        $this->assertTrue(strtotime($creneaux[0]['debut']) > now()->getTimestamp());
         $this->assertTrue(strtotime($creneaux[0]['debut']) < strtotime($creneaux[1]['debut']));
         $this->assertTrue(strtotime($creneaux[1]['debut']) < strtotime($creneaux[2]['debut']));
         // Au quart d'heure, même aujourd'hui où le trou commence à l'heure qu'il est.
