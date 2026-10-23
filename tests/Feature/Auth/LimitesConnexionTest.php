@@ -93,6 +93,19 @@ class LimitesConnexionTest extends TestCase
         $this->assertSame(1, $user->tokens()->count());
     }
 
+    public function test_un_moderateur_qui_a_une_passkey_ne_se_connecte_pas_par_code(): void
+    {
+        Notification::fake();
+        $jim = User::factory()->create();
+        $jim->forceFill(['est_moderateur' => true])->save();
+        DB::table('passkeys')->insert(['user_id' => $jim->id, 'nom' => 'Mac', 'credential_id' => 'cle-jim', 'donnees' => '{}', 'created_at' => now(), 'updated_at' => now()]);
+
+        $code = $this->envoyerEtRecupererLeCode($jim);
+
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $jim->email, 'code' => $code])
+            ->assertUnprocessable()->assertJsonValidationErrors('code');
+    }
+
     private function envoyerEtRecupererLeCode(User $user): string
     {
         $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => $user->email])->assertStatus(202);

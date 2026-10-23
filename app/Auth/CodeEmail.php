@@ -100,6 +100,14 @@ class CodeEmail
 
         $user = User::where('email', $email)->first() ?? $this->comptes->creer($email, emailVerifie: true);
 
+        // Un modérateur de la plateforme qui a une passkey ne se connecte
+        // qu'avec elle (23.10.2026) : son compte voit toutes les cliniques
+        if (! $parLaSession && $user->est_moderateur && $user->passkeys()->exists()) {
+            throw ValidationException::withMessages([
+                'code' => 'Ce compte se connecte avec sa passkey. Appareil perdu ? Écrivez à l’équipe de Veterinary.',
+            ]);
+        }
+
         // Un code reçu et saisi prouve l'adresse, y compris pour un compte
         // inscrit par passkey qui ne l'avait pas encore prouvée. Ce qui a été
         // posé sur ce compte avant la preuve (passkeys, sessions) peut venir
