@@ -142,6 +142,6 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
     {
         $code = $e instanceof CardException ? ($e->getDeclineCode() ?: $e->getStripeCode()) : $e->getStripeCode();
 
-        return new ErreurPaiement(self::MESSAGES[$code] ?? self::MESSAGES[$e->getStripeCode()] ?? $e->getMessage(), $e->getStripeCode());
+        return ErreurPaiement::depuisStripe($e, self::MESSAGES[$code] ?? self::MESSAGES[$e->getStripeCode()] ?? null);
     }
 }

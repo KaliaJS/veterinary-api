@@ -42,7 +42,10 @@ class TerminalPaiementController extends Controller
                 $request->validated('libelle'),
             );
         } catch (ErreurPaiement $e) {
-            throw ValidationException::withMessages(['code_appairage' => $e->getMessage()]);
+            // Le plus souvent un code expiré ou mal recopié
+            throw ValidationException::withMessages(['code_appairage' => $e->estGenerique()
+                ? 'Ce code n’est pas reconnu : générez-en un nouveau sur le terminal et saisissez-le.'
+                : $e->getMessage()]);
         }
 
         return new TerminalPaiementResource($terminal, $this->terminaux->estEnLigne($terminal));

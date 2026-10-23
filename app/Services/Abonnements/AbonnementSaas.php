@@ -440,6 +440,16 @@ final class AbonnementSaas
             ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'changement')
             ->each(fn ($f) => $this->annuler($f));
 
+        // Le prélèvement de cette échéance est déjà parti (la banque le traite
+        // encore) : jamais un second, on suit le premier (23.10.2026)
+        $parti = $this->factures($abonne)->where('statut', 'a_payer')->whereNotNull('stripe_paiement_id')->latest('id')->get()
+            ->first(fn ($f) => ($f->metadonnees['action'] ?? null) === 'renouvellement' && ($f->metadonnees['debut'] ?? null) === $echeance->toDateString());
+        if ($parti) {
+            $this->suivre($abonne, $parti);
+
+            return;
+        }
+
         if ($abonne->resilie_le && $abonne->resilie_le->toDateString() <= $echeance->toDateString()) {
             $this->terminer($abonne);
 
@@ -480,10 +490,35 @@ final class AbonnementSaas
             return;
         }
 
+        // La tentative précédente encore traitée par la banque, ou passée entre-temps
+        if ($facture->stripe_paiement_id) {
+            $etat = $this->stripe->lirePrelevement($facture->stripe_paiement_id);
+            if ($etat['statut'] === 'reussi') {
+                $this->payer($facture);
+
+                return;
+            }
+            if ($etat['statut'] === 'en_cours') {
+                return;
+            }
+        }
+
         $reglement = $this->encaisser($abonne, $facture, true);
         if (! $reglement->estPaye() && $reglement->statut !== 'en_cours') {
             $this->echecRenouvellement($abonne, $reglement);
         }
+    }
+
+    /** Un prélèvement parti : payé, encore traité par la banque, ou refusé. */
+    private function suivre(Organisation|User $abonne, OrganisationFacture|FactureProprietaire $facture): void
+    {
+        $etat = $this->stripe->lirePrelevement((string) $facture->stripe_paiement_id);
+
+        match ($etat['statut']) {
+            'reussi' => $this->payer($facture),
+            'en_cours' => null,
+            default => $this->echecRenouvellement($abonne, new Reglement($facture->refresh(), $etat['statut'], $etat['client_secret'], $etat['message'])),
+        };
     }
 
     /* ————— Interne : cycle ————— */
@@ -900,6 +935,7 @@ final class AbonnementSaas
         }
     }
 
+    /** @return Builder<OrganisationFacture>|Builder<FactureProprietaire> */
     private function factures(Organisation|User $abonne): Builder
     {
         return $abonne instanceof Organisation

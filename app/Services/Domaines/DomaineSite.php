@@ -35,8 +35,13 @@ class DomaineSite
 
         try {
             $identifiant = $this->fournisseur->ajouter($domaine);
-        } catch (Throwable $e) {
+        } catch (ErreurDomaine $e) {
             throw ValidationException::withMessages(['domaine' => $e->getMessage()]);
+        } catch (Throwable $e) {
+            // Fournisseur injoignable : le détail au journal, jamais à l'écran
+            report($e);
+
+            throw ValidationException::withMessages(['domaine' => 'Le service des domaines ne répond pas. Réessayez dans quelques minutes.']);
         }
 
         $site->update([

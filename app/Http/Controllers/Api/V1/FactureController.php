@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Api\V1;
 use App\Auth\ContexteClinique;
 use App\Enums\StatutFacture;
 use App\Enums\StatutPaiement;
+use App\Enums\TypeLigneFacture;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Facturation\EnregistrerFactureRequest;
 use App\Http\Resources\V1\FactureResource;
 use App\Models\Facture;
 use App\Models\Patient;
+use App\Models\Produit;
 use App\Services\CreationFacture;
 use App\Services\GestionnaireStock;
 use Illuminate\Database\Eloquent\Builder;
@@ -59,7 +61,10 @@ class FactureController extends Controller
     /**
      * Facture manuelle (sortie d'hospitalisation, comptoir…). Quand la
      * fiche patient est référencée, la FK fait foi : les
-     * dénormalisations sont réalignées dessus.
+     * dénormalisations sont réalignées dessus. Depuis le 23.10.2026, une
+     * ligne de produit prend le prix du produit (une remise se fait par
+     * une ligne négative) et le stock sort toujours à l'encaissement :
+     * ni prix ni `stock_sorti` ne viennent du client.
      */
     public function store(EnregistrerFactureRequest $request, CreationFacture $creation): FactureResource
     {
@@ -73,20 +78,24 @@ class FactureController extends Controller
             'species' => $donnees['species'] ?? null,
             'owner_name' => $donnees['owner_name'] ?? null,
             'ligne_planning_id' => $donnees['ligne_planning_id'] ?? null,
-            'stock_sorti' => $donnees['stock_sorti'] ?? false,
         ];
 
         if ($attributs['patient_id'] !== null) {
             $attributs = [...$attributs, ...Patient::findOrFail($attributs['patient_id'])->denormalisation()];
         }
 
-        $lignes = array_map(fn (array $ligne): array => [
-            'libelle' => $ligne['libelle'],
-            'quantite' => $ligne['quantite'] ?? 1,
-            'prix_chf' => $ligne['prix_chf'],
-            'type' => $ligne['type'],
-            'produit_id' => $ligne['produit_id'] ?? null,
-        ], $donnees['lignes']);
+        $produits = Produit::query()->whereIn('id', array_filter(array_column($donnees['lignes'], 'produit_id')))->get()->keyBy('id');
+        $lignes = array_map(function (array $ligne) use ($produits): array {
+            $produit = isset($ligne['produit_id']) ? $produits->get($ligne['produit_id']) : null;
+
+            return [
+                'libelle' => $ligne['libelle'],
+                'quantite' => $ligne['quantite'] ?? 1,
+                'prix_chf' => $produit ? $produit->prix : $ligne['prix_chf'],
+                'type' => $produit ? TypeLigneFacture::Medicament : $ligne['type'],
+                'produit_id' => $produit?->id,
+            ];
+        }, $donnees['lignes']);
 
         $facture = $creation->nouvelle($attributs, $lignes, $request->user());
 

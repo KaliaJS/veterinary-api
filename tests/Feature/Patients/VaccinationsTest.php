@@ -93,6 +93,8 @@ class VaccinationsTest extends TestCase
         $this->assertSame(2, $etat[0]['injections']);
 
         $this->travel(13)->months();
+        // L'abonnement de la clinique a été renouvelé entre-temps
+        $this->clinique->societe->organisation->forceFill(['periode_fin' => now()->addMonth()])->save();
         ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
         $etat = $this->getJson("/api/v1/patients/{$patient->id}/vaccinations", $this->enTetes($jeton))->json('etat');
         $this->assertSame('retard', $etat[0]['statut']);

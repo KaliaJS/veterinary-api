@@ -29,6 +29,9 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
 
     public bool $actionRequise = false;
 
+    /** La banque traite encore le prélèvement (`processing`) */
+    public bool $enCours = false;
+
     /** Le prestataire répond par une erreur (requête refusée, panne) */
     public ?string $panne = null;
 
@@ -81,6 +84,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
         $statut = match (true) {
             $this->refus !== null => 'refuse',
             $this->actionRequise => 'action_requise',
+            $this->enCours => 'en_cours',
             default => 'reussi',
         };
         $this->prelevements[$id] = [
@@ -107,6 +111,12 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     public function confirmer(string $id): void
     {
         $this->prelevements[$id]['statut'] = 'reussi';
+    }
+
+    /** La banque refuse un prélèvement qu'elle traitait. */
+    public function refuser(string $id): void
+    {
+        $this->prelevements[$id]['statut'] = 'refuse';
     }
 
     /** @return array<string, mixed>|null */

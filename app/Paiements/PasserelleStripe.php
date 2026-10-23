@@ -322,9 +322,7 @@ class PasserelleStripe implements PasserellePaiement
         try {
             return $appel();
         } catch (ApiErrorException $e) {
-            $code = $e->getStripeCode();
-
-            throw new ErreurPaiement(self::MESSAGES[$code] ?? $e->getMessage(), $code);
+            throw ErreurPaiement::depuisStripe($e, self::MESSAGES[$e->getStripeCode()] ?? null);
         }
     }
 }

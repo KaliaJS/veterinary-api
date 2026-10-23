@@ -8,8 +8,9 @@ use App\Models\Clinique;
 use App\Models\Role;
 use App\Services\Domaines\ResolveurDns;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -162,14 +163,27 @@ class DomaineSiteTest extends TestCase
             ->assertJsonPath('data.domaine.statut', 'actif');
     }
 
-    public function test_un_refus_de_cloudflare_remonte_sur_le_champ(): void
+    public function test_un_refus_de_cloudflare_remonte_sur_le_champ_en_francais(): void
     {
         config(['sites.domaines.fournisseur' => 'cloudflare']);
         Http::fake(['api.cloudflare.com/*' => Http::response(['success' => false, 'errors' => [['message' => 'Duplicate custom hostname found.']]], 409)]);
 
         $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))
             ->assertUnprocessable()
-            ->assertJsonPath('errors.domaine.0', 'Duplicate custom hostname found.');
+            ->assertJsonPath('errors.domaine.0', 'Ce domaine est déjà relié à un autre site.');
+
+        // Un autre refus : jamais le texte de Cloudflare
+        Http::fake(['api.cloudflare.com/*' => Http::response(['success' => false, 'errors' => [['code' => 1414, 'message' => 'Invalid custom hostname: bad TLD']]], 400)]);
+        $message = $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->json('errors.domaine.0');
+        $this->assertStringNotContainsString('TLD', $message);
+
+        // Cloudflare injoignable : un message simple, le détail au journal
+        Http::fake(['api.cloudflare.com/*' => fn () => throw new ConnectionException('cURL error 28: timeout after 15001 ms')]);
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.domaine.0', 'Le service des domaines ne répond pas. Réessayez dans quelques minutes.');
     }
 
     public function test_un_veterinaire_ne_peut_pas_toucher_au_domaine(): void

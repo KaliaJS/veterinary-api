@@ -291,6 +291,29 @@ class EncaissementTest extends TestCase
         $this->assertSame('cash', $facture->fresh()->moyen_paiement->value);
     }
 
+    public function test_une_facture_manuelle_prend_le_prix_du_produit_et_sort_le_stock_a_l_encaissement(): void
+    {
+        $produit = $this->medicamentEnStock(5, 24.9);
+
+        $facture = $this->postJson('/api/v1/facturation/factures', [
+            'patient_name' => 'Rex',
+            'stock_sorti' => true,
+            'lignes' => [
+                ['libelle' => 'Antibiotique', 'prix_chf' => 1, 'type' => 'acte', 'produit_id' => $produit->id],
+                ['libelle' => 'Geste commercial', 'prix_chf' => -5, 'type' => 'acte'],
+            ],
+        ], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.stock_sorti', false)
+            ->json('data');
+
+        $this->assertEquals(24.9, (float) Facture::withoutGlobalScopes()->findOrFail($facture['id'])->lignes()->where('produit_id', $produit->id)->value('prix_chf'));
+        $this->assertSame('med', Facture::withoutGlobalScopes()->findOrFail($facture['id'])->lignes()->where('produit_id', $produit->id)->value('type')->value);
+
+        $this->postJson("/api/v1/facturation/factures/{$facture['id']}/encaisser", ['moyen_paiement' => 'cash'], $this->enTetes($this->jeton))->assertOk();
+        $this->assertSame(4, $this->stockDe($produit));
+    }
+
     public function test_payer_plus_tard_sort_le_stock_et_laisse_la_facture_due(): void
     {
         $facture = $this->factureDue();

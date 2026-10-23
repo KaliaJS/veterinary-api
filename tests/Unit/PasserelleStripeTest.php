@@ -2,11 +2,12 @@
 
 namespace Tests\Unit;
 
+use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleStripe;
-use PHPUnit\Framework\TestCase;
 use Stripe\ApiRequestor;
 use Stripe\HttpClient\ClientInterface;
 use Stripe\StripeClient;
+use Tests\TestCase;
 
 /**
  * Ce que la passerelle envoie vraiment à Stripe (23.10.2026), par un
@@ -28,7 +29,9 @@ class PasserelleStripeTest extends TestCase
 
             public function request($method, $absUrl, $headers, $params, $hasFile, $apiMode = 'v1', $maxNetworkRetries = null)
             {
-                return [$this->test->noter($method, $absUrl, $headers, $params), 200, []];
+                $corps = $this->test->noter($method, $absUrl, $headers, $params);
+
+                return [$corps, $this->test->erreur === null ? 200 : 400, []];
             }
         });
     }
@@ -40,10 +43,17 @@ class PasserelleStripeTest extends TestCase
         parent::tearDown();
     }
 
+    /** Erreur que Stripe renverra : [code, message] */
+    public ?array $erreur = null;
+
     /** @internal Appelé par le faux client HTTP */
     public function noter(string $methode, string $url, array $entetes, array $params): string
     {
         $this->requetes[] = ['methode' => $methode, 'url' => $url, 'entetes' => $entetes, 'params' => $params];
+
+        if ($this->erreur !== null) {
+            return json_encode(['error' => ['type' => 'invalid_request_error', 'code' => $this->erreur[0], 'message' => $this->erreur[1]]]);
+        }
 
         return str_contains($url, '/refunds')
             ? '{"id":"re_test","object":"refund"}'
@@ -68,6 +78,26 @@ class PasserelleStripeTest extends TestCase
         }
         $this->assertArrayNotHasKey('amount', $this->requetes[0]['params']);
         $this->assertSame(1500, $this->requetes[1]['params']['amount']);
+    }
+
+    public function test_le_message_de_stripe_n_est_jamais_montre_tel_quel(): void
+    {
+        $this->erreur = ['terminal_reader_offline', 'Reader is offline.'];
+        try {
+            $this->passerelle()->presenterSurLecteur('tmr_1', 'pi_test');
+            $this->fail('Le lecteur hors ligne n’a pas été signalé.');
+        } catch (ErreurPaiement $e) {
+            $this->assertSame('Le terminal est hors ligne. Vérifiez qu’il est allumé et connecté.', $e->getMessage());
+        }
+
+        $this->erreur = ['parameter_invalid_integer', 'Invalid integer: amount must be at least 50 cents, see https://stripe.com/docs'];
+        try {
+            $this->passerelle()->rembourser('pi_test', 'rendu-3', 10);
+            $this->fail('Le refus de Stripe n’a pas été signalé.');
+        } catch (ErreurPaiement $e) {
+            $this->assertSame(ErreurPaiement::GENERIQUE, $e->getMessage());
+            $this->assertSame('parameter_invalid_integer', $e->codeStripe);
+        }
     }
 
     public function test_la_commission_est_prise_sur_le_compte_de_la_societe_seulement(): void

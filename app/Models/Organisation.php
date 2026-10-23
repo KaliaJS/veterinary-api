@@ -9,6 +9,7 @@ use App\Enums\TypeAlerte;
 use App\Enums\VerificationOrganisation;
 use App\Services\PanelsLaboParDefaut;
 use App\Services\PrestationsParDefaut;
+use Carbon\CarbonImmutable;
 use Database\Factories\OrganisationFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -93,10 +94,23 @@ class Organisation extends Model
         return $this->belongsTo(User::class, 'inscrite_par');
     }
 
+    /**
+     * Jours d'accès après l'échéance quand le renouvellement n'a pas encore
+     * abouti (relances, banque qui traite, planificateur arrêté), jamais
+     * au-delà (23.10.2026). Une résiliation ferme à l'échéance.
+     */
+    public const int GRACE_JOURS = 7;
+
     /** Une période payée court (un prélèvement refusé garde l'accès le temps des relances). */
     public function abonnementEnCours(): bool
     {
-        return in_array($this->statut_abonnement, ['actif', 'impaye'], true) && $this->periode_fin !== null;
+        if (! in_array($this->statut_abonnement, ['actif', 'impaye'], true) || $this->periode_fin === null) {
+            return false;
+        }
+
+        $limite = $this->resilie_le ? $this->periode_fin : $this->periode_fin->copy()->addDays(self::GRACE_JOURS);
+
+        return $limite->toDateString() >= CarbonImmutable::today('Europe/Zurich')->toDateString();
     }
 
     /**
@@ -133,9 +147,12 @@ class Organisation extends Model
      * @param  Builder<Organisation>  $requete */
     public function scopeOuvertes(Builder $requete): void
     {
+        $aujourdhui = CarbonImmutable::today('Europe/Zurich');
         $requete->where('verification', VerificationOrganisation::Verifiee)
             ->whereIn('statut_abonnement', ['actif', 'impaye'])
-            ->whereNotNull('periode_fin');
+            ->where(fn (Builder $periode) => $periode
+                ->where(fn (Builder $q) => $q->whereNull('resilie_le')->whereDate('periode_fin', '>=', $aujourdhui->subDays(self::GRACE_JOURS)->toDateString()))
+                ->orWhere(fn (Builder $q) => $q->whereNotNull('resilie_le')->whereDate('periode_fin', '>=', $aujourdhui->toDateString())));
     }
 
     /** @return HasMany<Societe, $this> */

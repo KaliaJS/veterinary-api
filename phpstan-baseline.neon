@@ -535,27 +535,9 @@ parameters:
 			path: app/Paiements/PasserelleStripe.php
 
 		-
-			message: '#^Access to an undefined property Illuminate\\Database\\Eloquent\\Model\:\:\$numero\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Services/Abonnements/AbonnementSaas.php
-
-		-
 			message: '#^Instanceof between App\\Models\\Organisation and App\\Models\\Organisation will always evaluate to true\.$#'
 			identifier: instanceof.alwaysTrue
 			count: 2
-			path: app/Services/Abonnements/AbonnementSaas.php
-
-		-
-			message: '#^Parameter \#1 \$facture of method App\\Services\\Abonnements\\AbonnementSaas\:\:annuler\(\) expects App\\Models\\FactureProprietaire\|App\\Models\\OrganisationFacture, Illuminate\\Database\\Eloquent\\Model given\.$#'
-			identifier: argument.type
-			count: 2
-			path: app/Services/Abonnements/AbonnementSaas.php
-
-		-
-			message: '#^Parameter \#2 \$facture of method App\\Services\\Abonnements\\AbonnementSaas\:\:encaisser\(\) expects App\\Models\\FactureProprietaire\|App\\Models\\OrganisationFacture, Illuminate\\Database\\Eloquent\\Model given\.$#'
-			identifier: argument.type
-			count: 1
 			path: app/Services/Abonnements/AbonnementSaas.php
 
 		-

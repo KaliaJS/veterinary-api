@@ -365,7 +365,11 @@ dans `config/plateforme.php`.
   (`resilie`) : la facture de la période qui ne commence pas est annulée,
   les minutes de transcription déjà consommées restent dues sur leur propre
   facture, à régler avant toute nouvelle formule ; une reprise ouvre une
-  nouvelle période le jour du paiement.
+  nouvelle période le jour du paiement. Un prélèvement que la banque
+  traite encore (`processing`) n'est jamais refait : le passage suivant
+  lit son issue (payé, ou refusé et relancé). L'accès tient au plus
+  `Organisation::GRACE_JOURS` (7) jours après l'échéance si rien n'a
+  abouti (planificateur arrêté) ; une résiliation ferme à l'échéance.
 - **Cartes** : `carte_expire_le` (fin du mois d'expiration). Une carte qui
   expire avant le prochain prélèvement est signalée 14 jours avant puis la
   veille (`CarteExpireAvantPrelevement`, `carte_alertee_le`). Une carte

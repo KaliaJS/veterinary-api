@@ -10,7 +10,7 @@ use Illuminate\Validation\Rule;
 
 /**
  * Facture manuelle (sortie d'hospitalisation, comptoir…) : lignes
- * libres, prix signés. Le patient reste dénormalisable sans fiche —
+ * libres, prix signés (une ligne de produit prend le prix du produit). Le patient reste dénormalisable sans fiche —
  * la FK fait foi quand elle existe.
  */
 class EnregistrerFactureRequest extends FormRequest
@@ -26,7 +26,6 @@ class EnregistrerFactureRequest extends FormRequest
             'species' => ['nullable', Rule::enum(Espece::class)],
             'owner_name' => ['nullable', 'string', 'max:255'],
             'ligne_planning_id' => ['nullable', $this->existeDansLaClinique('lignes_planning')],
-            'stock_sorti' => ['sometimes', 'boolean'],
             'lignes' => ['required', 'array', 'min:1'],
             'lignes.*.libelle' => ['required', 'string', 'max:255'],
             'lignes.*.quantite' => ['sometimes', 'integer', 'min:1', 'max:999'],

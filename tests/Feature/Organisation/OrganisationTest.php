@@ -343,6 +343,58 @@ class OrganisationTest extends TestCase
         $this->assertCount(2, $this->stripe->prelevements);
     }
 
+    public function test_un_renouvellement_que_la_banque_traite_encore_n_est_jamais_preleve_deux_fois(): void
+    {
+        $this->jamaisAbonnee();
+        Mail::fake();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+
+        // Échéance : la banque traite le prélèvement, l'heure suivante n'en refait pas
+        $this->stripe->enCours = true;
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->voyager('2026-11-20 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertCount(2, $this->stripe->prelevements);
+        $this->assertSame('2026-11-20', Organisation::query()->findOrFail($this->organisationId())->periode_fin->toDateString());
+
+        // Passé (webhook manqué) : la période avance au passage suivant, sans autre prélèvement
+        $this->stripe->confirmer($this->stripe->dernierPrelevement()['id']);
+        $this->voyager('2026-11-20 08:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame(['actif', '2026-12-20'], [$organisation->statut_abonnement, $organisation->periode_fin->toDateString()]);
+        $this->assertCount(2, $this->stripe->prelevements);
+
+        // Refusé après coup : impayé et relance, comme un refus immédiat
+        $this->voyager('2026-12-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->stripe->refuser($this->stripe->dernierPrelevement()['id']);
+        $this->voyager('2026-12-20 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertSame('impaye', Organisation::query()->findOrFail($this->organisationId())->statut_abonnement);
+        $this->assertCount(3, $this->stripe->prelevements);
+    }
+
+    public function test_l_acces_ne_survit_pas_a_une_echeance_jamais_renouvelee(): void
+    {
+        // Le planificateur arrêté : l'accès tient le délai de grâce, pas plus
+        Organisation::query()->whereKey($this->organisationId())->update(['periode_fin' => now('Europe/Zurich')->subDays(Organisation::GRACE_JOURS)->toDateString()]);
+        $this->assertTrue(Organisation::query()->findOrFail($this->organisationId())->abonnementEnCours());
+        $this->assertTrue(Organisation::query()->ouvertes()->whereKey($this->organisationId())->exists());
+
+        Organisation::query()->whereKey($this->organisationId())->update(['periode_fin' => now('Europe/Zurich')->subDays(Organisation::GRACE_JOURS + 1)->toDateString()]);
+        $this->assertFalse(Organisation::query()->findOrFail($this->organisationId())->abonnementEnCours());
+        $this->assertFalse(Organisation::query()->ouvertes()->whereKey($this->organisationId())->exists());
+
+        // Résiliée : fermée dès l'échéance passée
+        Organisation::query()->whereKey($this->organisationId())->update(['periode_fin' => now('Europe/Zurich')->subDay()->toDateString(), 'resilie_le' => now('Europe/Zurich')->subMonth()->toDateString()]);
+        $this->assertFalse(Organisation::query()->findOrFail($this->organisationId())->abonnementEnCours());
+        $this->assertFalse(Organisation::query()->ouvertes()->whereKey($this->organisationId())->exists());
+    }
+
     public function test_une_formule_plus_chere_part_aussitot_avec_le_credit_du_temps_non_utilise(): void
     {
         $this->jamaisAbonnee();

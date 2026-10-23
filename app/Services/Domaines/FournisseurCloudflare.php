@@ -4,7 +4,7 @@ namespace App\Services\Domaines;
 
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
-use RuntimeException;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Cloudflare for SaaS — « custom hostnames » d'une zone dont l'origine
@@ -24,7 +24,12 @@ class FournisseurCloudflare implements FournisseurDomaines
         ]);
 
         if (! $reponse->successful()) {
-            throw new RuntimeException($this->message($reponse->json()) ?? 'Cloudflare a refusé le domaine.');
+            Log::warning('Cloudflare a refusé le domaine.', ['domaine' => $domaine, 'statut' => $reponse->status(), 'erreurs' => $reponse->json('errors')]);
+
+            throw new ErreurDomaine(match (true) {
+                $reponse->status() === 409 || str_contains(strtolower((string) $this->message($reponse->json())), 'duplicate') => 'Ce domaine est déjà relié à un autre site.',
+                default => 'Ce domaine n’a pas pu être ajouté : vérifiez son orthographe, puis réessayez dans quelques minutes.',
+            });
         }
 
         return $reponse->json('result.id');
@@ -40,9 +45,14 @@ class FournisseurCloudflare implements FournisseurDomaines
         $actif = ($resultat['status'] ?? null) === 'active' && ($resultat['ssl']['status'] ?? null) === 'active';
         $erreurs = [...($resultat['verification_errors'] ?? []), ...($resultat['ssl']['validation_errors'] ?? [])];
 
+        if (! $actif && $erreurs !== []) {
+            Log::info('Domaine pas encore validé par Cloudflare.', ['domaine' => $domaine, 'erreurs' => $erreurs]);
+        }
+
+        // Le détail de Cloudflare (anglais, technique) reste au journal
         return [
             'actif' => $actif,
-            'erreur' => $actif ? null : (collect($erreurs)->map(fn ($e) => is_array($e) ? ($e['message'] ?? null) : $e)->filter()->first()),
+            'erreur' => $actif || $erreurs === [] ? null : 'Le domaine ne pointe pas encore vers votre site : vérifiez l’enregistrement CNAME chez votre registraire. La prise en compte peut demander quelques heures.',
         ];
     }
 
