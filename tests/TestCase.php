@@ -5,9 +5,23 @@ namespace Tests;
 use App\Auth\ContexteClinique;
 use App\Auth\ContexteProprietaire;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Facades\Http;
 
 abstract class TestCase extends BaseTestCase
 {
+    /**
+     * Aucun appel HTTP réel pendant les tests : chaque fournisseur
+     * (Stripe, Claude, Deepgram, MedReg, Refdata, Cloudflare) passe par
+     * un double ou par Http::fake ; un appel oublié échoue au lieu de
+     * partir sur le réseau.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Http::preventStrayRequests();
+    }
+
     /**
      * Chaque requête de test repart d'un état d'authentification
      * neuf : sans cela, le guard Sanctum et le contexte clinique

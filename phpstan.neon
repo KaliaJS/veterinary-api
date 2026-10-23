@@ -1,0 +1,16 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    # Erreurs connues au 23.10.2026, à résorber (docs/todo.md du web) :
+    # le nouveau code, lui, doit passer sans erreur
+    - phpstan-baseline.neon
+
+parameters:
+    paths:
+        - app
+        - database
+        - routes
+    level: 5
+    tmpDir: storage/framework/cache/phpstan
+    # Les casts des modèles sont déclarés dans casts() avec un @return
+    # générique : Larastan doit lire le tableau retourné
+    parseModelCastsMethod: true

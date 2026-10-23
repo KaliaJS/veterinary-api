@@ -32,8 +32,8 @@ class AnimauxProprietaireTest extends TestCase
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
         $ficheA = Client::factory()->create(['user_id' => $user->id]);
         $ficheB = Client::factory()->create(['user_id' => $user->id]);
-        Patient::factory()->create(['client_id' => $ficheA->id, 'nom' => 'Max', 'ne_le' => today()->subYears(5)->subMonths(2)]);
-        Patient::factory()->create(['client_id' => $ficheB->id, 'nom' => 'Paco', 'ne_le' => today()->subMonths(8)]);
+        Patient::factory()->create(['client_id' => $ficheA->id, 'nom' => 'Max', 'ne_le' => today()->subYears(5)->subMonthsNoOverflow(2)]);
+        Patient::factory()->create(['client_id' => $ficheB->id, 'nom' => 'Paco', 'ne_le' => today()->subMonthsNoOverflow(8)]);
         Patient::factory()->create(['nom' => 'Intrus']);
 
         $this->getJson('/api/v1/espace/animaux', $this->enTetes($jeton))

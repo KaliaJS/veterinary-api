@@ -32,5 +32,20 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!-- Suite hermétique : jamais les vraies clés du .env, jamais de
+             réseau (Http::preventStrayRequests dans TestCase) -->
+        <env name="STRIPE_KEY" value="" force="true"/>
+        <env name="STRIPE_SECRET" value="" force="true"/>
+        <env name="STRIPE_WEBHOOK_SECRET" value="" force="true"/>
+        <env name="STRIPE_WEBHOOK_SECRET_COMPTES" value="" force="true"/>
+        <env name="ANTHROPIC_API_KEY" value="" force="true"/>
+        <env name="DEEPGRAM_API_KEY" value="" force="true"/>
+        <env name="CLOUDFLARE_API_TOKEN" value="" force="true"/>
+        <env name="CLOUDFLARE_ZONE_ID" value="" force="true"/>
+        <env name="REFDATA_API_KEY" value="" force="true"/>
+        <env name="AWS_ACCESS_KEY_ID" value="" force="true"/>
+        <env name="AWS_SECRET_ACCESS_KEY" value="" force="true"/>
+        <env name="MAIL_PASSWORD" value="" force="true"/>
+        <env name="APPLE_STOREKIT_XCODE" value="false" force="true"/>
     </php>
 </phpunit>
