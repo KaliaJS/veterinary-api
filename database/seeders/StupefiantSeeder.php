@@ -63,7 +63,7 @@ class StupefiantSeeder extends Seeder
                 'produit_id' => $produits[$nom]->id,
                 'employe_id' => $meyer?->id,
                 'quantite' => $report,
-                'motif' => "Report d'inventaire — ouverture du registre",
+                'motif' => "Report d'inventaire : ouverture du registre",
                 'created_at' => now()->subDays(30)->setTime(8, 0),
             ]);
         }
@@ -71,7 +71,7 @@ class StupefiantSeeder extends Seeder
         // stupMoves du front, du plus ancien au plus récent.
         $mouvements = [
             ['Buprénorphine 0,3 mg/ml', -0.6, 'Nala', $solal, 'Analgésie post-op', now()->subDays(6)->setTime(15, 25)],
-            ['Méthadone 10 mg/ml', 20, null, $meyer, 'Réception grossiste — lot MT-4471', now()->subDays(3)->setTime(11, 0)],
+            ['Méthadone 10 mg/ml', 20, null, $meyer, 'Réception grossiste : lot MT-4471', now()->subDays(3)->setTime(11, 0)],
             ['Kétamine 100 mg/ml', -1.2, 'Marcel', $adjei, 'Induction anesthésie', now()->subDay()->setTime(9, 10)],
             ['Méthadone 10 mg/ml', -0.4, 'Isis', $meyer, 'Analgésie pré-op ostéosynthèse', now()->subDay()->setTime(16, 40)],
         ];

@@ -49,17 +49,17 @@ class FacturationSeeder extends Seeder
         // [n°, jours, heure, patient, espèce, propriétaire, lane, statut, moyen, assureur, lignes, prescriptions]
         $factures = [
             ['0341', 0, '08:25', 'Nala', 'CT', 'Mme Lefèvre', 'Dr Meyer', StatutFacture::Payee, MoyenPaiement::Twint, 'Animalia',
-                [['Vaccination — acte', 48, TypeLigneFacture::Acte, null], ['Vaccin CHPPiL · 1 dose', 42, TypeLigneFacture::Medicament, 'MED-0009']], []],
+                [['Vaccination : acte', 48, TypeLigneFacture::Acte, null], ['Vaccin CHPPiL · 1 dose', 42, TypeLigneFacture::Medicament, 'MED-0009']], []],
             ['0342', 0, '08:55', 'Gaspard', 'CH', 'M. Ourdane', 'Dr Meyer', StatutFacture::Payee, MoyenPaiement::Tpe, 'SantéVet',
                 [['Consultation standard', 85, TypeLigneFacture::Acte, null], ['Meloxicam 1,5 mg/ml · 100 ml', 24.9, TypeLigneFacture::Medicament, 'MED-0114']],
-                [['Meloxicam 1,5 mg/ml', '0,1 ml / 10 kg — 1×/jour, 5 jours', ModePrescription::Stock]]],
+                [['Meloxicam 1,5 mg/ml', '0,1 ml / 10 kg, 1×/jour, 5 jours', ModePrescription::Stock]]],
             ['0343', 0, '09:40', 'Zia', 'CH', 'Mme Bruel', 'Dr Meyer', StatutFacture::Payee, MoyenPaiement::Especes, null,
                 [['Consultation standard', 85, TypeLigneFacture::Acte, null]],
-                [['Oclacitinib 16 mg', '1 cp matin et soir — 14 jours', ModePrescription::Pharmacie]]],
+                [['Oclacitinib 16 mg', '1 cp matin et soir, 14 jours', ModePrescription::Pharmacie]]],
             ['0344', 0, '10:05', 'Praline', 'CT', 'M. Vidal', 'Dr Solal', StatutFacture::Payee, MoyenPaiement::Tpe, null,
                 [['Contrôle post-opératoire', 45, TypeLigneFacture::Acte, null]], []],
             ['0338', 1, '17:20', 'Marcel', 'CH', 'M. Fontanet', 'Dr Adjei', StatutFacture::Due, null, null,
-                [['Consultation d’urgence', 140, TypeLigneFacture::Acte, null], ['Radiographie — 2 clichés', 120, TypeLigneFacture::Acte, null]], []],
+                [['Consultation d’urgence', 140, TypeLigneFacture::Acte, null], ['Radiographie : 2 clichés', 120, TypeLigneFacture::Acte, null]], []],
             ['0340', 0, '11:30', 'Sushi', 'CT', 'Mme Diaz', 'Dr Solal', StatutFacture::Due, null, null,
                 [['Consultation de suivi', 55, TypeLigneFacture::Acte, null]], []],
         ];
@@ -118,25 +118,25 @@ class FacturationSeeder extends Seeder
             'ecart' => -2,
             'depot' => 252.9,
             'nouveau_fond' => 200,
-            'note' => 'Écart de -2.00 CHF non résolu — signalé à la comptabilité.',
+            'note' => 'Écart de -2.00 CHF non résolu, signalé à la comptabilité.',
         ]);
 
         // [n°, jours, patient, motif, lignes, remise, aléa, acompte, statut, canal, validité relative]
         $devis = [
             ['018', 0, 'Isis', 'Ostéosynthèse fémur droit',
-                [['Chirurgie — forfait bloc', 1, 420], ['Radiographie — 2 clichés', 2, 120], ['Analyses laboratoire — profil standard', 1, 96], ['Meloxicam 1,5 mg/ml · 100 ml', 1, 24.9]],
+                [['Chirurgie : forfait bloc', 1, 420], ['Radiographie : 2 clichés', 2, 120], ['Analyses laboratoire : profil standard', 1, 96], ['Meloxicam 1,5 mg/ml · 100 ml', 1, 24.9]],
                 0, 15, 30, StatutDevis::Accepte, CanalDevis::Portail, 28],
             ['017', 0, 'Pilou', 'Détartrage + polissage sous anesthésie',
-                [['Détartrage + polissage', 1, 260], ['Analyses laboratoire — profil standard', 1, 96]],
+                [['Détartrage + polissage', 1, 260], ['Analyses laboratoire : profil standard', 1, 96]],
                 5, 0, 20, StatutDevis::Envoye, CanalDevis::Portail, 29],
-            ['016', 1, 'Nougat', 'Bilan boiterie — imagerie + consultation',
-                [['Consultation standard', 1, 85], ['Radiographie — 2 clichés', 1, 120]],
+            ['016', 1, 'Nougat', 'Bilan boiterie : imagerie + consultation',
+                [['Consultation standard', 1, 85], ['Radiographie : 2 clichés', 1, 120]],
                 0, 0, 0, StatutDevis::Brouillon, null, null],
             ['015', 1, 'Câline', 'Extraction dentaire multiple',
-                [['Détartrage + polissage', 1, 260], ['Chirurgie — forfait bloc', 1, 420]],
+                [['Détartrage + polissage', 1, 260], ['Chirurgie : forfait bloc', 1, 420]],
                 0, 20, 30, StatutDevis::Refuse, CanalDevis::Papier, 26],
             ['012', 35, 'Marcel', 'Échographie abdominale de contrôle',
-                [['Radiographie — 2 clichés', 1, 120], ['Consultation de suivi', 1, 55]],
+                [['Radiographie : 2 clichés', 1, 120], ['Consultation de suivi', 1, 55]],
                 0, 0, 0, StatutDevis::Envoye, CanalDevis::Papier, -5],
         ];
 
@@ -156,7 +156,7 @@ class FacturationSeeder extends Seeder
                 'canal' => $canal,
                 'valide_jusquau' => $validiteRelative === null ? null : now()->addDays($validiteRelative),
                 'signe_le' => $statut === StatutDevis::Accepte ? now()->subDay()->setTimeFromTimeString('18:42') : null,
-                'signe_par' => $statut === StatutDevis::Accepte ? 'Signature électronique — espace client' : null,
+                'signe_par' => $statut === StatutDevis::Accepte ? 'Signature électronique : espace client' : null,
             ]);
 
             foreach ($lignes as [$libelle, $quantite, $prix]) {

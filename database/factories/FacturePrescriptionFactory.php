@@ -17,7 +17,7 @@ class FacturePrescriptionFactory extends Factory
         return [
             'facture_id' => Facture::factory(),
             'nom' => 'Meloxicam 1,5 mg/ml',
-            'posologie' => '0,1 ml / 10 kg — 1×/jour, 5 jours',
+            'posologie' => '0,1 ml / 10 kg, 1×/jour, 5 jours',
             'mode' => ModePrescription::Stock,
         ];
     }

@@ -17,7 +17,7 @@ class NumeroPuce implements ValidationRule
         $chiffres = preg_replace('/\D/', '', (string) $value);
 
         if (strlen($chiffres) !== 15) {
-            $fail('Numéro de puce invalide — 15 chiffres requis ('.strlen($chiffres).'/15).');
+            $fail('Numéro de puce invalide : 15 chiffres requis ('.strlen($chiffres).'/15).');
         }
     }
 

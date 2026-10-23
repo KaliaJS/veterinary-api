@@ -39,7 +39,7 @@ class DocumentProprietaireController extends Controller
             ->findOrFail($devisId);
 
         if ($devis->estExpire()) {
-            throw ValidationException::withMessages(['statut' => 'Ce devis est expiré — demandez-en un nouveau à la clinique.']);
+            throw ValidationException::withMessages(['statut' => 'Ce devis est expiré : demandez-en un nouveau à la clinique.']);
         }
 
         if ($devis->statut !== StatutDevis::Envoye) {
@@ -67,7 +67,7 @@ class DocumentProprietaireController extends Controller
         }
 
         if ($ordonnance->renouvellements < 1) {
-            throw ValidationException::withMessages(['renouvellements' => 'Plus aucun renouvellement prévu — demandez une consultation.']);
+            throw ValidationException::withMessages(['renouvellements' => 'Plus aucun renouvellement prévu : demandez une consultation.']);
         }
 
         if ($ordonnance->demandesRenouvellement->whereNull('traitee_le')->isNotEmpty()) {

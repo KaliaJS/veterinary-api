@@ -157,43 +157,43 @@ class HospitalisationSeeder extends Seeder
                 [660, 'Contrôle diurèse + pesée', null, true],
                 [810, 'Antiémétique IV', null, false],
                 [960, 'Contrôle électrolytes (iono)', null, false],
-                [1110, 'Réévaluation vétérinaire — poursuite fluides', null, false],
+                [1110, 'Réévaluation vétérinaire : poursuite fluides', null, false],
             ], [[480, 37.9, 128, 32], [630, 38.1, 120, 30], [780, 38.2, 112, 28]]],
 
             ['deuxRives', 4, 14, 'Surveillance post-anesthésie (détartrage)', StatutSejour::Stable, 'Dr Adjei', [0, 610], 'Auj. 17:30', null, [
-                [640, 'Réveil — contrôle réflexe de déglutition', null, true],
+                [640, 'Réveil : contrôle réflexe de déglutition', null, true],
                 [760, 'Proposition d\'eau', null, true],
                 [900, 'Contrôle T° + gencives', null, false],
                 [1020, 'Visite de sortie + consignes au propriétaire', null, false],
             ], [[660, 37.6, 96, 26], [780, 38.2, 92, 24]]],
 
-            ['deuxRives', 6, 21, 'Gastro-entérite hémorragique — réhydratation', StatutSejour::Surveillance, 'Dr Meyer', [1, 1145], 'Demain', 'Ringer lactate · 60 ml/h', [
+            ['deuxRives', 6, 21, 'Gastro-entérite hémorragique : réhydratation', StatutSejour::Surveillance, 'Dr Meyer', [1, 1145], 'Demain', 'Ringer lactate · 60 ml/h', [
                 [540, 'Contrôle hydratation (pli de peau, TRC)', null, true],
                 [720, 'Antiémétique + pansement digestif', null, true],
-                [890, 'Repas fractionné — ration digestible', 'pr09', false],
+                [890, 'Repas fractionné : ration digestible', 'pr09', false],
                 [1080, 'Contrôle selles + T°', null, false],
             ], [[510, 38.8, 104, 28], [720, 38.9, 100, 26]]],
 
-            ['deuxRives', 7, 27, 'Fracture tibia — attente ostéosynthèse (bloc demain)', StatutSejour::Stable, 'Dr Meyer', [0, 530], 'Après chirurgie', null, [
-                [560, 'Analgésie — méthadone 0,2 mg/kg IM', null, true],
+            ['deuxRives', 7, 27, 'Fracture tibia : attente ostéosynthèse (bloc demain)', StatutSejour::Stable, 'Dr Meyer', [0, 530], 'Après chirurgie', null, [
+                [560, 'Analgésie : méthadone 0,2 mg/kg IM', null, true],
                 [780, 'Contrôle confort + immobilisation', null, true],
                 [1000, 'À jeun à partir de 20:00 (chirurgie demain)', null, false],
             ], [[540, 38.5, 110, 30]]],
 
-            ['leLac', 1, 6, 'Pancréatite aiguë — fluides + analgésie', StatutSejour::Surveillance, 'Dr Favre', [1, 990], 'À réévaluer', 'Ringer lactate · 52 ml/h', [
+            ['leLac', 1, 6, 'Pancréatite aiguë : fluides + analgésie', StatutSejour::Surveillance, 'Dr Favre', [1, 990], 'À réévaluer', 'Ringer lactate · 52 ml/h', [
                 [500, 'Contrôle douleur abdominale', null, true],
                 [700, 'Antiémétique IV', null, true],
-                [880, 'Reprise alimentaire précoce — petite ration', 'pr09', false],
+                [880, 'Reprise alimentaire précoce : petite ration', 'pr09', false],
                 [1060, 'Contrôle lipase (labo) + T°', null, false],
             ], [[480, 38.7, 116, 30], [750, 38.4, 108, 26]]],
 
-            ['leLac', 2, 11, 'Coupure profonde coussinet — suture + surveillance', StatutSejour::Stable, 'Dr Favre', [0, 560], 'Auj. 18:00', null, [
+            ['leLac', 2, 11, 'Coupure profonde coussinet : suture + surveillance', StatutSejour::Stable, 'Dr Favre', [0, 560], 'Auj. 18:00', null, [
                 [590, 'Contrôle pansement + saignement', null, true],
                 [820, 'Renouvellement pansement', 'pr20', false],
                 [1040, 'Visite de sortie + ordonnance', null, false],
             ], [[600, 38.3, 94, 22]]],
 
-            ['leLac', 5, 17, 'Diabète — équilibrage insuline (courbe de glycémie)', StatutSejour::Surveillance, 'Dr Favre', [2, 495], 'Demain soir', null, [
+            ['leLac', 5, 17, 'Diabète : équilibrage insuline (courbe de glycémie)', StatutSejour::Surveillance, 'Dr Favre', [2, 495], 'Demain soir', null, [
                 [480, 'Glycémie + insuline', 'pr05', true],
                 [660, 'Glycémie de contrôle', null, true],
                 [840, 'Glycémie de contrôle', null, false],

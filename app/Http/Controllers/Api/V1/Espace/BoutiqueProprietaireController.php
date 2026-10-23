@@ -131,8 +131,8 @@ class BoutiqueProprietaireController extends Controller
 
                         if ($stockLocal < (int) $ligne['quantite']) {
                             throw ValidationException::withMessages([$champ => $stockLocal === 0
-                                ? 'Rupture de stock — '.$produit->nom.' ('.$clinique->nom.').'
-                                : 'Stock maximum atteint pour cette clinique — '.$stockLocal.' × '.$produit->nom.'.']);
+                                ? 'Rupture de stock : '.$produit->nom.' ('.$clinique->nom.').'
+                                : 'Stock maximum atteint pour cette clinique : '.$stockLocal.' × '.$produit->nom.'.']);
                         }
 
                         $commande->lignes()->create([

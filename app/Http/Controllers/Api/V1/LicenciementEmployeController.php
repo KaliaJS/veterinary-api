@@ -25,7 +25,7 @@ class LicenciementEmployeController extends Controller
         $this->authorize('retirerAcces', $fiche);
 
         if ($fiche->estLicencie()) {
-            throw ValidationException::withMessages(['licenciement' => 'Un licenciement est déjà notifié — annulez-le d’abord.']);
+            throw ValidationException::withMessages(['licenciement' => 'Un licenciement est déjà notifié, annulez-le d’abord.']);
         }
 
         $fiche->update([

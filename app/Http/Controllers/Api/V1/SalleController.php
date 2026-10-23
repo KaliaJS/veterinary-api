@@ -78,12 +78,12 @@ class SalleController extends Controller
 
         if ($occupee > 0) {
             throw ValidationException::withMessages([
-                'salle' => "Salle occupée par {$occupee} intervention".($occupee > 1 ? 's' : '').' — réaffectez-les d\'abord.',
+                'salle' => "Salle occupée par {$occupee} intervention".($occupee > 1 ? 's' : '').', réaffectez-les d\'abord.',
             ]);
         }
 
         if ($salle->lignePlanning()->exists()) {
-            throw ValidationException::withMessages(['salle' => 'Cette salle porte une ligne du planning — retirez-la d\'abord.']);
+            throw ValidationException::withMessages(['salle' => 'Cette salle porte une ligne du planning, retirez-la d\'abord.']);
         }
 
         $derniere = Salle::query()

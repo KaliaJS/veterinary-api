@@ -42,7 +42,7 @@ class EmetteurJetons
     public function emettre(User $user, ?int $cliniqueId = null, string $nomAppareil = 'api'): array
     {
         $rattachement = $this->rattachementPour($user, $cliniqueId) ?? throw ValidationException::withMessages([
-            'clinique_id' => 'Ce compte est rattaché à plusieurs cliniques — précisez clinique_id.',
+            'clinique_id' => 'Ce compte est rattaché à plusieurs cliniques, précisez clinique_id.',
         ]);
 
         return ['jeton' => $this->emettrePour($user, $rattachement, $nomAppareil), 'employe' => $rattachement->employe];

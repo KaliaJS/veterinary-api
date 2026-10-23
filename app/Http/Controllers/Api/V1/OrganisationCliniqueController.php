@@ -46,7 +46,7 @@ class OrganisationCliniqueController extends Controller
 
         if ($limite !== null && $organisation->cliniques()->count() >= $limite) {
             throw ValidationException::withMessages([
-                'cliniques' => "Limite de {$limite} cliniques atteinte — formule supérieure requise.",
+                'cliniques' => "Limite de {$limite} cliniques atteinte, formule supérieure requise.",
             ]);
         }
 
@@ -114,7 +114,7 @@ class OrganisationCliniqueController extends Controller
 
         if ($this->organisation()->cliniques()->count() <= 1) {
             throw ValidationException::withMessages([
-                'clinique' => 'Impossible — l’organisation doit conserver au moins une clinique.',
+                'clinique' => 'Impossible : l’organisation doit conserver au moins une clinique.',
             ]);
         }
 
@@ -124,7 +124,7 @@ class OrganisationCliniqueController extends Controller
 
         if ($porteDesDonnees) {
             throw ValidationException::withMessages([
-                'clinique' => 'Cette clinique porte un historique — elle se désactive, elle ne se supprime pas.',
+                'clinique' => 'Cette clinique porte un historique, elle se désactive, elle ne se supprime pas.',
             ]);
         }
 

@@ -81,7 +81,7 @@ class PasskeyAuthService
 
         if (! is_string($optionsJson)) {
             throw ValidationException::withMessages([
-                'defi_id' => 'Défi expiré — recommencez la connexion.',
+                'defi_id' => 'Défi expiré : recommencez la connexion.',
             ]);
         }
 
@@ -101,7 +101,7 @@ class PasskeyAuthService
 
             if (! $passkey) {
                 throw ValidationException::withMessages([
-                    'credential' => 'Passkey inconnue — elle a peut-être été révoquée.',
+                    'credential' => 'Passkey inconnue : elle a peut-être été révoquée.',
                 ]);
             }
 

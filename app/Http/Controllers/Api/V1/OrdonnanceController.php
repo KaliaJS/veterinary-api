@@ -90,7 +90,7 @@ class OrdonnanceController extends Controller
                 $this->stock->sortir(
                     Produit::findOrFail($ligne['produit_id']),
                     1,
-                    'Sortie — ordonnance '.$ordonnance->numero,
+                    'Sortie : ordonnance '.$ordonnance->numero,
                     $request->user(),
                     $ordonnance,
                 );
@@ -129,7 +129,7 @@ class OrdonnanceController extends Controller
 
         if (! $estDansLaFenetre) {
             throw ValidationException::withMessages([
-                'ordonnance' => 'Une ordonnance signée ne se supprime pas — clôturez-la. Seule l’annulation immédiate d’une signature est tolérée.',
+                'ordonnance' => 'Une ordonnance signée ne se supprime pas, clôturez-la. Seule l’annulation immédiate d’une signature est tolérée.',
             ]);
         }
 

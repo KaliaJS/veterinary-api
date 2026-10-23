@@ -105,10 +105,10 @@ class EquipeSeeder extends Seeder
         $absences = [
             // [employé, type, offset début, offset fin, statut, note]
             ['st2', TypeAbsence::Conge, 2, 6, StatutAbsence::Validee, 'Vacances familiales'],
-            ['st3', TypeAbsence::Garde, 5, 6, StatutAbsence::Validee, 'Garde week-end — urgences'],
-            ['st6', TypeAbsence::Maladie, 0, 1, StatutAbsence::Validee, 'Certificat reçu — grippe'],
-            ['st4', TypeAbsence::Conge, 9, 13, StatutAbsence::EnAttente, 'Demande via l’app — mariage de sa sœur'],
-            ['st1', TypeAbsence::Formation, 8, 8, StatutAbsence::Validee, 'Congrès SVK-ASMPA — cardiologie'],
+            ['st3', TypeAbsence::Garde, 5, 6, StatutAbsence::Validee, 'Garde week-end : urgences'],
+            ['st6', TypeAbsence::Maladie, 0, 1, StatutAbsence::Validee, 'Certificat reçu : grippe'],
+            ['st4', TypeAbsence::Conge, 9, 13, StatutAbsence::EnAttente, 'Demande via l’app : mariage de sa sœur'],
+            ['st1', TypeAbsence::Formation, 8, 8, StatutAbsence::Validee, 'Congrès SVK-ASMPA : cardiologie'],
             ['st5', TypeAbsence::Recuperation, 3, 3, StatutAbsence::EnAttente, 'Récup heures bloc du 28.07'],
             ['st2', TypeAbsence::Conge, -32, -26, StatutAbsence::Validee, null],
         ];

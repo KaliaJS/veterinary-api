@@ -212,7 +212,7 @@ class CommandeFournisseurController extends Controller
 
         if ($commande->statut === StatutCommandeFournisseur::Receptionnee) {
             throw ValidationException::withMessages([
-                'statut' => 'Une commande réceptionnée a fait bouger le stock — elle ne se supprime plus.',
+                'statut' => 'Une commande réceptionnée a fait bouger le stock, elle ne se supprime plus.',
             ]);
         }
 

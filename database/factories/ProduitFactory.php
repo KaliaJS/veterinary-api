@@ -26,7 +26,7 @@ class ProduitFactory extends Factory
         'ali' => ['Croquettes rénales chien · 2 kg', 'Croquettes rénales chat · 1,5 kg', 'Pâtée convalescence · 12 × 85 g'],
         'soin' => ['Shampooing chlorhexidine · 250 ml', 'Nettoyant auriculaire · 125 ml', 'Dentifrice enzymatique + doigtier'],
         'apara' => ['Pipettes spot-on chien M · ×4', 'Comprimés antipuces chien · 3 cp', 'Vermifuge large spectre · 2 cp'],
-        'phyto' => ['Harpagophytum articulations · 90 gél.', 'Valériane & passiflore — calmant · 30 ml'],
+        'phyto' => ['Harpagophytum articulations · 90 gél.', 'Valériane & passiflore : calmant · 30 ml'],
         'mat' => ['Collerette T45', 'Seringues 5 ml · ×100', 'Compresses stériles · ×100'],
     ];
 

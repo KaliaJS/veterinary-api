@@ -50,15 +50,15 @@ class DocumentsProprietaireTest extends TestCase
         $this->assertSame($devis->id, $items[0]['id']);
         $this->assertTrue($items[0]['a_signer']);
         $this->assertSame('EN ATTENTE DE VOTRE SIGNATURE', $items[0]['sous_ligne']);
-        $this->assertStringStartsWith('Devis détartrage — CHF ', $items[0]['titre']);
+        $this->assertStringStartsWith('Devis détartrage, CHF ', $items[0]['titre']);
 
         $parType = $items->keyBy('type');
-        $this->assertStringStartsWith('Facture consultation — CHF 85.00', $parType['FACTURE']['titre']);
+        $this->assertStringStartsWith('Facture consultation, CHF 85.00', $parType['FACTURE']['titre']);
         $this->assertStringStartsWith('PAYÉE · ', $parType['FACTURE']['sous_ligne']);
         $this->assertEquals(85, $parType['FACTURE']['pdf']['total_ttc']);
         $this->assertSame($ordonnance->id, $parType['ORDONNANCE']['id']);
         $this->assertTrue($parType['ORDONNANCE']['peut_renouveler']);
-        $this->assertSame('Carnet de vaccination — Max', $parType['CARNET']['titre']);
+        $this->assertSame('Carnet de vaccination : Max', $parType['CARNET']['titre']);
         $this->assertCount(1, $parType['CARNET']['pdf']['vaccinations']);
         $this->assertSame('Radiographie thorax (Max)', $parType['IMAGERIE']['titre']);
         $this->assertNull($parType['IMAGERIE']['pdf']);
@@ -114,7 +114,7 @@ class DocumentsProprietaireTest extends TestCase
         // Une seule demande en attente ; la liste et l'accueil le reflètent.
         $this->postJson("/api/v1/espace/ordonnances/{$ordonnance->id}/renouvellement", [], $this->enTetes($jeton))->assertUnprocessable();
         $this->getJson('/api/v1/espace/documents', $this->enTetes($jeton))
-            ->assertJsonPath('data.0.sous_ligne', 'RENOUVELLEMENT DEMANDÉ — EN ATTENTE')
+            ->assertJsonPath('data.0.sous_ligne', 'RENOUVELLEMENT DEMANDÉ · EN ATTENTE')
             ->assertJsonPath('data.0.peut_renouveler', false);
         $this->getJson('/api/v1/espace/accueil', $this->enTetes($jeton))
             ->assertJsonPath('data.ordonnance.renouvellement_en_attente', true)

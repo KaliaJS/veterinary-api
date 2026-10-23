@@ -34,16 +34,16 @@ class ImagerieSeeder extends Seeder
     private const array COMPTES_RENDUS = [
         'DX' => [
             ['Cliché de qualité diagnostique. Silhouette cardiaque dans les limites (VHS 10,3). Champs pulmonaires clairs, vascularisation régulière. Coupoles diaphragmatiques nettes.', 'Examen dans les limites de la normale.'],
-            ['Opacité alvéolaire en lobe moyen droit avec bronchogramme aérique. Silhouette cardiaque non déformée. Pas d\'épanchement pleural.', 'Image compatible avec une bronchopneumonie — corrélation clinique et cliché de contrôle à 10 jours.'],
+            ['Opacité alvéolaire en lobe moyen droit avec bronchogramme aérique. Silhouette cardiaque non déformée. Pas d\'épanchement pleural.', 'Image compatible avec une bronchopneumonie, corrélation clinique et cliché de contrôle à 10 jours.'],
             ['Discrète spondylose L2–L4 sans lyse ni réaction périostée agressive. Interlignes articulaires conservés. Tissus mous sans particularité.', 'Remaniements dégénératifs modérés, sans signe de gravité.'],
         ],
         'US' => [
             ['Foie de taille et d\'échogénicité normales. Vésicule biliaire anéchogène à paroi fine. Reins symétriques, différenciation cortico-médullaire conservée. Vessie à contenu anéchogène.', 'Échographie abdominale sans anomalie significative.'],
-            ['Paroi gastrique discrètement épaissie (5,1 mm) à stratification conservée. Ganglions jéjunaux à la limite supérieure. Reste de l\'examen sans particularité.', 'Aspect compatible avec une gastrite — cytologie ou suivi échographique conseillé.'],
+            ['Paroi gastrique discrètement épaissie (5,1 mm) à stratification conservée. Ganglions jéjunaux à la limite supérieure. Reste de l\'examen sans particularité.', 'Aspect compatible avec une gastrite, cytologie ou suivi échographique conseillé.'],
         ],
         'ES' => [
-            ['Œsophage — muqueuse rosée, lisse, jonction cardiale continente. Estomac — lac muqueux clair, plis souples, pas d\'ulcération visible. Pylore franchissable.', 'Endoscopie digestive haute macroscopiquement normale — biopsies étagées en attente d\'histologie.'],
-            ['Muqueuse gastrique érythémateuse en antre avec érosions punctiformes. Duodénum proximal sans particularité. Biopsies réalisées (×6).', 'Gastrite érosive antrale — traitement gastro-protecteur initié dans l\'attente de l\'histologie.'],
+            ['Œsophage : muqueuse rosée, lisse, jonction cardiale continente. Estomac : lac muqueux clair, plis souples, pas d\'ulcération visible. Pylore franchissable.', 'Endoscopie digestive haute macroscopiquement normale, biopsies étagées en attente d\'histologie.'],
+            ['Muqueuse gastrique érythémateuse en antre avec érosions punctiformes. Duodénum proximal sans particularité. Biopsies réalisées (×6).', 'Gastrite érosive antrale : traitement gastro-protecteur initié dans l\'attente de l\'histologie.'],
         ],
     ];
 

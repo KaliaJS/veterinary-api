@@ -67,7 +67,7 @@ class FactureRendezVousTest extends TestCase
 
         $this->assertSame('due', $facture->statut->value);
         $this->assertSame($this->clinique->id, $facture->clinique_id);
-        $this->assertSame('Vaccination — acte', $facture->lignes()->sole()->libelle);
+        $this->assertSame('Vaccination : acte', $facture->lignes()->sole()->libelle);
         $this->assertSame(48.0, (float) $facture->lignes()->sole()->prix_chf);
 
         // Le créateur a le domaine facturation : la facture est exposée.

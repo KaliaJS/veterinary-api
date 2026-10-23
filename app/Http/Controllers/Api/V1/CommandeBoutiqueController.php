@@ -127,8 +127,8 @@ class CommandeBoutiqueController extends Controller
                 if ($stockLocal < $ligne->quantite) {
                     throw ValidationException::withMessages([
                         "lignes.{$index}.quantite" => $stockLocal === 0
-                            ? 'Rupture de stock — '.$ligne->produit->nom.'.'
-                            : 'Stock insuffisant — '.$stockLocal.' en rayon pour '.$ligne->produit->nom.' ('.$ligne->quantite.' commandés).',
+                            ? 'Rupture de stock : '.$ligne->produit->nom.'.'
+                            : 'Stock insuffisant : '.$stockLocal.' en rayon pour '.$ligne->produit->nom.' ('.$ligne->quantite.' commandés).',
                     ]);
                 }
             }

@@ -26,7 +26,7 @@ class DevisFactory extends Factory
             'motif' => fake()->randomElement([
                 'Ostéosynthèse fémur droit',
                 'Détartrage + polissage sous anesthésie',
-                'Bilan boiterie — imagerie + consultation',
+                'Bilan boiterie : imagerie + consultation',
             ]),
             'statut' => StatutDevis::Brouillon,
         ];
@@ -48,7 +48,7 @@ class DevisFactory extends Factory
             'canal' => CanalDevis::Papier,
             'valide_jusquau' => now()->addDays(28),
             'signe_le' => now()->subDay(),
-            'signe_par' => 'Signature papier « bon pour accord » — classée au dossier',
+            'signe_par' => 'Signature papier « bon pour accord », classée au dossier',
             'acompte_pct' => 30,
         ]);
     }

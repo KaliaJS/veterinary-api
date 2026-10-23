@@ -32,10 +32,10 @@ class PatientFactory extends Factory
     ];
 
     private const TRAITEMENTS = [
-        'Meloxicam 1,5 mg — 1 prise/jour pendant 7 jours',
-        'Amoxicilline 250 mg — 2 prises/jour pendant 10 jours',
-        'Antiparasitaire mensuel — prochaine prise fin de mois',
-        'Alimentation rénale stricte — contrôle dans 3 mois',
+        'Meloxicam 1,5 mg : 1 prise/jour pendant 7 jours',
+        'Amoxicilline 250 mg : 2 prises/jour pendant 10 jours',
+        'Antiparasitaire mensuel : prochaine prise fin de mois',
+        'Alimentation rénale stricte : contrôle dans 3 mois',
     ];
 
     public function definition(): array

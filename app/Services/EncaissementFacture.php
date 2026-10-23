@@ -77,7 +77,7 @@ class EncaissementFacture
             $this->stock->sortir(
                 $ligne->produit,
                 $ligne->quantite,
-                'Sortie — facture '.$facture->numero,
+                'Sortie : facture '.$facture->numero,
                 $auteur,
                 $facture,
             );

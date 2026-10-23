@@ -15,8 +15,8 @@ class SejourFactory extends Factory
 {
     private const MOTIFS = [
         'Post-op entérotomie (corps étranger)', 'Insuffisance rénale décompensée',
-        'Surveillance post-anesthésie', 'Gastro-entérite hémorragique — réhydratation',
-        'Pancréatite aiguë — fluides + analgésie', 'Équilibrage insuline (courbe de glycémie)',
+        'Surveillance post-anesthésie', 'Gastro-entérite hémorragique : réhydratation',
+        'Pancréatite aiguë : fluides + analgésie', 'Équilibrage insuline (courbe de glycémie)',
     ];
 
     public function definition(): array

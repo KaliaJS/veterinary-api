@@ -16,7 +16,7 @@ class DevisLigneFactory extends Factory
     {
         return [
             'devis_id' => Devis::factory(),
-            'libelle' => fake()->randomElement(['Chirurgie — forfait bloc', 'Radiographie — 2 clichés', 'Détartrage + polissage']),
+            'libelle' => fake()->randomElement(['Chirurgie : forfait bloc', 'Radiographie : 2 clichés', 'Détartrage + polissage']),
             'quantite' => 1,
             'prix_chf' => fake()->randomElement([120, 260, 420]),
             'type' => TypeLigneFacture::Acte,

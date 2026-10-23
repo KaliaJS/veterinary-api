@@ -59,8 +59,8 @@ class DevisTest extends TestCase
             'patient_id' => $this->patient->id,
             'motif' => 'Ostéosynthèse fémur droit',
             'lignes' => [
-                ['libelle' => 'Chirurgie — forfait bloc', 'quantite' => 1, 'prix_chf' => 420, 'type' => 'acte'],
-                ['libelle' => 'Radiographie — 2 clichés', 'quantite' => 2, 'prix_chf' => 120, 'type' => 'acte'],
+                ['libelle' => 'Chirurgie : forfait bloc', 'quantite' => 1, 'prix_chf' => 420, 'type' => 'acte'],
+                ['libelle' => 'Radiographie : 2 clichés', 'quantite' => 2, 'prix_chf' => 120, 'type' => 'acte'],
             ],
             'remise_pct' => 10,
             'acompte_pct' => 30,
@@ -159,7 +159,7 @@ class DevisTest extends TestCase
     public function test_la_duplication_repart_en_brouillon_signature_remise_a_zero(): void
     {
         $accepte = $this->devis(['statut' => 'accepte', 'canal' => 'portail', 'signe_le' => now(), 'signe_par' => 'Signature électronique']);
-        DevisLigne::factory()->create(['devis_id' => $accepte->id, 'libelle' => 'Chirurgie — forfait bloc', 'prix_chf' => 420]);
+        DevisLigne::factory()->create(['devis_id' => $accepte->id, 'libelle' => 'Chirurgie : forfait bloc', 'prix_chf' => 420]);
 
         $reponse = $this->postJson("/api/v1/facturation/devis/{$accepte->id}/dupliquer", [], $this->enTetes($this->jeton));
 
@@ -168,7 +168,7 @@ class DevisTest extends TestCase
             ->assertJsonPath('data.canal', null)
             ->assertJsonPath('data.signe_le', null)
             ->assertJsonPath('data.emis_le', today()->toDateString())
-            ->assertJsonPath('data.lignes.0.libelle', 'Chirurgie — forfait bloc');
+            ->assertJsonPath('data.lignes.0.libelle', 'Chirurgie : forfait bloc');
 
         $this->assertNotSame($accepte->numero, $reponse->json('data.numero'));
     }
@@ -186,7 +186,7 @@ class DevisTest extends TestCase
     public function test_l_acompte_puis_la_finale_deduisent_remise_et_acompte(): void
     {
         $devis = $this->devis(['statut' => 'accepte', 'canal' => 'papier', 'signe_le' => now(), 'remise_pct' => 10, 'acompte_pct' => 30]);
-        DevisLigne::factory()->create(['devis_id' => $devis->id, 'libelle' => 'Chirurgie — forfait bloc', 'prix_chf' => 400]);
+        DevisLigne::factory()->create(['devis_id' => $devis->id, 'libelle' => 'Chirurgie : forfait bloc', 'prix_chf' => 400]);
         DevisLigne::factory()->create(['devis_id' => $devis->id, 'libelle' => 'Analyses laboratoire — profil standard', 'prix_chf' => 100]);
         $entetes = $this->enTetes($this->jeton);
 
@@ -195,7 +195,7 @@ class DevisTest extends TestCase
 
         $acompte->assertCreated()
             ->assertJsonPath('data.total_ttc', 135)
-            ->assertJsonPath('data.lignes.0.libelle', "Acompte 30 % — devis {$devis->numero}");
+            ->assertJsonPath('data.lignes.0.libelle', "Acompte 30 % : devis {$devis->numero}");
 
         $finale = $this->postJson("/api/v1/facturation/devis/{$devis->id}/facturer-finale", [], $entetes);
 

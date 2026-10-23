@@ -17,7 +17,7 @@ class InterventionFactory extends Factory
 {
     private const PROCEDURES = [
         'Ovariohystérectomie de convenance', 'Détartrage ultrasonique',
-        'Exérèse masse cutanée', 'Cystotomie — retrait de calculs vésicaux',
+        'Exérèse masse cutanée', 'Cystotomie : retrait de calculs vésicaux',
         'Ostéosynthèse tibia',
     ];
 

@@ -29,7 +29,7 @@ class CommandeFournisseurLigneController extends Controller
 
         if ($commande->lignes()->where('produit_id', $produit->id)->exists()) {
             throw ValidationException::withMessages([
-                'produit_id' => 'Cet article est déjà sur la commande — modifiez sa ligne.',
+                'produit_id' => 'Cet article est déjà sur la commande, modifiez sa ligne.',
             ]);
         }
 

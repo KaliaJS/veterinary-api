@@ -126,7 +126,7 @@ class DevisController extends Controller
 
         if ($devis->statut !== StatutDevis::Brouillon) {
             throw ValidationException::withMessages([
-                'statut' => 'Seul un brouillon se supprime — un devis envoyé se refuse ou expire.',
+                'statut' => 'Seul un brouillon se supprime, un devis envoyé se refuse ou expire.',
             ]);
         }
 

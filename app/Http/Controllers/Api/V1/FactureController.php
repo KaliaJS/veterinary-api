@@ -133,7 +133,7 @@ class FactureController extends Controller
 
         if (! $estDansLaFenetre) {
             throw ValidationException::withMessages([
-                'facture' => 'Une facture ne se supprime pas — le journal est immuable. Seule l’annulation immédiate d’une création est tolérée.',
+                'facture' => 'Une facture ne se supprime pas, le journal est immuable. Seule l’annulation immédiate d’une création est tolérée.',
             ]);
         }
 

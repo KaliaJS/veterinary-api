@@ -18,7 +18,7 @@ class OptionsInscriptionPasskeyRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'email.unique' => 'Un compte existe déjà pour cette adresse — connectez-vous.',
+            'email.unique' => 'Un compte existe déjà pour cette adresse, connectez-vous.',
         ];
     }
 }

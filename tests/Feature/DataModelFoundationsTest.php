@@ -84,7 +84,7 @@ class DataModelFoundationsTest extends TestCase
             'batch_id' => $batch,
             'champ' => 'motifAnnulation',
             'ancienne_valeur' => null,
-            'nouvelle_valeur' => 'Absence praticien — congés',
+            'nouvelle_valeur' => 'Absence praticien : congés',
         ]);
 
         $rendezVous->update(['status' => StatutRendezVous::Annule]);
@@ -94,7 +94,7 @@ class DataModelFoundationsTest extends TestCase
         $this->assertTrue($rendezVous->flags->first() === DrapeauRendezVous::AJeun);
         $this->assertSame(2, $rendezVous->audits()->where('batch_id', $batch)->count());
         $this->assertSame(
-            'Absence praticien — congés',
+            'Absence praticien : congés',
             $rendezVous->audits()->where('champ', 'motifAnnulation')->first()->nouvelle_valeur,
         );
     }

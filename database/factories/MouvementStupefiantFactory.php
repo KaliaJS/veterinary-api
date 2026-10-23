@@ -22,7 +22,7 @@ class MouvementStupefiantFactory extends Factory
             'patient_id' => null,
             'employe_id' => null,
             'quantite' => fake()->randomElement([10, 20, 50]),
-            'motif' => 'Réception grossiste — lot '.fake()->bothify('??-####'),
+            'motif' => 'Réception grossiste : lot '.fake()->bothify('??-####'),
             'created_at' => fake()->dateTimeBetween('-30 days'),
         ];
     }

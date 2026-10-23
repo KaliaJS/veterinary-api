@@ -65,7 +65,7 @@ class FinConsultationController extends Controller
         }
 
         if (Facture::where('rendez_vous_id', $rendezVous->id)->exists()) {
-            throw ValidationException::withMessages(['rendez_vous' => 'Ce rendez-vous est déjà facturé — rouvrez sa facture en caisse.']);
+            throw ValidationException::withMessages(['rendez_vous' => 'Ce rendez-vous est déjà facturé, rouvrez sa facture en caisse.']);
         }
 
         $donnees = $request->validated();
@@ -73,7 +73,7 @@ class FinConsultationController extends Controller
 
         if ($patient === null && (isset($donnees['vaccination']) || ! empty($donnees['medicaments']))) {
             throw ValidationException::withMessages([
-                'rendez_vous' => 'Vaccin et médicaments exigent une fiche patient — le rendez-vous n’en référence aucune.',
+                'rendez_vous' => 'Vaccin et médicaments exigent une fiche patient, le rendez-vous n’en référence aucune.',
             ]);
         }
 
@@ -169,7 +169,7 @@ class FinConsultationController extends Controller
                     $this->stock->sortir(
                         $medicament['produit'],
                         1,
-                        'Sortie — ordonnance '.$ordonnance->numero,
+                        'Sortie : ordonnance '.$ordonnance->numero,
                         $request->user(),
                         $ordonnance,
                     );
@@ -191,7 +191,7 @@ class FinConsultationController extends Controller
                     $this->stock->sortir(
                         $vaccinProduit,
                         1,
-                        'Sortie — facture '.$facture->numero,
+                        'Sortie : facture '.$facture->numero,
                         $request->user(),
                         $facture,
                     );

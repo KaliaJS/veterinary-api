@@ -146,7 +146,7 @@ class MutationRendezVous
             return 0;
         }
 
-        $motif = 'Absence praticien — '.mb_strtolower($absence->type->libelle());
+        $motif = 'Absence praticien : '.mb_strtolower($absence->type->libelle());
 
         $lignes = LignePlanning::withoutGlobalScope('clinique')
             ->with('clinique')

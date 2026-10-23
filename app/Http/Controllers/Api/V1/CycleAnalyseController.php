@@ -36,7 +36,7 @@ class CycleAnalyseController extends Controller
         }
 
         if ($suivant === StatutAnalyse::AValider && $analyse->resultats()->whereNull('valeur')->exists()) {
-            throw ValidationException::withMessages(['resultats' => 'Saisie incomplète — chaque paramètre demandé attend une valeur.']);
+            throw ValidationException::withMessages(['resultats' => 'Saisie incomplète : chaque paramètre demandé attend une valeur.']);
         }
 
         $analyse->update([

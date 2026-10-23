@@ -41,7 +41,7 @@ class LotController extends Controller
             $stock->appliquer(
                 $lot->produit,
                 -$lot->quantite,
-                'Péremption — lot '.$lot->numero_lot.' écarté',
+                'Péremption : lot '.$lot->numero_lot.' écarté',
                 $request->user(),
                 MotifAjustementStock::Peremption,
                 $lot,

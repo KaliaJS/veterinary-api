@@ -70,9 +70,9 @@ class DocumentsProprietaire
                     'type' => 'ORDONNANCE',
                     'id' => $o->id,
                     'date' => $o->signee_le?->toDateString(),
-                    'titre' => 'Ordonnance — '.($produits ?: $o->numero).' ('.$o->patient->nom.')',
+                    'titre' => 'Ordonnance : '.($produits ?: $o->numero).' ('.$o->patient->nom.')',
                     'sous_ligne' => $enAttente
-                        ? 'RENOUVELLEMENT DEMANDÉ — EN ATTENTE'
+                        ? 'RENOUVELLEMENT DEMANDÉ · EN ATTENTE'
                         : mb_strtoupper(($o->employe?->nom ?? $o->clinique->nom).' · '.self::dateLongue($o->signee_le)).($active ? '' : ' · CLÔTURÉE'),
                     'peut_renouveler' => $active && $o->renouvellements > 0 && ! $enAttente,
                     'renouvellement_en_attente' => $enAttente,
@@ -118,7 +118,7 @@ class DocumentsProprietaire
                     'type' => 'FACTURE',
                     'id' => $f->id,
                     'date' => $f->emise_le?->toDateString(),
-                    'titre' => 'Facture '.$libelle.' — CHF '.self::montant($f->totalTtc()).' ('.$f->patient_name.')',
+                    'titre' => 'Facture '.$libelle.', CHF '.self::montant($f->totalTtc()).' ('.$f->patient_name.')',
                     'sous_ligne' => $payee
                         ? 'PAYÉE · '.mb_strtoupper(self::dateLongue($f->payee_le ?? $f->emise_le))
                         : 'À RÉGLER · '.mb_strtoupper(self::dateLongue($f->emise_le)),
@@ -166,7 +166,7 @@ class DocumentsProprietaire
                     'type' => 'DEVIS',
                     'id' => $d->id,
                     'date' => $d->emis_le?->toDateString(),
-                    'titre' => 'Devis '.mb_strtolower($d->motif ?? $d->numero).' — CHF '.self::montant($d->totalTtc()).' ('.$d->patient->nom.')',
+                    'titre' => 'Devis '.mb_strtolower($d->motif ?? $d->numero).', CHF '.self::montant($d->totalTtc()).' ('.$d->patient->nom.')',
                     'sous_ligne' => match ($effectif) {
                         StatutDevis::Envoye->value => 'EN ATTENTE DE VOTRE SIGNATURE',
                         StatutDevis::Accepte->value => 'SIGNÉ ÉLECTRONIQUEMENT'.($d->signe_le ? ' · '.mb_strtoupper(self::dateLongue($d->signe_le)) : ''),
@@ -221,7 +221,7 @@ class DocumentsProprietaire
                     'type' => 'CARNET',
                     'id' => $p->id,
                     'date' => $derniere?->toDateString(),
-                    'titre' => 'Carnet de vaccination — '.$p->nom,
+                    'titre' => 'Carnet de vaccination : '.$p->nom,
                     'sous_ligne' => 'MIS À JOUR LE '.mb_strtoupper(self::dateLongue($derniere)),
                     'pdf' => [
                         'patient' => $p->nom,

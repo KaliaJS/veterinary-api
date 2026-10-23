@@ -201,7 +201,7 @@ class AccueilProprietaire
         foreach ($commandesPretes as $commande) {
             $items[] = [
                 'type' => 'commande',
-                'libelle' => sprintf('Commande %s prête au retrait — %s', $commande->numero, $commande->clinique->nom),
+                'libelle' => sprintf('Commande %s prête au retrait, %s', $commande->numero, $commande->clinique->nom),
                 'cible' => 'commandes',
                 'commande_id' => $commande->id,
             ];

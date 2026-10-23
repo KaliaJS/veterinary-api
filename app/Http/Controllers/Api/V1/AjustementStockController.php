@@ -36,7 +36,7 @@ class AjustementStockController extends Controller
 
         if ($reel === 0) {
             throw ValidationException::withMessages([
-                'quantite' => 'Stock déjà à zéro — aucune sortie possible.',
+                'quantite' => 'Stock déjà à zéro : aucune sortie possible.',
             ]);
         }
 

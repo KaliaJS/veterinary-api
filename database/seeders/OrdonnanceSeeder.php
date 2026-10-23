@@ -41,10 +41,10 @@ class OrdonnanceSeeder extends Seeder
 
         // [n°, signataire, jours, lignes [réf, poso, durée], renouvellements, statut, note]
         $registre = [
-            [58, 'meyer', 0, [['MED-0114', '0,1 mg/kg — 1× par jour, pendant le repas', '7 jours']], 1, StatutOrdonnance::Active, 'Contrôle si la boiterie persiste au-delà de 7 jours.'],
-            [57, 'adjei', 0, [['MED-0087', '1 comprimé matin et soir', '10 jours'], ['MED-0114', '0,1 mg/kg — 1× par jour', '4 jours']], 0, StatutOrdonnance::Active, null],
-            [56, 'solal', 1, [['MED-0201', '1 comprimé 2× par jour pendant 14 j, puis 1× par jour', '28 jours']], 2, StatutOrdonnance::Active, 'Dermatite atopique — réévaluation à 1 mois.'],
-            [55, 'meyer', 4, [['MED-0166', '2 UI en injection sous-cutanée — 2× par jour après le repas', '30 jours']], 3, StatutOrdonnance::Active, 'Courbe de glycémie au prochain renouvellement.'],
+            [58, 'meyer', 0, [['MED-0114', '0,1 mg/kg : 1× par jour, pendant le repas', '7 jours']], 1, StatutOrdonnance::Active, 'Contrôle si la boiterie persiste au-delà de 7 jours.'],
+            [57, 'adjei', 0, [['MED-0087', '1 comprimé matin et soir', '10 jours'], ['MED-0114', '0,1 mg/kg : 1× par jour', '4 jours']], 0, StatutOrdonnance::Active, null],
+            [56, 'solal', 1, [['MED-0201', '1 comprimé 2× par jour pendant 14 j, puis 1× par jour', '28 jours']], 2, StatutOrdonnance::Active, 'Dermatite atopique : réévaluation à 1 mois.'],
+            [55, 'meyer', 4, [['MED-0166', '2 UI en injection sous-cutanée, 2× par jour après le repas', '30 jours']], 3, StatutOrdonnance::Active, 'Courbe de glycémie au prochain renouvellement.'],
             [54, 'meyer', 9, [['APA-0540', '1 comprimé en une prise unique', 'Prise unique']], 0, StatutOrdonnance::Cloturee, 'Traitement terminé.'],
         ];
 

@@ -41,7 +41,7 @@ class AccesEmployeController extends Controller
             $limite = $organisation->plan->limites()['employes'];
 
             throw ValidationException::withMessages([
-                'acces' => "Limite de {$limite} employés actifs atteinte — formule supérieure requise.",
+                'acces' => "Limite de {$limite} employés actifs atteinte, formule supérieure requise.",
             ]);
         }
 

@@ -128,7 +128,7 @@ class PasskeyRegisterService
 
         if (! is_string($optionsJson)) {
             throw ValidationException::withMessages([
-                'defi_id' => 'Défi expiré — recommencez l’enrôlement.',
+                'defi_id' => 'Défi expiré : recommencez l’enrôlement.',
             ]);
         }
 
@@ -136,7 +136,7 @@ class PasskeyRegisterService
 
         if ($emailAttendu !== null && mb_strtolower($options->user->name) !== mb_strtolower($emailAttendu)) {
             throw ValidationException::withMessages([
-                'defi_id' => 'Défi émis pour une autre adresse — recommencez l’inscription.',
+                'defi_id' => 'Défi émis pour une autre adresse, recommencez l’inscription.',
             ]);
         }
 

@@ -95,7 +95,7 @@ class OrdonnanceTest extends TestCase
         $this->assertDatabaseHas('mouvements_stock', [
             'produit_id' => $produit->id,
             'quantite' => -1,
-            'libelle' => 'Sortie — ordonnance '.$ordonnance->numero,
+            'libelle' => 'Sortie : ordonnance '.$ordonnance->numero,
             'source_type' => $ordonnance->getMorphClass(),
             'source_id' => $ordonnance->id,
         ]);

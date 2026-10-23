@@ -59,8 +59,8 @@ class VenteComptoirController extends Controller
                 if ($stockLocal < (int) $ligne['quantite']) {
                     throw ValidationException::withMessages([
                         "lignes.{$index}.quantite" => $stockLocal === 0
-                            ? 'Rupture de stock — '.$produit->nom.'.'
-                            : 'Stock maximum atteint — '.$stockLocal.' en rayon pour '.$produit->nom.'.',
+                            ? 'Rupture de stock : '.$produit->nom.'.'
+                            : 'Stock maximum atteint : '.$stockLocal.' en rayon pour '.$produit->nom.'.',
                     ]);
                 }
 

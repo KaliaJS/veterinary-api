@@ -137,7 +137,7 @@ class RendezVousController extends Controller
 
         if (! $estDansLaFenetre) {
             throw ValidationException::withMessages([
-                'rendez_vous' => 'Un rendez-vous ne se supprime pas — annulez-le. Seule l’annulation immédiate d’une création est tolérée.',
+                'rendez_vous' => 'Un rendez-vous ne se supprime pas, annulez-le. Seule l’annulation immédiate d’une création est tolérée.',
             ]);
         }
 

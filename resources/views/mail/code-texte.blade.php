@@ -12,4 +12,4 @@ Valable {{ $validiteMinutes }} minutes, à usage unique.
 
 Vous n’êtes pas à l’origine de cette demande ? Ignorez cet e-mail : personne ne peut se connecter sans ce code.
 
-— Veterinary · Cliniques vétérinaires en Suisse
+Veterinary · Cliniques vétérinaires en Suisse

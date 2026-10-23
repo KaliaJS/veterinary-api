@@ -20,7 +20,7 @@ enum MotifAjustementStock: string
             self::Reception => 'Réception manuelle',
             self::Inventaire => 'Correction d’inventaire',
             self::Casse => 'Casse / perte',
-            self::Peremption => 'Périmé — écarté',
+            self::Peremption => 'Périmé : écarté',
             self::UsageInterne => 'Usage interne clinique',
         };
     }

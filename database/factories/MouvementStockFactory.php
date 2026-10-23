@@ -21,7 +21,7 @@ class MouvementStockFactory extends Factory
             'clinique_id' => Clinique::factory(),
             'user_id' => null,
             'quantite' => $quantite,
-            'libelle' => $quantite > 0 ? 'Réception commande' : 'Sortie — consultation',
+            'libelle' => $quantite > 0 ? 'Réception commande' : 'Sortie : consultation',
             'motif' => null,
             'created_at' => fake()->dateTimeBetween('-30 days'),
         ];

@@ -85,7 +85,7 @@ class RendezVousProprietaireTest extends TestCase
             'clinique_id' => $rdv->clinique_id,
             'patient_id' => $max->id,
             'client_id' => $fiche->id,
-            'reason' => 'Report — Vaccin',
+            'reason' => 'Report : Vaccin',
             'mode' => 'valider',
             'duree_minutes' => 30,
         ]);

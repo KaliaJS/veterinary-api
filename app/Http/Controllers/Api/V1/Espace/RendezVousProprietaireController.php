@@ -94,7 +94,7 @@ class RendezVousProprietaireController extends Controller
         $rendezVous = $this->mien($contexte, $rendezVousId);
 
         if ($rendezVous->status !== StatutRendezVous::Prevu || ! $rendezVous->starts_at->isFuture()) {
-            throw ValidationException::withMessages(['status' => 'Ce rendez-vous ne peut plus être reporté en ligne — contactez la clinique.']);
+            throw ValidationException::withMessages(['status' => 'Ce rendez-vous ne peut plus être reporté en ligne, contactez la clinique.']);
         }
 
         $demande = DemandeRendezVous::withoutGlobalScopes()->create([
@@ -105,7 +105,7 @@ class RendezVousProprietaireController extends Controller
             'patient_name' => $rendezVous->patient_name,
             'species' => $rendezVous->species,
             'owner_name' => $rendezVous->owner_name,
-            'reason' => 'Report — '.($rendezVous->reason ?: 'rendez-vous'),
+            'reason' => 'Report : '.($rendezVous->reason ?: 'rendez-vous'),
             'souhait' => 'Report demandé par le propriétaire (rendez-vous du '
                 .$rendezVous->starts_at->setTimezone($rendezVous->clinique->fuseau_horaire ?? 'Europe/Zurich')->format('d.m.Y à H:i').')',
             'mode' => ModeDemandeRendezVous::AValider,

@@ -48,7 +48,7 @@ class CycleDevisController extends Controller
         $this->authorize('update', $devis);
 
         if ($devis->estExpire()) {
-            throw ValidationException::withMessages(['statut' => 'Ce devis est expiré — dupliquez-le pour repartir d’un brouillon.']);
+            throw ValidationException::withMessages(['statut' => 'Ce devis est expiré : dupliquez-le pour repartir d’un brouillon.']);
         }
 
         if ($devis->statut !== StatutDevis::Envoye) {

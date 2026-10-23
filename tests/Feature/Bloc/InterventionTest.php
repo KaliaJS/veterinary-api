@@ -322,7 +322,7 @@ class InterventionTest extends TestCase
         $facture = Facture::withoutGlobalScopes()->sole();
         $this->assertSame($rendezVous->id, $facture->rendez_vous_id);
         // L'acte facturé est la prestation du type `chir`.
-        $this->assertSame('Chirurgie — forfait bloc', $facture->lignes()->sole()->libelle);
+        $this->assertSame('Chirurgie : forfait bloc', $facture->lignes()->sole()->libelle);
     }
 
     public function test_la_cloture_sans_rdv_lie_ne_facture_rien(): void

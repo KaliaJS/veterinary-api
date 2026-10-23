@@ -82,7 +82,7 @@ class ReglagesProprietaireController extends Controller
                 'cle' => 'vaccin:'.$r['vaccination_id'],
                 'titre' => $r['est_en_retard']
                     ? sprintf('Vaccin %s de %s en retard', $r['vaccin'], $r['patient']['nom'])
-                    : sprintf('Rappel %s de %s — J-%d', $r['vaccin'], $r['patient']['nom'], $r['jours']),
+                    : sprintf('Rappel %s de %s : J-%d', $r['vaccin'], $r['patient']['nom'], $r['jours']),
                 'sous_titre' => $r['est_en_retard'] ? 'Prenez rendez-vous' : 'Réservez un créneau vaccination',
                 'cible' => 'rendez-vous',
             ];

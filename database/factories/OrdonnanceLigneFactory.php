@@ -18,9 +18,9 @@ class OrdonnanceLigneFactory extends Factory
             'ordonnance_id' => Ordonnance::factory(),
             'produit_id' => Produit::factory()->medicament(),
             'posologie' => fake()->randomElement([
-                '0,1 mg/kg — 1× par jour, pendant le repas',
+                '0,1 mg/kg : 1× par jour, pendant le repas',
                 '1 comprimé matin et soir',
-                '2 UI en injection sous-cutanée — 2× par jour',
+                '2 UI en injection sous-cutanée, 2× par jour',
             ]),
             'duree' => fake()->randomElement(['7 jours', '10 jours', '28 jours', 'Selon besoin']),
         ];

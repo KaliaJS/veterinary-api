@@ -16,7 +16,7 @@ class FactureLigneFactory extends Factory
     {
         return [
             'facture_id' => Facture::factory(),
-            'libelle' => fake()->randomElement(['Consultation standard', 'Vaccination — acte', 'Contrôle post-opératoire']),
+            'libelle' => fake()->randomElement(['Consultation standard', 'Vaccination : acte', 'Contrôle post-opératoire']),
             'quantite' => 1,
             'prix_chf' => fake()->randomElement([45, 55, 85, 140]),
             'type' => TypeLigneFacture::Acte,

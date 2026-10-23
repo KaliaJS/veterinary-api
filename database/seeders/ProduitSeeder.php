@@ -48,7 +48,7 @@ class ProduitSeeder extends Seeder
         ['Compresses stériles · ×100', 'mat', 'MAT-0631', 9.8, 4.1, 'boîte', 8, false, false, null, 'MedSupply GmbH', 15, 3],
         ['Muselière nylon · taille M', 'mat', 'MAT-0650', 17.9, 8.3, 'pièce', 3, true, false, null, 'MedSupply GmbH', 5, 4],
         ['Harpagophytum articulations · 90 gél.', 'phyto', 'PHY-0701', 27.5, 13.1, 'boîte', 4, true, false, '05.2027', 'PhytoVet Lab', 7, 3],
-        ['Valériane & passiflore — calmant · 30 ml', 'phyto', 'PHY-0714', 22.9, 10.6, 'flacon', 4, true, false, '02.2027', 'PhytoVet Lab', 6, 5],
+        ['Valériane & passiflore : calmant · 30 ml', 'phyto', 'PHY-0714', 22.9, 10.6, 'flacon', 4, true, false, '02.2027', 'PhytoVet Lab', 6, 5],
         ['Chardon-Marie hépatoprotecteur · 60 cp', 'phyto', 'PHY-0722', 31, 15.4, 'boîte', 3, true, false, '09.2027', 'PhytoVet Lab', 4, 2],
     ];
 

@@ -101,7 +101,7 @@ class CreationFacture
         $facture = $this->nouvelle(
             [...$this->denormalisationDe($devis), 'stock_sorti' => true],
             [[
-                'libelle' => "Acompte {$devis->acompte_pct} % — devis {$devis->numero}",
+                'libelle' => "Acompte {$devis->acompte_pct} % : devis {$devis->numero}",
                 'quantite' => 1,
                 'prix_chf' => $devis->montantAcompte(),
                 'type' => TypeLigneFacture::Acte,

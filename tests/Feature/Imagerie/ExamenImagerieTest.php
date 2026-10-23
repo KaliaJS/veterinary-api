@@ -236,7 +236,7 @@ class ExamenImagerieTest extends TestCase
         $facture = Facture::withoutGlobalScopes()->sole();
         $this->assertSame($rendezVous->id, $facture->rendez_vous_id);
         // L'acte facturé est la prestation du type `imagerie`.
-        $this->assertSame('Radiographie — 2 clichés', $facture->lignes()->sole()->libelle);
+        $this->assertSame('Radiographie : 2 clichés', $facture->lignes()->sole()->libelle);
     }
 
     public function test_la_signature_sans_rdv_lie_ne_facture_rien(): void

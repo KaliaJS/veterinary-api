@@ -98,7 +98,7 @@ class BlocSeeder extends Seeder
             $patient = $intervention->patient;
 
             $document = $patient->documents()->create([
-                'nom' => 'Consentement éclairé — '.$intervention->procedure,
+                'nom' => 'Consentement éclairé : '.$intervention->procedure,
                 'type' => 'consentement',
                 'signataire' => $patient->client->nom_affiche,
                 'etabli_le' => today()->toDateString(),
@@ -121,34 +121,34 @@ class BlocSeeder extends Seeder
     {
         return [
             [510, 75, 2, 'Ovariohystérectomie de convenance', 'Dr Meyer', 'Bloc 1', StatutIntervention::Fini, [
-                'Prémédication — médétomidine 5 µg/kg + butorphanol 0,2 mg/kg IM',
-                'Induction — propofol 4 mg/kg IV titré',
-                'Maintien — isoflurane 1,5–2 % · O₂ 100 %',
-                'Analgésie — méloxicam 0,2 mg/kg SC en fin d\'intervention',
+                'Prémédication : médétomidine 5 µg/kg + butorphanol 0,2 mg/kg IM',
+                'Induction : propofol 4 mg/kg IV titré',
+                'Maintien : isoflurane 1,5–2 % · O₂ 100 %',
+                'Analgésie : méloxicam 0,2 mg/kg SC en fin d\'intervention',
             ]],
             [630, 45, 9, 'Détartrage ultrasonique + extraction 104', 'Dr Solal', 'Bloc 2', StatutIntervention::Fini, [
-                'Prémédication — acépromazine 0,03 mg/kg + morphine 0,3 mg/kg IM',
-                'Induction — propofol IV titré',
-                'Maintien — isoflurane 1,8 % · intubation',
-                'Bloc loco-régional — lidocaïne infra-orbitaire',
+                'Prémédication : acépromazine 0,03 mg/kg + morphine 0,3 mg/kg IM',
+                'Induction : propofol IV titré',
+                'Maintien : isoflurane 1,8 % · intubation',
+                'Bloc loco-régional : lidocaïne infra-orbitaire',
             ]],
             [810, 90, 14, 'Exérèse masse cutanée flanc droit + histopathologie', 'Dr Meyer', 'Bloc 1', StatutIntervention::Cours, [
-                'Prémédication — dexmédétomidine 3 µg/kg + méthadone 0,2 mg/kg IV',
-                'Induction — alfaxalone 2 mg/kg IV',
-                'Maintien — isoflurane 1,5 % · monitoring capnographie',
-                'Fluides — Ringer lactate 5 ml/kg/h',
+                'Prémédication : dexmédétomidine 3 µg/kg + méthadone 0,2 mg/kg IV',
+                'Induction : alfaxalone 2 mg/kg IV',
+                'Maintien : isoflurane 1,5 % · monitoring capnographie',
+                'Fluides : Ringer lactate 5 ml/kg/h',
             ]],
-            [900, 60, 6, 'Cystotomie — retrait de calculs vésicaux', 'Dr Adjei', 'Bloc 2', StatutIntervention::Preparation, [
-                'Prémédication — midazolam 0,2 mg/kg + méthadone 0,2 mg/kg IV',
-                'Induction — propofol IV titré',
-                'Maintien — isoflurane · O₂ 100 %',
-                'Antibioprophylaxie — céfazoline 22 mg/kg IV',
+            [900, 60, 6, 'Cystotomie : retrait de calculs vésicaux', 'Dr Adjei', 'Bloc 2', StatutIntervention::Preparation, [
+                'Prémédication : midazolam 0,2 mg/kg + méthadone 0,2 mg/kg IV',
+                'Induction : propofol IV titré',
+                'Maintien : isoflurane · O₂ 100 %',
+                'Antibioprophylaxie : céfazoline 22 mg/kg IV',
             ]],
             [975, 120, 11, 'Ostéosynthèse tibia (plaque LCP 2,7)', 'Dr Meyer', 'Bloc 1', StatutIntervention::Prevu, [
-                'Prémédication — dexmédétomidine + méthadone',
-                'Induction — kétamine 2 mg/kg + midazolam IV',
-                'Maintien — isoflurane · bloc sciatique-fémoral bupivacaïne',
-                'Analgésie post-op — CRI fentanyl 12 h',
+                'Prémédication : dexmédétomidine + méthadone',
+                'Induction : kétamine 2 mg/kg + midazolam IV',
+                'Maintien : isoflurane · bloc sciatique-fémoral bupivacaïne',
+                'Analgésie post-op : CRI fentanyl 12 h',
             ]],
         ];
     }

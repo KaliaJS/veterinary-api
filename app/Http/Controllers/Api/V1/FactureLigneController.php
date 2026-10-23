@@ -65,7 +65,7 @@ class FactureLigneController extends Controller
 
             if ($quantiteLocale < 1) {
                 throw ValidationException::withMessages([
-                    'produit_id' => 'Rupture de stock — établissez une ordonnance pharmacie.',
+                    'produit_id' => 'Rupture de stock : établissez une ordonnance pharmacie.',
                 ]);
             }
 
@@ -144,7 +144,7 @@ class FactureLigneController extends Controller
 
         if ($ligne->type === TypeLigneFacture::Medicament && $facture->stock_sorti) {
             throw ValidationException::withMessages([
-                'ligne' => 'Le stock de ce médicament est déjà sorti — corrigez par un ajustement de stock.',
+                'ligne' => 'Le stock de ce médicament est déjà sorti, corrigez par un ajustement de stock.',
             ]);
         }
 

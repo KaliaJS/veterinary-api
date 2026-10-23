@@ -93,7 +93,7 @@ class AbsenceTest extends TestCase
 
         $audits = $rendezVous->audits()->get();
         $this->assertSame(1, $audits->pluck('batch_id')->unique()->count());
-        $this->assertSame('Absence praticien — congés', $audits->firstWhere('champ', 'motifAnnulation')->nouvelle_valeur);
+        $this->assertSame('Absence praticien : congés', $audits->firstWhere('champ', 'motifAnnulation')->nouvelle_valeur);
         $this->assertSame($this->user->id, $audits->first()->user_id);
     }
 
