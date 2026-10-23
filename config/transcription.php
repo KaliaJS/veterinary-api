@@ -36,6 +36,12 @@ return [
     'morceau_max_ko' => 1024,
     'morceaux_max' => 200,
 
+    // Bornes d'un enregistrement (23.10.2026) : parties, octets reçus en tout,
+    // rédactions du compte rendu (relances comprises)
+    'parties_max' => 12,
+    'octets_max_enregistrement' => 300 * 1024 * 1024,
+    'redactions_max' => 3,
+
     // Audio d'une partie non transcrite (erreur) effacé au bout de ce délai
     'conservation_audio_jours' => 7,
 

@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\StatutEnregistrement;
 use App\Models\EnregistrementConsultation;
 use App\Models\PartieEnregistrement;
+use App\Services\BudgetAnthropic;
 use App\Services\Transcription\BrouillonSoap;
 use App\Services\Transcription\Redacteur;
 use App\Services\Transcription\RedactionImpossible;
@@ -54,10 +55,26 @@ final class RedigerCompteRendu implements ShouldQueue
             return;
         }
 
+        // Bornes (23.10.2026) : quelques rédactions par enregistrement, et le
+        // budget de la plateforme chez Anthropic
+        $refus = match (true) {
+            $enregistrement->redactions >= (int) config('transcription.redactions_max') => 'redactions',
+            app(BudgetAnthropic::class)->atteint() => 'budget',
+            default => null,
+        };
+        if ($refus !== null) {
+            EnregistrementConsultation::withoutGlobalScopes()
+                ->whereKey($enregistrement->id)
+                ->where('statut', StatutEnregistrement::Transcription->value)
+                ->update(['statut' => StatutEnregistrement::Erreur->value, 'erreur' => $refus]);
+
+            return;
+        }
+
         $pris = EnregistrementConsultation::withoutGlobalScopes()
             ->whereKey($enregistrement->id)
             ->where('statut', StatutEnregistrement::Transcription->value)
-            ->update(['statut' => StatutEnregistrement::Redaction->value, 'erreur' => null]);
+            ->update(['statut' => StatutEnregistrement::Redaction->value, 'erreur' => null, 'redactions' => $enregistrement->redactions + 1]);
 
         if ($pris === 1) {
             self::dispatch($enregistrement->id);

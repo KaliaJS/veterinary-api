@@ -105,7 +105,7 @@ class EnregistrementConsultationController extends Controller
         $enregistrement->forceFill([
             'parties_attendues' => $parties,
             'statut' => $enEchec ? StatutEnregistrement::Erreur : StatutEnregistrement::Transcription,
-            'erreur' => $enEchec ? 'transcription' : null,
+            'erreur' => $enEchec ? ($enregistrement->erreur ?? 'transcription') : null,
         ])->save();
 
         RedigerCompteRendu::siPret($enregistrement);
@@ -120,6 +120,9 @@ class EnregistrementConsultationController extends Controller
 
         if ($enregistrement->statut !== StatutEnregistrement::Erreur) {
             throw ValidationException::withMessages(['enregistrement' => 'Rien à relancer.']);
+        }
+        if ($enregistrement->erreur === 'redactions') {
+            throw ValidationException::withMessages(['enregistrement' => 'Le compte rendu a déjà été rédigé plusieurs fois : écrivez-le à partir de la transcription.']);
         }
 
         $enEchec = $enregistrement->parties()->where('statut', StatutPartie::Erreur)->get();

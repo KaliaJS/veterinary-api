@@ -7,6 +7,7 @@ use App\Enums\TypeAlerte;
 use App\Mail\PlafondDiagnosticOrganisation;
 use App\Models\Organisation;
 use App\Models\SuggestionDiagnostique;
+use App\Services\BudgetAnthropic;
 use App\Services\Transcription\ConsommationTranscription;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -63,6 +64,7 @@ final class ConsommationDiagnostic
             $organisation->statut_abonnement !== 'actif' => 'Les suggestions diagnostiques demandent un abonnement en cours.',
             $organisation->attendIdentite() => 'Les suggestions diagnostiques s’ouvrent une fois l’identité de qui a inscrit la clinique vérifiée.',
             $this->dela($organisation)['montant'] + $this->tarif() > $organisation->plafond_diagnostic => 'Le plafond des suggestions diagnostiques de votre organisation est atteint pour cette période. Un administrateur peut le relever dans les réglages.',
+            app(BudgetAnthropic::class)->atteint() => 'Les suggestions diagnostiques sont momentanément indisponibles. Réessayez plus tard.',
             default => null,
         };
     }

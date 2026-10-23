@@ -25,7 +25,7 @@ class EnregistrementConsultation extends Model
 
     protected $fillable = [
         'organisation_id', 'clinique_id', 'rendez_vous_id', 'user_id', 'statut', 'erreur',
-        'parties_attendues', 'brouillon', 'redige_le', 'valide_le',
+        'parties_attendues', 'brouillon', 'redige_le', 'valide_le', 'redactions',
     ];
 
     protected $attributes = [

@@ -24,7 +24,7 @@ class PartieEnregistrementController extends Controller
         if (! in_array($enregistrement->statut, [StatutEnregistrement::Enregistrement, StatutEnregistrement::Transcription], true)) {
             throw ValidationException::withMessages(['enregistrement' => 'Cet enregistrement n’attend plus d’audio.']);
         }
-        if ($numero < 1 || ($enregistrement->parties_attendues && $numero > $enregistrement->parties_attendues)) {
+        if ($numero < 1 || $numero > (int) config('transcription.parties_max') || ($enregistrement->parties_attendues && $numero > $enregistrement->parties_attendues)) {
             throw ValidationException::withMessages(['numero' => 'Cette partie ne fait pas partie de l’enregistrement.']);
         }
 

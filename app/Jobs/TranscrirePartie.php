@@ -57,6 +57,15 @@ final class TranscrirePartie implements ShouldQueue
             return;
         }
 
+        // Le plafond et le budget revérifiés à chaque partie (23.10.2026) :
+        // une longue consultation ne les dépasse pas en cours de route
+        $organisation = $partie->enregistrement->organisation;
+        if ($organisation && $consommation->refus($organisation)) {
+            self::echec($partie, 'plafond');
+
+            return;
+        }
+
         $partie->increment('tentatives');
         $fichier = $partie->fichier;
 
@@ -101,13 +110,18 @@ final class TranscrirePartie implements ShouldQueue
     }
 
     /** La partie passe en erreur ; si le vétérinaire a déjà terminé, l'enregistrement aussi. */
-    private static function echec(PartieEnregistrement $partie): void
+    private static function echec(PartieEnregistrement $partie, string $raison = 'transcription'): void
     {
         $partie->forceFill(['statut' => StatutPartie::Erreur])->save();
 
+        // Encore en train d'enregistrer : la raison attend « terminer »
+        EnregistrementConsultation::withoutGlobalScopes()
+            ->whereKey($partie->enregistrement_consultation_id)
+            ->where('statut', StatutEnregistrement::Enregistrement->value)
+            ->update(['erreur' => $raison]);
         EnregistrementConsultation::withoutGlobalScopes()
             ->whereKey($partie->enregistrement_consultation_id)
             ->where('statut', StatutEnregistrement::Transcription->value)
-            ->update(['statut' => StatutEnregistrement::Erreur->value, 'erreur' => 'transcription']);
+            ->update(['statut' => StatutEnregistrement::Erreur->value, 'erreur' => $raison]);
     }
 }

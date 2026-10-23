@@ -11,7 +11,7 @@ class TerminerEnregistrementRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'parties' => ['required', 'integer', 'min:1', 'max:100'],
+            'parties' => ['required', 'integer', 'min:1', 'max:'.config('transcription.parties_max')],
         ];
     }
 }

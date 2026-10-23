@@ -35,6 +35,11 @@ final class ReceptionAudio
             throw ValidationException::withMessages(['morceau' => 'Ce morceau ne correspond pas à la partie annoncée.']);
         }
 
+        // Borne de tout l'enregistrement (23.10.2026) : au-delà, plus rien n'est reçu
+        if ($this->octets($enregistrement) + (int) $fichier->getSize() > (int) config('transcription.octets_max_enregistrement')) {
+            throw ValidationException::withMessages(['fichier' => 'Cet enregistrement dépasse la taille permise.']);
+        }
+
         $fichier->storeAs($partie->dossierMorceaux(), self::nom($index), 'local');
 
         $complete = DB::transaction(function () use ($partie, $enregistrement): ?PartieEnregistrement {
@@ -73,6 +78,14 @@ final class ReceptionAudio
             ->sort()
             ->values()
             ->all();
+    }
+
+    /** Octets déjà reçus pour l'enregistrement (morceaux et parties assemblées). */
+    private function octets(EnregistrementConsultation $enregistrement): int
+    {
+        $disque = Storage::disk('local');
+
+        return array_sum(array_map(fn (string $chemin): int => $disque->size($chemin), $disque->allFiles($enregistrement->dossierAudio())));
     }
 
     private function assembler(EnregistrementConsultation $enregistrement, PartieEnregistrement $partie): string

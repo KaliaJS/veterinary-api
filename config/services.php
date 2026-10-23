@@ -90,6 +90,12 @@ return [
     'anthropic' => [
         'key' => env('ANTHROPIC_API_KEY'),
         'modele' => env('ANTHROPIC_MODELE', 'claude-opus-5-5'),
+        // Budget mensuel de la plateforme (dollars), estimé par appel : au-delà,
+        // rédactions et suggestions attendent le mois suivant (23.10.2026).
+        // Vide : pas de budget (le plafond de la Console d'Anthropic reste)
+        'budget_usd' => is_numeric(env('ANTHROPIC_BUDGET_USD')) ? (float) env('ANTHROPIC_BUDGET_USD') : null,
+        'cout_redaction_usd' => (float) env('ANTHROPIC_COUT_REDACTION_USD', 0.15),
+        'cout_suggestion_usd' => (float) env('ANTHROPIC_COUT_SUGGESTION_USD', 0.30),
     ],
 
     // Captcha des formulaires publics (demande de rendez-vous sans compte)

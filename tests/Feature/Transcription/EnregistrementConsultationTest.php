@@ -275,6 +275,62 @@ class EnregistrementConsultationTest extends TestCase
             ->assertJsonPath('data.statut', 'pret');
     }
 
+    public function test_un_enregistrement_est_borne_en_parties_et_en_octets(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+
+        $this->morceau($id, (int) config('transcription.parties_max') + 1, 0, 1, 'AAA')
+            ->assertUnprocessable()->assertJsonValidationErrors('numero');
+
+        config(['transcription.octets_max_enregistrement' => 5]);
+        $this->morceau($id, 1, 0, 2, 'AAA')->assertOk();
+        $this->morceau($id, 1, 1, 2, 'BBB')->assertUnprocessable()->assertJsonValidationErrors('fichier');
+    }
+
+    public function test_les_redactions_sont_bornees_puis_la_relance_refusee(): void
+    {
+        config(['transcription.redactions_max' => 2]);
+        $this->redacteur->erreur = new RedactionImpossible('Refus.');
+        $id = $this->demarrer()->json('data.id');
+        $this->envoyer($id, 1, 'AUDIO');
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 1], $this->enTetes($this->jeton))->assertJsonPath('data.erreur', 'redaction');
+
+        // Deuxième et dernière rédaction : encore un refus
+        $this->postJson("/api/v1/enregistrements/{$id}/relancer", [], $this->enTetes($this->jeton))->assertJsonPath('data.erreur', 'redaction');
+        // Plus de rédaction : l'enregistrement le dit, la relance est refusée
+        $this->postJson("/api/v1/enregistrements/{$id}/relancer", [], $this->enTetes($this->jeton))->assertJsonPath('data.erreur', 'redactions');
+        $this->postJson("/api/v1/enregistrements/{$id}/relancer", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->assertCount(2, $this->redacteur->appels);
+    }
+
+    public function test_le_budget_anthropic_atteint_arrete_la_redaction(): void
+    {
+        config(['services.anthropic.budget_usd' => 0.01, 'services.anthropic.cout_redaction_usd' => 0.15]);
+        EnregistrementConsultation::withoutGlobalScopes()->create([
+            'organisation_id' => $this->organisation->id, 'clinique_id' => $this->clinique->id, 'rendez_vous_id' => $this->rendezVous->id,
+            'statut' => StatutEnregistrement::Valide, 'redactions' => 1,
+        ]);
+
+        $id = $this->demarrer()->json('data.id');
+        $this->envoyer($id, 1, 'AUDIO');
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 1], $this->enTetes($this->jeton))->assertJsonPath('data.erreur', 'budget');
+        $this->assertCount(0, $this->redacteur->appels);
+    }
+
+    public function test_le_plafond_atteint_en_cours_de_route_arrete_les_parties_suivantes(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        // Pendant l'enregistrement, l'organisation atteint son plafond
+        $this->organisation->forceFill(['plafond_transcription' => 1])->save();
+        $this->enregistrementTranscrit(4000)->forceFill(['statut' => StatutEnregistrement::Valide])->save();
+
+        $this->envoyer($id, 1, 'AUDIO');
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 1], $this->enTetes($this->jeton))
+            ->assertJsonPath('data.statut', 'erreur')
+            ->assertJsonPath('data.erreur', 'plafond');
+        $this->assertCount(0, $this->transcripteur->appels);
+    }
+
     public function test_le_compte_rendu_enregistre_valide_le_brouillon_puis_un_nouvel_enregistrement_peut_commencer(): void
     {
         $id = $this->demarrer()->json('data.id');

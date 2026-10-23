@@ -26,6 +26,7 @@ return new class extends Migration
             $table->string('statut', 20)->default('enregistrement');
             $table->string('erreur', 20)->nullable();
             $table->unsignedSmallInteger('parties_attendues')->nullable();
+            $table->unsignedTinyInteger('redactions')->default(0)->comment('Rédactions du compte rendu demandées (relances comprises), bornées (23.10.2026)');
             $table->longText('brouillon')->nullable();
             $table->timestamp('redige_le')->nullable();
             $table->timestamp('valide_le')->nullable();
