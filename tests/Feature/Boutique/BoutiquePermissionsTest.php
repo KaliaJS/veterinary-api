@@ -82,13 +82,13 @@ class BoutiquePermissionsTest extends TestCase
 
     public function test_la_vente_comptoir_n_exige_pas_le_domaine_facturation(): void
     {
-        // Une ASV : stocks oui, facturation non — elle tient la
-        // boutique, la facture naît comme effet système.
+        // Un assistant : stocks oui, caisse non ; il tient la boutique, la
+        // facture naît comme effet système.
         ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
         $employe->update([
             'role_id' => Role::withoutGlobalScope('organisation')
                 ->where('organisation_id', $this->clinique->societe->organisation_id)
-                ->where('nom', RolesParDefaut::ASV)
+                ->where('nom', RolesParDefaut::ASSISTANT)
                 ->value('id'),
         ]);
 

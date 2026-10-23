@@ -27,6 +27,8 @@ class CycleOrdonnanceController extends Controller
     public function renouveler(Request $request, Ordonnance $ordonnance): OrdonnanceResource
     {
         $this->authorize('update', $ordonnance);
+        // Un renouvellement est une nouvelle ordonnance signée
+        $this->authorize('create', Ordonnance::class);
 
         if ($ordonnance->statut !== StatutOrdonnance::Active) {
             throw ValidationException::withMessages(['statut' => 'Seule une ordonnance en cours se renouvelle.']);

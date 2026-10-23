@@ -10,7 +10,13 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Collection;
 
+/**
+ * Rôle de l'organisation : les droits qu'il accorde (écran Rôles et droits).
+ *
+ * @property Collection<int, DomainePermission> $domaines
+ */
 class Role extends Model
 {
     /** @use HasFactory<RoleFactory> */

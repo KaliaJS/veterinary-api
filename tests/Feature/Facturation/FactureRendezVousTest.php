@@ -112,13 +112,13 @@ class FactureRendezVousTest extends TestCase
         $this->assertSame(0, Facture::withoutGlobalScopes()->count());
     }
 
-    public function test_une_asv_termine_le_rdv_mais_la_reponse_cache_la_facture(): void
+    public function test_un_assistant_termine_le_rdv_mais_la_reponse_cache_la_facture(): void
     {
         ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
         $employe->update([
             'role_id' => Role::withoutGlobalScope('organisation')
                 ->where('organisation_id', $this->clinique->societe->organisation_id)
-                ->where('nom', RolesParDefaut::ASV)
+                ->where('nom', RolesParDefaut::ASSISTANT)
                 ->value('id'),
         ]);
 

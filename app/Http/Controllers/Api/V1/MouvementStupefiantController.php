@@ -7,8 +7,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Stupefiants\EnregistrerMouvementStupefiantRequest;
 use App\Http\Resources\V1\MouvementStupefiantResource;
 use App\Models\MouvementStupefiant;
+use App\Models\Produit;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Registre des stupéfiants de la clinique du jeton (art. 62 OCStup,
@@ -42,18 +45,31 @@ class MouvementStupefiantController extends Controller
         $donnees = $request->validated();
         $quantite = (float) $donnees['quantite'];
 
-        // Parité front (tools.js) : pas de patient sur une réception,
-        // motif par défaut selon le sens du mouvement.
-        $mouvement = MouvementStupefiant::create([
-            'produit_id' => $donnees['produit_id'],
-            'patient_id' => $quantite < 0 ? $donnees['patient_id'] : null,
-            'employe_id' => $donnees['employe_id'] ?? app(ContexteClinique::class)->employe()?->id,
-            'quantite' => $donnees['quantite'],
-            'motif' => blank($donnees['motif'] ?? null)
-                ? ($quantite < 0 ? 'Administration' : 'Réception grossiste')
-                : $donnees['motif'],
-            'created_at' => now(),
-        ]);
+        $mouvement = DB::transaction(function () use ($donnees, $quantite): MouvementStupefiant {
+            // Une inscription à la fois par substance : le solde lu reste vrai
+            Produit::query()->whereKey($donnees['produit_id'])->lockForUpdate()->first();
+
+            $solde = (float) MouvementStupefiant::query()->where('produit_id', $donnees['produit_id'])->sum('quantite');
+            if ($quantite < 0 && $solde + $quantite < -0.001) {
+                throw ValidationException::withMessages([
+                    'quantite' => 'Le registre n’en compte que '.number_format(max(0, $solde), 2, '.', '’').' : une sortie ne dépasse jamais le solde.',
+                ]);
+            }
+
+            // Parité front (tools.js) : pas de patient sur une réception,
+            // motif par défaut selon le sens du mouvement. Le signataire
+            // est toujours la personne connectée (23.10.2026).
+            return MouvementStupefiant::create([
+                'produit_id' => $donnees['produit_id'],
+                'patient_id' => $quantite < 0 ? $donnees['patient_id'] : null,
+                'employe_id' => app(ContexteClinique::class)->employe()?->id,
+                'quantite' => $donnees['quantite'],
+                'motif' => blank($donnees['motif'] ?? null)
+                    ? ($quantite < 0 ? 'Administration' : 'Réception grossiste')
+                    : $donnees['motif'],
+                'created_at' => now(),
+            ]);
+        });
 
         return new MouvementStupefiantResource($mouvement->load(['produit', 'patient', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
     }

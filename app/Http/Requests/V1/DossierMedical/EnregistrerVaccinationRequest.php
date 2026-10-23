@@ -12,7 +12,7 @@ use Illuminate\Validation\Rule;
  * `marque`, `valences` facultatives). Sans date : aujourd hui ; sans
  * échéance : calculée du schéma du produit. Lot, péremption du flacon,
  * voie, site d injection, remarque et réaction sont facultatifs. Le
- * vétérinaire signataire est l employé du jeton, sauf `employe_id`.
+ * vétérinaire signataire est toujours l'employé du jeton (23.10.2026).
  */
 class EnregistrerVaccinationRequest extends FormRequest
 {
@@ -42,7 +42,6 @@ class EnregistrerVaccinationRequest extends FormRequest
             'site_injection' => ['nullable', 'string', 'max:60'],
             'remarque' => ['nullable', 'string', 'max:2000'],
             'reaction' => ['nullable', 'string', 'max:2000'],
-            'employe_id' => ['nullable', 'integer', $this->employeDeLOrganisation()],
             'injectee_le' => ['sometimes', 'date', 'before_or_equal:today'],
             'echeance_le' => ['nullable', 'date', 'after:injectee_le'],
         ];

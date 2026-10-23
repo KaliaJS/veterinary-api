@@ -106,8 +106,10 @@ interface PasserellePaiement
     /**
      * Session des composants intégrés (inscription, gestion du compte,
      * paiements, virements, notifications) : le secret pour le navigateur.
+     * Sans `$remboursements`, le composant des paiements ne permet ni de
+     * rembourser ni de répondre à un litige (droit `rembourser`).
      *
      * @param  list<string>  $composants
      */
-    public function creerSessionCompte(string $compte, array $composants): string;
+    public function creerSessionCompte(string $compte, array $composants, bool $remboursements = false): string;
 }

@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\DomainePermission;
 use App\Enums\StatutAnalyse;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\AnalyseResource;
 use App\Models\Analyse;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -26,6 +28,11 @@ class CycleAnalyseController extends Controller
 
         if ($suivant === null) {
             throw ValidationException::withMessages(['statut' => 'Une analyse validée ne change plus de statut.']);
+        }
+
+        // La validation est une signature : droit `valider_analyses`
+        if ($suivant === StatutAnalyse::Valide) {
+            Gate::authorize(DomainePermission::ValiderAnalyses->value);
         }
 
         if ($suivant === StatutAnalyse::AValider && $analyse->resultats()->whereNull('valeur')->exists()) {

@@ -37,7 +37,7 @@ class AffectationsEmployeTest extends TestCase
         $this->clinique = Clinique::factory()->create();
         $this->soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
 
-        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $this->jeton] = $this->administrateurAvecJeton($this->clinique);
     }
 
     public function test_une_clinique_s_ajoute_puis_se_retire_et_l_acces_suit(): void

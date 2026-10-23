@@ -91,6 +91,7 @@ use App\Http\Controllers\Api\V1\OrganisationDiagnosticController;
 use App\Http\Controllers\Api\V1\OrganisationFactureController;
 use App\Http\Controllers\Api\V1\OrganisationHoraireController;
 use App\Http\Controllers\Api\V1\OrganisationPrestationController;
+use App\Http\Controllers\Api\V1\OrganisationRoleController;
 use App\Http\Controllers\Api\V1\OrganisationServicesCliniqueController;
 use App\Http\Controllers\Api\V1\OrganisationTranscriptionController;
 use App\Http\Controllers\Api\V1\PackQuotaController;
@@ -594,6 +595,12 @@ Route::prefix('v1')->group(function (): void {
             // Premiers pas d'une clinique neuve : étapes et confirmations
             Route::get('premiers-pas', [PremiersPasController::class, 'afficher']);
             Route::put('premiers-pas', [PremiersPasController::class, 'modifier']);
+            // Rôles et droits (23.10.2026) : rôles réglables, exceptions par personne
+            Route::get('roles', [OrganisationRoleController::class, 'index']);
+            Route::post('roles', [OrganisationRoleController::class, 'store']);
+            Route::put('roles/{role}', [OrganisationRoleController::class, 'update'])->whereNumber('role');
+            Route::delete('roles/{role}', [OrganisationRoleController::class, 'destroy'])->whereNumber('role');
+            Route::put('employes/{employe}/exceptions', [OrganisationRoleController::class, 'exceptions'])->whereNumber('employe');
         });
 
         // Domaine équipe — fiches RH, une par personne. La liste est celle
@@ -605,21 +612,25 @@ Route::prefix('v1')->group(function (): void {
         // elles, restent aux routes planning/équipe existantes.
         Route::middleware('can:equipe')->prefix('equipe')->group(function (): void {
             Route::get('employes', [EquipeEmployeController::class, 'index']);
-            Route::post('employes', [EquipeEmployeController::class, 'store']);
             Route::get('employes/{employe}', [EquipeEmployeController::class, 'show'])->whereNumber('employe');
-            Route::patch('employes/{employe}', [EquipeEmployeController::class, 'update'])->whereNumber('employe');
-            Route::post('employes/{employe}/suspendre', [AccesEmployeController::class, 'suspendre'])->whereNumber('employe');
-            Route::post('employes/{employe}/retablir', [AccesEmployeController::class, 'retablir'])->whereNumber('employe');
-            Route::post('employes/{employe}/licencier', [LicenciementEmployeController::class, 'licencier'])->whereNumber('employe');
-            Route::post('employes/{employe}/annuler-licenciement', [LicenciementEmployeController::class, 'annuler'])->whereNumber('employe');
-            Route::put('employes/{employe}/cliniques', AffectationsEmployeController::class)->whereNumber('employe');
-            // Embauche : à qui appartient le code employé donné par la personne
-            Route::get('comptes/{code}', CompteEmployeController::class)->middleware('throttle:20,1');
-            // Ou invitation par e-mail : la personne accepte avec l'adresse invitée
-            Route::get('invitations', [InvitationEquipeController::class, 'index']);
-            Route::post('invitations', [InvitationEquipeController::class, 'store'])->middleware('throttle:30,1');
-            Route::post('invitations/{invitation}/renvoyer', [InvitationEquipeController::class, 'renvoyer'])->whereNumber('invitation')->middleware('throttle:30,1');
-            Route::delete('invitations/{invitation}', [InvitationEquipeController::class, 'annuler'])->whereNumber('invitation');
+
+            // Gestes RH : droit `rh` (23.10.2026), garde-fous dans EmployePolicy
+            Route::middleware('can:rh')->group(function (): void {
+                Route::post('employes', [EquipeEmployeController::class, 'store']);
+                Route::patch('employes/{employe}', [EquipeEmployeController::class, 'update'])->whereNumber('employe');
+                Route::post('employes/{employe}/suspendre', [AccesEmployeController::class, 'suspendre'])->whereNumber('employe');
+                Route::post('employes/{employe}/retablir', [AccesEmployeController::class, 'retablir'])->whereNumber('employe');
+                Route::post('employes/{employe}/licencier', [LicenciementEmployeController::class, 'licencier'])->whereNumber('employe');
+                Route::post('employes/{employe}/annuler-licenciement', [LicenciementEmployeController::class, 'annuler'])->whereNumber('employe');
+                Route::put('employes/{employe}/cliniques', AffectationsEmployeController::class)->whereNumber('employe');
+                // Embauche : à qui appartient le code employé donné par la personne
+                Route::get('comptes/{code}', CompteEmployeController::class)->middleware('throttle:20,1');
+                // Ou invitation par e-mail : la personne accepte avec l'adresse invitée
+                Route::get('invitations', [InvitationEquipeController::class, 'index']);
+                Route::post('invitations', [InvitationEquipeController::class, 'store'])->middleware('throttle:30,1');
+                Route::post('invitations/{invitation}/renvoyer', [InvitationEquipeController::class, 'renvoyer'])->whereNumber('invitation')->middleware('throttle:30,1');
+                Route::delete('invitations/{invitation}', [InvitationEquipeController::class, 'annuler'])->whereNumber('invitation');
+            });
 
             Route::get('gardes', [GardeWeekendController::class, 'index']);
             Route::put('gardes', [GardeWeekendController::class, 'modifier']);

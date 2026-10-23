@@ -7,12 +7,16 @@ use App\Models\Organisation;
 use App\Models\Role;
 
 /**
- * Rôles créés à l'inscription d'une organisation — un point de départ
- * modifiable, pas une liste figée. Contrainte connue
- * (docs/data-model.md) : une assistante ne voit pas la facturation ;
- * l'assistant (AMV du proto) n'a pas non plus le bloc. Le domaine
- * `organisation` (structure, abonnement SaaS) est réservé à
- * l'Administrateur — l'écran Organisation du proto est le sien.
+ * Rôles créés à l'inscription d'une organisation : un point de départ
+ * que l'organisation change à sa guise (écran Rôles et droits), pas une
+ * liste figée. Défauts du 23.10.2026, validés par Jim :
+ * - Administrateur : tout ;
+ * - Vétérinaire : tout sauf l'administration, la gestion de l'équipe, la
+ *   clôture de la caisse et les remboursements ; il signe ordonnances,
+ *   analyses, comptes rendus et stupéfiants ;
+ * - ASV : planning, dossiers, caisse (elle encaisse), stocks, bloc, voir
+ *   l'équipe ; elle prépare, le vétérinaire signe ;
+ * - Assistant : planning, dossiers, stocks, voir l'équipe.
  */
 class RolesParDefaut
 {
@@ -24,24 +28,40 @@ class RolesParDefaut
 
     public const string ASSISTANT = 'Assistant';
 
-    public static function creer(Organisation $organisation): void
+    /**
+     * Droits de chaque rôle par défaut.
+     *
+     * @return array<string, list<DomainePermission>>
+     */
+    public static function droits(): array
     {
         $tous = DomainePermission::cases();
-
-        $sauf = fn (DomainePermission ...$exclus): array => array_values(array_udiff(
+        $sauf = fn (DomainePermission ...$exclus): array => array_values(array_filter(
             $tous,
-            $exclus,
-            fn (DomainePermission $a, DomainePermission $b): int => strcmp($a->value, $b->value),
+            fn (DomainePermission $droit): bool => ! in_array($droit, $exclus, true),
         ));
 
-        $roles = [
+        return [
             self::ADMINISTRATEUR => $tous,
-            self::VETERINAIRE => $sauf(DomainePermission::Organisation),
-            self::ASV => $sauf(DomainePermission::Facturation, DomainePermission::Organisation),
-            self::ASSISTANT => $sauf(DomainePermission::Facturation, DomainePermission::Bloc, DomainePermission::Organisation),
+            self::VETERINAIRE => $sauf(
+                DomainePermission::Organisation,
+                DomainePermission::Rh,
+                DomainePermission::CloturerCaisse,
+                DomainePermission::Rembourser,
+            ),
+            self::ASV => [
+                DomainePermission::Planning, DomainePermission::Patients, DomainePermission::Facturation,
+                DomainePermission::Stocks, DomainePermission::Bloc, DomainePermission::Equipe,
+            ],
+            self::ASSISTANT => [
+                DomainePermission::Planning, DomainePermission::Patients, DomainePermission::Stocks, DomainePermission::Equipe,
+            ],
         ];
+    }
 
-        foreach ($roles as $nom => $domaines) {
+    public static function creer(Organisation $organisation): void
+    {
+        foreach (self::droits() as $nom => $domaines) {
             // Hors scope global : la création de rôles ne dépend
             // jamais du contexte clinique de la requête courante.
             Role::withoutGlobalScope('organisation')->firstOrCreate(

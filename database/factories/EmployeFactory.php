@@ -40,6 +40,24 @@ class EmployeFactory extends Factory
         ];
     }
 
+    /** Rôle Administrateur : tous les droits, gestion de l'équipe comprise. */
+    public function administrateur(): static
+    {
+        return $this->state(fn (): array => [
+            'role_libelle' => 'Vétérinaire',
+            'role_id' => fn (array $attributes) => $this->roleParDefaut($attributes['organisation_id'], RolesParDefaut::ADMINISTRATEUR),
+        ]);
+    }
+
+    /** Rôle Assistant : planning, dossiers, stocks, voir l'équipe. */
+    public function assistant(): static
+    {
+        return $this->state(fn (): array => [
+            'role_libelle' => 'Assistant',
+            'role_id' => fn (array $attributes) => $this->roleParDefaut($attributes['organisation_id'], RolesParDefaut::ASSISTANT),
+        ]);
+    }
+
     public function asv(): static
     {
         return $this->state(function (): array {

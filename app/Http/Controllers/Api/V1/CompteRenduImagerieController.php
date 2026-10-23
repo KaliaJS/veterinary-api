@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\DomainePermission;
 use App\Enums\StatutRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Imagerie\SignerCompteRenduRequest;
@@ -34,6 +35,7 @@ class CompteRenduImagerieController extends Controller
     public function __invoke(SignerCompteRenduRequest $request, ExamenImagerie $examen): ExamenImagerieResource
     {
         $this->authorize('update', $examen);
+        Gate::authorize(DomainePermission::SignerComptesRendus->value);
 
         if ($examen->estSigne()) {
             throw ValidationException::withMessages(['signe_le' => 'Le compte rendu est déjà signé.']);

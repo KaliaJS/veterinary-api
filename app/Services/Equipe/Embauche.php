@@ -20,6 +20,26 @@ use Illuminate\Validation\ValidationException;
 class Embauche
 {
     /**
+     * Le rôle que recevra la personne : celui choisi, sinon celui du poste
+     * (ASV, sinon Vétérinaire). Les contrôleurs le vérifient avant
+     * d'embaucher ou d'inviter (personne ne donne plus de droits qu'il
+     * n'en a).
+     *
+     * @param  array<string, mixed>  $donnees
+     */
+    public function role(Organisation $organisation, array $donnees): ?Role
+    {
+        return Role::withoutGlobalScope('organisation')
+            ->where('organisation_id', $organisation->id)
+            ->when(
+                isset($donnees['role_id']),
+                fn ($q) => $q->whereKey($donnees['role_id']),
+                fn ($q) => $q->where('nom', Str::contains((string) ($donnees['poste'] ?? ''), 'ASV') ? RolesParDefaut::ASV : RolesParDefaut::VETERINAIRE),
+            )
+            ->first();
+    }
+
+    /**
      * @param  array<string, mixed>  $donnees  poste, cliniques ou toutes_les_cliniques, et la fiche (rôle, taux, contrat…)
      * @param  string  $champ  champ de l'erreur « déjà dans l'équipe » (code ou email)
      */
@@ -41,11 +61,7 @@ class Embauche
             throw ValidationException::withMessages(['cliniques' => 'Choisissez au moins une clinique.']);
         }
 
-        $roleId = $donnees['role_id']
-            ?? Role::withoutGlobalScope('organisation')
-                ->where('organisation_id', $organisation->id)
-                ->where('nom', Str::contains($donnees['poste'], 'ASV') ? RolesParDefaut::ASV : RolesParDefaut::VETERINAIRE)
-                ->value('id');
+        $roleId = $this->role($organisation, $donnees)?->id;
 
         $nom = $donnees['nom'] ?? $compte->name;
 

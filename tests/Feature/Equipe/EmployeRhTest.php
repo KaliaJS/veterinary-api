@@ -38,7 +38,7 @@ class EmployeRhTest extends TestCase
 
         $this->clinique = Clinique::factory()->create();
 
-        ['employe' => $this->employe, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        ['employe' => $this->employe, 'jeton' => $this->jeton] = $this->administrateurAvecJeton($this->clinique);
     }
 
     public function test_l_embauche_cree_la_fiche_avec_le_role_derive_du_poste(): void

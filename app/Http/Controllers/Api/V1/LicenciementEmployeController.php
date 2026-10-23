@@ -21,7 +21,7 @@ class LicenciementEmployeController extends Controller
     {
         $fiche = EquipeEmployeController::employeDeLOrganisation($employe);
 
-        $this->authorize('update', $fiche);
+        $this->authorize('retirerAcces', $fiche);
 
         if ($fiche->estLicencie()) {
             throw ValidationException::withMessages(['licenciement' => 'Un licenciement est déjà notifié — annulez-le d’abord.']);

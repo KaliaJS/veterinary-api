@@ -1,12 +1,6 @@
 parameters:
 	ignoreErrors:
 		-
-			message: '#^Parameter \#1 \$callback of method Illuminate\\Support\\Collection\<int,string\>\:\:map\(\) expects callable\(string, 0\)\: \(''bloc''\|''equipe''\|''facturation''\|''organisation''\|''patients''\|''planning''\|''stocks''\), Closure\(App\\Enums\\DomainePermission\)\: \(''bloc''\|''equipe''\|''facturation''\|''organisation''\|''patients''\|''planning''\|''stocks''\) given\.$#'
-			identifier: argument.type
-			count: 1
-			path: app/Auth/CalculateurPermissions.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>domaines" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1
@@ -431,12 +425,6 @@ parameters:
 			identifier: method.notFound
 			count: 1
 			path: app/Models/Clinique.php
-
-		-
-			message: '#^Cannot call method contains\(\) on string\.$#'
-			identifier: method.nonObject
-			count: 1
-			path: app/Models/Organisation.php
 
 		-
 			message: '#^Access to an undefined property App\\Models\\Client\:\:\$nom_affiche\.$#'

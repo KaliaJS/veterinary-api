@@ -20,7 +20,7 @@ class AccesEmployeController extends Controller
     {
         $fiche = EquipeEmployeController::employeDeLOrganisation($employe);
 
-        $this->authorize('update', $fiche);
+        $this->authorize('retirerAcces', $fiche);
 
         $fiche->update(['acces_suspendu' => true]);
 

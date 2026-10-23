@@ -76,7 +76,12 @@ class ComptePaiementController extends Controller
         }
 
         return response()->json(['data' => [
-            'client_secret' => $this->sansErreur(fn () => $this->comptes->session($this->societe(), $composants)),
+            // Rembourser et répondre aux litiges : droit `rembourser` (23.10.2026)
+            'client_secret' => $this->sansErreur(fn () => $this->comptes->session(
+                $this->societe(),
+                $composants,
+                Gate::allows(DomainePermission::Rembourser->value),
+            )),
             'cle_publique' => config('services.stripe.key'),
         ]]);
     }

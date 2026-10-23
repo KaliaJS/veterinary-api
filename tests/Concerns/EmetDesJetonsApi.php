@@ -18,7 +18,7 @@ trait EmetDesJetonsApi
     /**
      * @return array{user: User, employe: Employe, jeton: string}
      */
-    protected function employeAvecJeton(?Clinique $clinique = null, array $attributs = []): array
+    protected function employeAvecJeton(?Clinique $clinique = null, array $attributs = [], ?string $etat = null): array
     {
         // Dans les tests, le contexte « scoped » survit à la requête
         // précédente — on repart neutre pour créer les fixtures.
@@ -28,6 +28,7 @@ trait EmetDesJetonsApi
 
         $employe = Employe::factory()
             ->when($clinique, fn ($fabrique) => $fabrique->dans($clinique))
+            ->when($etat, fn ($fabrique) => $fabrique->{$etat}())
             ->create(['user_id' => $user->id, ...$attributs]);
 
         $resultat = app(EmetteurJetons::class)->emettre($user);
@@ -37,6 +38,16 @@ trait EmetDesJetonsApi
             'employe' => $employe,
             'jeton' => $resultat['jeton']->plainTextToken,
         ];
+    }
+
+    /**
+     * Employé au rôle Administrateur (gestion de l'équipe, organisation).
+     *
+     * @return array{user: User, employe: Employe, jeton: string}
+     */
+    protected function administrateurAvecJeton(?Clinique $clinique = null, array $attributs = []): array
+    {
+        return $this->employeAvecJeton($clinique, $attributs, 'administrateur');
     }
 
     /**

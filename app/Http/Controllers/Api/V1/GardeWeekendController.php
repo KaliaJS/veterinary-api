@@ -28,7 +28,7 @@ class GardeWeekendController extends Controller
 
     public function modifier(ModifierGardeRequest $request): JsonResponse
     {
-        $this->authorize('create', Employe::class);
+        $this->authorize('organiserGardes', Employe::class);
 
         GardeWeekend::updateOrCreate(
             ['samedi_le' => $request->validated('samedi_le')],

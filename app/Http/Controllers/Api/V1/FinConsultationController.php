@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\DomainePermission;
 use App\Enums\ModePrescription;
 use App\Enums\PieceNumerotee;
 use App\Enums\StatutOrdonnance;
@@ -48,6 +49,8 @@ class FinConsultationController extends Controller
     public function __invoke(FinConsultationRequest $request, RendezVous $rendezVous): RendezVousResource
     {
         $this->authorize('update', $rendezVous);
+        // On y choisit les prestations facturées : droit de la caisse (23.10.2026)
+        Gate::authorize(DomainePermission::Facturation->value);
 
         if ($rendezVous->estTampon()) {
             throw ValidationException::withMessages(['rendez_vous' => 'Un tampon ne se facture jamais.']);

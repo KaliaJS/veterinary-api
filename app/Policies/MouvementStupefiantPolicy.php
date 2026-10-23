@@ -17,8 +17,9 @@ class MouvementStupefiantPolicy
         return Gate::allows(DomainePermission::Stocks->value);
     }
 
+    /** Inscrire au registre : droit `stupefiants` (le vétérinaire par défaut) */
     public function create(User $user): bool
     {
-        return Gate::allows(DomainePermission::Stocks->value);
+        return Gate::allows(DomainePermission::Stocks->value) && Gate::allows(DomainePermission::Stupefiants->value);
     }
 }

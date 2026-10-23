@@ -260,11 +260,17 @@ class PasserelleStripe implements PasserellePaiement
         ];
     }
 
-    public function creerSessionCompte(string $compte, array $composants): string
+    public function creerSessionCompte(string $compte, array $composants, bool $remboursements = false): string
     {
+        $choisis = array_intersect_key(self::COMPOSANTS, array_flip($composants));
+        if (isset($choisis['payments'])) {
+            $choisis['payments']['features']['refund_management'] = $remboursements;
+            $choisis['payments']['features']['dispute_management'] = $remboursements;
+        }
+
         $session = $this->appel(fn () => $this->client->accountSessions->create([
             'account' => $compte,
-            'components' => array_intersect_key(self::COMPOSANTS, array_flip($composants)),
+            'components' => $choisis,
         ]));
 
         return $session->client_secret;

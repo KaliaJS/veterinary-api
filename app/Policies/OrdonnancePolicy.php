@@ -26,9 +26,10 @@ class OrdonnancePolicy
         return Gate::allows(DomainePermission::Patients->value);
     }
 
+    /** Une ordonnance naît signée : signer (ou renouveler) exige le droit `prescrire`. */
     public function create(User $user): bool
     {
-        return Gate::allows(DomainePermission::Patients->value);
+        return Gate::allows(DomainePermission::Patients->value) && Gate::allows(DomainePermission::Prescrire->value);
     }
 
     public function update(User $user, Ordonnance $ordonnance): bool

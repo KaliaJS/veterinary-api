@@ -139,12 +139,12 @@ class ComptesPaiement
      *
      * @param  list<string>  $composants
      */
-    public function session(Societe $societe, array $composants): string
+    public function session(Societe $societe, array $composants, bool $remboursements = false): string
     {
         if (! $societe->stripe_compte_id) {
             throw ValidationException::withMessages(['composants' => 'Le compte de paiement n’est pas encore ouvert.']);
         }
 
-        return $this->passerelle->pourCompte(null)->creerSessionCompte($societe->stripe_compte_id, array_values($composants));
+        return $this->passerelle->pourCompte(null)->creerSessionCompte($societe->stripe_compte_id, array_values($composants), $remboursements);
     }
 }

@@ -45,6 +45,7 @@ class InvitationEquipeController extends Controller
 
         $organisation = $this->contexte->clinique()->societe->organisation;
         $donnees = $request->validated();
+        $this->authorize('attribuerRole', [Employe::class, null, $embauche->role($organisation, $donnees)]);
         $email = Str::lower($donnees['email']);
 
         $dejaLa = Employe::withoutGlobalScopes()

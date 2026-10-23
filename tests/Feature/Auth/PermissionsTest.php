@@ -45,19 +45,31 @@ class PermissionsTest extends TestCase
             [RolesParDefaut::ADMINISTRATEUR, RolesParDefaut::VETERINAIRE, RolesParDefaut::ASV, RolesParDefaut::ASSISTANT],
             $roles->keys()->all(),
         );
-        $this->assertNotContains(DomainePermission::Facturation, $roles[RolesParDefaut::ASV]);
+        // Défauts du 23.10.2026 : l'ASV encaisse, le vétérinaire signe,
+        // l'administrateur seul gère l'équipe, clôture et rembourse
+        $this->assertContains(DomainePermission::Facturation, $roles[RolesParDefaut::ASV]);
+        $this->assertNotContains(DomainePermission::Prescrire, $roles[RolesParDefaut::ASV]);
+        $this->assertNotContains(DomainePermission::Rh, $roles[RolesParDefaut::ASV]);
+        $this->assertNotContains(DomainePermission::Facturation, $roles[RolesParDefaut::ASSISTANT]);
         $this->assertNotContains(DomainePermission::Bloc, $roles[RolesParDefaut::ASSISTANT]);
+        foreach ([DomainePermission::Prescrire, DomainePermission::ValiderAnalyses, DomainePermission::SignerComptesRendus, DomainePermission::Stupefiants] as $acte) {
+            $this->assertContains($acte, $roles[RolesParDefaut::VETERINAIRE]);
+        }
+        foreach ([DomainePermission::Rh, DomainePermission::Organisation, DomainePermission::CloturerCaisse, DomainePermission::Rembourser] as $geste) {
+            $this->assertNotContains($geste, $roles[RolesParDefaut::VETERINAIRE]);
+            $this->assertContains($geste, $roles[RolesParDefaut::ADMINISTRATEUR]);
+        }
     }
 
-    public function test_un_veterinaire_accede_a_la_facturation_une_asv_non(): void
+    public function test_un_veterinaire_accede_a_la_facturation_un_assistant_non(): void
     {
         ['jeton' => $jetonVeterinaire] = $this->employeAvecJeton();
 
         $this->getJson('/api/v1/facturation/sonde', $this->enTetes($jetonVeterinaire))->assertOk();
 
-        ['jeton' => $jetonAsv] = $this->employeAvecJetonAsv();
+        ['jeton' => $jetonAssistant] = $this->employeAvecJetonAssistant();
 
-        $this->getJson('/api/v1/facturation/sonde', $this->enTetes($jetonAsv))->assertForbidden();
+        $this->getJson('/api/v1/facturation/sonde', $this->enTetes($jetonAssistant))->assertForbidden();
     }
 
     public function test_modifier_un_role_prend_effet_immediatement_sans_reemettre_le_jeton(): void
@@ -79,7 +91,7 @@ class PermissionsTest extends TestCase
 
     public function test_une_derogation_accorde_un_domaine_au_dela_du_role(): void
     {
-        ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJetonAsv();
+        ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJetonAssistant();
 
         $this->getJson('/api/v1/facturation/sonde', $this->enTetes($jeton))->assertForbidden();
 
@@ -138,16 +150,16 @@ class PermissionsTest extends TestCase
     }
 
     /** @return array{user: User, employe: Employe, jeton: string} */
-    private function employeAvecJetonAsv(): array
+    private function employeAvecJetonAssistant(): array
     {
-        $resultat = $this->employeAvecJeton(attributs: ['role_libelle' => 'ASV · Accueil']);
+        $resultat = $this->employeAvecJeton(attributs: ['role_libelle' => 'Assistant']);
 
         $organisation = $resultat['employe']->organisation;
 
         $resultat['employe']->update([
             'role_id' => Role::withoutGlobalScopes()
                 ->where('organisation_id', $organisation->id)
-                ->where('nom', RolesParDefaut::ASV)
+                ->where('nom', RolesParDefaut::ASSISTANT)
                 ->firstOrFail()
                 ->id,
         ]);

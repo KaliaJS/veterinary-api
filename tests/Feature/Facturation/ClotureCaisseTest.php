@@ -33,7 +33,8 @@ class ClotureCaisseTest extends TestCase
 
         $this->clinique = Clinique::factory()->create();
 
-        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        // Arrêter la caisse : droit `cloturer_caisse` (l'administrateur par défaut)
+        ['jeton' => $this->jeton] = $this->administrateurAvecJeton($this->clinique);
     }
 
     private function facturePayee(MoyenPaiement $moyen, float $montant): Facture

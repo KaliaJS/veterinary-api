@@ -8,6 +8,7 @@ use App\Http\Requests\V1\Equipe\EmbaucherEmployeRequest;
 use App\Http\Requests\V1\Equipe\ModifierEmployeRequest;
 use App\Http\Resources\V1\EmployeResource;
 use App\Models\Employe;
+use App\Models\Role;
 use App\Services\Equipe\Embauche;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -52,6 +53,7 @@ class EquipeEmployeController extends Controller
 
         $donnees = $request->validated();
         $organisation = app(ContexteClinique::class)->clinique()->societe->organisation;
+        $this->authorize('attribuerRole', [Employe::class, null, $embauche->role($organisation, $donnees)]);
         $compte = CompteEmployeController::compteDuCode($donnees['code']);
 
         $fiche = $embauche->embaucher($organisation, $compte, $donnees);
@@ -63,6 +65,11 @@ class EquipeEmployeController extends Controller
     {
         $fiche = $this->employeDeLOrganisation($employe);
         $this->authorize('update', $fiche);
+
+        // Changer de rôle : jamais le sien, jamais plus large que le sien
+        if ($request->has('role_id') && $request->validated('role_id') !== $fiche->role_id) {
+            $this->authorize('attribuerRole', [$fiche, Role::query()->find($request->validated('role_id'))]);
+        }
 
         $fiche->update($request->validated());
 

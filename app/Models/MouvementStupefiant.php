@@ -7,6 +7,7 @@ use Database\Factories\MouvementStupefiantFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use LogicException;
 
 /**
  * Ligne du registre des stupéfiants (art. 62 OCStup) — immuable
@@ -32,6 +33,13 @@ class MouvementStupefiant extends Model
         'clinique_id', 'produit_id', 'patient_id', 'employe_id',
         'quantite', 'motif', 'created_at',
     ];
+
+    /** Immuable : ni modification ni suppression, même hors de l'API */
+    protected static function booted(): void
+    {
+        static::updating(fn (): never => throw new LogicException('Le registre des stupéfiants est immuable : corrigez par un mouvement inverse.'));
+        static::deleting(fn (): never => throw new LogicException('Le registre des stupéfiants est immuable : corrigez par un mouvement inverse.'));
+    }
 
     protected function casts(): array
     {

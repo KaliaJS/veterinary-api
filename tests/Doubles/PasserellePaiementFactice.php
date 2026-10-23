@@ -162,9 +162,9 @@ class PasserellePaiementFactice implements PasserellePaiement
         return $this->etatsComptes[$compte] ?? ['paiements' => true, 'virements' => true, 'a_completer' => false];
     }
 
-    public function creerSessionCompte(string $compte, array $composants): string
+    public function creerSessionCompte(string $compte, array $composants, bool $remboursements = false): string
     {
-        $this->sessions[] = ['compte' => $compte, 'composants' => $composants];
+        $this->sessions[] = ['compte' => $compte, 'composants' => $composants, 'remboursements' => $remboursements];
 
         return 'accs_secret_'.(++$this->sequence);
     }

@@ -36,7 +36,7 @@ class EquipeIsolationTest extends TestCase
         $this->cliniqueSoeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
         $this->cliniqueEtrangere = Clinique::factory()->create();
 
-        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $this->jeton] = $this->administrateurAvecJeton($this->clinique);
     }
 
     public function test_la_liste_d_equipe_est_celle_de_la_clinique_du_jeton(): void

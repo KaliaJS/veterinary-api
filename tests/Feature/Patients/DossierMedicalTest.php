@@ -128,28 +128,18 @@ class DossierMedicalTest extends TestCase
         $this->assertSame(2, $this->patient->vaccinations()->count());
     }
 
-    public function test_le_signataire_d_une_visite_peut_venir_d_une_clinique_soeur(): void
+    public function test_le_signataire_d_une_visite_est_toujours_la_personne_connectee(): void
     {
         $cliniqueSoeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
-        $employeSoeur = Employe::factory()->dans($cliniqueSoeur)->create();
-        $employeEtranger = Employe::factory()->create();
+        $collegue = Employe::factory()->dans($cliniqueSoeur)->create();
 
-        // Dossier partagé dans l'organisation : l'employé d'une
-        // clinique sœur est référençable — pas celui d'une autre
-        // organisation.
+        // On n'inscrit jamais une visite au nom d'un collègue (23.10.2026)
         $this->postJson("/api/v1/patients/{$this->patient->id}/visites", [
-            'motif' => 'Consultation dans la clinique sœur',
-            'employe_id' => $employeSoeur->id,
+            'motif' => 'Consultation',
+            'employe_id' => $collegue->id,
         ], $this->enTetes($this->jeton))
             ->assertCreated()
-            ->assertJsonPath('data.employe_id', $employeSoeur->id);
-
-        $this->postJson("/api/v1/patients/{$this->patient->id}/visites", [
-            'motif' => 'Intrusion',
-            'employe_id' => $employeEtranger->id,
-        ], $this->enTetes($this->jeton))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('employe_id');
+            ->assertJsonPath('data.employe_id', $this->employe->id);
     }
 
     public function test_une_visite_se_journalise_avec_le_signataire_du_jeton(): void

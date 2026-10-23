@@ -17,8 +17,9 @@ class ClotureCaissePolicy
         return Gate::allows(DomainePermission::Facturation->value);
     }
 
+    /** Arrêter la caisse (Z) : droit `cloturer_caisse` */
     public function create(User $user): bool
     {
-        return Gate::allows(DomainePermission::Facturation->value);
+        return Gate::allows(DomainePermission::Facturation->value) && Gate::allows(DomainePermission::CloturerCaisse->value);
     }
 }

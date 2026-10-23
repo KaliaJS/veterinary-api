@@ -439,6 +439,45 @@ Pas encore réel : les compteurs d'usage (`usage_emails`, `usage_sms`,
 seedées), et rien ne bascule l'organisation en lecture seule après la fin
 d'un abonnement résilié.
 
+### Rôles et droits (23.10.2026)
+
+Chaque employé a un rôle de son organisation (`roles.domaines`, liste de
+droits) et peut avoir des exceptions (`derogations_permission` : un droit
+accordé ou retiré au-dessus du rôle). Les droits (`DomainePermission`)
+sont de deux sortes :
+
+| Droit | Groupe | Ouvre |
+|---|---|---|
+| `planning` | accès | rendez-vous, files, absences |
+| `patients` | accès | dossiers, carnets, examens, hospitalisation, laboratoire, imagerie |
+| `facturation` | caisse | factures, devis, encaissements, fin de consultation |
+| `stocks` | accès | produits, lots, commandes, boutique |
+| `bloc` | accès | interventions |
+| `equipe` | équipe | voir l'équipe, gardes du week-end |
+| `organisation` | équipe | cliniques, abonnement, compte de paiement, rôles et droits |
+| `rh` | équipe | embaucher, rôles, salaires, suspendre, licencier, affectations, invitations |
+| `prescrire` | actes | signer et renouveler une ordonnance |
+| `valider_analyses` | actes | valider les résultats de laboratoire |
+| `signer_comptes_rendus` | actes | signer un compte rendu (imagerie, consultation) |
+| `stupefiants` | actes | inscrire au registre des stupéfiants |
+| `cloturer_caisse` | caisse | clôture Z |
+| `rembourser` | caisse | rembourser et répondre aux litiges (composant Stripe) |
+
+Défauts (`RolesParDefaut`, modifiables par l'organisation dans Réglages,
+Rôles et droits) : Administrateur tout ; Vétérinaire tout sauf
+`organisation`, `rh`, `cloturer_caisse`, `rembourser` ; ASV `planning`,
+`patients`, `facturation`, `stocks`, `bloc`, `equipe` ; Assistant
+`planning`, `patients`, `stocks`, `equipe`.
+
+Garde-fous : personne ne change son propre rôle ni ne se suspend ; on ne
+donne jamais un rôle plus large que le sien ; on ne suspend ni ne
+licencie quelqu'un qui a plus de droits que soi ; la fiche d'un
+administrateur ne se modifie qu'entre administrateurs ; l'organisation
+garde toujours un administrateur actif (rôles et exceptions compris).
+Salaire et motif de licenciement ne sont lus qu'avec `rh`. Le signataire
+d'une visite, d'une vaccination ou d'un mouvement de stupéfiant est
+toujours la personne connectée.
+
 ### Multi-clinique — dimension confirmée du produit
 
 La hiérarchie **Organisation → Sociétés → Cliniques** structure le proto
@@ -1357,6 +1396,10 @@ intégration AMICUS est un chantier API.
 | `motif` | string | « Induction anesthésie », « Réception grossiste — lot … » |
 
 Solde par substance = base + Σ mouvements (alerte « STOCK BAS » < 10 ml).
+Depuis le 23.10.2026 : le signataire est toujours la personne connectée,
+qui doit avoir le droit `stupefiants` ; une sortie ne dépasse jamais le
+solde (vérifié sous verrou) ; le modèle refuse toute modification ou
+suppression.
 Export PDF pour les contrôles cantonaux. En production, ces mouvements
 devraient être un sous-ensemble signé de `mouvements_stock` (section
 14) plutôt qu'un registre parallèle.
@@ -1533,13 +1576,8 @@ Routes : `GET vaccins?espece=&q=`, `GET vaccins/gtin/{gtin}`, `GET|POST patients
   l'ordonnance au registre **et** duplique les lignes en `facture.rx`.
   Cible : l'ordonnance est l'entité de référence, la facture la
   référence (impression depuis l'encaissement conservée).
-- **Rôles et permissions** : à décider. Le proto esquisse quatre
-  profils (Admin/Organisateur, Vétérinaire, AMV, Client) avec menus
-  masqués par profil (`navHidden` : le vétérinaire ne voit pas caisse/
-  boutique/stocks, l'AMV pas le bloc). Contrainte connue : **une
-  assistante ne voit pas la facturation**. Question ouverte : rôles
-  figés en dur ou configurables par l'organisateur ? À ne pas confondre
-  avec « Menus visibles » (préférence personnelle, implémentée).
+- **Rôles et permissions** : tranché le 23.10.2026, voir « Rôles et droits »
+  ci-dessous.
 - **Rétention des données (nLPD)** : non traitée. Durées de
   conservation, anonymisation des clients/patients inactifs,
   articulation avec les statuts jamais supprimés (RDV `annule`,

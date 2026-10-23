@@ -15,10 +15,10 @@ use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
 /**
- * La facturation est LE domaine fermé à certains rôles (contrainte
- * produit : une ASV ne la voit pas — RolesParDefaut). Chaque endpoint
- * du domaine refuse en 403, alors que le reste du métier de l'ASV
- * (planning, patients, stocks) reste ouvert.
+ * La caisse est fermée aux rôles sans le droit `facturation` (par défaut
+ * l'Assistant ; l'ASV encaisse depuis le 23.10.2026). Chaque endpoint du
+ * domaine refuse en 403, alors que le reste de son métier (planning,
+ * patients, stocks) reste ouvert.
  */
 class FacturationPermissionsTest extends TestCase
 {
@@ -47,23 +47,23 @@ class FacturationPermissionsTest extends TestCase
     }
 
     /** @return array{employe: Employe, jeton: string} */
-    private function asvAvecJeton(): array
+    private function assistantAvecJeton(): array
     {
         $resultat = $this->employeAvecJeton($this->clinique);
 
         $resultat['employe']->update([
             'role_id' => Role::withoutGlobalScope('organisation')
                 ->where('organisation_id', $this->clinique->societe->organisation_id)
-                ->where('nom', RolesParDefaut::ASV)
+                ->where('nom', RolesParDefaut::ASSISTANT)
                 ->value('id'),
         ]);
 
         return $resultat;
     }
 
-    public function test_chaque_endpoint_de_facturation_refuse_une_asv(): void
+    public function test_chaque_endpoint_de_facturation_refuse_un_role_sans_la_caisse(): void
     {
-        ['jeton' => $jeton] = $this->asvAvecJeton();
+        ['jeton' => $jeton] = $this->assistantAvecJeton();
 
         foreach ($this->appelsDuDomaine() as [$methode, $uri, $charge]) {
             $reponse = $methode === 'getJson'
@@ -76,7 +76,7 @@ class FacturationPermissionsTest extends TestCase
 
     public function test_le_reste_du_metier_de_l_asv_reste_ouvert(): void
     {
-        ['jeton' => $jeton] = $this->asvAvecJeton();
+        ['jeton' => $jeton] = $this->assistantAvecJeton();
         $entetes = $this->enTetes($jeton);
 
         $this->getJson('/api/v1/rendez-vous', $entetes)->assertOk();

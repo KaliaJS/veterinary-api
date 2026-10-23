@@ -45,7 +45,8 @@ class VaccinationController extends Controller
         $donnees = $request->validated();
         $produit = $this->produit($donnees);
         $attributs = $this->attributs($donnees, $produit);
-        $attributs['employe_id'] = $donnees['employe_id'] ?? app(ContexteClinique::class)->employe()?->id;
+        // Le signataire est toujours la personne connectée (jamais un collègue)
+        $attributs['employe_id'] = app(ContexteClinique::class)->employe()?->id;
 
         $vaccination = $patient->vaccinations()->make($attributs);
         $vaccination->setRelation('produit', $produit);
@@ -66,9 +67,6 @@ class VaccinationController extends Controller
         $donnees = $request->validated();
         $produit = $this->produit($donnees) ?? ($donnees['produit_id'] ?? null ? null : $vaccination->produit);
         $vaccination->fill($this->attributs($donnees, $produit));
-        if (array_key_exists('employe_id', $donnees)) {
-            $vaccination->employe_id = $donnees['employe_id'];
-        }
         $vaccination->save();
 
         return new VaccinationResource($vaccination->load(['produit', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));

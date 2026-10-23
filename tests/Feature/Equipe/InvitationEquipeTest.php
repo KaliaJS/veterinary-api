@@ -36,7 +36,7 @@ class InvitationEquipeTest extends TestCase
 
         $this->clinique = Clinique::factory()->create();
         $this->soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
-        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dr Anna Meyer']);
+        ['jeton' => $this->jeton] = $this->administrateurAvecJeton($this->clinique, ['nom' => 'Dr Anna Meyer']);
     }
 
     /** @return array<string, mixed> */

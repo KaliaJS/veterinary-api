@@ -72,6 +72,8 @@ class RegistreStupefiantTest extends TestCase
 
     public function test_une_sortie_s_enregistre_avec_patient_et_motif_par_defaut(): void
     {
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $this->substance->id, 'quantite' => 10], $this->enTetes($this->jeton))->assertCreated();
+
         $reponse = $this->postJson('/api/v1/stupefiants/mouvements', [
             'produit_id' => $this->substance->id,
             'quantite' => -0.4,
