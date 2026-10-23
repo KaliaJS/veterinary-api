@@ -1,0 +1,91 @@
+<?php
+
+namespace Tests\Feature\Auth;
+
+use App\Models\User;
+use App\Notifications\CodeEmailNotification;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
+use Tests\TestCase;
+
+/**
+ * Limites de la connexion (23.10.2026) : par IP seule en plus du couple
+ * adresse + IP, envoi de codes par destinataire toutes IP confondues,
+ * essais comptés avant la vérification et code effacé au-delà.
+ */
+class LimitesConnexionTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_une_ip_ne_balaie_pas_des_milliers_d_adresses(): void
+    {
+        for ($i = 1; $i <= 30; $i++) {
+            $this->postJson('/api/v1/auth/email', ['email' => "personne{$i}@exemple.ch"])->assertOk();
+        }
+
+        $this->postJson('/api/v1/auth/email', ['email' => 'personne31@exemple.ch'])->assertTooManyRequests();
+
+        // Une autre machine n'est pas touchée
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.9'])
+            ->postJson('/api/v1/auth/email', ['email' => 'personne31@exemple.ch'])->assertOk();
+    }
+
+    public function test_une_boite_ne_recoit_pas_plus_de_trois_codes_en_quinze_minutes_quelle_que_soit_l_ip(): void
+    {
+        Notification::fake();
+
+        foreach (['198.51.100.1', '198.51.100.2', '198.51.100.3'] as $ip) {
+            $this->withServerVariables(['REMOTE_ADDR' => $ip])
+                ->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'victime@exemple.ch'])->assertStatus(202);
+        }
+
+        $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.4'])
+            ->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'victime@exemple.ch'])->assertTooManyRequests();
+    }
+
+    public function test_au_cinquieme_mauvais_code_le_bon_code_ne_marche_plus(): void
+    {
+        Notification::fake();
+        $user = User::factory()->create();
+        $code = $this->envoyerEtRecupererLeCode($user);
+        $faux = $code === '111111' ? '222222' : '111111';
+
+        foreach (range(1, 5) as $essai) {
+            $this->withServerVariables(['REMOTE_ADDR' => "192.0.2.{$essai}"])
+                ->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $faux])
+                ->assertUnprocessable()->assertJsonValidationErrors('code');
+        }
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.99'])
+            ->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $code])
+            ->assertUnprocessable()->assertJsonValidationErrors('code');
+    }
+
+    public function test_le_bon_code_passe_apres_quelques_erreurs(): void
+    {
+        Notification::fake();
+        $user = User::factory()->create();
+        $code = $this->envoyerEtRecupererLeCode($user);
+        $faux = $code === '111111' ? '222222' : '111111';
+
+        foreach (range(1, 3) as $essai) {
+            $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $faux])->assertUnprocessable();
+        }
+
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $code])->assertOk();
+    }
+
+    private function envoyerEtRecupererLeCode(User $user): string
+    {
+        $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => $user->email])->assertStatus(202);
+
+        $code = null;
+        Notification::assertSentTo($user, CodeEmailNotification::class, function (CodeEmailNotification $notification) use (&$code): bool {
+            $code = $notification->code;
+
+            return true;
+        });
+
+        return $code;
+    }
+}

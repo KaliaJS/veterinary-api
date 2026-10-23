@@ -8,6 +8,7 @@ use App\Models\Clinique;
 use App\Models\Role;
 use App\Services\Domaines\ResolveurDns;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -180,14 +181,30 @@ class DomaineSiteTest extends TestCase
 
     public function test_le_domaine_relie_devient_une_origine_cors_autorisee(): void
     {
-        config(['cors.allowed_origins' => ['https://app.veterinary.ch', 'https://app.veterinary.test']]);
         $origine = fn (string $o): ?string => $this->getJson('/api/v1/public/sites/deux-rives', ['Origin' => $o])->headers->get('Access-Control-Allow-Origin');
 
         $this->assertNull($origine('https://www.ma-clinique.ch'));
 
         $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertOk();
 
+        // En attente (DNS pas encore vérifié) : pas encore une origine
+        $this->assertNull($origine('https://www.ma-clinique.ch'));
+
+        Cache::forget('sites.domaines.cors');
+        $this->pointe = true;
+        $this->postJson('/api/v1/site/domaine/verifier', [], $this->enTetes($this->jeton))
+            ->assertJsonPath('data.domaine.statut', 'actif');
+
         $this->assertSame('https://www.ma-clinique.ch', $origine('https://www.ma-clinique.ch'));
         $this->assertNull($origine('https://inconnu.ch'));
+    }
+
+    public function test_seules_les_origines_de_l_app_sont_autorisees(): void
+    {
+        $origine = fn (string $o): ?string => $this->getJson('/api/v1/public/sites/deux-rives', ['Origin' => $o])->headers->get('Access-Control-Allow-Origin');
+
+        $this->assertSame('https://app.veterinary.test', $origine('https://app.veterinary.test'));
+        $this->assertSame('capacitor://localhost', $origine('capacitor://localhost'));
+        $this->assertNull($origine('https://site-malveillant.example'));
     }
 }

@@ -23,6 +23,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prependToGroup('api', ForcerReponseJson::class);
 
+        // Limite générale de l'API (AppServiceProvider, limiteur `api`)
+        $middleware->throttleApi();
+
         // Avant HandleCors : les domaines reliés aux sites sont des origines autorisées
         $middleware->prepend(AutoriserDomainesSites::class);
 

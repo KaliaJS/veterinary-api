@@ -15,7 +15,8 @@ use Illuminate\Validation\ValidationException;
  * inscription par la même voie : un e-mail inconnu reçoit aussi un
  * code, et sa vérification crée le compte (sans clinique). Le code est
  * haché en cache, à usage unique, valable 10 minutes, 5 essais de
- * vérification par période. La vraie API n'expose jamais le code (le
+ * vérification par période (comptés avant la vérification) et 20 par
+ * jour ; au-delà, le code est effacé. La vraie API n'expose jamais le code (le
  * `demoCode` du front est un artefact de démo).
  *
  * Contrôle et consommation sont séparés : la voie de connexion
@@ -27,6 +28,9 @@ class CodeEmail
     private const int VALIDITE_MINUTES = 10;
 
     private const int ESSAIS_MAX = 5;
+
+    /** Essais par adresse et par jour, tous codes confondus */
+    private const int ESSAIS_JOUR = 20;
 
     public function __construct(private CreationCompte $comptes) {}
 
@@ -67,18 +71,26 @@ class CodeEmail
      */
     public function controler(string $email, string $code): User
     {
-        $limiteur = $this->limiteur($email);
+        // L'essai est compté AVANT la vérification : des essais envoyés en
+        // même temps ne passent pas tous le contrôle avant que le compteur
+        // ne bouge. Au-delà de la limite, le code est effacé.
+        $essais = RateLimiter::increment($this->limiteur($email), self::VALIDITE_MINUTES * 60);
+        $essaisDuJour = RateLimiter::increment($this->limiteurJour($email), 86400);
 
-        if (RateLimiter::tooManyAttempts($limiteur, self::ESSAIS_MAX)) {
+        if ($essais > self::ESSAIS_MAX || $essaisDuJour > self::ESSAIS_JOUR) {
+            Cache::forget($this->cle($email));
+
             throw ValidationException::withMessages([
-                'code' => 'Trop de tentatives — demandez un nouveau code.',
+                'code' => 'Trop de tentatives. Demandez un nouveau code.',
             ]);
         }
 
         $hache = Cache::get($this->cle($email));
 
         if (! $hache || ! Hash::check($code, $hache)) {
-            RateLimiter::hit($limiteur, self::VALIDITE_MINUTES * 60);
+            if ($essais >= self::ESSAIS_MAX) {
+                Cache::forget($this->cle($email));
+            }
 
             throw ValidationException::withMessages([
                 'code' => 'Code invalide ou expiré.',
@@ -120,6 +132,11 @@ class CodeEmail
     private function limiteur(string $email): string
     {
         return 'code-email:'.mb_strtolower($email);
+    }
+
+    private function limiteurJour(string $email): string
+    {
+        return 'code-email-jour:'.mb_strtolower($email);
     }
 
     private function cle(string $email): string

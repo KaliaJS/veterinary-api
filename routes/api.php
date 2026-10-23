@@ -151,7 +151,7 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function (): void {
     Route::prefix('auth')->middleware('throttle:auth')->group(function (): void {
         Route::post('email', EmailConnuController::class);
-        Route::post('code-email/envoyer', [CodeEmailController::class, 'envoyer']);
+        Route::post('code-email/envoyer', [CodeEmailController::class, 'envoyer'])->middleware('throttle:code-email');
         Route::post('code-email/verifier', [CodeEmailController::class, 'verifier']);
         Route::post('passkey/options', [PasskeyConnexionController::class, 'options']);
         Route::post('passkey/verifier', [PasskeyConnexionController::class, 'verifier']);
@@ -240,11 +240,11 @@ Route::prefix('v1')->group(function (): void {
         Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
         // Domaines personnalisés : site d'un domaine actif ; autorisation de certificat (on-demand TLS)
         Route::get('domaines/{domaine}', [DomainePublicController::class, 'site'])->where('domaine', '[a-z0-9.-]+');
-        Route::get('domaines-autorises', [DomainePublicController::class, 'autorise'])->withoutMiddleware('throttle:60,1');
-        Route::get('photos/{fichier}', [PhotoEmployeController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('employe.photo')->withoutMiddleware('throttle:60,1');
-        Route::get('photos-animaux/{fichier}', [PhotoPatientController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('patient.photo')->withoutMiddleware('throttle:60,1');
-        Route::get('photos-cliniques/{fichier}', [PhotoCliniqueController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+(?:-\\d+)?\\.[a-z]+')->name('clinique.photo')->withoutMiddleware('throttle:60,1');
-        Route::get('sites/{slug}/logo', [SitePublicController::class, 'logo'])->where('slug', '[a-z0-9-]+')->name('site.logo')->withoutMiddleware('throttle:60,1');
+        Route::get('domaines-autorises', [DomainePublicController::class, 'autorise'])->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
+        Route::get('photos/{fichier}', [PhotoEmployeController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('employe.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
+        Route::get('photos-animaux/{fichier}', [PhotoPatientController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('patient.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
+        Route::get('photos-cliniques/{fichier}', [PhotoCliniqueController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+(?:-\\d+)?\\.[a-z]+')->name('clinique.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
+        Route::get('sites/{slug}/logo', [SitePublicController::class, 'logo'])->where('slug', '[a-z0-9-]+')->name('site.logo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
     });
 
     // Espace propriétaire (portail client du proto) : tout compte
@@ -255,7 +255,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('accueil', AccueilController::class);
         Route::get('animaux', [AnimalController::class, 'index']);
         Route::post('animaux', [AnimalController::class, 'store']);
-        Route::post('animaux/reclamer', [AnimalController::class, 'reclamer']);
+        Route::post('animaux/reclamer', [AnimalController::class, 'reclamer'])->middleware('throttle:espace-reclamer');
         Route::get('animaux/rattachements', [AnimalController::class, 'rattachements']);
         Route::get('animaux/{animal}', [AnimalController::class, 'show']);
         Route::put('animaux/{animal}', [AnimalController::class, 'update']);
@@ -268,7 +268,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('documents', [DocumentProprietaireController::class, 'index']);
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
         Route::get('messages', [MessageProprietaireController::class, 'index']);
-        Route::post('messages', [MessageProprietaireController::class, 'envoyer']);
+        Route::post('messages', [MessageProprietaireController::class, 'envoyer'])->middleware('throttle:espace-messages');
         Route::get('coordonnees', [CoordonneesProprietaireController::class, 'afficher']);
         Route::get('preferences', [ReglagesProprietaireController::class, 'preferences']);
         Route::put('preferences', [ReglagesProprietaireController::class, 'modifierPreferences']);
@@ -279,10 +279,10 @@ Route::prefix('v1')->group(function (): void {
         Route::get('export', [ReglagesProprietaireController::class, 'export']);
         // Offre du propriétaire : Gratuit, ou Plus (d'autres planètes)
         Route::get('abonnement', [AbonnementProprietaireController::class, 'afficher']);
-        Route::post('abonnement/carte/intention', [AbonnementProprietaireController::class, 'intentionCarte']);
+        Route::post('abonnement/carte/intention', [AbonnementProprietaireController::class, 'intentionCarte'])->middleware('throttle:espace-achats');
         Route::put('abonnement/carte', [AbonnementProprietaireController::class, 'enregistrerCarte']);
         Route::delete('abonnement/carte', [AbonnementProprietaireController::class, 'supprimerCarte']);
-        Route::post('abonnement/plus', [AbonnementProprietaireController::class, 'souscrire']);
+        Route::post('abonnement/plus', [AbonnementProprietaireController::class, 'souscrire'])->middleware('throttle:espace-achats');
         Route::post('abonnement/resilier', [AbonnementProprietaireController::class, 'resilier']);
         Route::post('abonnement/reactiver', [AbonnementProprietaireController::class, 'reactiver']);
         Route::get('abonnement/factures/{facture}', [AbonnementProprietaireController::class, 'facture'])->whereNumber('facture');
@@ -290,21 +290,21 @@ Route::prefix('v1')->group(function (): void {
         Route::post('abonnement/factures/{facture}/confirmer', [AbonnementProprietaireController::class, 'confirmer'])->whereNumber('facture');
         // Achats dans l'app iPhone (App Store, StoreKit 2)
         Route::get('app-store', [AppStoreController::class, 'afficher']);
-        Route::post('app-store/transactions', [AppStoreController::class, 'transactions']);
+        Route::post('app-store/transactions', [AppStoreController::class, 'transactions'])->middleware('throttle:espace-achats');
         // Jeu de la planète : boutique d'objets, décès d'un animal (tombe)
         Route::get('planete', [PlaneteController::class, 'afficher']);
-        Route::post('planete/achats', [PlaneteController::class, 'acheter']);
+        Route::post('planete/achats', [PlaneteController::class, 'acheter'])->middleware('throttle:espace-achats');
         Route::post('animaux/{animal}/deces', [PlaneteController::class, 'declarerDeces']);
         Route::delete('animaux/{animal}/deces', [PlaneteController::class, 'annulerDeces']);
         Route::put('coordonnees', [CoordonneesProprietaireController::class, 'modifier']);
         Route::get('commandes', [BoutiqueProprietaireController::class, 'commandes']);
-        Route::post('commandes', [BoutiqueProprietaireController::class, 'passer']);
+        Route::post('commandes', [BoutiqueProprietaireController::class, 'passer'])->middleware('throttle:espace-commandes');
         Route::post('devis/{devis}/signer', [DocumentProprietaireController::class, 'signerDevis']);
         Route::post('ordonnances/{ordonnance}/renouvellement', [DocumentProprietaireController::class, 'demanderRenouvellement']);
-        Route::post('demandes', [CliniqueProprietaireController::class, 'deposer']);
+        Route::post('demandes', [CliniqueProprietaireController::class, 'deposer'])->middleware('throttle:espace-demandes');
         Route::get('demandes', [DemandeProprietaireController::class, 'index']);
         Route::post('demandes/{demande}/choisir', [DemandeProprietaireController::class, 'choisir'])->whereNumber('demande');
-        Route::post('email/envoyer', [VerificationEmailController::class, 'envoyer'])->middleware('throttle:auth');
+        Route::post('email/envoyer', [VerificationEmailController::class, 'envoyer'])->middleware(['throttle:auth', 'throttle:code-email']);
         Route::post('email/verifier', [VerificationEmailController::class, 'verifier'])->middleware('throttle:auth');
     });
 
@@ -510,18 +510,18 @@ Route::prefix('v1')->group(function (): void {
             Route::post('factures/{facture}/payer-plus-tard', [EncaissementController::class, 'payerPlusTard']);
 
             // Paiement en caisse : carte sur un terminal de la clinique, ou TWINT, sur le compte de la société
-            Route::post('factures/{facture}/paiements', [PaiementCaisseController::class, 'store']);
-            Route::get('paiements/{paiement}', [PaiementCaisseController::class, 'show']);
+            Route::post('factures/{facture}/paiements', [PaiementCaisseController::class, 'store'])->middleware('throttle:stripe');
+            Route::get('paiements/{paiement}', [PaiementCaisseController::class, 'show'])->middleware('throttle:stripe');
             Route::post('paiements/{paiement}/annuler', [PaiementCaisseController::class, 'annuler']);
             Route::post('paiements/{paiement}/simuler-carte', [PaiementCaisseController::class, 'simulerCarte']);
             // Compte de paiement de la société (Connect, sans tableau de bord) : état,
             // ouverture, sessions des composants intégrés
-            Route::get('compte-paiement', [ComptePaiementController::class, 'afficher']);
+            Route::get('compte-paiement', [ComptePaiementController::class, 'afficher'])->middleware('throttle:stripe');
             Route::post('compte-paiement', [ComptePaiementController::class, 'ouvrir']);
             Route::post('compte-paiement/session', [ComptePaiementController::class, 'session'])->middleware('throttle:30,1,session-paiement');
             Route::put('compte-paiement/integration', [ComptePaiementController::class, 'integration']);
             Route::get('mode-encaissement', [ComptePaiementController::class, 'mode']);
-            Route::get('terminaux', [TerminalPaiementController::class, 'index']);
+            Route::get('terminaux', [TerminalPaiementController::class, 'index'])->middleware('throttle:stripe');
             Route::post('terminaux', [TerminalPaiementController::class, 'store']);
             Route::delete('terminaux/{terminal}', [TerminalPaiementController::class, 'destroy']);
             Route::put('factures/{facture}/decompte', [DecompteAssuranceController::class, 'enregistrer']);

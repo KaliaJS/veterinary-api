@@ -10,12 +10,12 @@ use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * CORS : les origines autorisées sont une liste fixe (CORS_ALLOWED_ORIGINS)
- * — un site servi sur le domaine d'une clinique doit pourtant appeler
- * l'API (site public, prise de rendez-vous). Si l'origine de la requête
- * est le domaine relié d'un site, on l'ajoute à la liste pour cette
- * requête, avant HandleCors. Les domaines connus sont mis en cache une
- * minute.
+ * CORS : les origines autorisées sont une liste fixe (config/cors.php,
+ * CORS_ALLOWED_ORIGINS) ; un site servi sur le domaine d'une clinique doit
+ * pourtant appeler l'API (contenu du site public). Si l'origine de la
+ * requête est le domaine ACTIF d'un site (vérifié, jamais un domaine en
+ * attente), on l'ajoute à la liste pour cette requête, avant HandleCors.
+ * Les domaines actifs sont mis en cache une minute.
  */
 class AutoriserDomainesSites
 {
@@ -36,7 +36,7 @@ class AutoriserDomainesSites
     {
         return Cache::remember('sites.domaines.cors', 60, fn (): array => SiteWeb::withoutGlobalScopes()
             ->whereNotNull('domaine')
-            ->whereIn('domaine_statut', [DomaineSite::ATTENTE, DomaineSite::ACTIF])
+            ->where('domaine_statut', DomaineSite::ACTIF)
             ->pluck('domaine')
             ->all());
     }
