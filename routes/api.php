@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\AbsenceController;
 use App\Http\Controllers\Api\V1\AccesEmployeController;
 use App\Http\Controllers\Api\V1\AffectationsEmployeController;
 use App\Http\Controllers\Api\V1\AjustementStockController;
+use App\Http\Controllers\Api\V1\AlertesController;
 use App\Http\Controllers\Api\V1\AnalyseController;
 use App\Http\Controllers\Api\V1\AnalysePatientController;
 use App\Http\Controllers\Api\V1\AnnuaireCliniqueController;
@@ -313,6 +314,12 @@ Route::prefix('v1')->group(function (): void {
         // Annuaire des cliniques de l'organisation (id, nom, boxes) :
         // tout employé — le domaine organisation garde la gestion.
         Route::get('cliniques', AnnuaireCliniqueController::class);
+
+        // Alertes de la personne (stock, consommation) et ses e-mails d'alerte
+        Route::get('alertes', [AlertesController::class, 'index']);
+        Route::post('alertes/lues', [AlertesController::class, 'lues']);
+        Route::get('alertes/reglages', [AlertesController::class, 'reglages']);
+        Route::put('alertes/reglages', [AlertesController::class, 'modifierReglages']);
 
         // Le destroy n'existe que pour les salles de bloc (l'écran du
         // bloc gère sa liste) — gardes métier dans le contrôleur.

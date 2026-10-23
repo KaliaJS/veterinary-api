@@ -3,6 +3,7 @@
 namespace App\Services\Transcription;
 
 use App\Enums\StatutPartie;
+use App\Enums\TypeAlerte;
 use App\Mail\AlerteTranscription;
 use App\Mail\PlafondTranscriptionOrganisation;
 use App\Models\Organisation;
@@ -155,7 +156,7 @@ final class ConsommationTranscription
             }
             $cle = 'transcription-plafond-'.$organisation->id.'-'.$seuil.'-'.$debut->toDateString();
             if (Cache::add($cle, true, now()->addDays(400))) {
-                $destinataires = $organisation->emailsAdministrateurs();
+                $destinataires = $organisation->emailsAdministrateurs(TypeAlerte::Consommation);
                 if ($destinataires !== []) {
                     Mail::to($destinataires)->send(new PlafondTranscriptionOrganisation($seuil, $montant / 100, $plafond / 100, $organisation->nom));
                 }

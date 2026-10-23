@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Auth\RolesParDefaut;
 use App\Enums\DomainePermission;
 use App\Enums\FormuleSaas;
+use App\Enums\TypeAlerte;
 use App\Enums\VerificationOrganisation;
 use App\Services\PanelsLaboParDefaut;
 use App\Services\PrestationsParDefaut;
@@ -228,11 +229,12 @@ class Organisation extends Model
 
     /**
      * Adresses des administrateurs (rôles du domaine organisation, accès
-     * actif) : factures, relances, plafonds.
+     * actif) : factures, relances, plafonds. Pour une alerte, sans ceux qui
+     * en ont coupé les e-mails dans leurs réglages.
      *
      * @return list<string>
      */
-    public function emailsAdministrateurs(): array
+    public function emailsAdministrateurs(?TypeAlerte $alerte = null): array
     {
         $roles = Role::withoutGlobalScopes()
             ->where('organisation_id', $this->id)
@@ -246,6 +248,7 @@ class Organisation extends Model
             ->where('acces_suspendu', false)
             ->with('user')
             ->get()
+            ->filter(fn (Employe $employe) => ! $alerte || $employe->recoitAlertesEmail($alerte))
             ->map(fn (Employe $employe) => $employe->user?->email)
             ->filter()
             ->unique()

@@ -42,6 +42,8 @@ return new class extends Migration
             $table->date('licenciement_notifie_le')->nullable();
             $table->date('fin_contrat_le')->nullable();
             $table->string('licenciement_motif')->nullable();
+            $table->json('alertes_email_coupees')->nullable()->comment('E-mails d’alerte que la personne ne veut plus : stock, consommation');
+            $table->json('alertes_lues')->nullable()->comment('Alertes de l’app déjà vues (clés)');
             $table->timestamps();
 
             // Un compte, une fiche par organisation

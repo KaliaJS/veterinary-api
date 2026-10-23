@@ -3,6 +3,7 @@
 namespace App\Services\Diagnostic;
 
 use App\Enums\StatutSuggestionDiagnostique;
+use App\Enums\TypeAlerte;
 use App\Mail\PlafondDiagnosticOrganisation;
 use App\Models\Organisation;
 use App\Models\SuggestionDiagnostique;
@@ -121,7 +122,7 @@ final class ConsommationDiagnostic
             }
             $cle = 'diagnostic-plafond-'.$organisation->id.'-'.$seuil.'-'.$debut->toDateString();
             if (Cache::add($cle, true, now()->addDays(400))) {
-                $destinataires = $organisation->emailsAdministrateurs();
+                $destinataires = $organisation->emailsAdministrateurs(TypeAlerte::Consommation);
                 if ($destinataires !== []) {
                     Mail::to($destinataires)->send(new PlafondDiagnosticOrganisation($seuil, $montant / 100, $plafond / 100, $organisation->nom));
                 }

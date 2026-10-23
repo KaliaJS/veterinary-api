@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Enums\StatutAbsence;
 use App\Enums\StatutContrat;
 use App\Enums\TypeAbsence;
+use App\Enums\TypeAlerte;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use Database\Factories\EmployeFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -34,11 +35,14 @@ class Employe extends Model
         'taux', 'contrat', 'entree_le', 'tel', 'email', 'photo_chemin', 'conges_droit', 'conges_pris',
         'acces_suspendu', 'contrat_statut', 'salaire_mensuel',
         'licenciement_notifie_le', 'fin_contrat_le', 'licenciement_motif',
+        'alertes_email_coupees', 'alertes_lues',
     ];
 
     protected function casts(): array
     {
         return [
+            'alertes_email_coupees' => 'array',
+            'alertes_lues' => 'array',
             'entree_le' => 'date',
             'taux' => 'integer',
             'conges_droit' => 'integer',
@@ -74,6 +78,12 @@ class Employe extends Model
     public function estVeterinaire(): bool
     {
         return str_starts_with((string) $this->role_libelle, 'Vétérinaire');
+    }
+
+    /** Reçoit-elle les e-mails de ce type d'alerte ? (oui, sauf si elle les a coupés) */
+    public function recoitAlertesEmail(TypeAlerte $type): bool
+    {
+        return ! in_array($type->value, $this->alertes_email_coupees ?? [], true);
     }
 
     /**

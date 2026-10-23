@@ -1148,6 +1148,21 @@ validation enregistre le CR ci-dessus.
   sont prévenus par e-mail à 80 % puis à 100 % de leur plafond ; plafond
   et mots rares se règlent dans Réglages, onglet Transcription.
 
+### Alertes de la clinique (23.10.2026)
+
+Calculées à la demande (`AlertesClinique`), jamais stockées. Stock
+(domaine stocks) : produits sous leur seuil (stock de toutes les
+cliniques de l'organisation), lots de la clinique périmés ou qui périment
+d'ici la fin du mois suivant. Consommation (domaine organisation) :
+transcription et suggestions diagnostiques à 80 % puis à 100 % du
+plafond. `GET alertes` (avec `lue`), `POST alertes/lues` ; chaque clé
+change avec son contenu, une alerte vue redevient nouvelle quand la
+situation change (`employes.alertes_lues`). E-mails par famille,
+coupables dans Réglages, Notifications (`employes.alertes_email_coupees`,
+`GET|PUT alertes/reglages`) : point du stock chaque matin à 7 h
+(`alertes:stock`, aux personnes de la clinique qui ont le domaine stocks),
+plafonds au franchissement (administrateurs).
+
 ### Suggestion diagnostique de l'IA (23.10.2026)
 
 Depuis le compte rendu (bouton « Suggestion IA » de la rubrique A), le

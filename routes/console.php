@@ -24,3 +24,5 @@ Schedule::command('catalogue:refdata')->weeklyOn(1, '04:30')->environments(['pro
 Schedule::command('abonnements:renouveler')->hourly()->withoutOverlapping();
 Schedule::command('inscriptions:reessayer')->hourly()->withoutOverlapping();
 Schedule::command('transcriptions:purger')->dailyAt('03:30')->timezone('Europe/Zurich')->withoutOverlapping();
+// Point du matin sur le stock (seuils, péremptions), avant l'ouverture des cliniques
+Schedule::command('alertes:stock')->dailyAt('07:00')->timezone('Europe/Zurich')->withoutOverlapping();

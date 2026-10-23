@@ -8,7 +8,7 @@
 {{ $organisation }} a utilisé {{ $chf($montant) }} de suggestions diagnostiques sur la période d'abonnement en cours, soit {{ $seuil }} % de son plafond de {{ $chf($plafond) }}.
 @endif
 
-Le plafond se règle dans les réglages de l'application, onglet Diagnostic IA.
+Le plafond se règle dans les réglages de l'application, onglet Diagnostic IA. Ces e-mails se coupent dans l'onglet Notifications.
 
 {{ config('app.name') }}
 </x-mail::message>
