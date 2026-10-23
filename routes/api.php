@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\V1\CommandeFournisseurController;
 use App\Http\Controllers\Api\V1\CommandeFournisseurLigneController;
 use App\Http\Controllers\Api\V1\CompteClientController;
 use App\Http\Controllers\Api\V1\CompteEmployeController;
+use App\Http\Controllers\Api\V1\ComptePaiementController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
 use App\Http\Controllers\Api\V1\CompteRenduImagerieController;
 use App\Http\Controllers\Api\V1\ConsentementInterventionController;
@@ -501,11 +502,16 @@ Route::prefix('v1')->group(function (): void {
             Route::post('factures/{facture}/encaisser', [EncaissementController::class, 'encaisser']);
             Route::post('factures/{facture}/payer-plus-tard', [EncaissementController::class, 'payerPlusTard']);
 
-            // Paiement par Stripe : carte sur un terminal de la clinique, ou TWINT
+            // Paiement en caisse : carte sur un terminal de la clinique, ou TWINT, sur le compte de la société
             Route::post('factures/{facture}/paiements', [PaiementCaisseController::class, 'store']);
             Route::get('paiements/{paiement}', [PaiementCaisseController::class, 'show']);
             Route::post('paiements/{paiement}/annuler', [PaiementCaisseController::class, 'annuler']);
             Route::post('paiements/{paiement}/simuler-carte', [PaiementCaisseController::class, 'simulerCarte']);
+            // Compte de paiement de la société (Connect, sans tableau de bord) : état,
+            // ouverture, sessions des composants intégrés
+            Route::get('compte-paiement', [ComptePaiementController::class, 'afficher']);
+            Route::post('compte-paiement', [ComptePaiementController::class, 'ouvrir']);
+            Route::post('compte-paiement/session', [ComptePaiementController::class, 'session'])->middleware('throttle:30,1,session-paiement');
             Route::get('terminaux', [TerminalPaiementController::class, 'index']);
             Route::post('terminaux', [TerminalPaiementController::class, 'store']);
             Route::delete('terminaux/{terminal}', [TerminalPaiementController::class, 'destroy']);

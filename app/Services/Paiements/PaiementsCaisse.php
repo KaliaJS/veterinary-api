@@ -10,14 +10,14 @@ use App\Models\Paiement;
 use App\Models\TerminalPaiement;
 use App\Models\User;
 use App\Paiements\ErreurPaiement;
-use App\Paiements\PasserellePaiement;
 use App\Services\EncaissementFacture;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
  * Paiements de caisse par Stripe (docs/data-model.md §6) : carte sur le
- * terminal de la clinique, ou TWINT par QR. Chaque tentative est une
+ * terminal de la clinique, ou TWINT par QR, encaissés sur le compte de
+ * paiement de sa société, la plateforme prenant sa commission (terminal). Chaque tentative est une
  * intention Stripe et une ligne `paiements` ; réussie, elle encaisse la
  * facture (même service que l'encaissement manuel : stock, statut).
  *
@@ -29,7 +29,7 @@ use Illuminate\Support\Str;
 class PaiementsCaisse
 {
     public function __construct(
-        private PasserellePaiement $passerelle,
+        private ComptesPaiement $comptes,
         private EncaissementFacture $encaissement,
         private ContexteClinique $contexte,
     ) {}
@@ -41,15 +41,17 @@ class PaiementsCaisse
      */
     public function parTerminal(Facture $facture, TerminalPaiement $terminal, ?User $auteur): Paiement
     {
+        $passerelle = $this->comptes->passerellePour($facture->clinique_id, pourEncaisser: true);
         $paiement = $this->tentativeARejouer($facture, $terminal);
 
         if (! $paiement) {
             $this->abandonnerEnCours($facture);
 
-            $intention = $this->passerelle->creerIntentionTerminal(
+            $intention = $passerelle->creerIntentionTerminal(
                 $this->centimes($facture),
                 $this->metadonnees($facture, MoyenPaiement::Tpe),
                 $this->cle($facture),
+                ComptesPaiement::commissionTerminal($this->centimes($facture)),
             );
 
             // Enregistré AVANT d'envoyer au lecteur : un webhook rapide le retrouve
@@ -59,10 +61,10 @@ class PaiementsCaisse
         }
 
         try {
-            $this->passerelle->presenterSurLecteur($terminal->stripe_reader_id, $paiement->stripe_payment_intent_id);
+            $passerelle->presenterSurLecteur($terminal->stripe_reader_id, $paiement->stripe_payment_intent_id);
         } catch (ErreurPaiement $e) {
             $paiement->update(['statut' => StatutPaiement::Echoue, 'erreur' => $e->getMessage()]);
-            $this->annulerIntentionSansEchec($paiement->stripe_payment_intent_id);
+            $this->annulerIntentionSansEchec($paiement);
 
             throw $e;
         }
@@ -73,13 +75,15 @@ class PaiementsCaisse
     /** Intention TWINT : l'URL de la page TWINT devient le QR que scanne le client. */
     public function parTwint(Facture $facture, ?User $auteur): Paiement
     {
+        $passerelle = $this->comptes->passerellePour($facture->clinique_id, pourEncaisser: true);
         $this->abandonnerEnCours($facture);
 
-        $intention = $this->passerelle->creerIntentionTwint(
+        $intention = $passerelle->creerIntentionTwint(
             $this->centimes($facture),
             $this->metadonnees($facture, MoyenPaiement::Twint),
             rtrim((string) config('app.frontend_url'), '/').'/paiement-termine',
             $this->cle($facture),
+            ComptesPaiement::commissionTwint($this->centimes($facture)),
         );
 
         $paiement = $this->creer($facture, MoyenPaiement::Twint, $intention['id'], $auteur, [
@@ -96,7 +100,7 @@ class PaiementsCaisse
             return $paiement;
         }
 
-        $intention = $this->passerelle->lireIntention($paiement->stripe_payment_intent_id);
+        $intention = $this->comptes->passerellePour($paiement->clinique_id)->lireIntention($paiement->stripe_payment_intent_id);
 
         return $this->appliquer($paiement, $intention['statut'], $intention['erreur']);
     }
@@ -112,18 +116,20 @@ class PaiementsCaisse
             return $paiement;
         }
 
+        $passerelle = $this->comptes->passerellePour($paiement->clinique_id);
+
         if ($paiement->terminal) {
             try {
-                $this->passerelle->annulerSurLecteur($paiement->terminal->stripe_reader_id);
+                $passerelle->annulerSurLecteur($paiement->terminal->stripe_reader_id);
             } catch (ErreurPaiement) {
                 // Lecteur déjà libre ou hors ligne : l'intention fait foi
             }
         }
 
         try {
-            $intention = $this->passerelle->annulerIntention($paiement->stripe_payment_intent_id);
+            $intention = $passerelle->annulerIntention($paiement->stripe_payment_intent_id);
         } catch (ErreurPaiement) {
-            $intention = $this->passerelle->lireIntention($paiement->stripe_payment_intent_id);
+            $intention = $passerelle->lireIntention($paiement->stripe_payment_intent_id);
         }
 
         return $this->appliquer($paiement, $intention['statut'], $intention['erreur']);
@@ -193,7 +199,7 @@ class PaiementsCaisse
             return null;
         }
 
-        if ($this->passerelle->lireIntention($echec->stripe_payment_intent_id)['statut'] !== 'requires_payment_method') {
+        if ($this->comptes->passerellePour($facture->clinique_id)->lireIntention($echec->stripe_payment_intent_id)['statut'] !== 'requires_payment_method') {
             return null;
         }
 
@@ -219,7 +225,7 @@ class PaiementsCaisse
         $facture->paiements()
             ->where('statut', StatutPaiement::Echoue)
             ->get()
-            ->each(fn (Paiement $paiement) => $this->annulerIntentionSansEchec($paiement->stripe_payment_intent_id));
+            ->each(fn (Paiement $paiement) => $this->annulerIntentionSansEchec($paiement));
 
         if (! $facture->refresh()->estDue()) {
             throw new ErreurPaiement('Cette facture vient d’être payée.');
@@ -274,10 +280,10 @@ class PaiementsCaisse
         }
     }
 
-    private function annulerIntentionSansEchec(string $intentionId): void
+    private function annulerIntentionSansEchec(Paiement $paiement): void
     {
         try {
-            $this->passerelle->annulerIntention($intentionId);
+            $this->comptes->passerellePour($paiement->clinique_id)->annulerIntention($paiement->stripe_payment_intent_id);
         } catch (ErreurPaiement) {
             // Rien à annuler côté Stripe
         }

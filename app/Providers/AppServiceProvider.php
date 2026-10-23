@@ -43,6 +43,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(PasserellePaiement::class, fn () => new PasserelleStripe(
             new StripeClient(['api_key' => config('services.stripe.secret') ?: null]),
             config('services.stripe.webhook_secret'),
+            config('services.stripe.webhook_secret_comptes'),
         ));
 
         // Abonnement SaaS des organisations : Stripe Billing, remplacé par

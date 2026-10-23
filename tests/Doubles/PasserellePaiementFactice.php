@@ -8,6 +8,9 @@ use App\Paiements\PasserellePaiement;
 /**
  * Double de la passerelle Stripe : intentions et lecteurs en mémoire,
  * erreurs programmables, webhooks signés par la chaîne « signature-valide ».
+ * Le compte de la société (`pourCompte`) et la commission sont notés sur
+ * chaque intention ; les comptes de paiement sont actifs sauf mention
+ * contraire (`etatsComptes`).
  */
 class PasserellePaiementFactice implements PasserellePaiement
 {
@@ -31,16 +34,35 @@ class PasserellePaiementFactice implements PasserellePaiement
 
     public ?ErreurPaiement $erreurLecteur = null;
 
+    /** Compte de la société visé par les appels suivants (null : la plateforme) */
+    public ?string $compte = null;
+
+    /** @var list<array{nom: string, email: ?string, metadonnees: array<string, string>}> */
+    public array $comptesCrees = [];
+
+    /** @var array<string, array{paiements: bool, virements: bool, a_completer: bool}> */
+    public array $etatsComptes = [];
+
+    /** @var list<array{compte: string, composants: list<string>}> */
+    public array $sessions = [];
+
     private int $sequence = 0;
 
-    public function creerIntentionTerminal(int $centimes, array $metadonnees, string $cleIdempotence): array
+    public function pourCompte(?string $compte): static
     {
-        return ['id' => $this->intention($centimes, $metadonnees, 'requires_payment_method'), 'statut' => 'requires_payment_method'];
+        $this->compte = $compte;
+
+        return $this;
     }
 
-    public function creerIntentionTwint(int $centimes, array $metadonnees, string $urlRetour, string $cleIdempotence): array
+    public function creerIntentionTerminal(int $centimes, array $metadonnees, string $cleIdempotence, int $commission = 0): array
     {
-        $id = $this->intention($centimes, $metadonnees, 'requires_action');
+        return ['id' => $this->intention($centimes, $metadonnees, 'requires_payment_method', $commission), 'statut' => 'requires_payment_method'];
+    }
+
+    public function creerIntentionTwint(int $centimes, array $metadonnees, string $urlRetour, string $cleIdempotence, int $commission = 0): array
+    {
+        $id = $this->intention($centimes, $metadonnees, 'requires_action', $commission);
 
         return ['id' => $id, 'statut' => 'requires_action', 'url' => 'https://pm-redirects.stripe.com/twint/'.$id];
     }
@@ -123,7 +145,26 @@ class PasserellePaiementFactice implements PasserellePaiement
 
         $evenement = json_decode($corps, true);
 
-        return ['id' => $evenement['id'], 'type' => $evenement['type'], 'objet' => $evenement['data']['object']];
+        return ['id' => $evenement['id'], 'type' => $evenement['type'], 'objet' => $evenement['data']['object'], 'compte' => $evenement['account'] ?? null];
+    }
+
+    public function creerComptePaiement(array $societe): string
+    {
+        $this->comptesCrees[] = $societe;
+
+        return 'acct_'.(++$this->sequence);
+    }
+
+    public function lireComptePaiement(string $compte): array
+    {
+        return $this->etatsComptes[$compte] ?? ['paiements' => true, 'virements' => true, 'a_completer' => false];
+    }
+
+    public function creerSessionCompte(string $compte, array $composants): string
+    {
+        $this->sessions[] = ['compte' => $compte, 'composants' => $composants];
+
+        return 'accs_secret_'.(++$this->sequence);
     }
 
     /** Fait aboutir (ou échouer) une intention côté « Stripe ». */
@@ -134,10 +175,10 @@ class PasserellePaiementFactice implements PasserellePaiement
     }
 
     /** @param  array<string, string>  $metadonnees */
-    private function intention(int $centimes, array $metadonnees, string $statut): string
+    private function intention(int $centimes, array $metadonnees, string $statut, int $commission = 0): string
     {
         $id = 'pi_'.(++$this->sequence);
-        $this->intentions[$id] = ['statut' => $statut, 'erreur' => null, 'centimes' => $centimes, 'metadonnees' => $metadonnees];
+        $this->intentions[$id] = ['statut' => $statut, 'erreur' => null, 'centimes' => $centimes, 'metadonnees' => $metadonnees, 'compte' => $this->compte, 'commission' => $commission];
 
         return $id;
     }

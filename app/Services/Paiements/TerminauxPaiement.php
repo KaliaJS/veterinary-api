@@ -6,19 +6,21 @@ use App\Models\Clinique;
 use App\Models\TerminalPaiement;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
+use Illuminate\Validation\ValidationException;
 
 /**
- * Terminaux de paiement d'une clinique : appairage par le code affiché
- * sur le lecteur (la clinique reçoit sa « location » Stripe au premier
- * appairage), état en ligne, retrait.
+ * Terminaux de paiement d'une clinique, sur le compte de paiement de sa
+ * société : appairage par le code affiché sur le lecteur (la clinique
+ * reçoit sa « location » au premier appairage), état en ligne, retrait.
  */
 class TerminauxPaiement
 {
-    public function __construct(private PasserellePaiement $passerelle) {}
+    public function __construct(private ComptesPaiement $comptes) {}
 
     public function appairer(Clinique $clinique, string $codeAppairage, string $libelle): TerminalPaiement
     {
-        $lecteur = $this->passerelle->appairerLecteur($codeAppairage, $libelle, $this->location($clinique));
+        $passerelle = $this->comptes->passerellePour($clinique, pourEncaisser: true);
+        $lecteur = $passerelle->appairerLecteur($codeAppairage, $libelle, $this->location($clinique, $passerelle));
 
         return TerminalPaiement::create([
             'clinique_id' => $clinique->id,
@@ -29,12 +31,12 @@ class TerminauxPaiement
         ]);
     }
 
-    /** En ligne chez Stripe ? (null : état inconnu, Stripe injoignable) */
+    /** En ligne ? (null : état inconnu, prestataire injoignable ou compte absent) */
     public function estEnLigne(TerminalPaiement $terminal): ?bool
     {
         try {
-            return $this->passerelle->lireLecteur($terminal->stripe_reader_id)['en_ligne'];
-        } catch (ErreurPaiement) {
+            return $this->comptes->passerellePour($terminal->clinique_id)->lireLecteur($terminal->stripe_reader_id)['en_ligne'];
+        } catch (ErreurPaiement|ValidationException) {
             return null;
         }
     }
@@ -42,7 +44,9 @@ class TerminauxPaiement
     public function retirer(TerminalPaiement $terminal): void
     {
         try {
-            $this->passerelle->supprimerLecteur($terminal->stripe_reader_id);
+            $this->comptes->passerellePour($terminal->clinique_id)->supprimerLecteur($terminal->stripe_reader_id);
+        } catch (ValidationException) {
+            // Plus de compte de paiement : le terminal n'existe plus que chez nous
         } catch (ErreurPaiement $e) {
             // Déjà supprimé chez Stripe : on retire quand même localement
             if ($e->codeStripe !== 'resource_missing') {
@@ -53,13 +57,13 @@ class TerminauxPaiement
         $terminal->delete();
     }
 
-    private function location(Clinique $clinique): string
+    private function location(Clinique $clinique, PasserellePaiement $passerelle): string
     {
         if ($clinique->stripe_location_id) {
             return $clinique->stripe_location_id;
         }
 
-        $id = $this->passerelle->creerLocation(
+        $id = $passerelle->creerLocation(
             $clinique->nom,
             ['rue' => $clinique->rue, 'npa' => $clinique->npa, 'ville' => $clinique->ville],
             ['clinique_id' => (string) $clinique->id],

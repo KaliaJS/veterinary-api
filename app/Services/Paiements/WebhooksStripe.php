@@ -18,9 +18,14 @@ use Throwable;
  */
 class WebhooksStripe
 {
-    public function __construct(private PaiementsCaisse $paiements, private AbonnementSaas $abonnements, private AcomptesRendezVous $acomptes) {}
+    public function __construct(
+        private PaiementsCaisse $paiements,
+        private AbonnementSaas $abonnements,
+        private AcomptesRendezVous $acomptes,
+        private ComptesPaiement $comptes,
+    ) {}
 
-    /** @param  array{id: string, type: string, objet: array<string, mixed>}  $evenement */
+    /** @param  array{id: string, type: string, objet: array<string, mixed>, compte?: ?string}  $evenement */
     public function traiter(array $evenement): void
     {
         $nouveau = EvenementStripe::query()->insertOrIgnore([
@@ -43,6 +48,8 @@ class WebhooksStripe
                 'terminal.reader.action_failed' => $this->echecLecteur($objet),
                 // Carte remplacée par la banque, mise à jour par Stripe
                 'payment_method.automatically_updated' => $this->abonnements->surCarteMiseAJour($objet),
+                // Compte de paiement d'une société : activé, restreint, informations demandées
+                'account.updated' => $this->comptes->surCompteModifie($objet['id'] ?? $evenement['compte'] ?? null),
                 default => null,
             };
         } catch (Throwable $e) {

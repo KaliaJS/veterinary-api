@@ -43,6 +43,13 @@ class OrganisationServicesCliniqueController extends Controller
             ]);
         }
 
+        // L'acompte est encaissé sur le compte de paiement de la société : il doit être actif
+        if ($request->validated('acompte_centimes') && ! $fiche->societe?->encaisseEnLigne()) {
+            throw ValidationException::withMessages([
+                'acompte_centimes' => 'Activez d’abord les paiements de '.($fiche->societe?->nom ?? 'la société').' (Réglages, Paiements) : l’acompte y est encaissé.',
+            ]);
+        }
+
         DB::transaction(function () use ($request, $fiche, $codes, $boxes): void {
             $fiche->update([
                 'nombre_boxes' => $boxes,

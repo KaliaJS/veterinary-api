@@ -36,6 +36,12 @@ return [
         'key' => env('STRIPE_KEY'),
         'secret' => env('STRIPE_SECRET'),
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+        // Webhook des comptes des sociétés (Connect) : un second point d'arrivée, même adresse
+        'webhook_secret_comptes' => env('STRIPE_WEBHOOK_SECRET_COMPTES'),
+        // Commission de la plateforme sur les paiements au terminal (pour cent du montant)
+        'commission_terminal' => (float) env('STRIPE_COMMISSION_TERMINAL', 0.5),
+        // Et sur TWINT à la caisse (QR à l'écran) ; 0 tant que Jim n'a pas décidé
+        'commission_twint' => (float) env('STRIPE_COMMISSION_TWINT', 0),
     ],
 
     // Achats dans l'app iPhone (StoreKit 2). Les transactions arrivent

@@ -22,7 +22,7 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
         'incorrect_cvc' => 'Le code de sécurité de la carte est incorrect.',
         'processing_error' => 'Le paiement n’a pas pu être traité. Réessayez.',
         'authentication_required' => 'Votre banque demande de confirmer le paiement.',
-        'resource_missing' => 'Élément introuvable chez Stripe.',
+        'resource_missing' => 'Élément introuvable chez le prestataire de paiement.',
     ];
 
     public function __construct(private StripeClient $client) {}

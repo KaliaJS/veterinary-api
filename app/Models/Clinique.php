@@ -96,6 +96,12 @@ class Clinique extends Model
         $requete->whereHas('societe.organisation', fn (Builder $organisation) => $organisation->ouvertes());
     }
 
+    /** L'acompte demandé pour réserver en ligne, si la société peut l'encaisser (sinon aucun). */
+    public function acompteExigible(): ?int
+    {
+        return $this->acompte_centimes > 0 && $this->societe?->encaisseEnLigne() ? $this->acompte_centimes : null;
+    }
+
     /** @return BelongsTo<Societe, $this> */
     public function societe(): BelongsTo
     {

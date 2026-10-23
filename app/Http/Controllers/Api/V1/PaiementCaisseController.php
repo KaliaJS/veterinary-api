@@ -12,7 +12,7 @@ use App\Models\Facture;
 use App\Models\Paiement;
 use App\Models\TerminalPaiement;
 use App\Paiements\ErreurPaiement;
-use App\Paiements\PasserellePaiement;
+use App\Services\Paiements\ComptesPaiement;
 use App\Services\Paiements\PaiementsCaisse;
 use Illuminate\Validation\ValidationException;
 
@@ -53,7 +53,7 @@ class PaiementCaisseController extends Controller
     }
 
     /** Mode test, lecteur simulé : présente une carte de test. */
-    public function simulerCarte(Paiement $paiement, PasserellePaiement $passerelle): PaiementResource
+    public function simulerCarte(Paiement $paiement): PaiementResource
     {
         $terminal = $paiement->terminal;
 
@@ -61,7 +61,7 @@ class PaiementCaisseController extends Controller
             throw ValidationException::withMessages(['paiement' => 'Seul un paiement en attente sur un lecteur simulé peut être simulé.']);
         }
 
-        $this->sansErreurStripe(fn () => $passerelle->simulerCarte($terminal->stripe_reader_id));
+        $this->sansErreurStripe(fn () => app(ComptesPaiement::class)->passerellePour($terminal->clinique_id)->simulerCarte($terminal->stripe_reader_id));
 
         return $this->show($paiement);
     }

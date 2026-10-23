@@ -144,7 +144,7 @@ class CliniqueProprietaireController extends Controller
             'rdv_a_valider' => $clinique->rdv_a_valider,
             'urgences_a_valider' => $clinique->urgences_a_valider,
             // Acompte pour réserver (centimes, null : aucun) et délai de remboursement
-            'acompte_centimes' => $clinique->acompte_centimes,
+            'acompte_centimes' => $clinique->acompteExigible(),
             // null : la clinique ne montre pas ses vétérinaires (les icônes seules)
             'veterinaires' => $clinique->affiche_veterinaires
                 ? $verifies->map(fn (Employe $fiche): array => [
@@ -216,7 +216,7 @@ class CliniqueProprietaireController extends Controller
         // peut préférer valider chaque rendez-vous (déconseillé)
         $reserver = $urgence ? ! $clinique->urgences_a_valider : ! $clinique->rdv_a_valider;
         // Acompte de la clinique : seulement pour une réservation directe, jamais pour une urgence
-        $acompte = $reserver && ! $urgence && $clinique->acompte_centimes > 0 ? $clinique->acompte_centimes : null;
+        $acompte = $reserver && ! $urgence ? $clinique->acompteExigible() : null;
 
         $demande = $sousContexte->pour($clinique, function () use ($qui, $donnees, $urgence, $debut, $reserver, $acompte, $auteur): DemandeRendezVous {
             $traitement = app(TraitementDemande::class);

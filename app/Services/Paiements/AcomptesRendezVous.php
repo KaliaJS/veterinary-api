@@ -13,7 +13,6 @@ use App\Models\DemandeRendezVous;
 use App\Models\RendezVous;
 use App\Models\User;
 use App\Paiements\ErreurPaiement;
-use App\Paiements\PasserellePaiement;
 use App\Services\MutationRendezVous;
 use App\Services\TraitementDemande;
 use Illuminate\Support\Facades\DB;
@@ -37,18 +36,22 @@ use Illuminate\Validation\ValidationException;
 class AcomptesRendezVous
 {
     public function __construct(
-        private PasserellePaiement $passerelle,
+        private ComptesPaiement $comptes,
         private SousContexteClinique $sousContexte,
     ) {}
 
     /**
      * Ouvre le paiement : l'intention Stripe et ce qu'il faut au navigateur.
      *
-     * @return array{client_secret: string, cle_publique: ?string, montant_centimes: int, url_retour: string}
+     * Le navigateur paie sur le compte de la société (`compte`, option
+     * stripeAccount de Stripe.js).
+     *
+     * @return array{client_secret: string, cle_publique: ?string, compte: string, montant_centimes: int, url_retour: string}
      */
     public function ouvrir(DemandeRendezVous $demande): array
     {
-        $intention = $this->passerelle->creerIntentionEnLigne($demande->acompte_centimes, [
+        // Sur le compte de paiement de la société : l'acompte est à elle
+        $intention = $this->comptes->passerellePour($demande->clinique_id, pourEncaisser: true)->creerIntentionEnLigne($demande->acompte_centimes, [
             'objet' => 'acompte_rdv',
             'demande_id' => (string) $demande->id,
             'clinique_id' => (string) $demande->clinique_id,
@@ -59,6 +62,7 @@ class AcomptesRendezVous
         return [
             'client_secret' => $intention['client_secret'],
             'cle_publique' => config('services.stripe.key'),
+            'compte' => $demande->clinique()->withoutGlobalScopes()->first()?->societe?->stripe_compte_id,
             'montant_centimes' => $demande->acompte_centimes,
             'url_retour' => $demande->lienDeRetourPaiement(),
         ];
@@ -79,7 +83,7 @@ class AcomptesRendezVous
             if ($demande->statut !== StatutDemandeRendezVous::APayer || ! $demande->acompte_intention_id) {
                 return;
             }
-            if ($this->passerelle->lireIntention($demande->acompte_intention_id)['statut'] !== 'succeeded') {
+            if ($this->comptes->passerellePour($demande->clinique_id)->lireIntention($demande->acompte_intention_id)['statut'] !== 'succeeded') {
                 return;
             }
 
@@ -129,7 +133,7 @@ class AcomptesRendezVous
             return false;
         }
 
-        $this->passerelle->rembourser(
+        $this->comptes->passerellePour($demande->clinique_id)->rembourser(
             $demande->acompte_intention_id,
             'remboursement-acompte-'.$demande->id,
             $montant < $demande->acompte_centimes ? $montant : null,
@@ -230,8 +234,8 @@ class AcomptesRendezVous
     private function frais(DemandeRendezVous $demande): ?int
     {
         try {
-            return $demande->acompte_intention_id ? $this->passerelle->fraisIntention($demande->acompte_intention_id) : null;
-        } catch (ErreurPaiement) {
+            return $demande->acompte_intention_id ? $this->comptes->passerellePour($demande->clinique_id)->fraisIntention($demande->acompte_intention_id) : null;
+        } catch (ErreurPaiement|ValidationException) {
             return null;
         }
     }

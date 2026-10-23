@@ -51,7 +51,7 @@ class SiteWebResource extends JsonResource
                     'rdv_sans_compte' => $clinique->rdv_sans_compte,
                     'rdv_a_valider' => $clinique->rdv_a_valider,
                     'urgences_a_valider' => $clinique->urgences_a_valider,
-                    'acompte_centimes' => $clinique->acompte_centimes,
+                    'acompte_centimes' => $clinique->acompteExigible(),
                 ])->values()->all(),
         ];
     }

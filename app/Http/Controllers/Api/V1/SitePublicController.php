@@ -54,7 +54,7 @@ class SitePublicController extends Controller
                 'rdv_a_valider' => $clinique->rdv_a_valider,
                 'urgences_a_valider' => $clinique->urgences_a_valider,
                 // Acompte pour réserver (centimes, null : aucun) et délai de remboursement
-                'acompte_centimes' => $clinique->acompte_centimes,
+                'acompte_centimes' => $clinique->acompteExigible(),
             ])->values()->all(),
         ]]);
     }
