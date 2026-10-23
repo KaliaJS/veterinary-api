@@ -38,19 +38,10 @@ return [
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
         // Webhook des comptes des sociétés (Connect) : un second point d'arrivée, même adresse
         'webhook_secret_comptes' => env('STRIPE_WEBHOOK_SECRET_COMPTES'),
-        // Paiements invisibles (23.10.2026) : la plateforme paie les frais du
-        // prestataire et les refacture aux sociétés avec sa marge. Tarifs
-        // suisses du prestataire par moyen (pour cent, fixe en centimes) :
-        // terminal (cartes européennes), TWINT, paiement en ligne (carte
-        // suisse, la plus courante ; TWINT en ligne coûte moins).
-        'tarifs' => [
-            'terminal' => ['taux' => 1.4, 'fixe' => 10],
-            'twint' => ['taux' => 1.9, 'fixe' => 30],
-            'en_ligne' => ['taux' => 2.9, 'fixe' => 30],
-        ],
-        // Marge de la plateforme ajoutée au taux (pour cent) : couvre les
-        // frais de compte et de virement, laisse environ 0,5 % net
-        'marge' => (float) env('STRIPE_MARGE', 0.75),
+        // Commission de la plateforme sur les paiements au terminal (pour cent du montant)
+        'commission_terminal' => (float) env('STRIPE_COMMISSION_TERMINAL', 0.5),
+        // Et sur TWINT à la caisse (QR à l'écran), comme le terminal (décision du 23.10.2026)
+        'commission_twint' => (float) env('STRIPE_COMMISSION_TWINT', 0.5),
     ],
 
     // Achats dans l'app iPhone (StoreKit 2). Les transactions arrivent

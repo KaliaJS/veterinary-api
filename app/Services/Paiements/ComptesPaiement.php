@@ -2,27 +2,19 @@
 
 namespace App\Services\Paiements;
 
-use App\Enums\TypeAlerte;
-use App\Mail\InformationsPaiementDemandees;
 use App\Models\Clinique;
 use App\Models\Societe;
 use App\Paiements\PasserellePaiement;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 /**
  * Comptes de paiement des sociétés (Stripe Connect, 23.10.2026) : chaque
  * société encaisse à son nom (terminal, TWINT, acomptes) sur un compte
- * sans tableau de bord. Elle ne voit jamais le prestataire : ni compte à
- * créer chez lui, ni connexion, ni message de sa part ; l'inscription, la
- * gestion du compte, les paiements et les virements sont des composants
- * intégrés à Veterinary, à ses couleurs.
- *
- * Paiements invisibles (décision du 23.10.2026) : la plateforme porte les
- * pertes (litiges, soldes négatifs), collecte les informations légales et
- * paie les frais du prestataire, qu'elle refacture à chaque encaissement
- * avec sa marge (`commission`). C'est aussi elle qui prévient la société
- * quand des informations sont demandées (alerte et e-mail).
+ * sans tableau de bord. Elle ne voit jamais le prestataire : l'inscription,
+ * la gestion du compte, les paiements et les virements sont des composants
+ * intégrés à Veterinary. Le prestataire collecte les informations légales,
+ * prélève ses frais auprès de la société et porte les pertes (impayés,
+ * litiges) ; la plateforme ne garde que sa commission sur le terminal.
  */
 class ComptesPaiement
 {
@@ -51,40 +43,25 @@ class ComptesPaiement
         return $this->passerelle->pourCompte($societe->stripe_compte_id);
     }
 
-    /**
-     * Tarif facturé à la société par moyen (terminal, twint, en_ligne) :
-     * celui du prestataire plus la marge de la plateforme.
-     *
-     * @return array{taux: float, fixe: int}
-     */
-    public static function tarif(string $moyen): array
+    /** Commission de la plateforme sur un paiement au terminal (centimes). */
+    public static function commissionTerminal(int $centimes): int
     {
-        $tarif = config('services.stripe.tarifs.'.$moyen) ?? throw new \InvalidArgumentException('Moyen de paiement inconnu : '.$moyen);
-
-        return ['taux' => round((float) $tarif['taux'] + (float) config('services.stripe.marge'), 2), 'fixe' => (int) $tarif['fixe']];
+        return (int) round($centimes * (float) config('services.stripe.commission_terminal') / 100);
     }
 
-    /** Commission de la plateforme sur un encaissement (centimes), toujours inférieure au montant. */
-    public static function commission(string $moyen, int $centimes): int
+    /** Et sur TWINT à la caisse. */
+    public static function commissionTwint(int $centimes): int
     {
-        ['taux' => $taux, 'fixe' => $fixe] = self::tarif($moyen);
-
-        return max(0, min($centimes - 1, (int) round($centimes * $taux / 100) + $fixe));
+        return (int) round($centimes * (float) config('services.stripe.commission_twint') / 100);
     }
 
-    /**
-     * Ouvre le compte de la société s'il n'existe pas encore, avec
-     * l'acceptation des conditions du prestataire par l'administrateur.
-     *
-     * @param  array{date: \DateTimeInterface, ip: string, navigateur: ?string}  $acceptation
-     */
-    public function ouvrir(Societe $societe, ?string $email, array $acceptation): Societe
+    /** Ouvre le compte de la société s'il n'existe pas encore. */
+    public function ouvrir(Societe $societe, ?string $email): Societe
     {
         if (! $societe->stripe_compte_id) {
             $id = $this->passerelle->pourCompte(null)->creerComptePaiement([
                 'nom' => $societe->nom,
                 'email' => $email,
-                'conditions' => $acceptation,
                 'metadonnees' => ['societe_id' => (string) $societe->id, 'organisation_id' => (string) $societe->organisation_id],
             ]);
             $societe->update(['stripe_compte_id' => $id]);
@@ -93,12 +70,7 @@ class ComptesPaiement
         return $this->rafraichir($societe);
     }
 
-    /**
-     * Relit l'état du compte : encaisse-t-il, reçoit-il ses virements,
-     * manque-t-il des informations. Le prestataire ne contactant jamais la
-     * société, les administrateurs sont prévenus par e-mail quand des
-     * informations deviennent nécessaires sur un compte déjà en service.
-     */
+    /** Relit l'état du compte : encaisse-t-il, reçoit-il ses virements, manque-t-il des informations. */
     public function rafraichir(Societe $societe): Societe
     {
         if (! $societe->stripe_compte_id) {
@@ -106,21 +78,12 @@ class ComptesPaiement
         }
 
         $etat = $this->passerelle->pourCompte(null)->lireComptePaiement($societe->stripe_compte_id);
-        $avant = ['paiements' => (bool) $societe->paiements_actifs, 'a_completer' => (bool) $societe->paiements_a_completer];
         $societe->update([
             'paiements_actifs' => $etat['paiements'],
             'virements_actifs' => $etat['virements'],
             'paiements_a_completer' => $etat['a_completer'],
             'paiements_maj_le' => now(),
         ]);
-
-        $enService = $avant['paiements'] || $etat['paiements'];
-        if ($enService && $etat['a_completer'] && ! $avant['a_completer']) {
-            $destinataires = $societe->organisation?->emailsAdministrateurs(TypeAlerte::Paiements) ?? [];
-            if ($destinataires !== []) {
-                Mail::to($destinataires)->queue(new InformationsPaiementDemandees($societe, coupe: ! $etat['paiements']));
-            }
-        }
 
         return $societe;
     }

@@ -55,7 +55,7 @@ class AcomptesRendezVous
             'objet' => 'acompte_rdv',
             'demande_id' => (string) $demande->id,
             'clinique_id' => (string) $demande->clinique_id,
-        ], 'acompte-'.$demande->id, ComptesPaiement::commission('en_ligne', $demande->acompte_centimes));
+        ], 'acompte-'.$demande->id);
 
         $demande->update(['acompte_intention_id' => $intention['id']]);
 

@@ -3,7 +3,6 @@
 namespace Tests\Feature\Paiements;
 
 use App\Auth\RolesParDefaut;
-use App\Mail\InformationsPaiementDemandees;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\Facture;
@@ -15,7 +14,6 @@ use App\Models\Role;
 use App\Models\Societe;
 use App\Models\TerminalPaiement;
 use App\Paiements\PasserellePaiement;
-use App\Services\Paiements\ComptesPaiement;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
@@ -59,10 +57,7 @@ class ComptePaiementSocieteTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.ouvert', false)
             ->assertJsonPath('data.societe.nom', 'Deux Rives Sàrl')
-            // Frais du prestataire plus 0,75 % de marge
-            ->assertJsonPath('data.tarifs.terminal', ['taux' => 2.15, 'fixe' => 10])
-            ->assertJsonPath('data.tarifs.twint', ['taux' => 2.65, 'fixe' => 30])
-            ->assertJsonPath('data.tarifs.en_ligne', ['taux' => 3.65, 'fixe' => 30])
+            ->assertJsonPath('data.commission_terminal', 0.5)
             ->assertJsonPath('data.peut_gerer', false);
 
         $this->postJson('/api/v1/facturation/terminaux', ['code_appairage' => 'simulated-wpe', 'libelle' => 'Comptoir'], $this->enTetes($this->jeton))
@@ -90,22 +85,16 @@ class ComptePaiementSocieteTest extends TestCase
 
         $this->administrateur();
         $this->stripe->etatsComptes['acct_1'] = ['paiements' => false, 'virements' => false, 'a_completer' => true];
-        // Les conditions du prestataire s'acceptent dans l'app
         $this->postJson('/api/v1/facturation/compte-paiement', [], $this->enTetes($this->jeton))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('conditions');
-        $this->withHeader('User-Agent', 'Safari de test')
-            ->postJson('/api/v1/facturation/compte-paiement', ['conditions' => true], $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonPath('data.ouvert', true)
             ->assertJsonPath('data.paiements_actifs', false)
             ->assertJsonPath('data.a_completer', true)
             ->assertJsonPath('data.peut_gerer', true);
         $this->assertSame('Deux Rives Sàrl', $this->stripe->comptesCrees[0]['nom']);
-        $this->assertSame(['127.0.0.1', 'Safari de test'], [$this->stripe->comptesCrees[0]['conditions']['ip'], $this->stripe->comptesCrees[0]['conditions']['navigateur']]);
         $this->assertSame('acct_1', $this->clinique->societe->refresh()->stripe_compte_id);
         // Rouvrir ne recrée rien
-        $this->postJson('/api/v1/facturation/compte-paiement', ['conditions' => true], $this->enTetes($this->jeton))->assertOk();
+        $this->postJson('/api/v1/facturation/compte-paiement', [], $this->enTetes($this->jeton))->assertOk();
         $this->assertCount(1, $this->stripe->comptesCrees);
 
         $this->postJson('/api/v1/facturation/compte-paiement/session', ['composants' => ['account_onboarding']], $this->enTetes($this->jeton))
@@ -134,14 +123,14 @@ class ComptePaiementSocieteTest extends TestCase
         $intention = $this->stripe->intentions[Paiement::query()->findOrFail($id)->stripe_payment_intent_id];
         $this->assertSame('acct_deux_rives', $intention['compte']);
         $this->assertSame(12000, $intention['centimes']);
-        // 1,4 % + 10 centimes du prestataire, plus 0,75 % : 2,15 % de 120 CHF + 0.10
-        $this->assertSame(268, $intention['commission']);
+        // 0,5 % de 120 CHF
+        $this->assertSame(60, $intention['commission']);
 
-        // TWINT à la caisse : 1,9 % + 30 centimes, plus 0,75 %
+        // TWINT à la caisse : 0,5 % aussi
         $id = $this->postJson("/api/v1/facturation/factures/{$facture->id}/paiements", ['moyen' => 'twint'], $this->enTetes($this->jeton))
             ->assertCreated()->json('data.id');
         $twint = $this->stripe->intentions[Paiement::query()->findOrFail($id)->stripe_payment_intent_id];
-        $this->assertSame(['acct_deux_rives', 348], [$twint['compte'], $twint['commission']]);
+        $this->assertSame(['acct_deux_rives', 60], [$twint['compte'], $twint['commission']]);
     }
 
     public function test_l_acompte_se_paie_sur_le_compte_de_la_societe(): void
@@ -160,21 +149,11 @@ class ComptePaiementSocieteTest extends TestCase
         ])->assertCreated()->json('data.paiement');
 
         $this->assertSame('acct_deux_rives', $paiement['compte']);
-        $intention = collect($this->stripe->intentions)->last();
-        // En ligne : 2,9 % + 30 centimes, plus 0,75 % de 30 CHF
-        $this->assertSame(['acct_deux_rives', 140], [$intention['compte'], $intention['commission']]);
-    }
-
-    public function test_la_commission_reste_inferieure_au_montant(): void
-    {
-        $this->assertSame(19, ComptesPaiement::commission('twint', 20));
-        $this->assertSame(0, ComptesPaiement::commission('terminal', 0));
+        $this->assertSame('acct_deux_rives', collect($this->stripe->intentions)->last()['compte']);
     }
 
     public function test_un_compte_modifie_chez_le_prestataire_est_relu(): void
     {
-        Mail::fake();
-        $this->administrateur();
         $this->clinique->societe->update(['stripe_compte_id' => 'acct_deux_rives', 'paiements_actifs' => true, 'virements_actifs' => true]);
         $this->stripe->etatsComptes['acct_deux_rives'] = ['paiements' => false, 'virements' => true, 'a_completer' => true];
 
@@ -185,20 +164,6 @@ class ComptePaiementSocieteTest extends TestCase
         $societe = $this->clinique->societe->refresh();
         $this->assertFalse($societe->paiements_actifs);
         $this->assertTrue($societe->paiements_a_completer);
-
-        // Le prestataire ne contacte pas la société : Veterinary prévient ses administrateurs, une fois
-        $email = $this->employe->user->email;
-        Mail::assertQueued(InformationsPaiementDemandees::class, fn ($mail) => $mail->hasTo($email) && $mail->coupe
-            && str_contains($mail->render(), 'suspendus'));
-        app(ComptesPaiement::class)->rafraichir($societe);
-        Mail::assertQueuedCount(1);
-
-        // Et l'alerte est dans l'app
-        $this->getJson('/api/v1/alertes', $this->enTetes($this->jeton))
-            ->assertOk()
-            ->assertJsonPath('data.alertes.0.type', 'paiements')
-            ->assertJsonPath('data.alertes.0.titre', 'Paiements : inscription à terminer')
-            ->assertJsonPath('data.alertes.0.cible', 'reglages:paiements');
     }
 
     /** L'employé du jeton devient administrateur : le domaine organisation s'ouvre. */

@@ -11,12 +11,11 @@ namespace App\Paiements;
  * `requires_payment_method`, `canceled`…) ; les échecs remontent en
  * `ErreurPaiement`, avec un message lisible.
  *
- * Connect (23.10.2026) : chaque société encaisse sur son propre compte,
- * sans tableau de bord ni contact avec le prestataire ; la plateforme porte
- * le risque, paie les frais du prestataire et les refacture avec sa marge
- * sur chaque intention (`commission`, en centimes). Les paiements,
- * terminaux et remboursements passent par `pourCompte` ; les comptes se
- * créent et se lisent au niveau de la plateforme.
+ * Connect (23.10.2026) : chaque société encaisse sur son propre compte
+ * (sans tableau de bord, risque et frais chez le prestataire). Les
+ * paiements, terminaux et remboursements passent par `pourCompte` ; la
+ * plateforme prend sa commission sur les intentions (`commission`, en
+ * centimes). Les comptes se créent et se lisent au niveau de la plateforme.
  */
 interface PasserellePaiement
 {
@@ -54,12 +53,12 @@ interface PasserellePaiement
      * @param  array<string, string>  $metadonnees
      * @return array{id: string, statut: string, client_secret: string}
      */
-    public function creerIntentionEnLigne(int $centimes, array $metadonnees, string $cleIdempotence, int $commission = 0): array;
+    public function creerIntentionEnLigne(int $centimes, array $metadonnees, string $cleIdempotence): array;
 
     /** Rembourse une intention payée : entièrement, ou le montant donné (centimes). */
     public function rembourser(string $intentionId, string $cleIdempotence, ?int $centimes = null): void;
 
-    /** Frais retenus à la société sur une intention payée (la commission, centimes), null s'ils ne sont pas encore connus. */
+    /** Frais retenus par le prestataire sur une intention payée (centimes), null s'ils ne sont pas encore connus. */
     public function fraisIntention(string $intentionId): ?int;
 
     /** @return array{id: string, statut: string, erreur: ?string} */
@@ -94,12 +93,10 @@ interface PasserellePaiement
     public function lireEvenement(string $corps, string $signature): array;
 
     /**
-     * Ouvre le compte de paiement d'une société : sans tableau de bord ni
-     * connexion chez le prestataire, informations légales collectées par la
-     * plateforme, pertes et frais à sa charge. `conditions` : l'acceptation
-     * des conditions du prestataire par l'administrateur, dans l'app.
+     * Ouvre le compte de paiement d'une société : sans tableau de bord,
+     * informations légales, pertes et frais chez le prestataire.
      *
-     * @param  array{nom: string, email: ?string, conditions: array{date: \DateTimeInterface, ip: string, navigateur: ?string}, metadonnees: array<string, string>}  $societe
+     * @param  array{nom: string, email: ?string, metadonnees: array<string, string>}  $societe
      */
     public function creerComptePaiement(array $societe): string;
 
