@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\Espece;
 use App\Enums\MoyenPaiement;
 use App\Enums\StatutFacture;
+use App\Enums\StatutPaiement;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use Database\Factories\FactureFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -140,6 +141,12 @@ class Facture extends Model
         $total = $this->totalTtc();
 
         return round($total - $total / (1 + self::TAUX_TVA), 2);
+    }
+
+    /** Un paiement Stripe attend le client : la facture ne change plus d'ici là. */
+    public function aUnPaiementEnCours(): bool
+    {
+        return $this->paiements()->where('statut', StatutPaiement::EnAttente)->exists();
     }
 
     public function estDue(): bool

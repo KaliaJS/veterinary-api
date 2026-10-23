@@ -3,10 +3,12 @@
 namespace Tests\Feature\Facturation;
 
 use App\Enums\MoyenPaiement;
+use App\Enums\StatutPaiement;
 use App\Models\Clinique;
 use App\Models\ClotureCaisse;
 use App\Models\Facture;
 use App\Models\FactureLigne;
+use App\Models\Paiement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -37,7 +39,8 @@ class ClotureCaisseTest extends TestCase
         ['jeton' => $this->jeton] = $this->administrateurAvecJeton($this->clinique);
     }
 
-    private function facturePayee(MoyenPaiement $moyen, float $montant): Facture
+    /** Carte et TWINT : payés au terminal (un paiement Stripe réussi), sauf `$aLaMain`. */
+    private function facturePayee(MoyenPaiement $moyen, float $montant, bool $aLaMain = false): Facture
     {
         $facture = Facture::factory()->payee($moyen)->create([
             'clinique_id' => $this->clinique->id,
@@ -45,6 +48,13 @@ class ClotureCaisseTest extends TestCase
         ]);
 
         FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => $montant]);
+
+        if (! $aLaMain && in_array($moyen, [MoyenPaiement::Tpe, MoyenPaiement::Twint], true)) {
+            Paiement::query()->create([
+                'facture_id' => $facture->id, 'clinique_id' => $this->clinique->id, 'moyen' => $moyen, 'montant' => $montant,
+                'stripe_payment_intent_id' => 'pi_'.$facture->id, 'statut' => StatutPaiement::Reussi, 'reussi_le' => now(),
+            ]);
+        }
 
         return $facture;
     }
@@ -55,7 +65,7 @@ class ClotureCaisseTest extends TestCase
         $especes = $this->facturePayee(MoyenPaiement::Especes, 45);
         $due = Facture::factory()->create(['clinique_id' => $this->clinique->id]);
         $dejaCouverte = $this->facturePayee(MoyenPaiement::Tpe, 60);
-        $dejaCouverte->update(['cloture_caisse_id' => ClotureCaisse::factory()->create(['clinique_id' => $this->clinique->id])->id]);
+        $dejaCouverte->update(['cloture_caisse_id' => ClotureCaisse::factory()->create(['clinique_id' => $this->clinique->id, 'nouveau_fond' => 200])->id]);
 
         $reponse = $this->postJson('/api/v1/facturation/clotures-caisse', [
             'fond' => 200,
@@ -102,6 +112,30 @@ class ClotureCaisseTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.total_tpe', 85)
             ->assertJsonPath('data.total_twint', 30);
+    }
+
+    public function test_une_carte_saisie_sans_terminal_se_justifie(): void
+    {
+        $this->facturePayee(MoyenPaiement::Tpe, 85, aLaMain: true);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 200, 'especes_comptees' => 200, 'nouveau_fond' => 200], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('note');
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 200, 'especes_comptees' => 200, 'nouveau_fond' => 200, 'note' => 'Terminal en panne, carte passée sur l’ancien lecteur'], $this->enTetes($this->jeton))
+            ->assertCreated();
+    }
+
+    public function test_le_fond_suit_la_cloture_precedente_et_le_depot_ne_depasse_pas_les_especes(): void
+    {
+        ClotureCaisse::factory()->create(['clinique_id' => $this->clinique->id, 'nouveau_fond' => 300, 'arretee_le' => now()->subDay()]);
+        $this->facturePayee(MoyenPaiement::Especes, 50);
+
+        // Un fond déclaré à 250 ne change rien : il vient de la veille (300)
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 250, 'especes_comptees' => 350, 'nouveau_fond' => 300, 'depot' => 400], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('depot');
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 250, 'especes_comptees' => 350, 'nouveau_fond' => 300], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.fond', 300)
+            ->assertJsonPath('data.ecart', 0);
     }
 
     public function test_un_ecart_de_caisse_exige_une_justification(): void

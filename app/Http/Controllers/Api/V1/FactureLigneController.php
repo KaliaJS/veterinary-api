@@ -36,6 +36,7 @@ class FactureLigneController extends Controller
     public function store(AjouterLigneFactureRequest $request, Facture $facture): FactureResource
     {
         $this->authorize('update', $facture);
+        $this->sansPaiementEnCours($facture);
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
 
@@ -135,6 +136,7 @@ class FactureLigneController extends Controller
     private function ligneModifiable(Facture $facture, int $id): FactureLigne
     {
         $this->authorize('update', $facture);
+        $this->sansPaiementEnCours($facture);
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
 
@@ -147,5 +149,13 @@ class FactureLigneController extends Controller
         }
 
         return $ligne;
+    }
+
+    /** La facture ne change pas pendant qu'un paiement Stripe attend le client (23.10.2026). */
+    private function sansPaiementEnCours(Facture $facture): void
+    {
+        if ($facture->aUnPaiementEnCours()) {
+            throw ValidationException::withMessages(['paiements' => 'Un paiement est en cours sur cette facture : annulez-le avant de la modifier.']);
+        }
     }
 }

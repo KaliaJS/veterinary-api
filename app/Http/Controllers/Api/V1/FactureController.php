@@ -110,6 +110,11 @@ class FactureController extends Controller
     {
         $this->authorize('delete', $facture);
 
+        // Un paiement Stripe attend le client : il serait encaissé sans facture
+        if ($facture->aUnPaiementEnCours()) {
+            throw ValidationException::withMessages(['paiements' => 'Un paiement est en cours sur cette facture : annulez-le d’abord.']);
+        }
+
         $estDansLaFenetre = $facture->estDue()
             && $facture->cloture_caisse_id === null
             && $facture->decompte()->doesntExist()

@@ -201,6 +201,52 @@ class PaiementStripeTest extends TestCase
             ->assertJsonPath('data.0.paye_par_stripe', true);
     }
 
+    public function test_la_facture_ne_change_pas_pendant_qu_un_paiement_attend(): void
+    {
+        $facture = $this->factureDue(50);
+        $this->payerParTerminal($facture);
+
+        $ligne = $facture->lignes()->firstOrFail();
+        $this->patchJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$ligne->id}", ['quantite' => 3], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('paiements');
+        $this->assertSame(1, (int) $ligne->refresh()->quantite);
+    }
+
+    public function test_un_paiement_qui_ne_correspond_plus_au_reste_est_rendu_et_la_facture_reste_due(): void
+    {
+        $facture = $this->factureDue(50);
+        $paiement = Paiement::query()->findOrFail($this->payerParTerminal($facture));
+        // La facture a changé par un autre chemin pendant l'attente
+        FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => 420, 'quantite' => 1]);
+
+        $this->webhook($this->evenement('evt_ecart', 'payment_intent.succeeded', ['id' => $paiement->stripe_payment_intent_id, 'status' => 'succeeded']))->assertNoContent();
+
+        $this->assertSame(StatutFacture::Due, $facture->refresh()->statut);
+        $this->assertSame('rembourse', $paiement->refresh()->statut->value);
+        $this->assertSame([$paiement->stripe_payment_intent_id], $this->stripe->remboursements);
+    }
+
+    public function test_l_encaissement_en_especes_annule_le_paiement_en_cours_et_un_paiement_tardif_est_rendu(): void
+    {
+        $facture = $this->factureDue(40);
+        $paiement = Paiement::query()->findOrFail($this->payerParTerminal($facture));
+
+        // Le client paie finalement en espèces : la tentative au terminal est annulée
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/encaisser", ['moyen_paiement' => 'cash'], $this->enTetes($this->jeton))->assertOk();
+        $this->assertSame('annule', $paiement->refresh()->statut->value);
+        $this->assertSame(StatutFacture::Payee, $facture->refresh()->statut);
+
+        // Un second paiement qui aboutirait quand même sur la facture payée lui est rendu
+        $intention = $this->stripe->creerIntentionTwint(4000, ['facture_id' => (string) $facture->id], 'https://retour', 'cle-tardive')['id'];
+        $tardif = Paiement::query()->create([
+            'facture_id' => $facture->id, 'clinique_id' => $this->clinique->id, 'moyen' => 'twint', 'montant' => 40,
+            'stripe_payment_intent_id' => $intention, 'statut' => 'en_attente',
+        ]);
+        $this->webhook($this->evenement('evt_tardif', 'payment_intent.succeeded', ['id' => $intention, 'status' => 'succeeded']))->assertNoContent();
+        $this->assertSame('rembourse', $tardif->refresh()->statut->value);
+        $this->assertContains($intention, $this->stripe->remboursements);
+    }
+
     private function factureDue(float $montant): Facture
     {
         $facture = Facture::factory()->create(['clinique_id' => $this->clinique->id]);

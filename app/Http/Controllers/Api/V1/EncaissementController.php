@@ -8,7 +8,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Facturation\EncaisserFactureRequest;
 use App\Http\Resources\V1\FactureResource;
 use App\Models\Facture;
+use App\Paiements\ErreurPaiement;
 use App\Services\EncaissementFacture;
+use App\Services\Paiements\PaiementsCaisse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -42,6 +44,15 @@ class EncaissementController extends Controller
                 throw ValidationException::withMessages([
                     'montant_recu' => 'Montant reçu insuffisant.',
                 ]);
+            }
+        }
+
+        // Un paiement Stripe en cours est annulé d'abord (jamais deux paiements)
+        if ($facture->aUnPaiementEnCours()) {
+            try {
+                app(PaiementsCaisse::class)->annulerTentatives($facture);
+            } catch (ErreurPaiement $e) {
+                throw ValidationException::withMessages(['paiements' => $e->getMessage()]);
             }
         }
 
