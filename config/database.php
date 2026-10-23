@@ -34,6 +34,8 @@ return [
 
         'sqlite' => [
             'driver' => 'sqlite',
+            // Les erreurs SQL vont au journal sans les valeurs (23.10.2026)
+            'mask_bindings_in_exception_messages' => true,
             'url' => env('DB_URL'),
             'database' => env('DB_DATABASE', database_path('database.sqlite')),
             'prefix' => '',
@@ -46,6 +48,8 @@ return [
 
         'mysql' => [
             'driver' => 'mysql',
+            // Les erreurs SQL vont au journal sans les valeurs (23.10.2026)
+            'mask_bindings_in_exception_messages' => true,
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '3306'),
@@ -66,6 +70,8 @@ return [
 
         'mariadb' => [
             'driver' => 'mariadb',
+            // Les erreurs SQL vont au journal sans les valeurs (23.10.2026)
+            'mask_bindings_in_exception_messages' => true,
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '3306'),
@@ -86,6 +92,8 @@ return [
 
         'pgsql' => [
             'driver' => 'pgsql',
+            // Les erreurs SQL vont au journal sans les valeurs (23.10.2026)
+            'mask_bindings_in_exception_messages' => true,
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', '127.0.0.1'),
             'port' => env('DB_PORT', '5432'),
@@ -101,6 +109,8 @@ return [
 
         'sqlsrv' => [
             'driver' => 'sqlsrv',
+            // Les erreurs SQL vont au journal sans les valeurs (23.10.2026)
+            'mask_bindings_in_exception_messages' => true,
             'url' => env('DB_URL'),
             'host' => env('DB_HOST', 'localhost'),
             'port' => env('DB_PORT', '1433'),

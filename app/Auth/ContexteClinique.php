@@ -39,6 +39,22 @@ class ContexteClinique
         $this->permissions = [];
     }
 
+    /**
+     * L'état présent, pour le rétablir après un sous-contexte.
+     *
+     * @return array{0: ?Clinique, 1: ?Employe, 2: list<string>}
+     */
+    public function etat(): array
+    {
+        return [$this->clinique, $this->employe, $this->permissions];
+    }
+
+    /** @param  array{0: ?Clinique, 1: ?Employe, 2: list<string>}  $etat */
+    public function retablir(array $etat): void
+    {
+        [$this->clinique, $this->employe, $this->permissions] = $etat;
+    }
+
     public function estDefini(): bool
     {
         return $this->clinique !== null;

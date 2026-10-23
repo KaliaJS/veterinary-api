@@ -3,6 +3,7 @@
 namespace App\Services\Transcription;
 
 use GuzzleHttp\Psr7\Utils;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -23,12 +24,18 @@ final class TranscripteurDeepgram implements Transcripteur
             throw new TranscriptionImpossible('Fichier audio illisible.');
         }
 
-        $reponse = Http::withHeaders(['Authorization' => 'Token '.config('services.deepgram.key')])
-            ->acceptJson()
-            ->connectTimeout(15)
-            ->timeout(900)
-            ->withBody(Utils::streamFor($flux), $format)
-            ->post($this->url($termes));
+        try {
+            $reponse = Http::withHeaders(['Authorization' => 'Token '.config('services.deepgram.key')])
+                ->acceptJson()
+                ->connectTimeout(15)
+                ->timeout(900)
+                ->withBody(Utils::streamFor($flux), $format)
+                ->post($this->url($termes));
+        } catch (ConnectionException) {
+            // Le message de cURL porte l'adresse, donc les mots rares
+            // (races, médicaments) : il ne va pas au journal (23.10.2026)
+            throw new RuntimeException('Deepgram injoignable.');
+        }
 
         if ($reponse->status() === 429 || $reponse->serverError()) {
             throw new RuntimeException('Deepgram indisponible (HTTP '.$reponse->status().').');

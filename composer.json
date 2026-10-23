@@ -11,7 +11,7 @@
         "laravel/tinker": "^3.0",
         "resend/resend-php": "^1.16",
         "stripe/stripe-php": "^22.0",
-        "web-auth/webauthn-lib": "*"
+        "web-auth/webauthn-lib": "^5.3"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

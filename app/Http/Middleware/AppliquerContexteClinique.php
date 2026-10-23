@@ -49,9 +49,12 @@ class AppliquerContexteClinique
 
         // La fiche du compte affectée à la clinique du jeton : retirer
         // l'affectation ferme la clinique dès la requête suivante
+        // (et de l'organisation de cette clinique : une fiche d'une autre
+        // organisation, même rattachée par erreur, n'ouvre rien, 23.10.2026)
         $employe = Employe::withoutGlobalScopes()
             ->with(['role', 'derogations'])
             ->where('user_id', $user->id)
+            ->where('organisation_id', $jeton->clinique?->societe?->organisation_id)
             ->whereHas('cliniques', fn ($cliniques) => $cliniques->whereKey($jeton->clinique_id))
             ->first();
 

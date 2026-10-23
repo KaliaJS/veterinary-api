@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutSuggestionDiagnostique;
+use App\Models\Clinique;
 use App\Models\CompteRendu;
 use App\Models\EnregistrementConsultation;
 use App\Models\Organisation;
@@ -163,8 +164,15 @@ final class SuggererDiagnostic implements ShouldQueue
             return [];
         }
 
+        // Hors requête, aucun contexte ne filtre : l'organisation du rendez-vous
+        // borne la recherche, explicitement (23.10.2026)
+        $cliniques = Clinique::withoutGlobalScopes()
+            ->whereHas('societe', fn ($societe) => $societe->where('organisation_id', $rendezVous->clinique()->withoutGlobalScopes()->first()?->societe?->organisation_id))
+            ->pluck('id');
+
         return CompteRendu::query()
             ->join('rendez_vous', 'rendez_vous.id', '=', 'comptes_rendus.rendez_vous_id')
+            ->whereIn('rendez_vous.clinique_id', $cliniques)
             ->where('rendez_vous.patient_id', $rendezVous->patient_id)
             ->where('rendez_vous.id', '!=', $rendezVous->id)
             ->where('rendez_vous.starts_at', '<', $rendezVous->starts_at)
