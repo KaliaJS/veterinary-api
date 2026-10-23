@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Auth\ContexteClinique;
 use App\Enums\CanalDevis;
 use App\Enums\PieceNumerotee;
 use App\Enums\StatutDevis;
@@ -54,14 +55,16 @@ class CycleDevisController extends Controller
             throw ValidationException::withMessages(['statut' => 'Seul un devis envoyé s’accepte.']);
         }
 
-        $proprietaire = $devis->patient->client->nom_affiche;
+        // L'équipe enregistre l'accord : ce n'est jamais une signature
+        // électronique du client (23.10.2026), on dit qui l'a enregistré
+        $parQui = app(ContexteClinique::class)->employe()?->nom ?? 'la clinique';
 
         $devis->update([
             'statut' => StatutDevis::Accepte,
             'signe_le' => now(),
             'signe_par' => $devis->canal === CanalDevis::Portail
-                ? 'Signature électronique — espace client de '.$proprietaire
-                : 'Signature papier « bon pour accord » — classée au dossier',
+                ? 'Accord du propriétaire enregistré par '.$parQui
+                : 'Signature papier « bon pour accord », classée au dossier, enregistrée par '.$parQui,
         ]);
 
         return new DevisResource($devis->load(['lignes', 'patient.client']));

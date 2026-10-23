@@ -128,7 +128,9 @@ class DevisTest extends TestCase
         $reponse = $this->postJson("/api/v1/facturation/devis/{$devis->id}/accepter", [], $entetes);
 
         $reponse->assertOk()->assertJsonPath('data.statut', 'accepte');
-        $this->assertStringContainsString('Signature électronique', $reponse->json('data.signe_par'));
+        // L'équipe enregistre l'accord : jamais présenté comme une signature électronique du client
+        $this->assertStringStartsWith('Accord du propriétaire enregistré par ', $reponse->json('data.signe_par'));
+        $this->assertStringNotContainsString('Signature électronique', $reponse->json('data.signe_par'));
         $this->assertNotNull($reponse->json('data.signe_le'));
     }
 

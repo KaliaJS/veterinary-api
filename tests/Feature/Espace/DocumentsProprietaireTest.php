@@ -87,6 +87,18 @@ class DocumentsProprietaireTest extends TestCase
         $this->postJson("/api/v1/espace/devis/{$autre->id}/signer", [], $this->enTetes($jeton))->assertNotFound();
     }
 
+    public function test_qui_gere_un_animal_reclame_ne_signe_pas_au_nom_du_client_de_la_fiche(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        // La fiche est celle d'un autre client ; le compte gère l'animal (réclamé par puce)
+        $ficheDUnAutre = Client::factory()->create();
+        $rex = Patient::factory()->create(['client_id' => $ficheDUnAutre->id, 'proprietaire_id' => $user->id]);
+        $devis = Devis::factory()->create(['patient_id' => $rex->id, 'organisation_id' => $ficheDUnAutre->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail]);
+
+        $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", [], $this->enTetes($jeton))->assertNotFound();
+        $this->assertSame(StatutDevis::Envoye, $devis->fresh()->statut);
+    }
+
     public function test_la_demande_de_renouvellement_est_unique_et_traitee_par_le_renouvellement_clinique(): void
     {
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();

@@ -29,9 +29,12 @@ class DocumentProprietaireController extends Controller
 
     public function signerDevis(ContexteProprietaire $contexte, int $devisId): JsonResponse
     {
+        // Seulement un devis de ses propres fiches client : celui qui gère
+        // un animal réclamé par puce ne signe pas au nom du client de la fiche
         $devis = Devis::withoutGlobalScopes()
             ->with('patient.client')
             ->whereIn('patient_id', $contexte->patientIds())
+            ->whereHas('patient', fn ($patient) => $patient->withoutGlobalScopes()->whereIn('client_id', $contexte->clientIds()))
             ->where('canal', CanalDevis::Portail)
             ->findOrFail($devisId);
 
@@ -46,7 +49,7 @@ class DocumentProprietaireController extends Controller
         $devis->update([
             'statut' => StatutDevis::Accepte,
             'signe_le' => now(),
-            'signe_par' => 'Signature électronique — espace client de '.$devis->patient->client->nom_affiche,
+            'signe_par' => 'Signature électronique de '.$contexte->user()->name.', espace client',
         ]);
 
         return response()->json(['data' => ['id' => $devis->id, 'statut' => $devis->statut->value, 'signe_le' => $devis->signe_le->toIso8601String()]]);
