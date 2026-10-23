@@ -33,9 +33,7 @@ class OrganisationPlateformeController extends Controller
     public function valider(Request $request, Organisation $organisation, InscriptionClinique $inscription): JsonResponse
     {
         abort_unless($organisation->verification === VerificationOrganisation::EnAttente, 422, 'Cette clinique n’est plus en attente.');
-        // Jamais sa propre organisation : un autre modérateur la vérifie
-        $estLaSienne = Employe::withoutGlobalScopes()->where('organisation_id', $organisation->id)->where('user_id', $request->user()->id)->exists();
-        abort_if($estLaSienne || $organisation->inscritePar?->is($request->user()), 422, 'Un autre modérateur doit vérifier votre propre clinique.');
+        $this->jamaisLaSienne($request, $organisation);
         $inscription->valider($organisation);
 
         return response()->json(['data' => $this->resume($organisation->fresh('inscritePar'))]);
@@ -45,9 +43,17 @@ class OrganisationPlateformeController extends Controller
     {
         $donnees = $request->validate(['note' => ['required', 'string', 'max:1000']], ['note.required' => 'Dites pourquoi : la clinique verra ce motif.']);
         abort_unless($organisation->verification === VerificationOrganisation::EnAttente, 422, 'Cette clinique n’est plus en attente.');
+        $this->jamaisLaSienne($request, $organisation);
         $inscription->refuser($organisation, $donnees['note']);
 
         return response()->json(['data' => $this->resume($organisation->fresh('inscritePar'))]);
+    }
+
+    /** Jamais sa propre organisation : un autre modérateur en décide */
+    private function jamaisLaSienne(Request $request, Organisation $organisation): void
+    {
+        $estLaSienne = Employe::withoutGlobalScopes()->where('organisation_id', $organisation->id)->where('user_id', $request->user()->id)->exists();
+        abort_if($estLaSienne || $organisation->inscritePar?->is($request->user()), 422, 'Un autre modérateur doit décider pour votre propre clinique.');
     }
 
     /** @return array<string, mixed> */

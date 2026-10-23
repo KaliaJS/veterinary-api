@@ -65,7 +65,7 @@ class RendezVousProprietaireTest extends TestCase
         $this->assertDatabaseHas('rendez_vous_audits', ['rendez_vous_id' => $rdv->id, 'champ' => 'motifAnnulation']);
 
         // Déjà annulé : refusé. Un rendez-vous d'un autre compte : introuvable.
-        $this->postJson("/api/v1/espace/rendez-vous/{$rdv->id}/annuler", [], $this->enTetes($jeton))->assertUnprocessable();
+        $this->postJson("/api/v1/espace/rendez-vous/{$rdv->id}/annuler", [], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors(['status' => 'Ce rendez-vous ne peut plus être annulé en ligne : contactez la clinique.']);
         $autre = RendezVous::factory()->create(['starts_at' => now()->addDay()]);
         $this->postJson("/api/v1/espace/rendez-vous/{$autre->id}/annuler", [], $this->enTetes($jeton))->assertNotFound();
     }

@@ -92,10 +92,10 @@ class AccueilProprietaireTest extends TestCase
 
         // Vaccins : Rage en retard (dernière injection), une injection plus ancienne de Rage
         // ne compte plus ; Leucose à J+12 ; CHPPi à J+300 hors fenêtre.
-        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => today()->subYears(3), 'echeance_le' => today()->subYears(2)]);
-        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => today()->subYear()->subDays(8), 'echeance_le' => today()->subDays(8)]);
-        Vaccination::factory()->create(['patient_id' => $paco->id, 'nom' => 'Leucose (FeLV)', 'injectee_le' => today()->subYear()->addDays(12), 'echeance_le' => today()->addDays(12)]);
-        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'CHPPi', 'injectee_le' => today()->subDays(65), 'echeance_le' => today()->addDays(300)]);
+        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => aujourdhui()->subYears(3), 'echeance_le' => aujourdhui()->subYears(2)]);
+        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => aujourdhui()->subYear()->subDays(8), 'echeance_le' => aujourdhui()->subDays(8)]);
+        Vaccination::factory()->create(['patient_id' => $paco->id, 'nom' => 'Leucose (FeLV)', 'injectee_le' => aujourdhui()->subYear()->addDays(12), 'echeance_le' => aujourdhui()->addDays(12)]);
+        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'CHPPi', 'injectee_le' => aujourdhui()->subDays(65), 'echeance_le' => aujourdhui()->addDays(300)]);
 
         // Devis portail envoyé, non signé → à signer ; un devis papier ne concerne pas le portail.
         $devis = Devis::factory()->create(['patient_id' => $paco->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail, 'signe_le' => null, 'motif' => 'Détartrage']);

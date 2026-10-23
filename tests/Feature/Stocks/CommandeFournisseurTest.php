@@ -180,7 +180,7 @@ class CommandeFournisseurTest extends TestCase
     public function test_une_commande_livree_a_une_clinique_soeur_credite_son_stock_et_ses_lots_a_la_reception(): void
     {
         $cliniqueSoeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
-        $produit = $this->produit(['peremption_le' => today()->addYear()]);
+        $produit = $this->produit(['peremption_le' => aujourdhui()->addYear()]);
 
         $id = $this->postJson('/api/v1/stocks/commandes', [
             'fournisseur' => 'Vetopharm SA',
@@ -303,7 +303,8 @@ class CommandeFournisseurTest extends TestCase
         $commande = CommandeFournisseur::factory()->receptionnee()->create(['clinique_id' => $this->clinique->id]);
 
         $this->deleteJson("/api/v1/stocks/commandes/{$commande->id}", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['statut' => 'Une commande réceptionnée a fait bouger le stock, elle ne se supprime plus.']);
 
         $this->assertDatabaseHas('commandes_fournisseur', ['id' => $commande->id]);
     }

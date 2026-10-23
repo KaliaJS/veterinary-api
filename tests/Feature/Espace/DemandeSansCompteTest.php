@@ -110,6 +110,6 @@ class DemandeSansCompteTest extends TestCase
             ->assertJsonMissingPath('data.0.creneaux.0.ligne_planning_id');
 
         // Un paramètre en tableau : requête mal formée, pas une panne
-        $this->getJson('/api/v1/public/cliniques?cliniques[]=1')->assertUnprocessable();
+        $this->getJson('/api/v1/public/cliniques?cliniques[]=1')->assertUnprocessable()->assertJsonPath('message', 'Un paramètre de la requête n’a pas la bonne forme.');
     }
 }

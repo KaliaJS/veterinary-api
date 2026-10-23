@@ -65,7 +65,7 @@ class FacturationIsolationTest extends TestCase
 
         $this->postJson("/api/v1/facturation/factures/{$soeur->id}/encaisser", [
             'moyen_paiement' => 'tpe',
-        ], $this->enTetes($this->jeton))->assertUnprocessable();
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors(['facture' => 'Les gestes de caisse se font depuis la clinique d’émission de la facture.']);
     }
 
     public function test_les_clotures_d_une_clinique_soeur_sont_invisibles(): void

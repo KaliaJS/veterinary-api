@@ -61,7 +61,7 @@ class EquipeIsolationTest extends TestCase
         $this->getJson("/api/v1/equipe/employes/{$etranger->id}", $entetes)->assertNotFound();
         $this->postJson("/api/v1/equipe/employes/{$etranger->id}/suspendre", [], $entetes)->assertNotFound();
         $this->postJson("/api/v1/equipe/employes/{$etranger->id}/licencier", [
-            'fin_contrat_le' => today()->addMonth()->toDateString(),
+            'fin_contrat_le' => aujourdhui()->addMonth()->toDateString(),
         ], $entetes)->assertNotFound();
     }
 
@@ -95,7 +95,7 @@ class EquipeIsolationTest extends TestCase
         $soeur = Employe::factory()->dans($this->cliniqueSoeur)->create();
 
         $this->putJson('/api/v1/equipe/gardes', [
-            'samedi_le' => today()->next('saturday')->toDateString(),
+            'samedi_le' => aujourdhui()->next('saturday')->toDateString(),
             'employe_id' => $soeur->id,
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()

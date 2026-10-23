@@ -245,7 +245,7 @@ class EmployeRhTest extends TestCase
     public function test_le_licenciement_est_un_etat_notifie_revocable(): void
     {
         ['employe' => $collegue] = $this->employeAvecJeton($this->clinique);
-        $fin = today()->addMonths(2)->endOfMonth()->toDateString();
+        $fin = aujourdhui()->addMonths(2)->endOfMonth()->toDateString();
         $entetes = $this->enTetes($this->jeton);
 
         $this->postJson("/api/v1/equipe/employes/{$collegue->id}/licencier", [
@@ -255,13 +255,13 @@ class EmployeRhTest extends TestCase
         ], $entetes)
             ->assertOk()
             ->assertJsonPath('data.licenciement.fin_contrat_le', $fin)
-            ->assertJsonPath('data.licenciement.notifie_le', today()->toDateString())
+            ->assertJsonPath('data.licenciement.notifie_le', aujourdhui()->toDateString())
             ->assertJsonPath('data.acces_suspendu', true);
 
         // Jamais deux notifications empilées.
         $this->postJson("/api/v1/equipe/employes/{$collegue->id}/licencier", [
             'fin_contrat_le' => $fin,
-        ], $entetes)->assertUnprocessable();
+        ], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['licenciement' => 'Un licenciement est déjà notifié, annulez-le d’abord.']);
 
         // L'annulation efface l'état — l'accès, lui, reste un geste à part.
         $this->postJson("/api/v1/equipe/employes/{$collegue->id}/annuler-licenciement", [], $entetes)
@@ -281,22 +281,22 @@ class EmployeRhTest extends TestCase
             'employe_id' => $this->employe->id,
             'type' => TypeAbsence::Conge,
             'statut' => StatutAbsence::Validee,
-            'debut_le' => today()->addDays(10),
-            'fin_le' => today()->addDays(12),
+            'debut_le' => aujourdhui()->addDays(10),
+            'fin_le' => aujourdhui()->addDays(12),
         ]);
         Absence::factory()->create([
             'employe_id' => $this->employe->id,
             'type' => TypeAbsence::Conge,
             'statut' => StatutAbsence::Validee,
-            'debut_le' => today()->subDays(20),
-            'fin_le' => today()->subDays(18),
+            'debut_le' => aujourdhui()->subDays(20),
+            'fin_le' => aujourdhui()->subDays(18),
         ]);
         Absence::factory()->create([
             'employe_id' => $this->employe->id,
             'type' => TypeAbsence::Conge,
             'statut' => StatutAbsence::EnAttente,
-            'debut_le' => today()->addDays(20),
-            'fin_le' => today()->addDays(24),
+            'debut_le' => aujourdhui()->addDays(20),
+            'fin_le' => aujourdhui()->addDays(24),
         ]);
 
         $this->getJson("/api/v1/equipe/employes/{$this->employe->id}", $this->enTetes($this->jeton))

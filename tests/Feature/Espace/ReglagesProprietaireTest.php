@@ -70,7 +70,7 @@ class ReglagesProprietaireTest extends TestCase
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
         $fiche = Client::factory()->create(['user_id' => $user->id]);
         $max = Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Max']);
-        $rage = Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => today()->subYear(), 'echeance_le' => today()->subDays(8)]);
+        $rage = Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => aujourdhui()->subYear(), 'echeance_le' => aujourdhui()->subDays(8)]);
         $devis = Devis::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail, 'signe_le' => null, 'motif' => 'Détartrage']);
 
         $this->getJson('/api/v1/espace/notifications', $this->enTetes($jeton))

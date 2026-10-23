@@ -47,7 +47,8 @@ class AffectationsEmployeTest extends TestCase
 
         // Rien d'automatique : la clinique sœur lui est fermée
         $this->postJson('/api/v1/auth/clinique', ['clinique_id' => $this->soeur->id], $this->enTetes($jetonCollegue))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['clinique_id' => 'Aucun rattachement à cette clinique.']);
 
         $this->putJson("/api/v1/equipe/employes/{$collegue->id}/cliniques", [
             'cliniques' => [$this->clinique->id, $this->soeur->id],

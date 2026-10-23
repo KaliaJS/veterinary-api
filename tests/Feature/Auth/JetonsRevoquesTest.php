@@ -42,13 +42,13 @@ class JetonsRevoquesTest extends TestCase
 
     public function test_une_fin_de_contrat_passee_ferme_l_acces_et_la_nuit_suspend_et_revoque(): void
     {
-        ['employe' => $employe, 'user' => $user, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique, ['fin_contrat_le' => today()->subDay()]);
+        ['employe' => $employe, 'user' => $user, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique, ['fin_contrat_le' => aujourdhui()->subDay()]);
 
         $this->getJson('/api/v1/patients', $this->enTetes($jeton))->assertForbidden();
         // Se déconnecter reste possible
         $this->postJson('/api/v1/auth/deconnexion', [], $this->enTetes($jeton))->assertSuccessful();
 
-        ['employe' => $autre, 'user' => $compteAutre] = $this->employeAvecJeton($this->clinique, ['fin_contrat_le' => today()->subDay()]);
+        ['employe' => $autre, 'user' => $compteAutre] = $this->employeAvecJeton($this->clinique, ['fin_contrat_le' => aujourdhui()->subDay()]);
         $this->assertSame(1, $compteAutre->tokens()->count());
         $this->artisan('equipe:fermer-contrats')->assertSuccessful();
         $this->assertTrue($autre->refresh()->acces_suspendu);

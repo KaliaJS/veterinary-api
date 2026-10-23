@@ -82,7 +82,7 @@ class VerificationVeterinaireTest extends TestCase
             ->assertJsonPath('data.payee', true);
         $this->assertSame(200, $stripe->dernierPrelevement()['centimes']);
         // Une seule fois
-        $this->postJson('/api/v1/auth/identite/paiement', [], $entetes)->assertUnprocessable();
+        $this->postJson('/api/v1/auth/identite/paiement', [], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['identite' => 'Votre vérification d’identité est déjà réglée ou en cours.']);
 
         $this->postJson('/api/v1/auth/identite/session', [], $entetes)->assertOk()->assertJsonPath('data.url', 'https://verify.stripe.com/start/vs_1');
 
@@ -132,7 +132,7 @@ class VerificationVeterinaireTest extends TestCase
         $this->getJson('/api/v1/auth/profil-veterinaire', $entetesLea)
             ->assertJsonPath('data.identite.statut', 'a_revoir')
             ->assertJsonPath('data.verification.statut', 'en_attente');
-        $this->postJson('/api/v1/auth/identite/session', [], $entetesLea)->assertUnprocessable();
+        $this->postJson('/api/v1/auth/identite/session', [], $entetesLea)->assertUnprocessable()->assertJsonValidationErrors(['identite' => 'Votre vérification se termine à la main : la plateforme vous répond bientôt.']);
         Mail::assertSent(VerificationVeterinaireAFaire::class, fn ($mail) => $mail->hasTo('verification@veterinary.test'));
 
         // L'espace Plateforme est fermé aux autres comptes

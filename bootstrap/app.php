@@ -7,6 +7,7 @@ use App\Http\Middleware\ExigerModerateur;
 use App\Http\Middleware\ExigerOrganisationOuverte;
 use App\Http\Middleware\ExigerServiceClinique;
 use App\Http\Middleware\ForcerReponseJson;
+use App\Paiements\ErreurPaiement;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -56,4 +57,10 @@ return Application::configure(basePath: dirname(__DIR__))
             ? response()->json(['message' => 'Un paramètre de la requête n’a pas la bonne forme.'], 422)
             : null);
         $exceptions->dontReportWhen(fn (Throwable $e) => $e instanceof ErrorException && str_contains($e->getMessage(), 'Array to string conversion') && request()->is('api/*'));
+
+        // Refus du prestataire de paiement non rattrapé : un 422 avec son
+        // message traduit, jamais un 500 (il reste noté au journal)
+        $exceptions->render(fn (ErreurPaiement $e, Request $request) => $request->is('api/*')
+            ? response()->json(['message' => $e->getMessage(), 'errors' => ['paiement' => [$e->getMessage()]]], 422)
+            : null);
     })->create();

@@ -27,7 +27,7 @@ class EnregistrerPatientRequest extends FormRequest
             'espece' => ['required', Rule::enum(Espece::class)],
             'race' => ['nullable', 'string', 'max:255'],
             'sexe' => ['required', Rule::enum(Sexe::class)],
-            'ne_le' => ['nullable', 'date', 'before_or_equal:today'],
+            'ne_le' => ['nullable', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             'est_sterilise' => ['sometimes', 'boolean'],
             'puce' => ['nullable', 'string', 'max:32', new NumeroPuce],
             'est_agressif' => ['sometimes', 'boolean'],

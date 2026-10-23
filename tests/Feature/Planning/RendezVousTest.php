@@ -47,7 +47,7 @@ class RendezVousTest extends TestCase
 
     public function test_la_creation_enregistre_le_rendez_vous_et_son_audit_de_creation(): void
     {
-        $debut = today()->addDay()->setTime(10, 0);
+        $debut = aujourdhui()->addDay()->setTime(10, 0);
 
         $reponse = $this->postJson('/api/v1/rendez-vous', [
             'ligne_planning_id' => $this->ligne->id,
@@ -79,7 +79,7 @@ class RendezVousTest extends TestCase
 
         $reponse = $this->postJson('/api/v1/rendez-vous', [
             'ligne_planning_id' => $this->ligne->id,
-            'starts_at' => today()->addDay()->setTime(9, 0)->toISOString(),
+            'starts_at' => aujourdhui()->addDay()->setTime(9, 0)->toISOString(),
             'duree_minutes' => 20,
             'patient_id' => $patient->id,
             'patient_name' => 'Nom périmé',
@@ -92,7 +92,7 @@ class RendezVousTest extends TestCase
 
     public function test_le_chevauchement_d_intervalles_est_accepte(): void
     {
-        $debut = today()->addDay()->setTime(10, 0);
+        $debut = aujourdhui()->addDay()->setTime(10, 0);
 
         RendezVous::factory()->create([
             'clinique_id' => $this->clinique->id,
@@ -129,7 +129,7 @@ class RendezVousTest extends TestCase
     {
         $autreLigne = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id]);
         $rendezVous = $this->rendezVous();
-        $nouveauDebut = today()->addDay()->setTime(15, 30);
+        $nouveauDebut = aujourdhui()->addDay()->setTime(15, 30);
 
         $this->postJson("/api/v1/rendez-vous/{$rendezVous->id}/deplacer", [
             'starts_at' => $nouveauDebut->toISOString(),
@@ -178,11 +178,14 @@ class RendezVousTest extends TestCase
         $entetes = $this->enTetes($this->jeton);
 
         $this->postJson("/api/v1/rendez-vous/{$tampon->id}/deplacer", ['starts_at' => now()->toISOString()], $entetes)
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['type' => 'Un créneau tampon n’est ni déplaçable ni redimensionnable.']);
         $this->postJson("/api/v1/rendez-vous/{$tampon->id}/redimensionner", ['duree_minutes' => 30], $entetes)
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['type' => 'Un créneau tampon n’est ni déplaçable ni redimensionnable.']);
         $this->patchJson("/api/v1/rendez-vous/{$tampon->id}", ['reason' => 'Interdit'], $entetes)
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['type' => 'Un créneau tampon ne se modifie pas.']);
     }
 
     public function test_le_passage_en_salle_memorise_l_arrivee_et_l_audite_dans_le_meme_lot(): void
@@ -226,7 +229,8 @@ class RendezVousTest extends TestCase
     {
         $enCours = $this->rendezVous(['status' => StatutRendezVous::Cours]);
         $this->postJson("/api/v1/rendez-vous/{$enCours->id}/non-venu", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['status' => 'Le non-venu ne se marque que sur un rendez-vous prévu ou arrivé, hors tampon.']);
 
         $prevu = $this->rendezVous();
         $this->postJson("/api/v1/rendez-vous/{$prevu->id}/non-venu", [], $this->enTetes($this->jeton))
@@ -260,8 +264,8 @@ class RendezVousTest extends TestCase
 
         $entetes = $this->enTetes($this->jeton);
 
-        $this->postJson("/api/v1/rendez-vous/{$annule->id}/annuler", [], $entetes)->assertUnprocessable();
-        $this->postJson("/api/v1/rendez-vous/{$annule->id}/statut", ['status' => 'prevu'], $entetes)->assertUnprocessable();
+        $this->postJson("/api/v1/rendez-vous/{$annule->id}/annuler", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['status' => 'Ce rendez-vous est déjà annulé.']);
+        $this->postJson("/api/v1/rendez-vous/{$annule->id}/statut", ['status' => 'prevu'], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['status' => 'Un rendez-vous annulé ne change plus de statut.']);
     }
 
     public function test_les_annules_restent_dans_la_liste(): void
@@ -276,7 +280,7 @@ class RendezVousTest extends TestCase
 
     public function test_la_liste_se_filtre_par_plage_de_dates(): void
     {
-        $demain = today()->addDay();
+        $demain = aujourdhui()->addDay();
         $this->rendezVous(['starts_at' => $demain->clone()->setTime(9, 0), 'ends_at' => $demain->clone()->setTime(9, 30)]);
         $horsPlage = $this->rendezVous([
             'starts_at' => $demain->clone()->addDay()->setTime(9, 0),
@@ -344,7 +348,7 @@ class RendezVousTest extends TestCase
     {
         $id = $this->postJson('/api/v1/rendez-vous', [
             'ligne_planning_id' => $this->ligne->id,
-            'starts_at' => today()->addDay()->setTime(11, 0)->toISOString(),
+            'starts_at' => aujourdhui()->addDay()->setTime(11, 0)->toISOString(),
             'duree_minutes' => 20,
         ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
 
@@ -359,13 +363,13 @@ class RendezVousTest extends TestCase
 
         $id = $this->postJson('/api/v1/rendez-vous', [
             'ligne_planning_id' => $this->ligne->id,
-            'starts_at' => today()->addDay()->setTime(11, 0)->toISOString(),
+            'starts_at' => aujourdhui()->addDay()->setTime(11, 0)->toISOString(),
             'duree_minutes' => 20,
         ], $entetes)->assertCreated()->json('data.id');
 
         $this->postJson("/api/v1/rendez-vous/{$id}/redimensionner", ['duree_minutes' => 30], $entetes)->assertOk();
 
-        $this->deleteJson("/api/v1/rendez-vous/{$id}", [], $entetes)->assertUnprocessable();
+        $this->deleteJson("/api/v1/rendez-vous/{$id}", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['rendez_vous' => 'Un rendez-vous ne se supprime pas, annulez-le. Seule l’annulation immédiate d’une création est tolérée.']);
         $this->assertDatabaseHas('rendez_vous', ['id' => $id]);
     }
 
@@ -373,16 +377,16 @@ class RendezVousTest extends TestCase
     {
         $id = $this->postJson('/api/v1/rendez-vous', [
             'ligne_planning_id' => $this->ligne->id,
-            'starts_at' => today()->addDay()->setTime(11, 0)->toISOString(),
+            'starts_at' => aujourdhui()->addDay()->setTime(11, 0)->toISOString(),
             'duree_minutes' => 20,
         ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
 
         ['jeton' => $autreJeton] = $this->employeAvecJeton($this->clinique);
-        $this->deleteJson("/api/v1/rendez-vous/{$id}", [], $this->enTetes($autreJeton))->assertUnprocessable();
+        $this->deleteJson("/api/v1/rendez-vous/{$id}", [], $this->enTetes($autreJeton))->assertUnprocessable()->assertJsonValidationErrors(['rendez_vous' => 'Un rendez-vous ne se supprime pas, annulez-le. Seule l’annulation immédiate d’une création est tolérée.']);
 
         // La fenêtre est de 20 s : 30 s plus tard, c'est refusé.
         $this->travel(30)->seconds();
-        $this->deleteJson("/api/v1/rendez-vous/{$id}", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->deleteJson("/api/v1/rendez-vous/{$id}", [], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors(['rendez_vous' => 'Un rendez-vous ne se supprime pas, annulez-le. Seule l’annulation immédiate d’une création est tolérée.']);
         $this->assertDatabaseHas('rendez_vous', ['id' => $id]);
     }
 
@@ -411,8 +415,8 @@ class RendezVousTest extends TestCase
         return RendezVous::factory()->create([
             'clinique_id' => $this->clinique->id,
             'ligne_planning_id' => $this->ligne->id,
-            'starts_at' => today()->addDay()->setTime(14, 0),
-            'ends_at' => today()->addDay()->setTime(14, 30),
+            'starts_at' => aujourdhui()->addDay()->setTime(14, 0),
+            'ends_at' => aujourdhui()->addDay()->setTime(14, 30),
             ...$attributs,
         ]);
     }

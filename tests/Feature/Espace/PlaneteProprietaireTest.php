@@ -52,7 +52,7 @@ class PlaneteProprietaireTest extends TestCase
         $autre = Patient::factory()->create();
 
         $jour = now('Europe/Zurich')->toDateString();
-        $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", ['decede_le' => now('Europe/Zurich')->addDay()->toDateString()], $entetes)->assertUnprocessable();
+        $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", ['decede_le' => now('Europe/Zurich')->addDay()->toDateString()], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['decede_le' => 'La date ne peut pas être dans le futur.']);
         $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", [], $entetes)->assertOk()->assertJsonPath('data.decede_le', $jour);
         $this->assertDatabaseHas('patients', ['id' => $rex->id, 'rappels_coupes' => true]);
         $this->getJson("/api/v1/espace/animaux/{$rex->id}", $entetes)->assertOk()->assertJsonPath('data.decede_le', $jour);
@@ -73,6 +73,6 @@ class PlaneteProprietaireTest extends TestCase
 
         $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", ['decede_le' => '2026-10-17'], $entetes)->assertOk()->assertJsonPath('data.decede_le', '2026-10-17');
         $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", [], $entetes)->assertOk()->assertJsonPath('data.decede_le', '2026-10-17');
-        $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", ['decede_le' => '2026-10-18'], $entetes)->assertUnprocessable();
+        $this->postJson("/api/v1/espace/animaux/{$rex->id}/deces", ['decede_le' => '2026-10-18'], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['decede_le' => 'La date ne peut pas être dans le futur.']);
     }
 }

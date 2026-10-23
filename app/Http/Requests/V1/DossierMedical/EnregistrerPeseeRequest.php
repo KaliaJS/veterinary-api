@@ -16,7 +16,7 @@ class EnregistrerPeseeRequest extends FormRequest
     {
         return [
             'poids_kg' => ['required', 'numeric', 'gt:0', 'max:150'],
-            'pesee_le' => ['sometimes', 'date', 'before_or_equal:today'],
+            'pesee_le' => ['sometimes', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
         ];
     }
 }

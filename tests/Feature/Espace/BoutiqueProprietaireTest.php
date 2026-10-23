@@ -94,9 +94,11 @@ class BoutiqueProprietaireTest extends TestCase
         Stock::factory()->create(['produit_id' => $medicament->id, 'clinique_id' => $clinique->id, 'quantite' => 5]);
 
         $this->postJson('/api/v1/espace/commandes', ['commandes' => [['clinique_id' => $clinique->id, 'lignes' => [['produit_id' => $prive->id, 'quantite' => 1]]]]], $this->enTetes($jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['commandes.0.lignes.0.quantite' => 'Seul un article visible en boutique se commande en ligne.']);
         $this->postJson('/api/v1/espace/commandes', ['commandes' => [['clinique_id' => $clinique->id, 'lignes' => [['produit_id' => $medicament->id, 'quantite' => 1]]]]], $this->enTetes($jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['commandes.0.lignes.0.quantite' => $medicament->nom.' : en clinique uniquement, sur ordonnance.']);
         $this->assertSame(0, CommandeBoutique::withoutGlobalScopes()->count());
     }
 }

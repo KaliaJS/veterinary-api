@@ -42,7 +42,7 @@ class EnregistrerVaccinationRequest extends FormRequest
             'site_injection' => ['nullable', 'string', 'max:60'],
             'remarque' => ['nullable', 'string', 'max:2000'],
             'reaction' => ['nullable', 'string', 'max:2000'],
-            'injectee_le' => ['sometimes', 'date', 'before_or_equal:today'],
+            'injectee_le' => ['sometimes', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             'echeance_le' => ['nullable', 'date', 'after:injectee_le'],
         ];
     }

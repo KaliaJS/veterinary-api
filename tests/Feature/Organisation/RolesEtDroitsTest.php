@@ -72,7 +72,7 @@ class RolesEtDroitsTest extends TestCase
 
         $this->putJson("/api/v1/organisation/employes/{$this->administrateur->id}/exceptions", [
             'droits' => [['droit' => 'organisation', 'accorde' => false]],
-        ], $this->enTetes($this->jeton))->assertUnprocessable();
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors(['droits' => 'L’organisation doit garder au moins un administrateur actif (droit Administration).']);
     }
 
     public function test_une_exception_accorde_un_droit_au_dela_du_role(): void

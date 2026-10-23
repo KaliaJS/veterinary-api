@@ -96,7 +96,7 @@ class ClotureCaisseTest extends TestCase
             'fond' => 200,
             'especes_comptees' => 200,
             'nouveau_fond' => 200,
-        ], $this->enTetes($this->jeton))->assertUnprocessable();
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors(['factures' => 'Aucun encaissement à clôturer depuis la dernière clôture.']);
     }
 
     public function test_aucun_rapprochement_manuel_n_est_demande_pour_le_tpe_et_twint(): void

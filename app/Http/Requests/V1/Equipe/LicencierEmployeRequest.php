@@ -16,7 +16,7 @@ class LicencierEmployeRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'fin_contrat_le' => ['required', 'date', 'after_or_equal:today'],
+            'fin_contrat_le' => ['required', 'date', 'after_or_equal:'.aujourdhui()->toDateString()],
             'motif' => ['nullable', 'string', 'max:255'],
             'revoquer_acces' => ['sometimes', 'boolean'],
         ];

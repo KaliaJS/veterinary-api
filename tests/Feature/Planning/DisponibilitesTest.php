@@ -303,9 +303,9 @@ class DisponibilitesTest extends TestCase
         $sansHoraires = Clinique::factory()->create();
         LignePlanning::factory()->create(['clinique_id' => $sansHoraires->id]);
 
-        Absence::factory()->create(['employe_id' => $ligneAutre->employe_id, 'debut_le' => today()->addDay(), 'fin_le' => today()->addDays(2)]);
+        Absence::factory()->create(['employe_id' => $ligneAutre->employe_id, 'debut_le' => aujourdhui()->addDay(), 'fin_le' => aujourdhui()->addDays(2)]);
         foreach ([$this->ligne, $ligneAutre] as $i => $ligne) {
-            $debut = CarbonImmutable::parse(today()->addDays($i + 1)->toDateString(), 'Europe/Zurich')->setTime(10, 0)->utc();
+            $debut = CarbonImmutable::parse(aujourdhui()->addDays($i + 1)->toDateString(), 'Europe/Zurich')->setTime(10, 0)->utc();
             RendezVous::factory()->create(['clinique_id' => $ligne->clinique_id, 'ligne_planning_id' => $ligne->id, 'starts_at' => $debut, 'ends_at' => $debut->addHour()]);
         }
 
@@ -321,7 +321,7 @@ class DisponibilitesTest extends TestCase
 
     public function test_le_jour_du_changement_d_heure_les_creneaux_restent_a_l_heure_locale(): void
     {
-        $annee = (int) today()->format('Y');
+        $annee = (int) aujourdhui()->format('Y');
         $jour = CarbonImmutable::parse("last sunday of october {$annee}");
         if ($jour->isPast()) {
             $jour = CarbonImmutable::parse('last sunday of october '.($annee + 1));

@@ -22,7 +22,8 @@ class LimitesEspaceTest extends TestCase
 
         for ($i = 0; $i < 5; $i++) {
             $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '75609800000000'.$i, 'nom' => 'Rex'], $this->enTetes($jeton))
-                ->assertStatus(422);
+                ->assertStatus(422)
+                ->assertJsonValidationErrors(['puce' => 'Aucun animal ne correspond à ce numéro de puce et à ce nom. Vérifiez-les, ou appelez la clinique qui le suit.']);
         }
 
         $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756098000000009', 'nom' => 'Rex'], $this->enTetes($jeton))
@@ -34,7 +35,7 @@ class LimitesEspaceTest extends TestCase
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();
 
         for ($i = 0; $i < 10; $i++) {
-            $this->postJson('/api/v1/espace/demandes', [], $this->enTetes($jeton))->assertUnprocessable();
+            $this->postJson('/api/v1/espace/demandes', [], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors('clinique_id');
         }
 
         $this->postJson('/api/v1/espace/demandes', [], $this->enTetes($jeton))->assertTooManyRequests();
@@ -49,6 +50,6 @@ class LimitesEspaceTest extends TestCase
             $this->postJson('/api/v1/espace/demandes', [], $this->enTetes($jeton));
         }
 
-        $this->postJson('/api/v1/espace/demandes', [], $this->enTetes($autre))->assertUnprocessable();
+        $this->postJson('/api/v1/espace/demandes', [], $this->enTetes($autre))->assertUnprocessable()->assertJsonValidationErrors('clinique_id');
     }
 }

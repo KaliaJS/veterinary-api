@@ -302,7 +302,7 @@ class EnregistrementConsultationTest extends TestCase
         $this->postJson("/api/v1/enregistrements/{$id}/relancer", [], $this->enTetes($this->jeton))->assertJsonPath('data.erreur', 'redaction');
         // Plus de rédaction : l'enregistrement le dit, la relance est refusée
         $this->postJson("/api/v1/enregistrements/{$id}/relancer", [], $this->enTetes($this->jeton))->assertJsonPath('data.erreur', 'redactions');
-        $this->postJson("/api/v1/enregistrements/{$id}/relancer", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->postJson("/api/v1/enregistrements/{$id}/relancer", [], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors(['enregistrement' => 'Le compte rendu a déjà été rédigé plusieurs fois : écrivez-le à partir de la transcription.']);
         $this->assertCount(2, $this->redacteur->appels);
     }
 

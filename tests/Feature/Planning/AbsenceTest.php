@@ -48,8 +48,8 @@ class AbsenceTest extends TestCase
         $this->postJson('/api/v1/absences', [
             'employe_id' => $this->ligne->employe_id,
             'type' => 'conge',
-            'debut_le' => today()->addDay()->toDateString(),
-            'fin_le' => today()->addDays(3)->toDateString(),
+            'debut_le' => aujourdhui()->addDay()->toDateString(),
+            'fin_le' => aujourdhui()->addDays(3)->toDateString(),
         ], $this->enTetes($this->jeton))
             ->assertCreated()
             ->assertJsonPath('data.statut', 'att')
@@ -64,21 +64,21 @@ class AbsenceTest extends TestCase
         $tampon = RendezVous::factory()->tampon()->create([
             'clinique_id' => $this->clinique->id,
             'ligne_planning_id' => $this->ligne->id,
-            'starts_at' => today()->addDay()->setTime(15, 0),
-            'ends_at' => today()->addDay()->setTime(15, 30),
+            'starts_at' => aujourdhui()->addDay()->setTime(15, 0),
+            'ends_at' => aujourdhui()->addDay()->setTime(15, 30),
         ]);
         $autreLigne = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id]);
         $rendezVousAilleurs = RendezVous::factory()->create([
             'clinique_id' => $this->clinique->id,
             'ligne_planning_id' => $autreLigne->id,
-            'starts_at' => today()->addDay()->setTime(10, 0),
-            'ends_at' => today()->addDay()->setTime(10, 30),
+            'starts_at' => aujourdhui()->addDay()->setTime(10, 0),
+            'ends_at' => aujourdhui()->addDay()->setTime(10, 30),
         ]);
 
         $absence = Absence::factory()->enAttente()->create([
             'employe_id' => $this->ligne->employe_id,
-            'debut_le' => today()->addDay(),
-            'fin_le' => today()->addDays(2),
+            'debut_le' => aujourdhui()->addDay(),
+            'fin_le' => aujourdhui()->addDays(2),
         ]);
 
         $this->postJson("/api/v1/absences/{$absence->id}/valider", [], $this->enTetes($this->jeton))
@@ -103,8 +103,8 @@ class AbsenceTest extends TestCase
 
         $entetes = $this->enTetes($this->jeton);
 
-        $this->postJson("/api/v1/absences/{$validee->id}/valider", [], $entetes)->assertUnprocessable();
-        $this->postJson("/api/v1/absences/{$validee->id}/refuser", [], $entetes)->assertUnprocessable();
+        $this->postJson("/api/v1/absences/{$validee->id}/valider", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Seule une demande en attente se valide.']);
+        $this->postJson("/api/v1/absences/{$validee->id}/refuser", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Seule une demande en attente se refuse.']);
     }
 
     public function test_le_refus_marque_la_demande_sans_toucher_au_planning(): void
@@ -112,8 +112,8 @@ class AbsenceTest extends TestCase
         $rendezVous = $this->rendezVousDemain();
         $absence = Absence::factory()->enAttente()->create([
             'employe_id' => $this->ligne->employe_id,
-            'debut_le' => today()->addDay(),
-            'fin_le' => today()->addDays(2),
+            'debut_le' => aujourdhui()->addDay(),
+            'fin_le' => aujourdhui()->addDays(2),
         ]);
 
         $this->postJson("/api/v1/absences/{$absence->id}/refuser", [], $this->enTetes($this->jeton))
@@ -130,8 +130,8 @@ class AbsenceTest extends TestCase
         $this->postJson('/api/v1/absences', [
             'employe_id' => $this->ligne->employe_id,
             'type' => 'maladie',
-            'debut_le' => today()->addDay()->toDateString(),
-            'fin_le' => today()->addDay()->toDateString(),
+            'debut_le' => aujourdhui()->addDay()->toDateString(),
+            'fin_le' => aujourdhui()->addDay()->toDateString(),
             'statut' => 'ok',
         ], $this->enTetes($this->jeton))
             ->assertCreated()
@@ -148,8 +148,8 @@ class AbsenceTest extends TestCase
         $this->postJson('/api/v1/absences', [
             'employe_id' => $this->ligne->employe_id,
             'type' => 'garde',
-            'debut_le' => today()->addDay()->toDateString(),
-            'fin_le' => today()->addDay()->toDateString(),
+            'debut_le' => aujourdhui()->addDay()->toDateString(),
+            'fin_le' => aujourdhui()->addDay()->toDateString(),
             'statut' => 'ok',
         ], $this->enTetes($this->jeton))
             ->assertCreated()
@@ -163,8 +163,8 @@ class AbsenceTest extends TestCase
         $rendezVous = $this->rendezVousDemain();
         $absence = Absence::factory()->enAttente()->create([
             'employe_id' => $this->ligne->employe_id,
-            'debut_le' => today()->addDay(),
-            'fin_le' => today()->addDay(),
+            'debut_le' => aujourdhui()->addDay(),
+            'fin_le' => aujourdhui()->addDay(),
         ]);
 
         $entetes = $this->enTetes($this->jeton);
@@ -180,21 +180,21 @@ class AbsenceTest extends TestCase
     {
         $absence = Absence::factory()->enAttente()->create([
             'employe_id' => $this->ligne->employe_id,
-            'debut_le' => today()->addDay(),
-            'fin_le' => today()->addDays(2),
+            'debut_le' => aujourdhui()->addDay(),
+            'fin_le' => aujourdhui()->addDays(2),
         ]);
 
         $entetes = $this->enTetes($this->jeton);
 
         $this->patchJson("/api/v1/absences/{$absence->id}", [
-            'fin_le' => today()->addDays(5)->toDateString(),
+            'fin_le' => aujourdhui()->addDays(5)->toDateString(),
             'note' => 'Prolongée',
         ], $entetes)
             ->assertOk()
-            ->assertJsonPath('data.fin_le', today()->addDays(5)->toDateString());
+            ->assertJsonPath('data.fin_le', aujourdhui()->addDays(5)->toDateString());
 
         $this->patchJson("/api/v1/absences/{$absence->id}", [
-            'fin_le' => today()->toDateString(),
+            'fin_le' => aujourdhui()->toDateString(),
         ], $entetes)
             ->assertUnprocessable()
             ->assertJsonValidationErrors('fin_le');
@@ -217,8 +217,8 @@ class AbsenceTest extends TestCase
         return RendezVous::factory()->create([
             'clinique_id' => $this->clinique->id,
             'ligne_planning_id' => $this->ligne->id,
-            'starts_at' => today()->addDay()->setTime(9, 0),
-            'ends_at' => today()->addDay()->setTime(9, 30),
+            'starts_at' => aujourdhui()->addDay()->setTime(9, 0),
+            'ends_at' => aujourdhui()->addDay()->setTime(9, 30),
         ]);
     }
 }

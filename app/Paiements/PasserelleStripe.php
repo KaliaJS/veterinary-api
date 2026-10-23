@@ -23,7 +23,7 @@ class PasserelleStripe implements PasserellePaiement
         'terminal_reader_offline' => 'Le terminal est hors ligne. Vérifiez qu’il est allumé et connecté.',
         'terminal_reader_busy' => 'Le terminal est déjà occupé par un autre paiement.',
         'terminal_reader_timeout' => 'Le terminal n’a pas répondu à temps. Réessayez.',
-        'resource_missing' => 'Ce terminal n’existe plus. Retirez-le et appairez-le à nouveau.',
+        'resource_missing' => 'Élément introuvable chez le prestataire de paiement.',
         'payment_method_unactivated' => 'Ce moyen de paiement n’est pas encore activé sur le compte de paiement.',
     ];
 
@@ -295,7 +295,7 @@ class PasserelleStripe implements PasserellePaiement
         return [
             'id' => $intention->id,
             'statut' => $intention->status,
-            'erreur' => $intention->last_payment_error?->message,
+            'erreur' => $intention->last_payment_error ? RefusCarte::message($intention->last_payment_error->toArray()) : null,
         ];
     }
 
@@ -322,7 +322,12 @@ class PasserelleStripe implements PasserellePaiement
         try {
             return $appel();
         } catch (ApiErrorException $e) {
-            throw ErreurPaiement::depuisStripe($e, self::MESSAGES[$e->getStripeCode()] ?? null);
+            // Introuvable : un lecteur retiré se réappaire, le reste n'a pas de remède à la caisse
+            $message = $e->getStripeCode() === 'resource_missing' && str_contains($e->getMessage(), 'terminal.reader')
+                ? 'Ce terminal n’existe plus. Retirez-le et appairez-le à nouveau.'
+                : self::MESSAGES[$e->getStripeCode()] ?? null;
+
+            throw ErreurPaiement::depuisStripe($e, $message);
         }
     }
 }

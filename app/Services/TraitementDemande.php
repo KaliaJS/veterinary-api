@@ -135,14 +135,16 @@ class TraitementDemande
     {
         $this->doitEtreOuverte($demande);
 
+        // Un acompte payé (heure prise pendant le paiement) est rendu
+        // d'abord : si le prestataire refuse, la demande reste ouverte et
+        // l'on peut réessayer (le rendu n'est jamais fait deux fois)
+        app(AcomptesRendezVous::class)->rembourser($demande);
         $demande->update([
             'statut' => StatutDemandeRendezVous::Refusee,
             'motif_refus' => $motif,
             'message' => $message,
             'traitee_le' => now(),
         ]);
-        // Un acompte payé (heure prise pendant le paiement) est rendu
-        app(AcomptesRendezVous::class)->rembourser($demande);
 
         $this->ecrire($demande, new DemandeRendezVousRefusee($demande->load('clinique')));
     }

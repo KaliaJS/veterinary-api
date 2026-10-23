@@ -63,7 +63,7 @@ class AuthentificationTest extends TestCase
         $this->postJson('/api/v1/auth/code-email/verifier', [
             'email' => $user->email,
             'code' => $code,
-        ])->assertUnprocessable();
+        ])->assertUnprocessable()->assertJsonValidationErrors(['code' => 'Code invalide ou expiré.']);
     }
 
     /** Inscription par code e-mail : l'adresse inconnue reçoit un code, sa vérification crée le compte. */
@@ -103,7 +103,8 @@ class AuthentificationTest extends TestCase
 
         // Le code est à usage unique — et le compte n'est pas recréé.
         $this->postJson('/api/v1/auth/code-email/verifier', ['email' => 'nouveau@exemple.ch', 'code' => $code])
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['code' => 'Code invalide ou expiré.']);
         $this->assertSame(1, User::where('email', 'nouveau@exemple.ch')->count());
     }
 
@@ -119,7 +120,7 @@ class AuthentificationTest extends TestCase
         $this->postJson('/api/v1/auth/code-email/verifier', [
             'email' => $user->email,
             'code' => '00000000',
-        ])->assertUnprocessable();
+        ])->assertUnprocessable()->assertJsonValidationErrors(['code' => 'Code invalide ou expiré.']);
     }
 
     /** Compte sans rattachement (inscrit, ou rattachements disparus) : session sans clinique. */

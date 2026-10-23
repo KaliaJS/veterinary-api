@@ -148,7 +148,7 @@ class PlanningIsolationTest extends TestCase
 
         $this->postJson('/api/v1/rendez-vous', [
             'ligne_planning_id' => $this->ligneB->id,
-            'starts_at' => today()->addDay()->setTime(10, 0)->toISOString(),
+            'starts_at' => aujourdhui()->addDay()->setTime(10, 0)->toISOString(),
             'duree_minutes' => 20,
         ], $entetes)->assertUnprocessable()->assertJsonValidationErrors('ligne_planning_id');
 
@@ -157,13 +157,13 @@ class PlanningIsolationTest extends TestCase
         $this->postJson('/api/v1/absences', [
             'employe_id' => $employeB->id,
             'type' => 'conge',
-            'debut_le' => today()->toDateString(),
-            'fin_le' => today()->toDateString(),
+            'debut_le' => aujourdhui()->toDateString(),
+            'fin_le' => aujourdhui()->toDateString(),
         ], $entetes)->assertUnprocessable()->assertJsonValidationErrors('employe_id');
 
         $this->postJson("/api/v1/urgences/{$this->urgenceA->id}/placer", [
             'ligne_planning_id' => $this->ligneB->id,
-            'starts_at' => today()->addDay()->setTime(10, 0)->toISOString(),
+            'starts_at' => aujourdhui()->addDay()->setTime(10, 0)->toISOString(),
         ], $entetes)->assertUnprocessable()->assertJsonValidationErrors('ligne_planning_id');
     }
 
@@ -207,7 +207,7 @@ class PlanningIsolationTest extends TestCase
     {
         $reponse = $this->postJson('/api/v1/rendez-vous', [
             'ligne_planning_id' => $this->ligneA->id,
-            'starts_at' => today()->addDay()->setTime(10, 0)->toISOString(),
+            'starts_at' => aujourdhui()->addDay()->setTime(10, 0)->toISOString(),
             'duree_minutes' => 20,
             'clinique_id' => $this->cliniqueB->id,
         ], $this->enTetes($this->jetonA))->assertCreated();

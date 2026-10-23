@@ -104,7 +104,7 @@ class FinConsultationTest extends TestCase
                 'nom' => 'CHPPiL',
                 'marque' => 'Nobivac',
                 'produit_id' => $vaccin->id,
-                'echeance_le' => today()->addYear()->toDateString(),
+                'echeance_le' => aujourdhui()->addYear()->toDateString(),
             ],
             'medicaments' => [
                 ['produit_id' => $medicament->id, 'posologie' => '0,1 mg/kg — 1× par jour', 'duree' => '7 jours'],
@@ -134,7 +134,7 @@ class FinConsultationTest extends TestCase
         // Carnet : l'injection du jour est inscrite, signée.
         $vaccination = $this->patient->vaccinations()->sole();
         $this->assertSame('CHPPiL', $vaccination->nom);
-        $this->assertSame(today()->toDateString(), $vaccination->injectee_le->toDateString());
+        $this->assertSame(aujourdhui()->toDateString(), $vaccination->injectee_le->toDateString());
 
         // Réponse complète pour un vétérinaire (facturation + patients).
         $this->assertSame($facture->numero, $reponse->json('facture.numero'));
@@ -145,22 +145,22 @@ class FinConsultationTest extends TestCase
     {
         $this->patient->vaccinations()->create([
             'nom' => 'CHPPiL',
-            'injectee_le' => today()->subYear(),
-            'echeance_le' => today()->addDays(10),
+            'injectee_le' => aujourdhui()->subYear(),
+            'echeance_le' => aujourdhui()->addDays(10),
         ]);
 
         $rendezVous = $this->rendezVousEnCours(['type' => TypeRendezVous::Vaccin]);
 
         $this->postJson("/api/v1/rendez-vous/{$rendezVous->id}/fin-de-consultation", [
             'prestations' => [$this->prestation('vaccin')->id],
-            'vaccination' => ['nom' => 'CHPPiL', 'echeance_le' => today()->addYear()->toDateString()],
+            'vaccination' => ['nom' => 'CHPPiL', 'echeance_le' => aujourdhui()->addYear()->toDateString()],
         ], $this->enTetes($this->jeton))->assertOk();
 
         // Historique complet (16.10.2026) : deux lignes, la dernière du jour
         $vaccinations = $this->patient->vaccinations()->orderByDesc('injectee_le')->get();
         $this->assertCount(2, $vaccinations);
-        $this->assertSame(today()->toDateString(), $vaccinations->first()->injectee_le->toDateString());
-        $this->assertSame(today()->addYear()->toDateString(), $vaccinations->first()->echeance_le->toDateString());
+        $this->assertSame(aujourdhui()->toDateString(), $vaccinations->first()->injectee_le->toDateString());
+        $this->assertSame(aujourdhui()->addYear()->toDateString(), $vaccinations->first()->echeance_le->toDateString());
     }
 
     public function test_sans_fiche_patient_vaccin_et_medicaments_sont_refuses(): void
@@ -209,7 +209,7 @@ class FinConsultationTest extends TestCase
 
         $this->postJson("/api/v1/rendez-vous/{$tampon->id}/fin-de-consultation", [
             'prestations' => [$this->prestation('consult')->id],
-        ], $this->enTetes($this->jeton))->assertUnprocessable();
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors(['rendez_vous' => 'Un tampon ne se facture jamais.']);
     }
 
     public function test_l_undo_repasse_par_les_fenetres_d_annulation_et_restaure_le_stock(): void
@@ -221,7 +221,7 @@ class FinConsultationTest extends TestCase
 
         $reponse = $this->postJson("/api/v1/rendez-vous/{$rendezVous->id}/fin-de-consultation", [
             'prestations' => [$this->prestation('consult')->id],
-            'vaccination' => ['nom' => 'CHPPiL', 'produit_id' => $vaccin->id, 'echeance_le' => today()->addYear()->toDateString()],
+            'vaccination' => ['nom' => 'CHPPiL', 'produit_id' => $vaccin->id, 'echeance_le' => aujourdhui()->addYear()->toDateString()],
             'medicaments' => [['produit_id' => $medicament->id]],
         ], $entetes);
 

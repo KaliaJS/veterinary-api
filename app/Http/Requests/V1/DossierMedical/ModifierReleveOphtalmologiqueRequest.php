@@ -12,7 +12,7 @@ class ModifierReleveOphtalmologiqueRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'releve_le' => ['sometimes', 'date', 'before_or_equal:today'],
+            'releve_le' => ['sometimes', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             'schirmer_od' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:60'],
             'schirmer_og' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:60'],
             'pio_od' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:120'],

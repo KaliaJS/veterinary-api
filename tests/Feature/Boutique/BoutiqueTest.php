@@ -126,7 +126,7 @@ class BoutiqueTest extends TestCase
         ]);
 
         // Une commande retirée ne se remet pas deux fois.
-        $this->postJson("/api/v1/boutique/commandes/{$commande->id}/retirer", [], $entetes)->assertUnprocessable();
+        $this->postJson("/api/v1/boutique/commandes/{$commande->id}/retirer", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Seule une commande prête se remet au client.']);
     }
 
     public function test_la_remise_refuse_la_rupture_de_stock_sans_sortie_partielle(): void

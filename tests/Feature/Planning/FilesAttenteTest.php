@@ -66,7 +66,7 @@ class FilesAttenteTest extends TestCase
             'clinique_id' => $this->clinique->id,
             'duree_minutes' => 45,
         ]);
-        $debut = today()->addDay()->setTime(10, 0);
+        $debut = aujourdhui()->addDay()->setTime(10, 0);
 
         $reponse = $this->postJson("/api/v1/urgences/{$urgence->id}/placer", [
             'ligne_planning_id' => $this->ligne->id,
@@ -203,7 +203,7 @@ class FilesAttenteTest extends TestCase
             'clinique_id' => $this->clinique->id,
             'duree_minutes' => 30,
         ]);
-        $debut = today()->addDay()->setTime(11, 0);
+        $debut = aujourdhui()->addDay()->setTime(11, 0);
 
         $reponse = $this->postJson("/api/v1/liste-attente/{$inscription->id}/placer", [
             'ligne_planning_id' => $this->ligne->id,

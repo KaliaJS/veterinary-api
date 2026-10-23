@@ -22,7 +22,7 @@ class ModifierPatientRequest extends FormRequest
             'espece' => ['sometimes', Rule::enum(Espece::class)],
             'race' => ['sometimes', 'nullable', 'string', 'max:255'],
             'sexe' => ['sometimes', Rule::enum(Sexe::class)],
-            'ne_le' => ['sometimes', 'nullable', 'date', 'before_or_equal:today'],
+            'ne_le' => ['sometimes', 'nullable', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             // Jour local suisse (l'application compte en UTC)
             'decede_le' => ['sometimes', 'nullable', 'date', 'before_or_equal:'.now('Europe/Zurich')->toDateString()],
             'est_sterilise' => ['sometimes', 'boolean'],

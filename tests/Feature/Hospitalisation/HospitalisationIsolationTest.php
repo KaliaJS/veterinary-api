@@ -64,7 +64,7 @@ class HospitalisationIsolationTest extends TestCase
     public function test_les_gestes_sur_un_sejour_d_une_clinique_soeur_sont_introuvables(): void
     {
         $ailleurs = Sejour::factory()->create(['clinique_id' => $this->cliniqueSoeur->id, 'patient_id' => $this->patient->id]);
-        $soin = $ailleurs->soins()->create(['jour' => today()->toDateString(), 'prevu_a' => 600, 'acte' => 'Contrôle']);
+        $soin = $ailleurs->soins()->create(['jour' => aujourdhui()->toDateString(), 'prevu_a' => 600, 'acte' => 'Contrôle']);
 
         $entetes = $this->enTetes($this->jeton);
 

@@ -34,7 +34,8 @@ class LignePlanningController extends Controller
     {
         $this->authorize('create', LignePlanning::class);
 
-        return new LignePlanningResource(LignePlanning::create($request->validated()));
+        // Relue en base : l'ordre par défaut (0) vient de la colonne
+        return new LignePlanningResource(LignePlanning::create($request->validated())->refresh());
     }
 
     public function show(LignePlanning $lignePlanning): LignePlanningResource

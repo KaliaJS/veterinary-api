@@ -129,7 +129,7 @@ class AchatsAppStoreTest extends TestCase
         $xcode = new AppStoreFactice(estDeConfiance: false);
         $jws = $xcode->transaction('ch.veterinary.client.planete.balle', $compte, ['environment' => 'Xcode']);
 
-        $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$jws]], $entetes)->assertUnprocessable();
+        $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$jws]], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['jws' => 'Achat App Store non reconnu.']);
 
         config(['services.apple.accepte_xcode' => true]);
         $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$jws]], $entetes)->assertOk();

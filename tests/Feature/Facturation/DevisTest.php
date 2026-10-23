@@ -89,7 +89,7 @@ class DevisTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.statut', 'envoye')
             ->assertJsonPath('data.canal', 'portail')
-            ->assertJsonPath('data.valide_jusquau', today()->addDays(30)->toDateString());
+            ->assertJsonPath('data.valide_jusquau', aujourdhui()->addDays(30)->toDateString());
     }
 
     public function test_l_envoi_passe_au_papier_sans_compte_espace_client(): void
@@ -107,7 +107,8 @@ class DevisTest extends TestCase
         $this->postJson("/api/v1/facturation/devis/{$envoye->id}/envoyer", [], $this->enTetes($this->jeton))->assertOk();
 
         $this->patchJson("/api/v1/facturation/devis/{$envoye->id}", ['motif' => 'Modifié'], $this->enTetes($this->jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['statut' => 'Seul un brouillon se modifie.']);
 
         $brouillon = $this->devis();
         DevisLigne::factory()->create(['devis_id' => $brouillon->id]);
@@ -141,7 +142,7 @@ class DevisTest extends TestCase
 
     public function test_un_devis_expire_est_derive_et_ne_s_accepte_plus(): void
     {
-        $expire = $this->devis(['statut' => 'envoye', 'canal' => 'papier', 'valide_jusquau' => today()->subDays(5)]);
+        $expire = $this->devis(['statut' => 'envoye', 'canal' => 'papier', 'valide_jusquau' => aujourdhui()->subDays(5)]);
         $entetes = $this->enTetes($this->jeton);
 
         $this->getJson("/api/v1/facturation/devis/{$expire->id}", $entetes)
@@ -150,7 +151,8 @@ class DevisTest extends TestCase
             ->assertJsonPath('data.statut_effectif', 'expire');
 
         $this->postJson("/api/v1/facturation/devis/{$expire->id}/accepter", [], $entetes)
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['statut' => 'Ce devis est expiré : dupliquez-le pour repartir d’un brouillon.']);
 
         // Le filtre `expire` du registre le retrouve.
         $this->getJson('/api/v1/facturation/devis?statut=expire', $entetes)
@@ -172,7 +174,7 @@ class DevisTest extends TestCase
             ->assertJsonPath('data.statut', 'brouillon')
             ->assertJsonPath('data.canal', null)
             ->assertJsonPath('data.signe_le', null)
-            ->assertJsonPath('data.emis_le', today()->toDateString())
+            ->assertJsonPath('data.emis_le', aujourdhui()->toDateString())
             ->assertJsonPath('data.lignes.0.libelle', 'Chirurgie : forfait bloc');
 
         $this->assertNotSame($accepte->numero, $reponse->json('data.numero'));
@@ -181,11 +183,11 @@ class DevisTest extends TestCase
     public function test_seul_un_brouillon_se_supprime(): void
     {
         $brouillon = $this->devis();
-        $envoye = $this->devis(['statut' => 'envoye', 'canal' => 'papier', 'valide_jusquau' => today()->addDays(30)]);
+        $envoye = $this->devis(['statut' => 'envoye', 'canal' => 'papier', 'valide_jusquau' => aujourdhui()->addDays(30)]);
         $entetes = $this->enTetes($this->jeton);
 
         $this->deleteJson("/api/v1/facturation/devis/{$brouillon->id}", [], $entetes)->assertNoContent();
-        $this->deleteJson("/api/v1/facturation/devis/{$envoye->id}", [], $entetes)->assertUnprocessable();
+        $this->deleteJson("/api/v1/facturation/devis/{$envoye->id}", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Seul un brouillon se supprime, un devis envoyé se refuse ou expire.']);
     }
 
     public function test_l_acompte_puis_la_finale_deduisent_remise_et_acompte(): void
@@ -215,13 +217,13 @@ class DevisTest extends TestCase
         $this->assertSame($finale->json('data.id'), $devis->facture_finale_id);
 
         // Chacune ne se facture qu'une fois.
-        $this->postJson("/api/v1/facturation/devis/{$devis->id}/facturer-acompte", [], $entetes)->assertUnprocessable();
-        $this->postJson("/api/v1/facturation/devis/{$devis->id}/facturer-finale", [], $entetes)->assertUnprocessable();
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/facturer-acompte", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors('acompte');
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/facturer-finale", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors('facture');
     }
 
     public function test_seul_un_devis_accepte_se_facture(): void
     {
-        $envoye = $this->devis(['statut' => 'envoye', 'canal' => 'papier', 'valide_jusquau' => today()->addDays(30), 'acompte_pct' => 30]);
+        $envoye = $this->devis(['statut' => 'envoye', 'canal' => 'papier', 'valide_jusquau' => aujourdhui()->addDays(30), 'acompte_pct' => 30]);
 
         $this->postJson("/api/v1/facturation/devis/{$envoye->id}/facturer-acompte", [], $this->enTetes($this->jeton))
             ->assertUnprocessable()

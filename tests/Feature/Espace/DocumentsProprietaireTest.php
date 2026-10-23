@@ -32,13 +32,13 @@ class DocumentsProprietaireTest extends TestCase
         $fiche = Client::factory()->create(['user_id' => $user->id]);
         $max = Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Max']);
 
-        $ordonnance = Ordonnance::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'renouvellements' => 2, 'signee_le' => today()->subDays(10)]);
+        $ordonnance = Ordonnance::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'renouvellements' => 2, 'signee_le' => aujourdhui()->subDays(10)]);
         $facture = Facture::factory()->create(['client_id' => $fiche->id, 'patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutFacture::Payee, 'emise_le' => now()->subDays(5)]);
         FactureLigne::factory()->create(['facture_id' => $facture->id, 'libelle' => 'Consultation', 'quantite' => 1, 'prix_chf' => 85]);
-        $devis = Devis::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail, 'signe_le' => null, 'motif' => 'Détartrage', 'emis_le' => today()->subDays(2)]);
+        $devis = Devis::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail, 'signe_le' => null, 'motif' => 'Détartrage', 'emis_le' => aujourdhui()->subDays(2)]);
         Devis::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Papier]);
-        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => today()->subDays(20)]);
-        Document::factory()->create(['patient_id' => $max->id, 'nom' => 'Radiographie thorax', 'type' => 'imagerie', 'etabli_le' => today()->subDays(40)]);
+        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => aujourdhui()->subDays(20)]);
+        Document::factory()->create(['patient_id' => $max->id, 'nom' => 'Radiographie thorax', 'type' => 'imagerie', 'etabli_le' => aujourdhui()->subDays(40)]);
         Ordonnance::factory()->create(); // un autre propriétaire
 
         $reponse = $this->getJson('/api/v1/espace/documents', $this->enTetes($jeton))->assertOk();
@@ -83,7 +83,7 @@ class DocumentsProprietaireTest extends TestCase
         $this->assertStringContainsString('espace client', $devis->signe_par);
 
         // Déjà signé : refusé. Un devis papier, ou d'un autre compte : introuvable.
-        $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", [], $this->enTetes($jeton))->assertUnprocessable();
+        $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", [], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Ce devis n’est plus en attente de signature.']);
         $papier = Devis::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Papier]);
         $this->postJson("/api/v1/espace/devis/{$papier->id}/signer", [], $this->enTetes($jeton))->assertNotFound();
         $autre = Devis::factory()->create(['statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail]);
@@ -115,7 +115,7 @@ class DocumentsProprietaireTest extends TestCase
         $this->assertDatabaseHas('demandes_renouvellement_ordonnance', ['ordonnance_id' => $ordonnance->id, 'user_id' => $user->id, 'traitee_le' => null]);
 
         // Une seule demande en attente ; la liste et l'accueil le reflètent.
-        $this->postJson("/api/v1/espace/ordonnances/{$ordonnance->id}/renouvellement", [], $this->enTetes($jeton))->assertUnprocessable();
+        $this->postJson("/api/v1/espace/ordonnances/{$ordonnance->id}/renouvellement", [], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Une demande de renouvellement est déjà en attente.']);
         $this->getJson('/api/v1/espace/documents', $this->enTetes($jeton))
             ->assertJsonPath('data.0.sous_ligne', 'RENOUVELLEMENT DEMANDÉ · EN ATTENTE')
             ->assertJsonPath('data.0.peut_renouveler', false);

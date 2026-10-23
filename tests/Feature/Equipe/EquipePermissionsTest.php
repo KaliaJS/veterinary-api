@@ -44,10 +44,10 @@ class EquipePermissionsTest extends TestCase
             ['patchJson', "/api/v1/equipe/employes/{$this->collegue->id}", []],
             ['postJson', "/api/v1/equipe/employes/{$this->collegue->id}/suspendre", []],
             ['postJson', "/api/v1/equipe/employes/{$this->collegue->id}/retablir", []],
-            ['postJson', "/api/v1/equipe/employes/{$this->collegue->id}/licencier", ['fin_contrat_le' => today()->addMonth()->toDateString()]],
+            ['postJson', "/api/v1/equipe/employes/{$this->collegue->id}/licencier", ['fin_contrat_le' => aujourdhui()->addMonth()->toDateString()]],
             ['postJson', "/api/v1/equipe/employes/{$this->collegue->id}/annuler-licenciement", []],
             ['getJson', '/api/v1/equipe/gardes', []],
-            ['putJson', '/api/v1/equipe/gardes', ['samedi_le' => today()->toDateString(), 'employe_id' => $this->collegue->id]],
+            ['putJson', '/api/v1/equipe/gardes', ['samedi_le' => aujourdhui()->toDateString(), 'employe_id' => $this->collegue->id]],
         ];
 
         foreach ($appels as [$methode, $uri, $charge]) {

@@ -104,7 +104,7 @@ class CompteRenduTest extends TestCase
 
         // Ni réécrit ni signé deux fois
         $this->putJson($uri, ['a' => 'Pneumonie.'], $entetes)->assertUnprocessable()->assertJsonValidationErrors('compte_rendu');
-        $this->postJson($uri.'/signer', ['a' => 'Pneumonie.'], $entetes)->assertUnprocessable();
+        $this->postJson($uri.'/signer', ['a' => 'Pneumonie.'], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['compte_rendu' => 'Ce compte rendu est signé : ajoutez un complément.']);
         $this->assertSame('Bronchite.', CompteRendu::query()->sole()->a);
 
         // Ce qui vient après : un complément daté et signé

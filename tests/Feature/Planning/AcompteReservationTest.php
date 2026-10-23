@@ -5,12 +5,14 @@ namespace Tests\Feature\Planning;
 use App\Mail\AnnulationRendezVousDecidee;
 use App\Mail\DemandeRendezVousAcceptee;
 use App\Mail\DemandeRendezVousEnvoyee;
+use App\Mail\DemandeRendezVousRefusee;
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
 use App\Models\Facture;
 use App\Models\HoraireOuverture;
 use App\Models\LignePlanning;
 use App\Models\RendezVous;
+use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -203,7 +205,8 @@ class AcompteReservationTest extends TestCase
         $this->assertContains('annulation', $this->drapeaux($demande->rendez_vous_id));
         // Une seule demande
         $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['annulation' => 'Votre demande d’annulation est déjà chez la clinique.']);
 
         // Dans la cloche de la clinique, avec les frais connus
         $this->getJson('/api/v1/demandes', $this->enTetes($jetonClinique))
@@ -239,7 +242,7 @@ class AcompteReservationTest extends TestCase
         }
 
         // Déjà tranchée
-        $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => 'complet'], $this->enTetes($jetonClinique))->assertUnprocessable();
+        $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => 'complet'], $this->enTetes($jetonClinique))->assertUnprocessable()->assertJsonValidationErrors(['decision' => 'Aucune demande d’annulation en attente.']);
     }
 
     /** @return list<string> */
@@ -259,7 +262,9 @@ class AcompteReservationTest extends TestCase
         $this->stripe->conclure($demande->acompte_intention_id, 'succeeded');
         $this->postJson("/api/v1/public/demandes/{$jeton}/paiement")->assertOk()->assertJsonPath('data.statut', 'acceptee');
         $this->postJson("/api/v1/rendez-vous/{$demande->refresh()->rendez_vous_id}/annuler", [], $this->enTetes($jetonClinique))->assertOk();
-        $this->assertContains($demande->acompte_intention_id, $this->stripe->remboursements);
+        // Annuler une seconde fois ne rend rien de plus : l'acompte est rendu une seule fois
+        $this->postJson("/api/v1/rendez-vous/{$demande->rendez_vous_id}/annuler", [], $this->enTetes($jetonClinique))->assertUnprocessable();
+        $this->assertCount(1, array_keys($this->stripe->remboursements, $demande->acompte_intention_id, true));
 
         // Elle peut aussi garder l'acompte (le client a appelé pour annuler)
         $garde = $this->deposer(['debut_souhaite' => $this->mardi->addHours(2)->toIso8601String()]);
@@ -284,7 +289,56 @@ class AcompteReservationTest extends TestCase
             ->assertJsonPath('data.statut', 'a_traiter');
 
         $this->postJson("/api/v1/demandes/{$enAttente->id}/refuser", ['motif' => 'agenda'], $this->enTetes($jetonClinique))->assertOk();
-        $this->assertContains($enAttente->acompte_intention_id, $this->stripe->remboursements);
+        $this->assertCount(1, array_keys($this->stripe->remboursements, $enAttente->acompte_intention_id, true));
+    }
+
+    public function test_un_acompte_que_stripe_refuse_de_rendre_ne_perd_rien_on_reessaie(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
+        $entetes = $this->enTetes($jetonClinique);
+
+        // Annulation par la clinique : le rendu échoue, rien n'est annulé
+        $jeton = $this->deposer()->json('data.jeton');
+        $demande = DemandeRendezVous::withoutGlobalScopes()->sole();
+        $this->stripe->conclure($demande->acompte_intention_id, 'succeeded');
+        $this->postJson("/api/v1/public/demandes/{$jeton}/paiement")->assertOk();
+        $rendezVousId = $demande->refresh()->rendez_vous_id;
+
+        $this->stripe->erreurs['rembourser'] = new ErreurPaiement(ErreurPaiement::GENERIQUE, 'balance_insufficient');
+        $this->postJson("/api/v1/rendez-vous/{$rendezVousId}/annuler", [], $entetes)
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.paiement.0', ErreurPaiement::GENERIQUE);
+        $this->assertNotSame('annule', RendezVous::withoutGlobalScopes()->findOrFail($rendezVousId)->status->value);
+        $this->assertNull($demande->refresh()->acompte_rembourse_le);
+
+        // Stripe répond de nouveau : annulé et rendu, une seule fois
+        unset($this->stripe->erreurs['rembourser']);
+        $this->postJson("/api/v1/rendez-vous/{$rendezVousId}/annuler", [], $entetes)->assertOk();
+        $this->assertSame('annule', RendezVous::withoutGlobalScopes()->findOrFail($rendezVousId)->status->value);
+        $this->assertCount(1, array_keys($this->stripe->remboursements, $demande->acompte_intention_id, true));
+
+        // Refus d'une demande payée (heure prise pendant le paiement) : même chose
+        $autre = $this->deposer(['debut_souhaite' => $this->mardi->addHours(4)->toIso8601String()]);
+        $enAttente = DemandeRendezVous::withoutGlobalScopes()->latest('id')->first();
+        RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id,
+            'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => $this->mardi->addHours(4)->utc(),
+            'ends_at' => $this->mardi->addHours(5)->utc(),
+        ]);
+        $this->stripe->conclure($enAttente->acompte_intention_id, 'succeeded');
+        $this->postJson('/api/v1/public/demandes/'.$autre->json('data.jeton').'/paiement')->assertOk()->assertJsonPath('data.statut', 'a_traiter');
+
+        $this->stripe->erreurs['rembourser'] = new ErreurPaiement(ErreurPaiement::GENERIQUE, 'balance_insufficient');
+        $this->postJson("/api/v1/demandes/{$enAttente->id}/refuser", ['motif' => 'agenda'], $entetes)->assertUnprocessable();
+        $this->assertSame('a_traiter', $enAttente->refresh()->statut->value);
+        Mail::assertNotSent(DemandeRendezVousRefusee::class);
+
+        unset($this->stripe->erreurs['rembourser']);
+        $this->postJson("/api/v1/demandes/{$enAttente->id}/refuser", ['motif' => 'agenda'], $entetes)->assertOk();
+        $this->assertSame('refusee', $enAttente->refresh()->statut->value);
+        $this->assertCount(1, array_keys($this->stripe->remboursements, $enAttente->acompte_intention_id, true));
     }
 
     private function reserverAvecAcompte(string $jetonProprietaire, CarbonImmutable $debut): DemandeRendezVous

@@ -47,7 +47,7 @@ class EquipeDroitsTest extends TestCase
         ['jeton' => $jetonAsv] = $this->employeAvecJeton($this->clinique, [], 'asv');
 
         $this->postJson("/api/v1/equipe/employes/{$administrateur->id}/suspendre", [], $this->enTetes($jetonAsv))->assertForbidden();
-        $this->postJson("/api/v1/equipe/employes/{$administrateur->id}/licencier", ['fin_contrat_le' => today()->addMonth()->toDateString()], $this->enTetes($jetonAsv))
+        $this->postJson("/api/v1/equipe/employes/{$administrateur->id}/licencier", ['fin_contrat_le' => aujourdhui()->addMonth()->toDateString()], $this->enTetes($jetonAsv))
             ->assertForbidden();
         $this->assertFalse($administrateur->refresh()->acces_suspendu);
     }

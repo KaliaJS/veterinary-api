@@ -241,7 +241,8 @@ class PaiementStripeTest extends TestCase
         $this->assertSame(StatutFacture::Payee, $facture->refresh()->statut);
 
         // Un second paiement qui aboutirait quand même sur la facture payée lui est rendu
-        $intention = $this->stripe->creerIntentionTwint(4000, ['facture_id' => (string) $facture->id], 'https://retour', 'cle-tardive')['id'];
+        // Sur le compte de la société, comme chez Stripe (ailleurs, l'intention n'existe pas)
+        $intention = $this->stripe->pourCompte($this->clinique->societe->stripe_compte_id)->creerIntentionTwint(4000, ['facture_id' => (string) $facture->id], 'https://retour', 'cle-tardive')['id'];
         $tardif = Paiement::query()->create([
             'facture_id' => $facture->id, 'clinique_id' => $this->clinique->id, 'moyen' => 'twint', 'montant' => 40,
             'stripe_payment_intent_id' => $intention, 'statut' => 'en_attente',

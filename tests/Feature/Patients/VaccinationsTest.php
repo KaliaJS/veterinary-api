@@ -61,15 +61,15 @@ class VaccinationsTest extends TestCase
         ], $this->enTetes($this->jeton))->assertCreated();
         $premiere->assertJsonPath('data.marque', 'Nobivac DHPPi')
             ->assertJsonPath('data.voie', 'sous-cutanée')
-            ->assertJsonPath('data.echeance_le', today()->addWeeks(4)->toDateString())
+            ->assertJsonPath('data.echeance_le', aujourdhui()->addWeeks(4)->toDateString())
             ->assertJsonCount(2, 'data.valences');
 
         // Deuxième dose de la primo : le rappel annuel s applique
         $this->postJson("/api/v1/patients/{$patient->id}/vaccinations", [
-            'produit_id' => $this->dhppi->id, 'injectee_le' => today()->toDateString(),
+            'produit_id' => $this->dhppi->id, 'injectee_le' => aujourdhui()->toDateString(),
         ], $this->enTetes($this->jeton))
             ->assertCreated()
-            ->assertJsonPath('data.echeance_le', today()->addMonths(12)->toDateString());
+            ->assertJsonPath('data.echeance_le', aujourdhui()->addMonths(12)->toDateString());
 
         $this->assertSame(2, $patient->vaccinations()->count(), 'chaque injection est une ligne');
     }
@@ -120,10 +120,10 @@ class VaccinationsTest extends TestCase
     {
         $patient = $this->patient();
         $id = $this->postJson("/api/v1/patients/{$patient->id}/vaccinations", [
-            'nom' => 'Leishmaniose', 'marque' => 'CaniLeish', 'echeance_le' => today()->addYear()->toDateString(),
+            'nom' => 'Leishmaniose', 'marque' => 'CaniLeish', 'echeance_le' => aujourdhui()->addYear()->toDateString(),
         ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
 
-        $this->putJson("/api/v1/patients/{$patient->id}/vaccinations/{$id}", ['nom' => 'Leishmaniose', 'lot' => 'L9', 'echeance_le' => today()->addYear()->toDateString()], $this->enTetes($this->jeton))
+        $this->putJson("/api/v1/patients/{$patient->id}/vaccinations/{$id}", ['nom' => 'Leishmaniose', 'lot' => 'L9', 'echeance_le' => aujourdhui()->addYear()->toDateString()], $this->enTetes($this->jeton))
             ->assertOk()->assertJsonPath('data.lot', 'L9');
         $this->deleteJson("/api/v1/patients/{$patient->id}/vaccinations/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
         $this->assertSame(0, $patient->vaccinations()->count());

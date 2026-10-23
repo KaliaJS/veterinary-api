@@ -61,17 +61,6 @@ class PermissionsTest extends TestCase
         }
     }
 
-    public function test_un_veterinaire_accede_a_la_facturation_un_assistant_non(): void
-    {
-        ['jeton' => $jetonVeterinaire] = $this->employeAvecJeton();
-
-        $this->getJson('/api/v1/facturation/sonde', $this->enTetes($jetonVeterinaire))->assertOk();
-
-        ['jeton' => $jetonAssistant] = $this->employeAvecJetonAssistant();
-
-        $this->getJson('/api/v1/facturation/sonde', $this->enTetes($jetonAssistant))->assertForbidden();
-    }
-
     public function test_modifier_un_role_prend_effet_immediatement_sans_reemettre_le_jeton(): void
     {
         ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton();

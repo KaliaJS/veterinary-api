@@ -99,7 +99,7 @@ class InvitationEquipeTest extends TestCase
             ->assertOk()
             ->json('data.token');
         $this->getJson('/api/v1/equipe/invitations', $this->enTetes($this->jeton))->assertJsonCount(0, 'data');
-        $this->postJson("/api/v1/invitations/{$lien}/accepter", [], $this->enTetes($jetonClinique))->assertUnprocessable();
+        $this->postJson("/api/v1/invitations/{$lien}/accepter", [], $this->enTetes($jetonClinique))->assertUnprocessable()->assertJsonValidationErrors(['invitation' => 'Cette invitation n’est plus valable. Demandez-en une nouvelle à la clinique.']);
     }
 
     public function test_seule_l_adresse_invitee_peut_accepter(): void

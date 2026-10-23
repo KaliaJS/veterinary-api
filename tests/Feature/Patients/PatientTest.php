@@ -64,8 +64,8 @@ class PatientTest extends TestCase
         $chat = Patient::factory()->for($this->client)->create(['espece' => 'CT', 'nom' => 'Mimi', 'est_agressif' => false, 'a_allergies' => false, 'dette' => 0]);
         $lapin = Patient::factory()->for($this->client)->create(['espece' => 'LP', 'nom' => 'Pixel', 'est_agressif' => false, 'a_allergies' => true, 'dette' => 0]);
 
-        Vaccination::factory()->for($chat)->create(['echeance_le' => today()->addDays(10)]);
-        Vaccination::factory()->for($chien)->create(['echeance_le' => today()->addDays(300)]);
+        Vaccination::factory()->for($chat)->create(['echeance_le' => aujourdhui()->addDays(10)]);
+        Vaccination::factory()->for($chien)->create(['echeance_le' => aujourdhui()->addDays(300)]);
 
         $attendus = [
             'chien' => [$chien->id],
@@ -90,11 +90,11 @@ class PatientTest extends TestCase
         $rex = Patient::factory()->for($this->client)->create(['nom' => 'Rex', 'est_agressif' => true, 'a_allergies' => false, 'dette' => 0]);
         $mimi = Patient::factory()->for($autreClient)->create(['nom' => 'Mimi', 'est_agressif' => false, 'a_allergies' => false, 'dette' => 0]);
         $pixel = Patient::factory()->for($this->client)->create(['nom' => 'Pixel', 'est_agressif' => false, 'a_allergies' => false, 'dette' => 0]);
-        $rex->pesees()->create(['poids_kg' => 24.5, 'pesee_le' => today()->subDays(3)]);
-        $rex->pesees()->create(['poids_kg' => 26, 'pesee_le' => today()]);
-        $mimi->pesees()->create(['poids_kg' => 4.2, 'pesee_le' => today()]);
-        Visite::factory()->for($mimi)->create(['visite_le' => today()->subDays(2)]);
-        Visite::factory()->for($pixel)->create(['visite_le' => today()->subDays(40)]);
+        $rex->pesees()->create(['poids_kg' => 24.5, 'pesee_le' => aujourdhui()->subDays(3)]);
+        $rex->pesees()->create(['poids_kg' => 26, 'pesee_le' => aujourdhui()]);
+        $mimi->pesees()->create(['poids_kg' => 4.2, 'pesee_le' => aujourdhui()]);
+        Visite::factory()->for($mimi)->create(['visite_le' => aujourdhui()->subDays(2)]);
+        Visite::factory()->for($pixel)->create(['visite_le' => aujourdhui()->subDays(40)]);
 
         $attendus = [
             'tri=nom' => [$mimi->id, $pixel->id, $rex->id],
@@ -128,7 +128,8 @@ class PatientTest extends TestCase
 
         $this->get($url)->assertOk()->assertHeader('Cache-Control', 'immutable, max-age=31536000, public');
         $this->post("/api/v1/patients/{$rex->id}/photo", ['photo' => UploadedFile::fake()->create('rex.svg', 10, 'image/svg+xml')], $this->enTetes($this->jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['photo' => 'La photo doit être une image PNG, JPG ou WebP.']);
 
         $this->deleteJson("/api/v1/patients/{$rex->id}/photo", [], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.photo_url', null);
         $this->assertNull($rex->fresh()->photo_chemin);
@@ -143,9 +144,9 @@ class PatientTest extends TestCase
         // chronologique ; le dernier poids est celui de la date la plus
         // récente, pas de l'id le plus grand.
         foreach (range(1, 14) as $i) {
-            Pesee::factory()->for($patient)->create(['poids_kg' => 10 + $i, 'pesee_le' => today()->subDays(30 - $i)]);
+            Pesee::factory()->for($patient)->create(['poids_kg' => 10 + $i, 'pesee_le' => aujourdhui()->subDays(30 - $i)]);
         }
-        Pesee::factory()->for($patient)->create(['poids_kg' => 5, 'pesee_le' => today()->subDays(100)]);
+        Pesee::factory()->for($patient)->create(['poids_kg' => 5, 'pesee_le' => aujourdhui()->subDays(100)]);
 
         $reponse = $this->getJson('/api/v1/patients', $this->enTetes($this->jeton))->assertOk();
 
@@ -173,9 +174,9 @@ class PatientTest extends TestCase
         $chat = Patient::factory()->for($this->client)->create([...$neutre, 'espece' => 'CT', 'nom' => 'Mimi']);
         Patient::factory()->for($this->client)->create([...$neutre, 'espece' => 'LP', 'nom' => 'Pixel', 'a_allergies' => true]);
 
-        Vaccination::factory()->for($chat)->create(['echeance_le' => today()->addDays(10)]);
-        Vaccination::factory()->for($chat)->create(['echeance_le' => today()->addDays(20)]);
-        Vaccination::factory()->for($chien)->create(['echeance_le' => today()->addDays(300)]);
+        Vaccination::factory()->for($chat)->create(['echeance_le' => aujourdhui()->addDays(10)]);
+        Vaccination::factory()->for($chat)->create(['echeance_le' => aujourdhui()->addDays(20)]);
+        Vaccination::factory()->for($chien)->create(['echeance_le' => aujourdhui()->addDays(300)]);
 
         // Les facettes ignorent le filtre actif : chaque onglet affiche son compteur.
         $this->getJson('/api/v1/patients?filtre=chat', $this->enTetes($this->jeton))
@@ -233,8 +234,8 @@ class PatientTest extends TestCase
         $urgent = Patient::factory()->for($this->client)->create(['nom' => 'Zoé']);
         $tranquille = Patient::factory()->for($this->client)->create(['nom' => 'Bianca']);
 
-        Vaccination::factory()->for($urgent)->create(['echeance_le' => today()->addDays(5)]);
-        Vaccination::factory()->for($tranquille)->create(['echeance_le' => today()->addDays(200)]);
+        Vaccination::factory()->for($urgent)->create(['echeance_le' => aujourdhui()->addDays(5)]);
+        Vaccination::factory()->for($tranquille)->create(['echeance_le' => aujourdhui()->addDays(200)]);
 
         $reponse = $this->getJson('/api/v1/patients?tri=rappels', $this->enTetes($this->jeton))->assertOk();
 
@@ -298,8 +299,8 @@ class PatientTest extends TestCase
     public function test_le_dossier_complet_sort_au_show(): void
     {
         $patient = Patient::factory()->for($this->client)->create();
-        Pesee::factory()->for($patient)->create(['pesee_le' => today()->subMonths(3), 'poids_kg' => 11.2]);
-        Pesee::factory()->for($patient)->create(['pesee_le' => today(), 'poids_kg' => 11.8]);
+        Pesee::factory()->for($patient)->create(['pesee_le' => aujourdhui()->subMonths(3), 'poids_kg' => 11.2]);
+        Pesee::factory()->for($patient)->create(['pesee_le' => aujourdhui(), 'poids_kg' => 11.8]);
         Vaccination::factory()->for($patient)->create();
         Visite::factory()->for($patient)->create();
 

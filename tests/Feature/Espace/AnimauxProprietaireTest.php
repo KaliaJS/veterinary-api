@@ -32,8 +32,8 @@ class AnimauxProprietaireTest extends TestCase
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
         $ficheA = Client::factory()->create(['user_id' => $user->id]);
         $ficheB = Client::factory()->create(['user_id' => $user->id]);
-        Patient::factory()->create(['client_id' => $ficheA->id, 'nom' => 'Max', 'ne_le' => today()->subYears(5)->subMonthsNoOverflow(2)]);
-        Patient::factory()->create(['client_id' => $ficheB->id, 'nom' => 'Paco', 'ne_le' => today()->subMonthsNoOverflow(8)]);
+        Patient::factory()->create(['client_id' => $ficheA->id, 'nom' => 'Max', 'ne_le' => aujourdhui()->subYears(5)->subMonthsNoOverflow(2)]);
+        Patient::factory()->create(['client_id' => $ficheB->id, 'nom' => 'Paco', 'ne_le' => aujourdhui()->subMonthsNoOverflow(8)]);
         Patient::factory()->create(['nom' => 'Intrus']);
 
         $this->getJson('/api/v1/espace/animaux', $this->enTetes($jeton))
@@ -52,14 +52,14 @@ class AnimauxProprietaireTest extends TestCase
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
         $fiche = Client::factory()->create(['user_id' => $user->id]);
         $max = Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Max']);
-        $max->pesees()->create(['poids_kg' => 24.5, 'pesee_le' => today()]);
+        $max->pesees()->create(['poids_kg' => 24.5, 'pesee_le' => aujourdhui()]);
 
         // Rage : deux injections, seule la dernière compte (en retard de 8 jours).
-        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => today()->subYears(3), 'echeance_le' => today()->subYears(2)]);
-        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => today()->subYear(), 'echeance_le' => today()->subDays(8)]);
-        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'CHPPi', 'injectee_le' => today()->subDays(30), 'echeance_le' => today()->addDays(334)]);
+        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => aujourdhui()->subYears(3), 'echeance_le' => aujourdhui()->subYears(2)]);
+        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'Rage', 'injectee_le' => aujourdhui()->subYear(), 'echeance_le' => aujourdhui()->subDays(8)]);
+        Vaccination::factory()->create(['patient_id' => $max->id, 'nom' => 'CHPPi', 'injectee_le' => aujourdhui()->subDays(30), 'echeance_le' => aujourdhui()->addDays(334)]);
         $veterinaire = Employe::factory()->create();
-        Visite::factory()->create(['patient_id' => $max->id, 'visite_le' => today()->subDays(30), 'motif' => 'Vaccins annuels + contrôle', 'employe_id' => $veterinaire->id]);
+        Visite::factory()->create(['patient_id' => $max->id, 'visite_le' => aujourdhui()->subDays(30), 'motif' => 'Vaccins annuels + contrôle', 'employe_id' => $veterinaire->id]);
 
         $this->getJson("/api/v1/espace/animaux/{$max->id}", $this->enTetes($jeton))
             ->assertOk()
@@ -95,7 +95,7 @@ class AnimauxProprietaireTest extends TestCase
             'espece' => 'CH',
             'race' => 'Beagle',
             'sexe' => 'Femelle',
-            'ne_le' => today()->subYears(3)->toDateString(),
+            'ne_le' => aujourdhui()->subYears(3)->toDateString(),
             'poids_kg' => 12.4,
             'puce' => '756 098 100 234 567',
         ], $this->enTetes($jeton))
@@ -207,7 +207,7 @@ class AnimauxProprietaireTest extends TestCase
             ->assertJsonPath('data.gere_par_moi', true)->assertJsonPath('data.acces_clinique', 'modification');
         $this->putJson("/api/v1/espace/animaux/{$rex->id}/acces", ['acces_clinique' => 'lecture'], $this->enTetes($jeton))
             ->assertOk()->assertJsonPath('data.acces_clinique', 'lecture');
-        $this->putJson("/api/v1/espace/animaux/{$rex->id}/acces", ['acces_clinique' => 'tout'], $this->enTetes($jeton))->assertUnprocessable();
+        $this->putJson("/api/v1/espace/animaux/{$rex->id}/acces", ['acces_clinique' => 'tout'], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors('acces_clinique');
 
         // La clinique consulte, enregistre ses actes, mais ne touche plus à l identité.
         $this->getJson("/api/v1/patients/{$rex->id}", $this->enTetes($jetonClinique))
@@ -244,7 +244,7 @@ class AnimauxProprietaireTest extends TestCase
         ['jeton' => $jetonClinique] = $this->employeAvecJeton($clinique);
         $this->postJson("/api/v1/patients/rattachements/{$demandeId}/refuser", [], $this->enTetes($jetonClinique))
             ->assertOk()->assertJsonPath('data.statut', 'refusee');
-        $this->postJson("/api/v1/patients/rattachements/{$demandeId}/accepter", [], $this->enTetes($jetonClinique))->assertUnprocessable();
+        $this->postJson("/api/v1/patients/rattachements/{$demandeId}/accepter", [], $this->enTetes($jetonClinique))->assertUnprocessable()->assertJsonValidationErrors(['demande' => 'Cette demande a déjà été traitée.']);
 
         $this->getJson('/api/v1/espace/animaux/rattachements', $this->enTetes($jeton))
             ->assertOk()->assertJsonPath('data.0.statut', 'refusee');

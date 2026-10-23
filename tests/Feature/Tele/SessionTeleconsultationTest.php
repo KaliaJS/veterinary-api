@@ -199,7 +199,8 @@ class SessionTeleconsultationTest extends TestCase
         ]);
 
         $this->postJson("/api/v1/tele/sessions/{$session->id}/terminer", ['cloturer' => true], $this->jeton())
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['terminee_le' => 'Cette session est déjà terminée.']);
     }
 
     public function test_aucune_route_de_suppression_de_session(): void

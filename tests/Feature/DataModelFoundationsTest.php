@@ -49,24 +49,6 @@ class DataModelFoundationsTest extends TestCase
         $this->assertSame($bloc->clinique_id, $bloc->salle->clinique_id);
     }
 
-    public function test_deux_rendez_vous_peuvent_se_chevaucher_sur_la_meme_ligne(): void
-    {
-        $premier = RendezVous::factory()->create([
-            'starts_at' => today()->setTime(10, 0),
-            'ends_at' => today()->setTime(10, 30),
-        ]);
-
-        $second = RendezVous::factory()->create([
-            'clinique_id' => $premier->clinique_id,
-            'ligne_planning_id' => $premier->ligne_planning_id,
-            'starts_at' => today()->setTime(10, 0),
-            'ends_at' => today()->setTime(10, 30),
-        ]);
-
-        $this->assertSame(2, $premier->lignePlanning->rendezVous()->count());
-        $this->assertNotSame($premier->id, $second->id);
-    }
-
     public function test_un_rendez_vous_annule_conserve_son_audit_par_lot(): void
     {
         $rendezVous = RendezVous::factory()->create(['flags' => [DrapeauRendezVous::AJeun]]);

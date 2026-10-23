@@ -21,7 +21,7 @@ class ModifierGardeRequest extends FormRequest
             'samedi_le' => [
                 'required',
                 'date',
-                'after_or_equal:today',
+                'after_or_equal:'.aujourdhui()->toDateString(),
                 function (string $attribut, mixed $valeur, \Closure $echec): void {
                     if (! CarbonImmutable::parse($valeur)->isSaturday()) {
                         $echec('La garde de week-end se réattribue sur un samedi.');

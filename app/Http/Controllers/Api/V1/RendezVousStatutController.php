@@ -97,16 +97,18 @@ class RendezVousStatutController extends Controller
 
         $motif = trim((string) $request->validated('motif', ''));
 
+        // Réservé en ligne avec un acompte : la clinique choisit ce qu'elle
+        // rend (tout par défaut). Rendu d'abord : si le prestataire refuse,
+        // rien n'est annulé et l'on peut réessayer (le rendu n'est jamais fait deux fois)
+        app(AcomptesRendezVous::class)->surAnnulationDeLaClinique(
+            $rendezVous,
+            DecisionAnnulation::tryFrom((string) $request->validated('acompte')) ?? DecisionAnnulation::Complet,
+        );
         $this->mutation->appliquer(
             $rendezVous,
             ['status' => StatutRendezVous::Annule],
             $request->user(),
             entreesSupplementaires: $motif === '' ? [] : ['motifAnnulation' => [null, $motif]],
-        );
-        // Réservé en ligne avec un acompte : la clinique choisit ce qu'elle rend (tout par défaut)
-        app(AcomptesRendezVous::class)->surAnnulationDeLaClinique(
-            $rendezVous,
-            DecisionAnnulation::tryFrom((string) $request->validated('acompte')) ?? DecisionAnnulation::Complet,
         );
 
         return new RendezVousResource($rendezVous);

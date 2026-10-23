@@ -17,7 +17,7 @@ class ModifierAnimalRequest extends FormRequest
             'nom' => ['sometimes', 'string', 'max:255'],
             'race' => ['sometimes', 'nullable', 'string', 'max:255'],
             'sexe' => ['sometimes', Rule::enum(Sexe::class)],
-            'ne_le' => ['sometimes', 'nullable', 'date', 'before_or_equal:today'],
+            'ne_le' => ['sometimes', 'nullable', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             'est_sterilise' => ['sometimes', 'boolean'],
             'puce' => ['sometimes', 'nullable', 'string', 'max:32', new NumeroPuce],
         ];

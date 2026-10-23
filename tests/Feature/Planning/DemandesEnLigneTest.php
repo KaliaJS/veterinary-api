@@ -236,7 +236,8 @@ class DemandesEnLigneTest extends TestCase
 
         // Une heure qui n'a pas été proposée : refusée
         $this->postJson("/api/v1/espace/demandes/{$demande->id}/choisir", ['starts_at' => $this->mardi->toIso8601String()], $this->enTetes($jetonProprietaire))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['starts_at' => 'Cette heure ne fait pas partie des propositions.']);
 
         $this->postJson("/api/v1/espace/demandes/{$demande->id}/choisir", ['starts_at' => $propose->toIso8601String()], $this->enTetes($jetonProprietaire))
             ->assertOk()

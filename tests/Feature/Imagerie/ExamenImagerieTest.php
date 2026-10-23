@@ -205,11 +205,11 @@ class ExamenImagerieTest extends TestCase
 
         $this->postJson("/api/v1/imagerie/examens/{$examen->id}/compte-rendu", [
             'constatations' => 'Autre lecture.',
-        ], $this->jeton())->assertUnprocessable();
+        ], $this->jeton())->assertUnprocessable()->assertJsonValidationErrors(['signe_le' => 'Le compte rendu est déjà signé.']);
 
         $this->patchJson("/api/v1/imagerie/examens/{$examen->id}", [
             'libelle' => 'Autre libellé',
-        ], $this->jeton())->assertUnprocessable();
+        ], $this->jeton())->assertUnprocessable()->assertJsonValidationErrors(['signe_le' => 'Un examen au compte rendu signé ne se modifie plus.']);
 
         // Ni de nouveau cliché
         $this->postJson("/api/v1/imagerie/examens/{$examen->id}/cliches", [

@@ -21,8 +21,9 @@ use Illuminate\Support\Collection;
  * de la clinique périmés ou qui périment d'ici la fin du mois suivant.
  * Consommation (domaine organisation) : transcription et suggestions
  * diagnostiques à 80 % puis à 100 % de leur plafond. Paiement (domaine
- * facturation) : paiements contestés, et remboursés chez Stripe depuis
- * moins de 30 jours (la facture, elle, reste payée). Chaque alerte a une
+ * facturation) : paiements contestés, reçus en trop que Stripe a refusé
+ * de rendre, et remboursés chez Stripe depuis moins de 30 jours (la
+ * facture, elle, reste payée). Chaque alerte a une
  * clé qui change avec son contenu : une alerte vue redevient nouvelle
  * quand la situation change.
  *
@@ -65,6 +66,26 @@ class AlertesClinique
                 'urgent',
                 $this->compte($litiges->count(), 'paiement contesté', 'paiements contestés'),
                 $this->noms($litiges->map(fn (Paiement $p) => $this->paiement($p))).'. Répondez depuis Réglages, Paiements, avant l’échéance de la banque.',
+                'reglages:paiements',
+            );
+        }
+
+        // Reçu après coup (facture déjà payée, montant différent) et que
+        // Stripe a refusé de rendre : le client a payé deux fois
+        $aRendre = Paiement::withoutGlobalScopes()
+            ->with(['facture' => fn ($requete) => $requete->withoutGlobalScopes()])
+            ->where('clinique_id', $clinique->id)
+            ->where('statut', StatutPaiement::Reussi)
+            ->where('erreur', 'like', 'À rembourser%')
+            ->orderByDesc('updated_at')
+            ->get();
+        if ($aRendre->isNotEmpty()) {
+            $alertes[] = $this->alerte(
+                TypeAlerte::Paiement,
+                'a-rendre:'.$this->empreinte($aRendre->map(fn (Paiement $p) => (string) $p->id)),
+                'urgent',
+                $this->compte($aRendre->count(), 'paiement à rembourser', 'paiements à rembourser'),
+                $this->noms($aRendre->map(fn (Paiement $p) => $this->paiement($p))).'. Reçu en trop, et le remboursement automatique a échoué : remboursez-le depuis Réglages, Paiements.',
                 'reglages:paiements',
             );
         }

@@ -151,7 +151,8 @@ class InterventionTest extends TestCase
         }
 
         $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/avancer", [], $this->jeton())
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['checklist' => 'Checklist de sécurité incomplète.']);
 
         $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", $this->signature(), $this->jeton())->assertOk();
 
@@ -174,7 +175,8 @@ class InterventionTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('signature');
 
         $this->putJson("/api/v1/bloc/interventions/{$intervention->id}/checklist/consent", ['est_coche' => true], $this->jeton())
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['est_coche' => 'Le consentement ne se coche que par sa signature.']);
 
         $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", $this->signature(), $this->jeton())
             ->assertOk()
@@ -203,12 +205,13 @@ class InterventionTest extends TestCase
         // Pas par le dossier d'un autre patient, ni sans fichier
         $autre = Patient::factory()->for($this->patient->client)->create();
         $this->getJson("/api/v1/patients/{$autre->id}/documents/{$document->id}/fichier", $this->jeton())->assertNotFound();
-        $sansFichier = $this->patient->documents()->create(['nom' => 'Ancien courrier', 'etabli_le' => today()]);
+        $sansFichier = $this->patient->documents()->create(['nom' => 'Ancien courrier', 'etabli_le' => aujourdhui()]);
         $this->getJson("/api/v1/patients/{$this->patient->id}/documents/{$sansFichier->id}/fichier", $this->jeton())->assertNotFound();
 
         // Une seule signature.
         $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/consentement", $this->signature(), $this->jeton())
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['consentement' => 'Le consentement est déjà signé.']);
     }
 
     public function test_un_point_ajoute_bloque_l_incision_et_peut_se_retirer(): void
@@ -229,7 +232,8 @@ class InterventionTest extends TestCase
         $code = collect($reponse->json('data.checklist'))->firstWhere('est_ajoute', true)['code'];
 
         $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/avancer", [], $this->jeton())
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['checklist' => 'Checklist de sécurité incomplète.']);
 
         $this->deleteJson("/api/v1/bloc/interventions/{$intervention->id}/checklist/{$code}", [], $this->jeton())
             ->assertOk()
@@ -243,7 +247,8 @@ class InterventionTest extends TestCase
         $intervention = $this->intervention();
 
         $this->deleteJson("/api/v1/bloc/interventions/{$intervention->id}/checklist/jeun", [], $this->jeton())
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['code' => 'Les six points de base ne se retirent pas.']);
     }
 
     public function test_la_reprogrammation_change_salle_et_denormalise_son_nom(): void
@@ -266,7 +271,7 @@ class InterventionTest extends TestCase
 
         $this->patchJson("/api/v1/bloc/interventions/{$intervention->id}", [
             'duree_minutes' => 90,
-        ], $this->jeton())->assertUnprocessable();
+        ], $this->jeton())->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Une intervention terminée n\'accepte plus que la note opératoire.']);
 
         $this->patchJson("/api/v1/bloc/interventions/{$intervention->id}", [
             'note_operatoire' => 'Exérèse complète, marges saines. Suites simples.',
@@ -275,7 +280,8 @@ class InterventionTest extends TestCase
             ->assertJsonPath('data.note_operatoire', 'Exérèse complète, marges saines. Suites simples.');
 
         $this->postJson("/api/v1/bloc/interventions/{$intervention->id}/avancer", [], $this->jeton())
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['statut' => 'Une intervention terminée ne change plus de statut.']);
     }
 
     public function test_la_programmation_avec_rdv_lie_aligne_la_projection_planning(): void

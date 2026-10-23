@@ -265,7 +265,7 @@ class EncaissementTest extends TestCase
         // Une facture payée ne s'encaisse pas deux fois.
         $this->postJson("/api/v1/facturation/factures/{$facture->id}/encaisser", [
             'moyen_paiement' => 'cash',
-        ], $this->enTetes($this->jeton))->assertUnprocessable();
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors(['facture' => 'Cette facture est déjà payée.']);
     }
 
     public function test_un_encaissement_parti_d_une_facture_perimee_ne_double_ni_le_paiement_ni_le_stock(): void
@@ -398,7 +398,8 @@ class EncaissementTest extends TestCase
             ->assertJsonPath('data.statut', 'paid');
 
         $this->postJson("/api/v1/facturation/factures/{$facture->id}/decompte/avancer", [], $entetes)
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['decompte' => 'Le remboursement est déjà encaissé.']);
 
         $decompte = $facture->fresh()->decompte;
         $this->assertNotNull($decompte->envoye_le);

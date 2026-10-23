@@ -89,8 +89,8 @@ class PlanningPermissionsTest extends TestCase
         $this->postJson('/api/v1/absences', [
             'employe_id' => $this->ligne->employe_id,
             'type' => 'conge',
-            'debut_le' => today()->toDateString(),
-            'fin_le' => today()->toDateString(),
+            'debut_le' => aujourdhui()->toDateString(),
+            'fin_le' => aujourdhui()->toDateString(),
         ], $entetes)->assertForbidden();
         $this->postJson("/api/v1/absences/{$this->absence->id}/valider", [], $entetes)->assertForbidden();
         $this->postJson("/api/v1/absences/{$this->absence->id}/refuser", [], $entetes)->assertForbidden();
@@ -131,7 +131,7 @@ class PlanningPermissionsTest extends TestCase
      */
     private function appelsDuDomaine(): array
     {
-        $demain = today()->addDay()->setTime(10, 0)->toISOString();
+        $demain = aujourdhui()->addDay()->setTime(10, 0)->toISOString();
         $rendezVous = $this->rendezVous->id;
         $absence = $this->absence->id;
 
@@ -143,7 +143,7 @@ class PlanningPermissionsTest extends TestCase
             ['getJson', '/api/v1/horaires', []],
             ['getJson', '/api/v1/planning/employes', []],
             ['putJson', '/api/v1/horaires', ['ouverture' => '08:00', 'fermeture' => '19:30', 'pause_active' => false]],
-            ['getJson', '/api/v1/planning/disponibilites?date='.today()->toDateString(), []],
+            ['getJson', '/api/v1/planning/disponibilites?date='.aujourdhui()->toDateString(), []],
             ['getJson', '/api/v1/rendez-vous', []],
             ['postJson', '/api/v1/rendez-vous', ['ligne_planning_id' => $this->ligne->id, 'starts_at' => $demain, 'duree_minutes' => 20]],
             ['postJson', '/api/v1/rendez-vous/prochain-creneau', []],
@@ -157,7 +157,7 @@ class PlanningPermissionsTest extends TestCase
             ['postJson', "/api/v1/rendez-vous/{$rendezVous}/deplacer", ['starts_at' => $demain]],
             ['postJson', "/api/v1/rendez-vous/{$rendezVous}/redimensionner", ['duree_minutes' => 30]],
             ['getJson', '/api/v1/absences', []],
-            ['postJson', '/api/v1/absences', ['employe_id' => $this->ligne->employe_id, 'type' => 'conge', 'debut_le' => today()->toDateString(), 'fin_le' => today()->toDateString()]],
+            ['postJson', '/api/v1/absences', ['employe_id' => $this->ligne->employe_id, 'type' => 'conge', 'debut_le' => aujourdhui()->toDateString(), 'fin_le' => aujourdhui()->toDateString()]],
             ['getJson', "/api/v1/absences/{$absence}", []],
             ['patchJson', "/api/v1/absences/{$absence}", []],
             ['deleteJson', "/api/v1/absences/{$absence}", []],

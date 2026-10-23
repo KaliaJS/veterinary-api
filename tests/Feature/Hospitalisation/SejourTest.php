@@ -175,7 +175,7 @@ class SejourTest extends TestCase
         $sejour = $this->sejour();
         $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
 
-        $soin = $sejour->soins()->create(['jour' => today()->toDateString(), 'prevu_a' => 600, 'acte' => 'Antibiotique', 'produit_id' => $produit->id]);
+        $soin = $sejour->soins()->create(['jour' => aujourdhui()->toDateString(), 'prevu_a' => 600, 'acte' => 'Antibiotique', 'produit_id' => $produit->id]);
 
         $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins/{$soin->id}/faire", [], $this->enTetes($this->jeton))
             ->assertOk()
@@ -188,10 +188,11 @@ class SejourTest extends TestCase
     public function test_un_soin_deja_fait_ne_se_refait_pas(): void
     {
         $sejour = $this->sejour();
-        $soin = $sejour->soins()->create(['jour' => today()->toDateString(), 'prevu_a' => 600, 'acte' => 'Contrôle', 'fait' => true, 'fait_le' => now()]);
+        $soin = $sejour->soins()->create(['jour' => aujourdhui()->toDateString(), 'prevu_a' => 600, 'acte' => 'Contrôle', 'fait' => true, 'fait_le' => now()]);
 
         $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins/{$soin->id}/faire", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['soin' => 'Ce soin est déjà enregistré.']);
     }
 
     public function test_les_constantes_s_enregistrent_au_chevet(): void
@@ -255,9 +256,9 @@ class SejourTest extends TestCase
             'perfusion' => 'Ringer lactate · 45 ml/h',
             'admis_le' => now()->subDay(),
         ]);
-        $sejour->soins()->create(['jour' => today()->toDateString(), 'prevu_a' => 480, 'acte' => 'Contrôle', 'fait' => true, 'fait_le' => now()]);
-        $sejour->soins()->create(['jour' => today()->toDateString(), 'prevu_a' => 600, 'acte' => 'Pansement', 'fait' => true, 'fait_le' => now()]);
-        $sejour->soins()->create(['jour' => today()->toDateString(), 'prevu_a' => 900, 'acte' => 'Repas', 'fait' => false]);
+        $sejour->soins()->create(['jour' => aujourdhui()->toDateString(), 'prevu_a' => 480, 'acte' => 'Contrôle', 'fait' => true, 'fait_le' => now()]);
+        $sejour->soins()->create(['jour' => aujourdhui()->toDateString(), 'prevu_a' => 600, 'acte' => 'Pansement', 'fait' => true, 'fait_le' => now()]);
+        $sejour->soins()->create(['jour' => aujourdhui()->toDateString(), 'prevu_a' => 900, 'acte' => 'Repas', 'fait' => false]);
 
         $reponse = $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/sortie", [], $this->enTetes($this->jeton))
             ->assertOk();
@@ -340,9 +341,9 @@ class SejourTest extends TestCase
 
         $entetes = $this->enTetes($this->jeton);
 
-        $this->patchJson("/api/v1/hospitalisation/sejours/{$sejour->id}", ['note' => 'x'], $entetes)->assertUnprocessable();
-        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/sortie", [], $entetes)->assertUnprocessable();
-        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins", ['prevu_a' => 600, 'acte' => 'x'], $entetes)->assertUnprocessable();
+        $this->patchJson("/api/v1/hospitalisation/sejours/{$sejour->id}", ['note' => 'x'], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['sejour' => 'Un séjour sorti ne se modifie plus.']);
+        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/sortie", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['sejour' => 'Ce séjour est déjà sorti.']);
+        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins", ['prevu_a' => 600, 'acte' => 'x'], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['sejour' => 'Un séjour sorti ne se modifie plus.']);
     }
 
     public function test_aucune_route_de_suppression_de_sejour(): void

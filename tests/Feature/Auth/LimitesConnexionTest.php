@@ -70,7 +70,7 @@ class LimitesConnexionTest extends TestCase
         $faux = $code === '11111111' ? '22222222' : '11111111';
 
         foreach (range(1, 3) as $essai) {
-            $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $faux])->assertUnprocessable();
+            $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $faux])->assertUnprocessable()->assertJsonValidationErrors(['code' => 'Code invalide ou expiré.']);
         }
 
         $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $code])->assertOk();

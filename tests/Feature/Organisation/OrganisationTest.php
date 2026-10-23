@@ -194,7 +194,8 @@ class OrganisationTest extends TestCase
         Employe::factory()->dans($avecEquipe)->create();
 
         $this->deleteJson("/api/v1/organisation/cliniques/{$avecEquipe->id}", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['clinique' => 'Cette clinique porte un historique, elle se désactive, elle ne se supprime pas.']);
 
         $vide = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
 
@@ -210,8 +211,8 @@ class OrganisationTest extends TestCase
         $employe = Employe::factory()->dans($autre)->create(['conges_droit' => 25, 'conges_pris' => 5]);
         Absence::factory()->create([
             'employe_id' => $employe->id,
-            'debut_le' => today()->addDays(10),
-            'fin_le' => today()->addDays(14),
+            'debut_le' => aujourdhui()->addDays(10),
+            'fin_le' => aujourdhui()->addDays(14),
         ]);
 
         $equipe = collect($this->getJson('/api/v1/organisation/cliniques', $this->enTetes($this->jeton))->assertOk()->json('data'))

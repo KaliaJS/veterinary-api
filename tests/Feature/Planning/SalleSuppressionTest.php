@@ -96,7 +96,8 @@ class SalleSuppressionTest extends TestCase
         $consultation = Salle::factory()->create(['clinique_id' => $this->clinique->id]);
 
         $this->deleteJson("/api/v1/salles/{$consultation->id}", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['salle' => 'Seules les salles de bloc se suppriment.']);
     }
 
     public function test_la_derniere_salle_de_bloc_ne_se_supprime_pas(): void
@@ -108,7 +109,8 @@ class SalleSuppressionTest extends TestCase
         ]);
 
         $this->deleteJson("/api/v1/salles/{$seule->id}", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['salle' => 'Il faut au moins une salle de bloc.']);
     }
 
     public function test_une_salle_portant_une_ligne_du_planning_est_refusee(): void
@@ -122,7 +124,8 @@ class SalleSuppressionTest extends TestCase
         ]);
 
         $this->deleteJson("/api/v1/salles/{$bloc1->id}", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['salle' => 'Cette salle porte une ligne du planning, retirez-la d\'abord.']);
     }
 
     public function test_une_salle_d_une_clinique_soeur_est_introuvable(): void

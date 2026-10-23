@@ -180,7 +180,7 @@ class PaiementsCaisse
         // Payée entre-temps (espèces, autre tentative) : le client a payé deux
         // fois, ce paiement-ci lui est rendu (23.10.2026)
         if (! $facture->estDue()) {
-            $this->rendre($paiement, 'Facture déjà payée par un autre moyen : ce paiement a été remboursé.');
+            $this->rendre($paiement, 'Facture déjà payée par un autre moyen', 'ce paiement a été remboursé.');
 
             return;
         }
@@ -188,7 +188,7 @@ class PaiementsCaisse
         // Le montant payé n'est pas le reste de la facture (elle a changé
         // pendant la tentative) : rendu, la facture reste à encaisser
         if (abs((float) $paiement->montant - $facture->loadMissing('lignes')->resteAPayer()) >= 0.005) {
-            $this->rendre($paiement, 'Montant différent de la facture : ce paiement a été remboursé, encaissez à nouveau.');
+            $this->rendre($paiement, 'Montant différent de la facture', 'ce paiement a été remboursé, encaissez à nouveau.');
 
             return;
         }
@@ -196,15 +196,19 @@ class PaiementsCaisse
         $this->dansLaClinique($paiement, fn () => $this->encaissement->encaisser($facture, $paiement->moyen, $paiement->user));
     }
 
-    /** Rembourse un paiement reçu à tort (la commission de la plateforme n'est jamais rendue). */
-    private function rendre(Paiement $paiement, string $raison): void
+    /**
+     * Rembourse un paiement reçu à tort (la commission de la plateforme
+     * n'est jamais rendue). Refusé par Stripe : le paiement reste « À
+     * rembourser » et la clinique en est alertée (AlertesClinique).
+     */
+    private function rendre(Paiement $paiement, string $cause, string $suite): void
     {
         try {
             $this->comptes->passerellePourCompte($paiement->stripe_compte_id, $paiement->clinique_id)->rembourser($paiement->stripe_payment_intent_id, 'rendu-'.$paiement->id);
-            $paiement->update(['statut' => StatutPaiement::Rembourse, 'erreur' => $raison]);
+            $paiement->update(['statut' => StatutPaiement::Rembourse, 'erreur' => $cause.' : '.$suite]);
         } catch (ErreurPaiement $e) {
             report($e);
-            $paiement->update(['erreur' => 'À rembourser : '.$raison]);
+            $paiement->update(['erreur' => 'À rembourser : '.mb_strtolower(mb_substr($cause, 0, 1)).mb_substr($cause, 1).', le remboursement automatique a échoué.']);
         }
     }
 

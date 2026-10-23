@@ -8,6 +8,7 @@ use App\Enums\TypeAlerte;
 use App\Mail\PaiementConteste;
 use App\Models\EvenementStripe;
 use App\Models\Paiement;
+use App\Paiements\RefusCarte;
 use App\Services\Abonnements\AbonnementSaas;
 use App\Services\Alertes\DestinatairesAlertes;
 use App\Services\Inscription\VerificationIdentite;
@@ -104,7 +105,7 @@ class WebhooksStripe
             $this->paiements->appliquer(
                 $paiement,
                 $statut,
-                $intention['last_payment_error']['message'] ?? ($statut === 'requires_payment_method' ? 'Paiement refusé.' : null),
+                isset($intention['last_payment_error']) || $statut === 'requires_payment_method' ? RefusCarte::message($intention['last_payment_error'] ?? null) : null,
             );
         }
     }
@@ -116,7 +117,8 @@ class WebhooksStripe
         $paiement = $this->paiementDuCompte($action['process_payment_intent']['payment_intent'] ?? null, $compte);
 
         if ($paiement) {
-            $this->paiements->echecSurLecteur($paiement, $action['failure_message'] ?? null);
+            // Le code d'échec seulement : le message de Stripe est en anglais
+            $this->paiements->echecSurLecteur($paiement, isset($action['failure_code']) ? RefusCarte::message(['failure_code' => $action['failure_code']]) : null);
         }
     }
 

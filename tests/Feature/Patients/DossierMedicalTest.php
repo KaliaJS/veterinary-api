@@ -51,7 +51,7 @@ class DossierMedicalTest extends TestCase
 
         $this->postJson($uri, ['poids_kg' => 12.4], $entetes)
             ->assertCreated()
-            ->assertJsonPath('data.pesee_le', today()->toDateString());
+            ->assertJsonPath('data.pesee_le', aujourdhui()->toDateString());
 
         $this->postJson($uri, ['poids_kg' => 12.6], $entetes)->assertOk();
 
@@ -65,14 +65,14 @@ class DossierMedicalTest extends TestCase
         $entetes = $this->enTetes($this->jeton);
         $uri = "/api/v1/patients/{$this->patient->id}/pesees";
 
-        $this->postJson($uri, ['poids_kg' => 0], $entetes)->assertUnprocessable();
-        $this->postJson($uri, ['poids_kg' => 180], $entetes)->assertUnprocessable();
+        $this->postJson($uri, ['poids_kg' => 0], $entetes)->assertUnprocessable()->assertJsonValidationErrors('poids_kg');
+        $this->postJson($uri, ['poids_kg' => 180], $entetes)->assertUnprocessable()->assertJsonValidationErrors('poids_kg');
     }
 
     public function test_une_pesee_erronee_se_corrige_et_se_supprime(): void
     {
         $entetes = $this->enTetes($this->jeton);
-        $pesee = $this->patient->pesees()->create(['poids_kg' => 9.9, 'pesee_le' => today()->subMonth()]);
+        $pesee = $this->patient->pesees()->create(['poids_kg' => 9.9, 'pesee_le' => aujourdhui()->subMonth()]);
 
         $this->patchJson("/api/v1/patients/{$this->patient->id}/pesees/{$pesee->id}", ['poids_kg' => 10.1], $entetes)
             ->assertOk()
@@ -90,22 +90,22 @@ class DossierMedicalTest extends TestCase
         Vaccination::factory()->for($this->patient)->create([
             'nom' => 'Rage',
             'marque' => 'Rabisin',
-            'injectee_le' => today()->subYears(3),
-            'echeance_le' => today()->subDays(10),
+            'injectee_le' => aujourdhui()->subYears(3),
+            'echeance_le' => aujourdhui()->subDays(10),
         ]);
 
         $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations", [
             'nom' => 'Rage',
             'marque' => 'Rabisin',
             'lot' => 'L204-B37',
-            'echeance_le' => today()->addYears(3)->toDateString(),
+            'echeance_le' => aujourdhui()->addYears(3)->toDateString(),
         ], $entetes)->assertCreated();
 
         // Historique complet (16.10.2026) : la nouvelle injection s ajoute,
         // l ancienne reste ; l état par valence ne retient que la dernière.
         $vaccinations = $this->patient->vaccinations()->orderByDesc('injectee_le')->get();
         $this->assertCount(2, $vaccinations);
-        $this->assertSame(today()->toDateString(), $vaccinations->first()->injectee_le->toDateString());
+        $this->assertSame(aujourdhui()->toDateString(), $vaccinations->first()->injectee_le->toDateString());
         $this->assertSame('L204-B37', $vaccinations->first()->lot);
         $this->assertSame($this->employe->id, $vaccinations->first()->employe_id);
 
@@ -122,7 +122,7 @@ class DossierMedicalTest extends TestCase
         $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations", [
             'nom' => 'Leptospirose',
             'marque' => 'Versican Plus L4',
-            'echeance_le' => today()->addYear()->toDateString(),
+            'echeance_le' => aujourdhui()->addYear()->toDateString(),
         ], $this->enTetes($this->jeton))->assertCreated();
 
         $this->assertSame(2, $this->patient->vaccinations()->count());
@@ -149,7 +149,7 @@ class DossierMedicalTest extends TestCase
             'note' => 'Cicatrisation propre.',
         ], $this->enTetes($this->jeton))
             ->assertCreated()
-            ->assertJsonPath('data.visite_le', today()->toDateString())
+            ->assertJsonPath('data.visite_le', aujourdhui()->toDateString())
             ->assertJsonPath('data.employe_id', $this->employe->id);
     }
 
@@ -163,7 +163,7 @@ class DossierMedicalTest extends TestCase
             'signataire' => 'Dr Meyer',
         ], $entetes)
             ->assertCreated()
-            ->assertJsonPath('data.etabli_le', today()->toDateString());
+            ->assertJsonPath('data.etabli_le', aujourdhui()->toDateString());
 
         $this->getJson("/api/v1/patients/{$this->patient->id}/documents", $entetes)
             ->assertOk()
@@ -184,7 +184,7 @@ class DossierMedicalTest extends TestCase
             'notes' => 'RAS.',
         ], $entetes)
             ->assertCreated()
-            ->assertJsonPath('data.releve_le', today()->toDateString())
+            ->assertJsonPath('data.releve_le', aujourdhui()->toDateString())
             ->json('data.id');
 
         $this->patchJson("{$uri}/{$id}", ['fluoresceine' => 'pos', 'notes' => 'Ulcère cornéen superficiel.'], $entetes)
@@ -229,6 +229,7 @@ class DossierMedicalTest extends TestCase
             ->assertJsonValidationErrors('dents');
 
         $this->putJson($uri, ['dents' => ['104' => 'carie']], $entetes)
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('dents.104');
     }
 }

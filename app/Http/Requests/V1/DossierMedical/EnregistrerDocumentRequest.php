@@ -18,7 +18,7 @@ class EnregistrerDocumentRequest extends FormRequest
             'nom' => ['required', 'string', 'max:255'],
             'type' => ['nullable', 'string', 'max:255'],
             'signataire' => ['nullable', 'string', 'max:255'],
-            'etabli_le' => ['sometimes', 'date', 'before_or_equal:today'],
+            'etabli_le' => ['sometimes', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
         ];
     }
 }

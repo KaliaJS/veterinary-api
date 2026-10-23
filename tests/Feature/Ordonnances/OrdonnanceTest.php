@@ -165,7 +165,8 @@ class OrdonnanceTest extends TestCase
         $this->travel(21)->seconds();
 
         $this->deleteJson("/api/v1/ordonnances/{$id}", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['ordonnance' => 'Une ordonnance signée ne se supprime pas, clôturez-la. Seule l’annulation immédiate d’une signature est tolérée.']);
 
         $this->assertDatabaseHas('ordonnances', ['id' => $id]);
     }
@@ -182,7 +183,8 @@ class OrdonnanceTest extends TestCase
         ['jeton' => $autreJeton] = $this->employeAvecJeton($this->clinique);
 
         $this->deleteJson("/api/v1/ordonnances/{$id}", [], $this->enTetes($autreJeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['ordonnance' => 'Une ordonnance signée ne se supprime pas, clôturez-la. Seule l’annulation immédiate d’une signature est tolérée.']);
     }
 
     public function test_le_renouvellement_cree_une_nouvelle_ordonnance_et_clot_l_ancienne(): void
@@ -261,7 +263,8 @@ class OrdonnanceTest extends TestCase
             ->assertJsonPath('data.statut', 'stop');
 
         $this->postJson("/api/v1/ordonnances/{$ordonnance->id}/cloturer", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['statut' => 'Cette ordonnance est déjà clôturée.']);
     }
 
     public function test_le_registre_filtre_par_statut_et_par_recherche(): void

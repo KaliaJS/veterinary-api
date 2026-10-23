@@ -14,7 +14,7 @@ class EnregistrerVisiteRequest extends FormRequest
     {
         return [
             'motif' => ['required', 'string', 'max:255'],
-            'visite_le' => ['sometimes', 'date', 'before_or_equal:today'],
+            'visite_le' => ['sometimes', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             'note' => ['nullable', 'string'],
         ];
     }

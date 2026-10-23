@@ -153,7 +153,7 @@ class FactureRendezVousTest extends TestCase
 
         $this->travel(21)->seconds();
 
-        $this->deleteJson("/api/v1/facturation/factures/{$factureId}", [], $entetes)->assertUnprocessable();
+        $this->deleteJson("/api/v1/facturation/factures/{$factureId}", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['facture' => 'Une facture ne se supprime pas, le journal est immuable. Seule l’annulation immédiate d’une création est tolérée.']);
 
         $this->assertDatabaseHas('factures', ['id' => $factureId]);
     }
@@ -168,7 +168,8 @@ class FactureRendezVousTest extends TestCase
         ['jeton' => $autreJeton] = $this->employeAvecJeton($this->clinique);
 
         $this->deleteJson("/api/v1/facturation/factures/{$factureId}", [], $this->enTetes($autreJeton))
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['facture' => 'Une facture ne se supprime pas, le journal est immuable. Seule l’annulation immédiate d’une création est tolérée.']);
     }
 
     public function test_une_facture_encaissee_ne_se_supprime_plus_meme_dans_la_fenetre(): void
@@ -180,6 +181,6 @@ class FactureRendezVousTest extends TestCase
 
         $this->postJson("/api/v1/facturation/factures/{$factureId}/encaisser", ['moyen_paiement' => 'tpe'], $entetes)->assertOk();
 
-        $this->deleteJson("/api/v1/facturation/factures/{$factureId}", [], $entetes)->assertUnprocessable();
+        $this->deleteJson("/api/v1/facturation/factures/{$factureId}", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['facture' => 'Une facture ne se supprime pas, le journal est immuable. Seule l’annulation immédiate d’une création est tolérée.']);
     }
 }

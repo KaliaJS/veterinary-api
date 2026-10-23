@@ -148,7 +148,7 @@ class AnalyseTest extends TestCase
         // Pas encore réceptionnée : rien ne se saisit.
         $this->putJson("/api/v1/laboratoire/analyses/{$analyse->id}/resultats", [
             'resultats' => [['id' => $resultats[0]->id, 'valeur' => 5.0]],
-        ], $this->jeton())->assertUnprocessable();
+        ], $this->jeton())->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'La demande n\'est pas encore réceptionnée au laboratoire.']);
 
         $analyse->update(['statut' => StatutAnalyse::Cours]);
 
@@ -201,10 +201,11 @@ class AnalyseTest extends TestCase
 
         // Plus un geste : ni statut, ni résultats.
         $this->postJson("/api/v1/laboratoire/analyses/{$analyse->id}/avancer", [], $this->jeton())
-            ->assertUnprocessable();
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['statut' => 'Une analyse validée ne change plus de statut.']);
         $this->putJson("/api/v1/laboratoire/analyses/{$analyse->id}/resultats", [
             'resultats' => [['id' => $analyse->resultats()->first()->id, 'valeur' => 1]],
-        ], $this->jeton())->assertUnprocessable();
+        ], $this->jeton())->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Les résultats d\'une analyse validée sont figés.']);
 
         // Ni la note
         $this->patchJson("/api/v1/laboratoire/analyses/{$analyse->id}", ['note' => 'Réécrite après coup.'], $this->jeton())
@@ -224,7 +225,7 @@ class AnalyseTest extends TestCase
 
         $this->patchJson("/api/v1/laboratoire/analyses/{$analyse->id}", [
             'priorite' => 'urg',
-        ], $this->jeton())->assertUnprocessable();
+        ], $this->jeton())->assertUnprocessable()->assertJsonValidationErrors('note');
     }
 
     public function test_la_liste_filtre_par_statut_et_cherche_par_numero(): void

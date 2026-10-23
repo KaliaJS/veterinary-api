@@ -106,7 +106,7 @@ class PatientsIsolationTest extends TestCase
             ['patchJson', "/api/v1/patients/{$patientB}/pesees/{$this->peseeB->id}", ['poids_kg' => 10]],
             ['deleteJson', "/api/v1/patients/{$patientB}/pesees/{$this->peseeB->id}", []],
             ['getJson', "/api/v1/patients/{$patientB}/vaccinations", []],
-            ['postJson', "/api/v1/patients/{$patientB}/vaccinations", ['nom' => 'Rage', 'echeance_le' => today()->addYear()->toDateString()]],
+            ['postJson', "/api/v1/patients/{$patientB}/vaccinations", ['nom' => 'Rage', 'echeance_le' => aujourdhui()->addYear()->toDateString()]],
             ['getJson', "/api/v1/patients/{$patientB}/visites", []],
             ['postJson', "/api/v1/patients/{$patientB}/visites", ['motif' => 'Intrusion']],
             ['getJson', "/api/v1/patients/{$patientB}/documents", []],

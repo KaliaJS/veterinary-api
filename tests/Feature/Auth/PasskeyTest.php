@@ -57,7 +57,7 @@ class PasskeyTest extends TestCase
         $this->postJson('/api/v1/auth/passkey/verifier', [
             'defi_id' => '01JDEFIINCONNU0000000000',
             'credential' => self::CREDENTIAL_BIDON,
-        ])->assertUnprocessable();
+        ])->assertUnprocessable()->assertJsonValidationErrors(['defi_id' => 'Défi expiré : recommencez la connexion.']);
     }
 
     public function test_une_assertion_invalide_est_refusee_et_brule_le_defi(): void

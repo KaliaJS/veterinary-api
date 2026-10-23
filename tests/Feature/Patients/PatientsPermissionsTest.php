@@ -132,7 +132,7 @@ class PatientsPermissionsTest extends TestCase
             ['patchJson', "/api/v1/patients/{$patient}/pesees/{$this->pesee->id}", ['poids_kg' => 8.5]],
             ['deleteJson', "/api/v1/patients/{$patient}/pesees/{$this->pesee->id}", []],
             ['getJson', "/api/v1/patients/{$patient}/vaccinations", []],
-            ['postJson', "/api/v1/patients/{$patient}/vaccinations", ['nom' => 'Rage', 'echeance_le' => today()->addYear()->toDateString()]],
+            ['postJson', "/api/v1/patients/{$patient}/vaccinations", ['nom' => 'Rage', 'echeance_le' => aujourdhui()->addYear()->toDateString()]],
             ['getJson', "/api/v1/patients/{$patient}/visites", []],
             ['postJson', "/api/v1/patients/{$patient}/visites", ['motif' => 'Contrôle']],
             ['getJson', "/api/v1/patients/{$patient}/documents", []],

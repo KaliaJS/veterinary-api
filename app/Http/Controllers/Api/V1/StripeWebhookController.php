@@ -11,8 +11,9 @@ use Illuminate\Http\Response;
 
 /**
  * Webhook Stripe (public, signé) : issue des paiements de caisse.
- * Signature invalide → 400 ; tout le reste → 204, même un événement
- * ignoré, pour que Stripe ne le renvoie pas.
+ * Signature invalide → 400 ; le prestataire refuse pendant le traitement
+ * (un remboursement, une lecture) → 503, l'événement libéré pour que
+ * Stripe le renvoie ; tout le reste → 204, même un événement ignoré.
  */
 class StripeWebhookController extends Controller
 {
@@ -24,7 +25,13 @@ class StripeWebhookController extends Controller
             return response()->noContent(400);
         }
 
-        $webhooks->traiter($evenement);
+        try {
+            $webhooks->traiter($evenement);
+        } catch (ErreurPaiement $e) {
+            report($e);
+
+            return response()->noContent(503);
+        }
 
         return response()->noContent();
     }

@@ -27,6 +27,7 @@ use Illuminate\Http\Request;
 use Illuminate\Mail\Markdown;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
@@ -94,6 +95,51 @@ class AppServiceProvider extends ServiceProvider
         // E-mails : une saisie (nom d'un animal, message) ne devient jamais
         // un lien ou du HTML (« [Payer](https://…) » reste du texte)
         Markdown::withSecuredEncoding();
+
+        // Identifiants des routes : des chiffres seulement. « abc » répond
+        // 404, jamais une erreur 500 dans un contrôleur qui attend un entier
+        Route::patterns(array_fill_keys([
+            'absence',
+            'analyse',
+            'animal',
+            'client',
+            'clinique',
+            'cloture',
+            'commande',
+            'demande',
+            'devis',
+            'document',
+            'employe',
+            'enregistrement',
+            'examen',
+            'facture',
+            'inscription',
+            'intervention',
+            'invitation',
+            'ligne',
+            'lot',
+            'numero',
+            'ordonnance',
+            'organisation',
+            'paiement',
+            'passkey',
+            'patient',
+            'pesee',
+            'prestation',
+            'produit',
+            'releve',
+            'rendezVous',
+            'role',
+            'sejour',
+            'session',
+            'societe',
+            'soin',
+            'terminal',
+            'urgence',
+            'user',
+            'vaccination',
+            'veterinaire',
+        ], '[0-9]+'));
 
         // Un Gate par domaine de permission. La vérité vit en base :
         // le middleware `clinique` charge les permissions de l'employé

@@ -27,7 +27,7 @@ class EnregistrerAnimalRequest extends FormRequest
             'espece' => ['required', Rule::enum(Espece::class)],
             'race' => ['nullable', 'string', 'max:255'],
             'sexe' => ['required', Rule::enum(Sexe::class)],
-            'ne_le' => ['nullable', 'date', 'before_or_equal:today'],
+            'ne_le' => ['nullable', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             'poids_kg' => ['nullable', 'numeric', 'min:0.01', 'max:500'],
             'puce' => ['nullable', 'string', 'max:32', new NumeroPuce],
         ];
