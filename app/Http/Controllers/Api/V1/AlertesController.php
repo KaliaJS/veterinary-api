@@ -13,7 +13,7 @@ use Illuminate\Http\Request;
 
 /**
  * Alertes de la clinique pour la personne du jeton (23.10.2026) : celles
- * de ses domaines (stock, consommation), vues ou non ; et ses réglages
+ * de ses domaines (stock, consommation, paiements), vues ou non ; et ses réglages
  * d'e-mails, une famille d'alertes à la fois.
  */
 class AlertesController extends Controller
@@ -59,6 +59,7 @@ class AlertesController extends Controller
         $choix = $request->validate([
             TypeAlerte::Stock->value => ['sometimes', 'boolean'],
             TypeAlerte::Consommation->value => ['sometimes', 'boolean'],
+            TypeAlerte::Paiements->value => ['sometimes', 'boolean'],
         ]);
         $employe = $this->employe();
         $coupees = collect($employe->alertes_email_coupees ?? []);
@@ -75,8 +76,10 @@ class AlertesController extends Controller
         return response()->json(['data' => [
             TypeAlerte::Stock->value => $employe->recoitAlertesEmail(TypeAlerte::Stock),
             TypeAlerte::Consommation->value => $employe->recoitAlertesEmail(TypeAlerte::Consommation),
+            TypeAlerte::Paiements->value => $employe->recoitAlertesEmail(TypeAlerte::Paiements),
             'peut_stock' => $this->contexte->permet(DomainePermission::Stocks),
             'peut_consommation' => $this->contexte->permet(DomainePermission::Organisation),
+            'peut_paiements' => $this->contexte->permet(DomainePermission::Organisation),
         ]]);
     }
 

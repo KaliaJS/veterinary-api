@@ -31,12 +31,20 @@ class ComptePaiementController extends Controller
         return $this->reponse($societe->stripe_compte_id ? $this->sansErreur(fn () => $this->comptes->rafraichir($societe)) : $societe);
     }
 
-    /** Ouvre le compte (administrateur de l'organisation) : l'inscription suit, dans l'app. */
+    /**
+     * Ouvre le compte (administrateur de l'organisation), qui accepte dans
+     * l'app les conditions du prestataire : l'inscription suit, dans l'app.
+     */
     public function ouvrir(Request $request): JsonResponse
     {
         Gate::authorize(DomainePermission::Organisation->value);
+        $request->validate(['conditions' => ['accepted']], ['conditions.accepted' => 'Acceptez les conditions des paiements pour activer le compte.']);
 
-        return $this->reponse($this->sansErreur(fn () => $this->comptes->ouvrir($this->societe(), $request->user()->email)));
+        return $this->reponse($this->sansErreur(fn () => $this->comptes->ouvrir($this->societe(), $request->user()->email, [
+            'date' => now(),
+            'ip' => (string) $request->ip(),
+            'navigateur' => $request->userAgent() ? mb_substr($request->userAgent(), 0, 500) : null,
+        ])));
     }
 
     public function session(Request $request): JsonResponse
@@ -88,8 +96,12 @@ class ComptePaiementController extends Controller
             'paiements_actifs' => $societe->paiements_actifs,
             'virements_actifs' => $societe->virements_actifs,
             'a_completer' => $societe->paiements_a_completer,
-            'commission_terminal' => (float) config('services.stripe.commission_terminal'),
-            'commission_twint' => (float) config('services.stripe.commission_twint'),
+            // Ce que la société paie par encaissement (frais compris)
+            'tarifs' => [
+                'terminal' => ComptesPaiement::tarif('terminal'),
+                'twint' => ComptesPaiement::tarif('twint'),
+                'en_ligne' => ComptesPaiement::tarif('en_ligne'),
+            ],
             'peut_gerer' => Gate::allows(DomainePermission::Organisation->value),
         ]]);
     }

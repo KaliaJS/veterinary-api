@@ -28,10 +28,11 @@ class PasserelleStripe implements PasserellePaiement
     ];
 
     /** Composants intégrés permis (nom de l'API) et leurs réglages. */
+    // Sans connexion chez le prestataire : la société est déjà connectée à Veterinary
     private const COMPOSANTS = [
-        'account_onboarding' => ['enabled' => true, 'features' => ['external_account_collection' => true]],
-        'account_management' => ['enabled' => true, 'features' => ['external_account_collection' => true]],
-        'notification_banner' => ['enabled' => true, 'features' => ['external_account_collection' => true]],
+        'account_onboarding' => ['enabled' => true, 'features' => ['external_account_collection' => true, 'disable_stripe_user_authentication' => true]],
+        'account_management' => ['enabled' => true, 'features' => ['external_account_collection' => true, 'disable_stripe_user_authentication' => true]],
+        'notification_banner' => ['enabled' => true, 'features' => ['external_account_collection' => true, 'disable_stripe_user_authentication' => true]],
         'payments' => ['enabled' => true, 'features' => ['refund_management' => true, 'dispute_management' => true, 'capture_payments' => false]],
         'payouts' => ['enabled' => true, 'features' => ['instant_payouts' => false, 'standard_payouts' => true, 'edit_payout_schedule' => true]],
         'balances' => ['enabled' => true, 'features' => ['instant_payouts' => false, 'standard_payouts' => true, 'edit_payout_schedule' => true]],
@@ -88,7 +89,7 @@ class PasserelleStripe implements PasserellePaiement
         ];
     }
 
-    public function creerIntentionEnLigne(int $centimes, array $metadonnees, string $cleIdempotence): array
+    public function creerIntentionEnLigne(int $centimes, array $metadonnees, string $cleIdempotence, int $commission = 0): array
     {
         $intention = $this->appel(fn () => $this->client->paymentIntents->create([
             'amount' => $centimes,
@@ -96,6 +97,7 @@ class PasserelleStripe implements PasserellePaiement
             // Les moyens activés sur le compte (carte, TWINT…), redirection permise
             'automatic_payment_methods' => ['enabled' => true],
             'metadata' => $metadonnees,
+            ...$this->commission($commission),
         ], $this->options(['idempotency_key' => $cleIdempotence])));
 
         return ['id' => $intention->id, 'statut' => $intention->status, 'client_secret' => $intention->client_secret];
@@ -206,6 +208,7 @@ class PasserelleStripe implements PasserellePaiement
 
     public function creerComptePaiement(array $societe): string
     {
+        $conditions = $societe['conditions'];
         $compte = $this->appel(fn () => $this->client->v2->core->accounts->create([
             'display_name' => $societe['nom'],
             'contact_email' => $societe['email'],
@@ -215,6 +218,12 @@ class PasserelleStripe implements PasserellePaiement
                 'country' => 'ch',
                 'entity_type' => 'company',
                 'business_details' => ['registered_name' => $societe['nom']],
+                // Conditions acceptées dans Veterinary par l'administrateur
+                'attestations' => ['terms_of_service' => ['account' => array_filter([
+                    'date' => $conditions['date']->format(DATE_RFC3339),
+                    'ip' => $conditions['ip'],
+                    'user_agent' => $conditions['navigateur'],
+                ])]],
             ],
             'configuration' => [
                 'merchant' => [
@@ -229,8 +238,9 @@ class PasserelleStripe implements PasserellePaiement
             'defaults' => [
                 'currency' => 'chf',
                 'locales' => ['fr'],
-                // Le prestataire collecte ses frais auprès de la société et porte les pertes
-                'responsibilities' => ['fees_collector' => 'stripe', 'losses_collector' => 'stripe'],
+                // Paiements invisibles : la plateforme paie les frais (refacturés en
+                // commission), porte les pertes et collecte les informations légales
+                'responsibilities' => ['fees_collector' => 'application', 'losses_collector' => 'application'],
             ],
             'metadata' => $societe['metadonnees'],
         ]));

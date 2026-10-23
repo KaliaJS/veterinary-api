@@ -18,7 +18,9 @@ use Illuminate\Support\Collection;
  * sous leur seuil (stock de toutes les cliniques de l'organisation), lots
  * de la clinique périmés ou qui périment d'ici la fin du mois suivant.
  * Consommation (domaine organisation) : transcription et suggestions
- * diagnostiques à 80 % puis à 100 % de leur plafond. Chaque alerte a une
+ * diagnostiques à 80 % puis à 100 % de leur plafond. Paiements (domaine
+ * organisation) : inscription du compte de paiement à terminer ou
+ * informations demandées. Chaque alerte a une
  * clé qui change avec son contenu : une alerte vue redevient nouvelle
  * quand la situation change.
  *
@@ -32,12 +34,46 @@ class AlertesClinique
     ) {}
 
     /** @return list<Alerte> */
-    public function pour(Clinique $clinique, bool $stock, bool $consommation): array
+    public function pour(Clinique $clinique, bool $stock, bool $organisation): array
     {
         return [
+            ...($organisation ? $this->paiements($clinique) : []),
             ...($stock ? $this->stock($clinique) : []),
-            ...($consommation && $clinique->societe?->organisation ? $this->consommation($clinique->societe->organisation) : []),
+            ...($organisation && $clinique->societe?->organisation ? $this->consommation($clinique->societe->organisation) : []),
         ];
+    }
+
+    /** @return list<Alerte> */
+    public function paiements(Clinique $clinique): array
+    {
+        $societe = $clinique->societe;
+        if (! $societe?->stripe_compte_id) {
+            return [];
+        }
+
+        if (! $societe->paiements_actifs) {
+            return [$this->alerte(
+                TypeAlerte::Paiements,
+                'inscription:'.$societe->id,
+                'warn',
+                'Paiements : inscription à terminer',
+                'Les cartes, TWINT et les acomptes en ligne seront encaissés une fois l’inscription de '.$societe->nom.' terminée.',
+                'reglages:paiements',
+            )];
+        }
+
+        if ($societe->paiements_a_completer) {
+            return [$this->alerte(
+                TypeAlerte::Paiements,
+                'informations:'.$societe->id,
+                'warn',
+                'Paiements : informations demandées',
+                'Quelques informations sur '.$societe->nom.' sont à fournir pour continuer à recevoir les virements.',
+                'reglages:paiements',
+            )];
+        }
+
+        return [];
     }
 
     /** @return list<Alerte> */

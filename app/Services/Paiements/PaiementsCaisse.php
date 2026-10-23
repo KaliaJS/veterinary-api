@@ -17,7 +17,7 @@ use Illuminate\Support\Str;
 /**
  * Paiements de caisse par Stripe (docs/data-model.md §6) : carte sur le
  * terminal de la clinique, ou TWINT par QR, encaissés sur le compte de
- * paiement de sa société, la plateforme prenant sa commission (terminal). Chaque tentative est une
+ * paiement de sa société, la plateforme prenant sa commission. Chaque tentative est une
  * intention Stripe et une ligne `paiements` ; réussie, elle encaisse la
  * facture (même service que l'encaissement manuel : stock, statut).
  *
@@ -51,7 +51,7 @@ class PaiementsCaisse
                 $this->centimes($facture),
                 $this->metadonnees($facture, MoyenPaiement::Tpe),
                 $this->cle($facture),
-                ComptesPaiement::commissionTerminal($this->centimes($facture)),
+                ComptesPaiement::commission('terminal', $this->centimes($facture)),
             );
 
             // Enregistré AVANT d'envoyer au lecteur : un webhook rapide le retrouve
@@ -83,7 +83,7 @@ class PaiementsCaisse
             $this->metadonnees($facture, MoyenPaiement::Twint),
             rtrim((string) config('app.frontend_url'), '/').'/paiement-termine',
             $this->cle($facture),
-            ComptesPaiement::commissionTwint($this->centimes($facture)),
+            ComptesPaiement::commission('twint', $this->centimes($facture)),
         );
 
         $paiement = $this->creer($facture, MoyenPaiement::Twint, $intention['id'], $auteur, [

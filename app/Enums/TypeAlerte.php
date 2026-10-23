@@ -7,10 +7,14 @@ namespace App\Enums;
  * e-mail ; chacun peut couper les e-mails d'une famille dans ses réglages.
  * Stock : produits sous le seuil, lots périmés ou qui périment bientôt
  * (domaine stocks). Consommation : plafonds de la transcription et des
- * suggestions diagnostiques (domaine organisation).
+ * suggestions diagnostiques (domaine organisation). Paiements :
+ * inscription du compte de paiement de la société à terminer, ou
+ * informations demandées, que le prestataire ne demande jamais lui-même
+ * (domaine organisation).
  */
 enum TypeAlerte: string
 {
     case Stock = 'stock';
     case Consommation = 'consommation';
+    case Paiements = 'paiements';
 }
