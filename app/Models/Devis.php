@@ -113,7 +113,13 @@ class Devis extends Model
     {
         $total = $this->totalTtc();
 
-        return round($total - $total / (1 + Facture::TAUX_TVA), 2);
+        return round($total - $total / (1 + $this->tauxTva() / 100), 2);
+    }
+
+    /** Taux de TVA, en % : celui de la société de la clinique qui l'établit. */
+    public function tauxTva(): float
+    {
+        return $this->clinique?->societe?->tauxTva() ?? Facture::TAUX_TVA * 100;
     }
 
     /** Total hors taxe du devis remisé. */

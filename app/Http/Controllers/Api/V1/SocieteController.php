@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Auth\ContexteClinique;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Organisation\EnregistrerSocieteRequest;
+use App\Http\Requests\V1\Organisation\ModifierSocieteRequest;
 use App\Http\Resources\V1\SocieteResource;
 use App\Models\Organisation;
 use Illuminate\Http\Request;
@@ -39,6 +40,14 @@ class SocieteController extends Controller
         ]);
 
         return new SocieteResource($societe);
+    }
+
+    public function update(ModifierSocieteRequest $request, int $societe): SocieteResource
+    {
+        $fiche = $this->organisation()->societes()->findOrFail($societe);
+        $fiche->update($request->validated());
+
+        return new SocieteResource($fiche->loadCount('cliniques'));
     }
 
     private function organisation(): Organisation

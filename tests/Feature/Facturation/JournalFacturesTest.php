@@ -93,6 +93,7 @@ class JournalFacturesTest extends TestCase
                 'contact' => '+41 21 000 00 00 · test@exemple.ch',
                 'societe' => 'Tests SA',
                 'ide' => 'CHE-123.456.789',
+                'tva' => true,
             ]);
     }
 

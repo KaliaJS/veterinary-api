@@ -46,7 +46,7 @@ class JournalFacturesController extends Controller
 
         return response()->json(['data' => [
             'mois' => $mois,
-            'taux_tva' => Facture::TAUX_TVA * 100,
+            'taux_tva' => $contexte->clinique()?->societe?->tauxTva() ?? Facture::TAUX_TVA * 100,
             'emises' => $emises->map(fn (Facture $facture): array => $this->ligne($facture))->values(),
             'encaissements' => [
                 'factures' => $encaissees->map(fn (Facture $facture): array => $this->ligne($facture))->values(),

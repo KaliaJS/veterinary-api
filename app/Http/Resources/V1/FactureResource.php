@@ -48,7 +48,7 @@ class FactureResource extends JsonResource
             'reste_a_payer' => $this->whenLoaded('lignes', fn (): float => $this->resteAPayer()),
             'montant_tva' => $this->whenLoaded('lignes', fn (): float => $this->montantTva()),
             'total_ht' => $this->whenLoaded('lignes', fn (): float => $this->totalHt()),
-            'taux_tva' => Facture::TAUX_TVA * 100,
+            'taux_tva' => (float) $this->taux_tva,
             'lignes' => $this->whenLoaded(
                 'lignes',
                 fn () => $this->lignes->map(fn (FactureLigne $ligne): array => [

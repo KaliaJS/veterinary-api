@@ -33,8 +33,18 @@ class Facture extends Model
         'organisation_id', 'clinique_id', 'numero', 'emise_le', 'patient_id',
         'client_id', 'patient_name', 'species', 'owner_name', 'ligne_planning_id',
         'rendez_vous_id', 'ordonnance_id', 'statut', 'moyen_paiement', 'payee_le',
-        'stock_sorti', 'cloture_caisse_id', 'cree_par_id', 'encaissee_par_id', 'acompte',
+        'stock_sorti', 'cloture_caisse_id', 'cree_par_id', 'encaissee_par_id', 'acompte', 'taux_tva',
     ];
+
+    /** Le taux de TVA se fige à l'émission, selon la société de la clinique (23.10.2026). */
+    protected static function booted(): void
+    {
+        static::creating(function (Facture $facture): void {
+            if (! isset($facture->getAttributes()['taux_tva'])) {
+                $facture->taux_tva = Clinique::query()->with('societe')->find($facture->clinique_id)?->societe?->tauxTva() ?? self::TAUX_TVA * 100;
+            }
+        });
+    }
 
     /** Miroir des défauts de la base. */
     protected $attributes = [
@@ -52,6 +62,7 @@ class Facture extends Model
             'payee_le' => 'datetime',
             'stock_sorti' => 'boolean',
             'acompte' => 'decimal:2',
+            'taux_tva' => 'float',
         ];
     }
 
@@ -140,7 +151,7 @@ class Facture extends Model
     {
         $total = $this->totalTtc();
 
-        return round($total - $total / (1 + self::TAUX_TVA), 2);
+        return round($total - $total / (1 + $this->taux_tva / 100), 2);
     }
 
     /** Total hors taxe : le TTC moins la TVA qu'il contient. */

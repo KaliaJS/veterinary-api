@@ -134,7 +134,7 @@ class DocumentsProprietaire
                         'total_ttc' => round($f->totalTtc(), 2),
                         'montant_tva' => round($f->montantTva(), 2),
                         'total_ht' => $f->totalHt(),
-                        'taux_tva' => Facture::TAUX_TVA * 100,
+                        'taux_tva' => (float) $f->taux_tva,
                         'lignes' => $f->lignes->map(fn ($l): array => ['libelle' => $l->libelle, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf, 'total_chf' => round($l->quantite * (float) $l->prix_chf, 2)])->values()->all(),
                     ],
                 ];
@@ -193,7 +193,7 @@ class DocumentsProprietaire
                         'montant_remise' => $d->montantRemise(),
                         'montant_acompte' => $d->montantAcompte(),
                         'total_avec_alea' => $d->totalAvecAlea(),
-                        'taux_tva' => Facture::TAUX_TVA * 100,
+                        'taux_tva' => $d->tauxTva(),
                         'lignes' => $d->lignes->map(fn ($l): array => ['libelle' => $l->libelle, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf, 'total_chf' => round($l->quantite * (float) $l->prix_chf, 2)])->values()->all(),
                     ],
                 ];

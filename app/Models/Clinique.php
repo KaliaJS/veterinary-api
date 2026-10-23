@@ -119,7 +119,7 @@ class Clinique extends Model
      * ordonnances, registres) : son nom, son adresse, ses contacts et la
      * société qui facture, avec son numéro IDE (23.10.2026).
      *
-     * @return array{nom: string, adresse: string, contact: string, societe: ?string, ide: ?string}
+     * @return array{nom: string, adresse: string, contact: string, societe: ?string, ide: ?string, tva: bool}
      */
     public function enTeteDocument(): array
     {
@@ -129,6 +129,7 @@ class Clinique extends Model
             'contact' => implode(' · ', array_filter([$this->tel, $this->email])),
             'societe' => $this->societe?->nom,
             'ide' => $this->societe?->ide,
+            'tva' => $this->societe?->assujettie_tva !== false,
         ];
     }
 

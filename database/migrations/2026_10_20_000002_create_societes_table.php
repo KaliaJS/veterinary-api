@@ -13,6 +13,7 @@ return new class extends Migration
             $table->foreignId('organisation_id')->constrained()->cascadeOnDelete();
             $table->string('nom');
             $table->string('ide')->nullable()->comment('N° IDE suisse « CHE-… »');
+            $table->boolean('assujettie_tva')->default(true)->comment('Inscrite au registre de la TVA : ses factures portent la TVA');
             $table->string('stripe_compte_id')->nullable()->unique()->comment('Compte de paiement de la société (Stripe Connect sans tableau de bord, risque chez Stripe) : terminal, TWINT et acomptes encaissés à son nom');
             $table->boolean('paiements_actifs')->default(false)->comment('Le compte peut encaisser');
             $table->boolean('virements_actifs')->default(false)->comment('Le compte reçoit ses virements');

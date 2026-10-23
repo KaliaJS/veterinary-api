@@ -35,6 +35,7 @@ return new class extends Migration
             $table->foreignId('rendez_vous_id')->nullable()->constrained('rendez_vous')->restrictOnDelete();
             $table->foreignId('ordonnance_id')->nullable()->constrained()->nullOnDelete();
             $table->enum('statut', array_column(StatutFacture::cases(), 'value'))->default('due');
+            $table->decimal('taux_tva', 3, 1)->default(8.1)->comment('Taux de TVA figé à l’émission, en % (0 : société non assujettie)');
             $table->enum('moyen_paiement', array_column(MoyenPaiement::cases(), 'value'))->nullable()->comment('Null sur une facture payée : réglée entièrement par l’acompte');
             $table->decimal('acompte', 10, 2)->default(0)->comment('Acompte payé en ligne à la réservation du rendez-vous, déduit du total');
             $table->dateTime('payee_le')->nullable();

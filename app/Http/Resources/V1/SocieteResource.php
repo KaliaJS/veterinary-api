@@ -18,6 +18,7 @@ class SocieteResource extends JsonResource
             'id' => $this->id,
             'nom' => $this->nom,
             'ide' => $this->ide,
+            'assujettie_tva' => $this->assujettie_tva !== false,
             'nombre_cliniques' => $this->whenCounted('cliniques'),
         ];
     }

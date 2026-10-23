@@ -48,7 +48,7 @@ class DevisResource extends JsonResource
             'montant_remise' => $this->whenLoaded('lignes', fn (): float => $this->montantRemise()),
             'montant_acompte' => $this->whenLoaded('lignes', fn (): float => $this->montantAcompte()),
             'total_avec_alea' => $this->whenLoaded('lignes', fn (): float => $this->totalAvecAlea()),
-            'taux_tva' => Facture::TAUX_TVA * 100,
+            'taux_tva' => $this->tauxTva(),
             'lignes' => $this->whenLoaded(
                 'lignes',
                 fn () => $this->lignes->map(fn (DevisLigne $ligne): array => [

@@ -586,6 +586,7 @@ Route::prefix('v1')->group(function (): void {
 
             Route::get('societes', [SocieteController::class, 'index']);
             Route::post('societes', [SocieteController::class, 'store']);
+            Route::patch('societes/{societe}', [SocieteController::class, 'update'])->whereNumber('societe');
 
             Route::get('cliniques', [OrganisationCliniqueController::class, 'index']);
             Route::post('cliniques', [OrganisationCliniqueController::class, 'store']);
