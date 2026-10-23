@@ -19,6 +19,7 @@ use App\Rules\NumeroPuce;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -128,26 +129,31 @@ class AnimalController extends Controller
     }
 
     /**
-     * « Déjà connu d'une clinique ? » : l'animal est cherché par puce
-     * parmi les fiches des cliniques ; une demande en attente est créée,
-     * que la clinique accepte ou refuse. 422 par champ sinon.
+     * « Déjà connu d'une clinique ? » : l'animal est cherché par sa puce ET
+     * son nom (23.10.2026 : le nom est le second facteur, une puce seule ne
+     * révèle plus rien) parmi les fiches des cliniques ; une demande en
+     * attente est créée, que la clinique accepte ou refuse. Une même
+     * réponse pour une puce inconnue, un nom qui ne correspond pas ou un
+     * animal déjà rattaché ailleurs.
      */
     public function reclamer(ReclamerAnimalRequest $request, ContexteProprietaire $contexte): JsonResponse
     {
         $puce = NumeroPuce::formater($request->validated()['puce']);
+        $nom = self::sansAccents($request->validated()['nom']);
         $user = $contexte->user();
 
-        $animal = Patient::withoutGlobalScopes()->with('organisation')->where('puce', $puce)->first()
-            ?? throw ValidationException::withMessages(['puce' => 'Aucun animal connu avec ce numéro de puce.']);
+        $animal = Patient::withoutGlobalScopes()->with('organisation')
+            ->where('puce', $puce)
+            ->whereNotNull('organisation_id')
+            ->orderBy('id')
+            ->get()
+            ->first(fn (Patient $p): bool => self::sansAccents($p->nom) === $nom);
 
-        if ($animal->proprietaire_id === $user->id) {
+        if ($animal?->proprietaire_id === $user->id) {
             throw ValidationException::withMessages(['puce' => 'Cet animal est déjà dans votre espace.']);
         }
-        if ($animal->proprietaire_id !== null) {
-            throw ValidationException::withMessages(['puce' => 'Cet animal est déjà rattaché à un autre compte.']);
-        }
-        if ($animal->organisation_id === null) {
-            throw ValidationException::withMessages(['puce' => 'Aucune clinique ne suit cet animal.']);
+        if ($animal === null || $animal->proprietaire_id !== null) {
+            throw ValidationException::withMessages(['puce' => 'Aucun animal ne correspond à ce numéro de puce et à ce nom. Vérifiez-les, ou appelez la clinique qui le suit.']);
         }
 
         $demande = DemandeRattachement::withoutGlobalScopes()
@@ -166,6 +172,12 @@ class AnimalController extends Controller
         ]);
 
         return response()->json(['data' => $this->presenterDemande($demande->setRelation('patient', $animal))], $creee ? 201 : 200);
+    }
+
+    /** Nom comparé sans casse, accents ni espaces superflus (« Kiwi » = « kiwi »). */
+    private static function sansAccents(string $texte): string
+    {
+        return Str::lower(trim(preg_replace('/\s+/', ' ', Str::ascii($texte))));
     }
 
     /** Mes demandes de rattachement (en attente, acceptées, refusées), la plus récente d'abord. */

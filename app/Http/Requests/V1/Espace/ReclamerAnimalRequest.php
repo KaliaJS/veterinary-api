@@ -13,6 +13,8 @@ class ReclamerAnimalRequest extends FormRequest
     {
         return [
             'puce' => ['required', 'string', 'max:32', new NumeroPuce],
+            // Second facteur (23.10.2026) : le nom de l'animal, que connaît son propriétaire
+            'nom' => ['required', 'string', 'max:120'],
         ];
     }
 
@@ -21,6 +23,7 @@ class ReclamerAnimalRequest extends FormRequest
     {
         return [
             'puce.required' => 'Indiquez le numéro de puce de votre animal.',
+            'nom.required' => 'Indiquez le nom de votre animal, tel que la clinique le connaît.',
         ];
     }
 }

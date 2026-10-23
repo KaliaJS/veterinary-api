@@ -143,17 +143,20 @@ class AnimauxProprietaireTest extends TestCase
         $rex = Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Rex', 'puce' => '756 098 100 234 567']);
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
 
-        // Puce inconnue : 422 sur le champ.
-        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 000 000'], $this->enTetes($jeton))
+        // Puce inconnue, ou bonne puce avec un autre nom : la même réponse, rien ne se révèle
+        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 000 000', 'nom' => 'Rex'], $this->enTetes($jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('puce');
+        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567', 'nom' => 'Médor'], $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('puce')
+            ->assertJsonMissingPath('data');
 
-        // Demande créée, en attente ; rejouée, la même demande revient (200).
-        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756098100234567'], $this->enTetes($jeton))
+        // Demande créée, en attente (nom sans casse ni accents) ; rejouée, la même demande revient (200).
+        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756098100234567', 'nom' => ' rex '], $this->enTetes($jeton))
             ->assertCreated()
             ->assertJsonPath('data.statut', 'attente')
             ->assertJsonPath('data.animal.nom', 'Rex')
             ->assertJsonPath('data.organisation.id', $clinique->societe->organisation_id);
-        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567'], $this->enTetes($jeton))->assertOk();
+        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567', 'nom' => 'Rex'], $this->enTetes($jeton))->assertOk();
         $this->assertSame(1, DemandeRattachement::withoutGlobalScopes()->count());
 
         // Rex n'est pas encore dans l'espace ; la demande, si.
@@ -177,7 +180,7 @@ class AnimauxProprietaireTest extends TestCase
 
         // Déjà rattaché : une nouvelle réclamation (par un autre compte) est refusée.
         ['jeton' => $jetonAutre] = $this->proprietaireAvecJeton();
-        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567'], $this->enTetes($jetonAutre))
+        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567', 'nom' => 'Rex'], $this->enTetes($jetonAutre))
             ->assertUnprocessable()->assertJsonValidationErrors('puce');
     }
 
@@ -230,9 +233,9 @@ class AnimauxProprietaireTest extends TestCase
     {
         $clinique = Clinique::factory()->create();
         $fiche = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id]);
-        Patient::factory()->create(['client_id' => $fiche->id, 'puce' => '756 098 100 234 567']);
+        Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Kiwi', 'puce' => '756 098 100 234 567']);
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();
-        $demandeId = $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567'], $this->enTetes($jeton))->json('data.id');
+        $demandeId = $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567', 'nom' => 'Kiwi'], $this->enTetes($jeton))->json('data.id');
 
         ['jeton' => $jetonAutreClinique] = $this->employeAvecJeton(Clinique::factory()->create());
         $this->getJson('/api/v1/patients/rattachements', $this->enTetes($jetonAutreClinique))->assertOk()->assertJsonCount(0, 'data');

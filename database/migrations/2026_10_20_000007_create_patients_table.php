@@ -28,7 +28,7 @@ return new class extends Migration
             $table->date('ne_le')->nullable();
             $table->date('decede_le')->nullable();
             $table->boolean('est_sterilise')->default(false);
-            $table->string('puce', 24)->nullable()->comment('Format AMICUS « 756 09X XXX XXX XXX »');
+            $table->string('puce', 24)->nullable()->index()->comment('Format AMICUS « 756 09X XXX XXX XXX »');
             $table->string('photo_chemin')->nullable()->comment('Chemin sur le disque local (photos-animaux/{organisation}/…)');
             $table->decimal('dette', 8, 2)->default(0)->comment('Solde dû en CHF — alerte « solde » dérivée');
             $table->boolean('est_agressif')->default(false);

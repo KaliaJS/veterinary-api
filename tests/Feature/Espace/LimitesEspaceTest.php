@@ -21,11 +21,11 @@ class LimitesEspaceTest extends TestCase
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();
 
         for ($i = 0; $i < 5; $i++) {
-            $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '75609800000000'.$i], $this->enTetes($jeton))
+            $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '75609800000000'.$i, 'nom' => 'Rex'], $this->enTetes($jeton))
                 ->assertStatus(422);
         }
 
-        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756098000000009'], $this->enTetes($jeton))
+        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756098000000009', 'nom' => 'Rex'], $this->enTetes($jeton))
             ->assertTooManyRequests();
     }
 
