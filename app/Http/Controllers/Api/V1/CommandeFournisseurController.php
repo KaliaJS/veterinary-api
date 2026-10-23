@@ -162,11 +162,14 @@ class CommandeFournisseurController extends Controller
 
         $this->authorize('update', $commande);
 
-        if ($commande->statut !== StatutCommandeFournisseur::Envoyee) {
-            throw ValidationException::withMessages(['statut' => 'Seule une commande envoyée se réceptionne.']);
-        }
+        // Sous verrou : une commande n'entre jamais deux fois en stock
+        $commande = DB::transaction(function () use ($request, $commande): CommandeFournisseur {
+            $commande = CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
 
-        DB::transaction(function () use ($request, $commande): void {
+            if ($commande->statut !== StatutCommandeFournisseur::Envoyee) {
+                throw ValidationException::withMessages(['statut' => 'Seule une commande envoyée se réceptionne.']);
+            }
+
             $commande->update([
                 'statut' => StatutCommandeFournisseur::Receptionnee,
                 'receptionnee_le' => now(),
@@ -194,6 +197,8 @@ class CommandeFournisseurController extends Controller
                     ]));
                 }
             }
+
+            return $commande;
         });
 
         return new CommandeFournisseurResource($commande->load('lignes'));

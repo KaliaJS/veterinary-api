@@ -32,6 +32,9 @@ class PasserellePaiementFactice implements PasserellePaiement
     /** @var array<string, int> Montant rendu par intention (centimes) */
     public array $montantsRembourses = [];
 
+    /** @var array<string, ?string> Compte qui a rendu, par intention */
+    public array $comptesRembourses = [];
+
     public ?ErreurPaiement $erreurLecteur = null;
 
     /** Compte de la société visé par les appels suivants (null : la plateforme) */
@@ -77,6 +80,7 @@ class PasserellePaiementFactice implements PasserellePaiement
     public function rembourser(string $intentionId, string $cleIdempotence, ?int $centimes = null): void
     {
         $this->remboursements[] = $intentionId;
+        $this->comptesRembourses[$intentionId] = $this->compte;
         $this->montantsRembourses[$intentionId] = $centimes ?? $this->intentions[$intentionId]['centimes'];
     }
 

@@ -23,6 +23,7 @@ return new class extends Migration
             $table->string('moyen');
             $table->decimal('montant', 10, 2);
             $table->string('stripe_payment_intent_id');
+            $table->string('stripe_compte_id')->nullable()->comment('Compte Stripe de la société au moment du paiement (suivi, remboursement), 23.10.2026');
             $table->foreignId('terminal_paiement_id')->nullable()->constrained('terminaux_paiement')->nullOnDelete();
             $table->string('statut')->default('en_attente');
             $table->string('erreur')->nullable();

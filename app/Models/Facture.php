@@ -33,7 +33,7 @@ class Facture extends Model
         'organisation_id', 'clinique_id', 'numero', 'emise_le', 'patient_id',
         'client_id', 'patient_name', 'species', 'owner_name', 'ligne_planning_id',
         'rendez_vous_id', 'ordonnance_id', 'statut', 'moyen_paiement', 'payee_le',
-        'stock_sorti', 'cloture_caisse_id', 'cree_par_id', 'acompte',
+        'stock_sorti', 'cloture_caisse_id', 'cree_par_id', 'encaissee_par_id', 'acompte',
     ];
 
     /** Miroir des défauts de la base. */

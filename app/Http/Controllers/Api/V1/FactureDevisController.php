@@ -9,6 +9,7 @@ use App\Models\Devis;
 use App\Models\Facture;
 use App\Services\CreationFacture;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -24,17 +25,21 @@ class FactureDevisController extends Controller
     public function acompte(Request $request, Devis $devis): FactureResource
     {
         $this->authorize('create', Facture::class);
-        $this->assurerAccepte($devis);
 
-        if ($devis->acompte_pct < 1) {
-            throw ValidationException::withMessages(['acompte' => 'Ce devis ne demande aucun acompte.']);
-        }
+        // Sous verrou : deux clics ne font jamais deux acomptes
+        $facture = DB::transaction(function () use ($request, $devis): Facture {
+            $devis = $this->verrouiller($devis);
 
-        if ($devis->acompte_facture_id !== null) {
-            throw ValidationException::withMessages(['acompte' => 'L’acompte est déjà facturé — '.$devis->acompteFacture->numero.'.']);
-        }
+            if ($devis->acompte_pct < 1) {
+                throw ValidationException::withMessages(['acompte' => 'Ce devis ne demande aucun acompte.']);
+            }
 
-        $facture = $this->creation->acompteDeDevis($devis, $request->user());
+            if ($devis->acompte_facture_id !== null) {
+                throw ValidationException::withMessages(['acompte' => 'L’acompte est déjà facturé : '.$devis->acompteFacture->numero.'.']);
+            }
+
+            return $this->creation->acompteDeDevis($devis, $request->user());
+        });
 
         return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
     }
@@ -42,21 +47,29 @@ class FactureDevisController extends Controller
     public function finale(Request $request, Devis $devis): FactureResource
     {
         $this->authorize('create', Facture::class);
-        $this->assurerAccepte($devis);
 
-        if ($devis->facture_finale_id !== null) {
-            throw ValidationException::withMessages(['facture' => 'La facture finale existe déjà — '.$devis->factureFinale->numero.'.']);
-        }
+        $facture = DB::transaction(function () use ($request, $devis): Facture {
+            $devis = $this->verrouiller($devis);
 
-        $facture = $this->creation->finaleDeDevis($devis, $request->user());
+            if ($devis->facture_finale_id !== null) {
+                throw ValidationException::withMessages(['facture' => 'La facture finale existe déjà : '.$devis->factureFinale->numero.'.']);
+            }
+
+            return $this->creation->finaleDeDevis($devis, $request->user());
+        });
 
         return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
     }
 
-    private function assurerAccepte(Devis $devis): void
+    /** Le devis relu sous verrou, accepté. */
+    private function verrouiller(Devis $devis): Devis
     {
+        $devis = Devis::query()->whereKey($devis->id)->lockForUpdate()->firstOrFail();
+
         if ($devis->statut !== StatutDevis::Accepte) {
             throw ValidationException::withMessages(['statut' => 'Seul un devis accepté se facture.']);
         }
+
+        return $devis;
     }
 }

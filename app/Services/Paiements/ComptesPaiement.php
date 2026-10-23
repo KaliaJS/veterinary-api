@@ -6,6 +6,7 @@ use App\Models\Clinique;
 use App\Models\Societe;
 use App\Paiements\PasserellePaiement;
 use App\Rules\NumeroIde;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -49,6 +50,24 @@ class ComptesPaiement
         return $this->passerelle->pourCompte($societe->stripe_compte_id);
     }
 
+    /** Le compte Stripe de la société de la clinique (null s'il n'est pas ouvert). */
+    public function compteDe(Clinique|int $clinique): ?string
+    {
+        $clinique = $clinique instanceof Clinique ? $clinique : Clinique::withoutGlobalScopes()->findOrFail($clinique);
+
+        return $clinique->societe?->stripe_compte_id;
+    }
+
+    /**
+     * Pour suivre, annuler ou rembourser un paiement passé : le compte qui
+     * l'a reçu (gardé sur le paiement), même si la clinique a changé de
+     * société depuis ; sinon celui de la société actuelle.
+     */
+    public function passerellePourCompte(?string $compte, Clinique|int $clinique): PasserellePaiement
+    {
+        return $compte !== null ? $this->passerelle->pourCompte($compte) : $this->passerellePour($clinique);
+    }
+
     /** Commission de la plateforme sur un paiement au terminal (centimes). */
     public static function commissionTerminal(int $centimes): int
     {
@@ -67,14 +86,25 @@ class ComptesPaiement
         return (int) round($centimes * (float) config('services.stripe.commission_en_ligne') / 100);
     }
 
-    /** Ouvre le compte de la société s'il n'existe pas encore. */
     /**
      * Ouvre le compte de la société s'il n'existe pas encore, prérempli
      * pour raccourcir l'inscription : nom commercial (celui de la clinique,
      * vu par les clients sur leur relevé et dans TWINT), IDE, adresse et
-     * téléphone de la clinique.
+     * téléphone de la clinique. La société est relue sous verrou : deux
+     * clics ne créent jamais deux comptes.
      */
     public function ouvrir(Societe $societe, ?string $email, ?Clinique $clinique = null): Societe
+    {
+        $societe = DB::transaction(fn (): Societe => $this->creerSiAbsent(
+            Societe::query()->whereKey($societe->id)->lockForUpdate()->firstOrFail(),
+            $email,
+            $clinique,
+        ));
+
+        return $this->rafraichir($societe);
+    }
+
+    private function creerSiAbsent(Societe $societe, ?string $email, ?Clinique $clinique): Societe
     {
         if (! $societe->stripe_compte_id) {
             $id = $this->passerelle->pourCompte(null)->creerComptePaiement([
@@ -90,7 +120,7 @@ class ComptesPaiement
             $societe->update(['stripe_compte_id' => $id]);
         }
 
-        return $this->rafraichir($societe);
+        return $societe;
     }
 
     /** Numéro au format international (+41…), null s'il n'est pas lisible. */

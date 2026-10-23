@@ -51,7 +51,7 @@
         ],
         "stripe:listen": [
             "Composer\\Config::disableProcessTimeout",
-            "stripe listen --api-key \"$(sed -n 's/^STRIPE_SECRET=//p' .env)\" --forward-to \"$(sed -n 's/^APP_URL=//p' .env)/api/v1/stripe/webhook\" --skip-verify --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,terminal.reader.action_failed,payment_method.automatically_updated"
+            "stripe listen --api-key \"$(sed -n 's/^STRIPE_SECRET=//p' .env)\" --forward-to \"$(sed -n 's/^APP_URL=//p' .env)/api/v1/stripe/webhook\" --forward-connect-to \"$(sed -n 's/^APP_URL=//p' .env)/api/v1/stripe/webhook\" --skip-verify --events payment_intent.succeeded,payment_intent.payment_failed,payment_intent.canceled,terminal.reader.action_failed,payment_method.automatically_updated,account.updated,charge.refunded,charge.dispute.created,charge.dispute.closed"
         ],
         "test": [
             "@php artisan config:clear --ansi @no_additional_args",

@@ -10,6 +10,7 @@ use App\Http\Resources\V1\CliniqueResource;
 use App\Models\Clinique;
 use App\Models\HoraireOuverture;
 use App\Models\Organisation;
+use App\Models\TerminalPaiement;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
@@ -86,7 +87,23 @@ class OrganisationCliniqueController extends Controller
     {
         $fiche = $this->cliniqueDeLOrganisation($clinique);
 
-        $fiche->update($request->validated());
+        // Changer de société : ses terminaux sont rattachés au compte de
+        // paiement de l'ancienne ; ils se retirent d'abord (23.10.2026)
+        $nouvelleSociete = $request->validated('societe_id');
+        if ($nouvelleSociete !== null && (int) $nouvelleSociete !== $fiche->societe_id
+            && TerminalPaiement::withoutGlobalScopes()->where('clinique_id', $fiche->id)->exists()) {
+            throw ValidationException::withMessages([
+                'societe_id' => 'Retirez d’abord les terminaux de la clinique : ils encaissent sur le compte de l’ancienne société.',
+            ]);
+        }
+
+        $donnees = $request->validated();
+        // La location Stripe des terminaux appartient au compte de l'ancienne
+        // société : le premier terminal sur le nouveau compte en crée une
+        if ($nouvelleSociete !== null && (int) $nouvelleSociete !== $fiche->societe_id) {
+            $donnees['stripe_location_id'] = null;
+        }
+        $fiche->update($donnees);
 
         return new CliniqueResource($fiche->load(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'employes.congesAVenir', 'employes.cliniques', 'employes.user.specialites', 'services', 'especes']));
     }

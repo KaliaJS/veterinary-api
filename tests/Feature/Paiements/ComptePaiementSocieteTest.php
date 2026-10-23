@@ -225,6 +225,38 @@ class ComptePaiementSocieteTest extends TestCase
         $this->assertSame(3000, $this->clinique->refresh()->acompteExigible());
     }
 
+    public function test_un_paiement_reste_sur_le_compte_qui_l_a_recu(): void
+    {
+        $this->clinique->societe->update(['stripe_compte_id' => 'acct_deux_rives', 'paiements_actifs' => true]);
+        $autre = Societe::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'stripe_compte_id' => 'acct_autre', 'paiements_actifs' => true]);
+        $facture = Facture::factory()->create(['clinique_id' => $this->clinique->id]);
+        FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => 120, 'quantite' => 1]);
+        $terminal = TerminalPaiement::query()->create(['clinique_id' => $this->clinique->id, 'stripe_reader_id' => 'tmr_1', 'libelle' => 'Comptoir', 'modele' => 'bbpos_wisepos_e']);
+        $paiement = Paiement::query()->findOrFail($this->postJson("/api/v1/facturation/factures/{$facture->id}/paiements", ['moyen' => 'tpe', 'terminal_id' => $terminal->id], $this->enTetes($this->jeton))
+            ->assertCreated()->json('data.id'));
+        $this->assertSame('acct_deux_rives', $paiement->stripe_compte_id);
+
+        // Les terminaux encaissent sur le compte de la société : ils se retirent avant d'en changer
+        $this->administrateur();
+        $this->patchJson("/api/v1/organisation/cliniques/{$this->clinique->id}", ['societe_id' => $autre->id], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('societe_id');
+        $terminal->delete();
+        $this->clinique->update(['stripe_location_id' => 'tml_ancien_compte']);
+        $this->patchJson("/api/v1/organisation/cliniques/{$this->clinique->id}", ['societe_id' => $autre->id], $this->enTetes($this->jeton))->assertOk();
+        $this->assertNull($this->clinique->refresh()->stripe_location_id);
+
+        // Un événement d'un autre compte n'agit pas sur le paiement
+        $this->webhookCompte('evt_autre', 'acct_autre', 'payment_intent.succeeded', ['id' => $paiement->stripe_payment_intent_id, 'status' => 'succeeded']);
+        $this->assertSame('en_attente', $paiement->refresh()->statut->value);
+
+        // Payée entre-temps en espèces : le paiement tardif est rendu par le compte qui l'a reçu
+        $facture->update(['statut' => 'payee', 'moyen_paiement' => 'cash', 'payee_le' => now()]);
+        $this->webhookCompte('evt_tardif', 'acct_deux_rives', 'payment_intent.succeeded', ['id' => $paiement->stripe_payment_intent_id, 'status' => 'succeeded']);
+        $this->assertSame('rembourse', $paiement->refresh()->statut->value);
+        $this->assertSame('acct_deux_rives', $this->stripe->comptesRembourses[$paiement->stripe_payment_intent_id]);
+    }
+
     public function test_le_telephone_passe_au_format_international(): void
     {
         $this->assertSame('+41216014242', ComptesPaiement::telephone('+41 21 601 42 42'));
@@ -232,6 +264,14 @@ class ComptePaiementSocieteTest extends TestCase
         $this->assertSame('+33142000000', ComptesPaiement::telephone('0033 1 42 00 00 00'));
         $this->assertNull(ComptesPaiement::telephone('pas de numéro'));
         $this->assertNull(ComptesPaiement::telephone(null));
+    }
+
+    /** @param  array<string, mixed>  $objet */
+    private function webhookCompte(string $id, string $compte, string $type, array $objet): void
+    {
+        $this->call('POST', '/api/v1/stripe/webhook', [], [], [], ['HTTP_STRIPE_SIGNATURE' => 'signature-valide', 'CONTENT_TYPE' => 'application/json'], json_encode([
+            'id' => $id, 'type' => $type, 'account' => $compte, 'data' => ['object' => $objet],
+        ]))->assertNoContent();
     }
 
     /** L'employé du jeton devient administrateur : le domaine organisation s'ouvre. */

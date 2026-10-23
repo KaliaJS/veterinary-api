@@ -19,7 +19,7 @@ class Paiement extends Model
     use AppartientAUneClinique;
 
     protected $fillable = [
-        'facture_id', 'clinique_id', 'moyen', 'montant', 'stripe_payment_intent_id',
+        'facture_id', 'clinique_id', 'moyen', 'montant', 'stripe_payment_intent_id', 'stripe_compte_id',
         'terminal_paiement_id', 'statut', 'erreur', 'url_twint', 'user_id', 'reussi_le',
     ];
 

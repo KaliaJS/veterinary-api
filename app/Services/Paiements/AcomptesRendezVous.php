@@ -57,7 +57,7 @@ class AcomptesRendezVous
             'clinique_id' => (string) $demande->clinique_id,
         ], 'acompte-'.$demande->id, ComptesPaiement::commissionEnLigne($demande->acompte_centimes));
 
-        $demande->update(['acompte_intention_id' => $intention['id']]);
+        $demande->update(['acompte_intention_id' => $intention['id'], 'acompte_stripe_compte_id' => $this->comptes->compteDe($demande->clinique_id)]);
 
         return [
             'client_secret' => $intention['client_secret'],
@@ -83,7 +83,7 @@ class AcomptesRendezVous
             if ($demande->statut !== StatutDemandeRendezVous::APayer || ! $demande->acompte_intention_id) {
                 return;
             }
-            if ($this->comptes->passerellePour($demande->clinique_id)->lireIntention($demande->acompte_intention_id)['statut'] !== 'succeeded') {
+            if ($this->comptes->passerellePourCompte($demande->acompte_stripe_compte_id, $demande->clinique_id)->lireIntention($demande->acompte_intention_id)['statut'] !== 'succeeded') {
                 return;
             }
 
@@ -104,9 +104,14 @@ class AcomptesRendezVous
     }
 
     /** Webhook `payment_intent.succeeded` d'un acompte. */
-    public function surPaiementReussi(string $intentionId): void
+    public function surPaiementReussi(string $intentionId, ?string $compte = null): void
     {
         $demande = DemandeRendezVous::withoutGlobalScopes()->where('acompte_intention_id', $intentionId)->first();
+
+        // Seulement depuis le compte qui a reçu l'acompte (23.10.2026)
+        if ($demande && $compte !== null && $demande->acompte_stripe_compte_id !== null && $demande->acompte_stripe_compte_id !== $compte) {
+            return;
+        }
 
         if ($demande) {
             $this->confirmer($demande);
@@ -133,7 +138,7 @@ class AcomptesRendezVous
             return false;
         }
 
-        $this->comptes->passerellePour($demande->clinique_id)->rembourser(
+        $this->comptes->passerellePourCompte($demande->acompte_stripe_compte_id, $demande->clinique_id)->rembourser(
             $demande->acompte_intention_id,
             'remboursement-acompte-'.$demande->id,
             $montant < $demande->acompte_centimes ? $montant : null,
@@ -234,7 +239,7 @@ class AcomptesRendezVous
     private function frais(DemandeRendezVous $demande): ?int
     {
         try {
-            return $demande->acompte_intention_id ? $this->comptes->passerellePour($demande->clinique_id)->fraisIntention($demande->acompte_intention_id) : null;
+            return $demande->acompte_intention_id ? $this->comptes->passerellePourCompte($demande->acompte_stripe_compte_id, $demande->clinique_id)->fraisIntention($demande->acompte_intention_id) : null;
         } catch (ErreurPaiement|ValidationException) {
             return null;
         }

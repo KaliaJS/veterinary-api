@@ -41,6 +41,7 @@ return new class extends Migration
             $table->string('jeton', 64)->nullable()->unique()->comment('Lien de suivi d’une demande sans compte, ou du retour d’un paiement');
             $table->unsignedInteger('acompte_centimes')->nullable()->comment('Acompte demandé pour réserver');
             $table->string('acompte_intention_id')->nullable()->unique()->comment('Intention de paiement Stripe de l’acompte');
+            $table->string('acompte_stripe_compte_id')->nullable()->comment('Compte Stripe de la société qui a reçu l’acompte (remboursement), 23.10.2026');
             $table->timestamp('acompte_paye_le')->nullable();
             $table->timestamp('acompte_rembourse_le')->nullable();
             $table->unsignedInteger('acompte_frais_centimes')->nullable()->comment('Frais du paiement retenus par le prestataire');

@@ -607,12 +607,6 @@ parameters:
 			path: app/Services/Alertes/AlertesClinique.php
 
 		-
-			message: '#^Parameter \#1 \$parties of method App\\Services\\Alertes\\AlertesClinique\:\:empreinte\(\) expects Illuminate\\Support\\Collection\<int, string\>, Illuminate\\Support\\Collection\<int, lowercase\-string&non\-falsy\-string&uppercase\-string\> given\.$#'
-			identifier: argument.type
-			count: 3
-			path: app/Services/Alertes/AlertesClinique.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>nom" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1

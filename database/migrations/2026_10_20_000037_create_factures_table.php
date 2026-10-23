@@ -38,6 +38,7 @@ return new class extends Migration
             $table->enum('moyen_paiement', array_column(MoyenPaiement::cases(), 'value'))->nullable()->comment('Null sur une facture payée : réglée entièrement par l’acompte');
             $table->decimal('acompte', 10, 2)->default(0)->comment('Acompte payé en ligne à la réservation du rendez-vous, déduit du total');
             $table->dateTime('payee_le')->nullable();
+            $table->foreignId('encaissee_par_id')->nullable()->comment('Qui a encaissé (caisse, terminal, vente comptoir), 23.10.2026')->constrained('users')->nullOnDelete();
             $table->boolean('stock_sorti')->default(false)->comment('Sortie de stock des lignes med déjà effectuée — évite le double décrément');
             $table->foreignId('cloture_caisse_id')->nullable()->constrained('clotures_caisse')->nullOnDelete();
             $table->foreignId('cree_par_id')->nullable()->constrained('users')->nullOnDelete();

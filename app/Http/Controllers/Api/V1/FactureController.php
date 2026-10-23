@@ -39,7 +39,7 @@ class FactureController extends Controller
         $factures = Facture::query()
             ->with(['lignes', 'decompte'])
             // Encaissée par Stripe (terminal, TWINT) : total vérifié, rien à rapprocher
-            ->withExists(['paiements as paye_par_stripe' => fn (Builder $requete) => $requete->where('statut', StatutPaiement::Reussi)])
+            ->withExists(['paiements as paye_par_stripe' => fn (Builder $requete) => $requete->whereIn('statut', StatutPaiement::encaisses())])
             ->when($request->enum('statut', StatutFacture::class), fn (Builder $requete, StatutFacture $statut) => $requete->where('statut', $statut))
             ->when($request->integer('patient_id'), fn (Builder $requete, int $patient) => $requete->where('patient_id', $patient))
             ->when($request->integer('clinique_id'), fn (Builder $requete, int $clinique) => $requete->where('clinique_id', $clinique))

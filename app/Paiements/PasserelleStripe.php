@@ -105,7 +105,8 @@ class PasserelleStripe implements PasserellePaiement
     public function rembourser(string $intentionId, string $cleIdempotence, ?int $centimes = null): void
     {
         $this->appel(fn () => $this->client->refunds->create(
-            array_filter(['payment_intent' => $intentionId, 'amount' => $centimes]),
+            // La commission de la plateforme n'est jamais rendue (décision du 23.10.2026)
+            [...array_filter(['payment_intent' => $intentionId, 'amount' => $centimes]), 'refund_application_fee' => false],
             $this->options(['idempotency_key' => $cleIdempotence]),
         ));
     }

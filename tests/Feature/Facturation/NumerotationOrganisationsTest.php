@@ -12,6 +12,7 @@ use App\Models\Devis;
 use App\Models\Facture;
 use App\Models\Ordonnance;
 use App\Models\Patient;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -55,6 +56,20 @@ class NumerotationOrganisationsTest extends TestCase
         $annee = now()->year;
         $this->assertSame([["FC-{$annee}-0001", "DV-{$annee}-001"], ["FC-{$annee}-0001", "DV-{$annee}-001"]], $numeros);
         $this->assertSame(2, Facture::withoutGlobalScopes()->where('numero', "FC-{$annee}-0001")->count());
+    }
+
+    public function test_la_nuit_du_nouvel_an_compte_dans_l_annee_de_la_clinique(): void
+    {
+        // 23 h 30 en UTC, déjà 0 h 30 le 1er janvier à Zurich
+        $this->travelTo(CarbonImmutable::parse('2026-12-31 23:30:00', 'UTC'));
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        $this->postJson('/api/v1/facturation/factures', [
+            'patient_name' => 'Rex',
+            'lignes' => [['libelle' => 'Urgence de nuit', 'prix_chf' => 180, 'type' => 'acte']],
+        ], $this->enTetes($jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.numero', 'FC-2027-0001');
     }
 
     /** @return array<string, array{class-string<Model>, bool}> */

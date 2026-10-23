@@ -100,7 +100,7 @@ class PaiementsCaisse
             return $paiement;
         }
 
-        $intention = $this->comptes->passerellePour($paiement->clinique_id)->lireIntention($paiement->stripe_payment_intent_id);
+        $intention = $this->comptes->passerellePourCompte($paiement->stripe_compte_id, $paiement->clinique_id)->lireIntention($paiement->stripe_payment_intent_id);
 
         return $this->appliquer($paiement, $intention['statut'], $intention['erreur']);
     }
@@ -116,7 +116,7 @@ class PaiementsCaisse
             return $paiement;
         }
 
-        $passerelle = $this->comptes->passerellePour($paiement->clinique_id);
+        $passerelle = $this->comptes->passerellePourCompte($paiement->stripe_compte_id, $paiement->clinique_id);
 
         if ($paiement->terminal) {
             try {
@@ -200,7 +200,7 @@ class PaiementsCaisse
     private function rendre(Paiement $paiement, string $raison): void
     {
         try {
-            $this->comptes->passerellePour($paiement->clinique_id)->rembourser($paiement->stripe_payment_intent_id, 'rendu-'.$paiement->id);
+            $this->comptes->passerellePourCompte($paiement->stripe_compte_id, $paiement->clinique_id)->rembourser($paiement->stripe_payment_intent_id, 'rendu-'.$paiement->id);
             $paiement->update(['statut' => StatutPaiement::Rembourse, 'erreur' => $raison]);
         } catch (ErreurPaiement $e) {
             report($e);
@@ -235,7 +235,7 @@ class PaiementsCaisse
             return null;
         }
 
-        if ($this->comptes->passerellePour($facture->clinique_id)->lireIntention($echec->stripe_payment_intent_id)['statut'] !== 'requires_payment_method') {
+        if ($this->comptes->passerellePourCompte($echec->stripe_compte_id, $facture->clinique_id)->lireIntention($echec->stripe_payment_intent_id)['statut'] !== 'requires_payment_method') {
             return null;
         }
 
@@ -277,6 +277,8 @@ class PaiementsCaisse
             'moyen' => $moyen,
             'montant' => $facture->resteAPayer(),
             'stripe_payment_intent_id' => $intentionId,
+            // Le compte qui reçoit : gardé pour le suivi et les remboursements
+            'stripe_compte_id' => $this->comptes->compteDe($facture->clinique_id),
             'statut' => StatutPaiement::EnAttente,
             'user_id' => $auteur?->id,
             ...$champs,
@@ -319,7 +321,7 @@ class PaiementsCaisse
     private function annulerIntentionSansEchec(Paiement $paiement): void
     {
         try {
-            $this->comptes->passerellePour($paiement->clinique_id)->annulerIntention($paiement->stripe_payment_intent_id);
+            $this->comptes->passerellePourCompte($paiement->stripe_compte_id, $paiement->clinique_id)->annulerIntention($paiement->stripe_payment_intent_id);
         } catch (ErreurPaiement) {
             // Rien à annuler côté Stripe
         }

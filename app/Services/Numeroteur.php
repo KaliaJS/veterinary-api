@@ -18,22 +18,29 @@ class Numeroteur
 {
     public function attribuer(PieceNumerotee $piece, ?Organisation $organisation = null): string
     {
-        $organisationId = $organisation?->id ?? app(ContexteClinique::class)->organisationId();
-        $annee = now()->year;
+        $contexte = app(ContexteClinique::class);
+        $organisationId = $organisation?->id ?? $contexte->organisationId();
+        // L'année de la clinique : la nuit du Nouvel An, pas celle de l'UTC
+        $annee = now($contexte->clinique()?->fuseau_horaire ?: 'Europe/Zurich')->year;
 
         return DB::transaction(function () use ($piece, $organisationId, $annee): string {
+            // La première pièce de l'année crée sa ligne sans course : deux
+            // premières en même temps trouvent la même, puis l'attendent
+            SequenceNumerotation::query()->insertOrIgnore([
+                'organisation_id' => $organisationId,
+                'piece' => $piece->value,
+                'annee' => $annee,
+                'prochain' => 1,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
             $sequence = SequenceNumerotation::query()
                 ->where('organisation_id', $organisationId)
                 ->where('piece', $piece)
                 ->where('annee', $annee)
                 ->lockForUpdate()
-                ->first();
-
-            $sequence ??= SequenceNumerotation::create([
-                'organisation_id' => $organisationId,
-                'piece' => $piece,
-                'annee' => $annee,
-            ]);
+                ->firstOrFail();
 
             $numero = $piece->formater($annee, $sequence->prochain);
 

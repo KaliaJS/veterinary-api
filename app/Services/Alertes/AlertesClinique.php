@@ -2,10 +2,12 @@
 
 namespace App\Services\Alertes;
 
+use App\Enums\StatutPaiement;
 use App\Enums\TypeAlerte;
 use App\Models\Clinique;
 use App\Models\Lot;
 use App\Models\Organisation;
+use App\Models\Paiement;
 use App\Models\Produit;
 use App\Services\Diagnostic\ConsommationDiagnostic;
 use App\Services\Transcription\ConsommationTranscription;
@@ -18,7 +20,9 @@ use Illuminate\Support\Collection;
  * sous leur seuil (stock de toutes les cliniques de l'organisation), lots
  * de la clinique périmés ou qui périment d'ici la fin du mois suivant.
  * Consommation (domaine organisation) : transcription et suggestions
- * diagnostiques à 80 % puis à 100 % de leur plafond. Chaque alerte a une
+ * diagnostiques à 80 % puis à 100 % de leur plafond. Paiement (domaine
+ * facturation) : paiements contestés, et remboursés chez Stripe depuis
+ * moins de 30 jours (la facture, elle, reste payée). Chaque alerte a une
  * clé qui change avec son contenu : une alerte vue redevient nouvelle
  * quand la situation change.
  *
@@ -32,12 +36,52 @@ class AlertesClinique
     ) {}
 
     /** @return list<Alerte> */
-    public function pour(Clinique $clinique, bool $stock, bool $consommation): array
+    public function pour(Clinique $clinique, bool $stock, bool $consommation, bool $paiement = false): array
     {
         return [
+            ...($paiement ? $this->paiements($clinique) : []),
             ...($stock ? $this->stock($clinique) : []),
             ...($consommation && $clinique->societe?->organisation ? $this->consommation($clinique->societe->organisation) : []),
         ];
+    }
+
+    /** @return list<Alerte> */
+    public function paiements(Clinique $clinique): array
+    {
+        $alertes = [];
+        $paiements = fn (StatutPaiement $statut) => Paiement::withoutGlobalScopes()
+            ->with(['facture' => fn ($requete) => $requete->withoutGlobalScopes()])
+            ->where('clinique_id', $clinique->id)
+            ->where('statut', $statut)
+            ->when($statut === StatutPaiement::Rembourse, fn ($requete) => $requete->where('updated_at', '>=', now()->subDays(30)))
+            ->orderByDesc('updated_at')
+            ->get();
+
+        $litiges = $paiements(StatutPaiement::Litige);
+        if ($litiges->isNotEmpty()) {
+            $alertes[] = $this->alerte(
+                TypeAlerte::Paiement,
+                'litiges:'.$this->empreinte($litiges->map(fn (Paiement $p) => (string) $p->id)),
+                'urgent',
+                $this->compte($litiges->count(), 'paiement contesté', 'paiements contestés'),
+                $this->noms($litiges->map(fn (Paiement $p) => $this->paiement($p))).'. Répondez depuis Réglages, Paiements, avant l’échéance de la banque.',
+                'reglages:paiements',
+            );
+        }
+
+        $rembourses = $paiements(StatutPaiement::Rembourse);
+        if ($rembourses->isNotEmpty()) {
+            $alertes[] = $this->alerte(
+                TypeAlerte::Paiement,
+                'rembourses:'.$this->empreinte($rembourses->map(fn (Paiement $p) => (string) $p->id)),
+                'warn',
+                $this->compte($rembourses->count(), 'paiement remboursé', 'paiements remboursés'),
+                $this->noms($rembourses->map(fn (Paiement $p) => $this->paiement($p))).'. La facture reste payée : corrigez-la si besoin.',
+                'facturation',
+            );
+        }
+
+        return $alertes;
     }
 
     /** @return list<Alerte> */
@@ -141,7 +185,7 @@ class AlertesClinique
         return ['cle' => $type->value.':'.$cle, 'type' => $type->value, 'niveau' => $niveau, 'titre' => $titre, 'detail' => $detail, 'cible' => $cible];
     }
 
-    /** @param  Collection<int, string>  $parties */
+    /** @param  Collection<int, covariant string>  $parties */
     private function empreinte(Collection $parties): string
     {
         return substr(md5($parties->implode('|')), 0, 12);
@@ -166,6 +210,11 @@ class AlertesClinique
         $numero = preg_match('/^lot\b/i', $lot->numero_lot) ? $lot->numero_lot : 'lot '.$lot->numero_lot;
 
         return ($lot->produit?->nom ?? 'Produit').', '.$numero.' ('.$lot->peremption_le->format('m.Y').')';
+    }
+
+    private function paiement(Paiement $paiement): string
+    {
+        return 'facture '.($paiement->facture->numero ?? '?').' ('.$this->chf((int) round((float) $paiement->montant * 100)).')';
     }
 
     private function chf(int $centimes): string

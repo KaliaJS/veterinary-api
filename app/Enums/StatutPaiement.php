@@ -22,4 +22,16 @@ enum StatutPaiement: string
     {
         return $this !== self::EnAttente;
     }
+
+    /** L'argent est passé par Stripe, même rendu ou contesté depuis. */
+    public function aEteEncaisse(): bool
+    {
+        return in_array($this, self::encaisses(), true);
+    }
+
+    /** @return list<self> */
+    public static function encaisses(): array
+    {
+        return [self::Reussi, self::Rembourse, self::Litige];
+    }
 }

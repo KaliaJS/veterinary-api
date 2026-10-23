@@ -3,6 +3,7 @@
 namespace Tests\Feature\Facturation;
 
 use App\Enums\ModePrescription;
+use App\Enums\MoyenPaiement;
 use App\Models\Clinique;
 use App\Models\Facture;
 use App\Models\FactureLigne;
@@ -10,7 +11,9 @@ use App\Models\MouvementStock;
 use App\Models\Prestation;
 use App\Models\Produit;
 use App\Models\Stock;
+use App\Services\EncaissementFacture;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -263,6 +266,29 @@ class EncaissementTest extends TestCase
         $this->postJson("/api/v1/facturation/factures/{$facture->id}/encaisser", [
             'moyen_paiement' => 'cash',
         ], $this->enTetes($this->jeton))->assertUnprocessable();
+    }
+
+    public function test_un_encaissement_parti_d_une_facture_perimee_ne_double_ni_le_paiement_ni_le_stock(): void
+    {
+        $facture = $this->factureDue();
+        $produit = $this->medicamentEnStock(5);
+        FactureLigne::factory()->create(['facture_id' => $facture->id, 'libelle' => $produit->nom, 'type' => 'med', 'produit_id' => $produit->id, 'prix_chf' => 24.9]);
+        // Lue par une seconde caisse avant que la première encaisse
+        $perimee = Facture::withoutGlobalScopes()->findOrFail($facture->id);
+
+        ['user' => $caissier, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/encaisser", ['moyen_paiement' => 'cash'], $this->enTetes($jeton))->assertOk();
+        $this->assertSame($caissier->id, $facture->fresh()->encaissee_par_id);
+
+        try {
+            app(EncaissementFacture::class)->encaisser($perimee, MoyenPaiement::Tpe, $caissier);
+            $this->fail('Une facture payée a été encaissée une seconde fois.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('facture', $e->errors());
+        }
+
+        $this->assertSame(4, $this->stockDe($produit));
+        $this->assertSame('cash', $facture->fresh()->moyen_paiement->value);
     }
 
     public function test_payer_plus_tard_sort_le_stock_et_laisse_la_facture_due(): void

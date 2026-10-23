@@ -32,7 +32,7 @@ class DemandeRendezVous extends Model
         'symptomes', 'souhait', 'debut_souhaite', 'teleconsultation', 'mode',
         'duree_minutes', 'statut', 'creneaux_proposes', 'motif_refus', 'message',
         'rendez_vous_id', 'traitee_le', 'jeton', 'acompte_centimes',
-        'acompte_intention_id', 'acompte_paye_le', 'acompte_rembourse_le',
+        'acompte_intention_id', 'acompte_stripe_compte_id', 'acompte_paye_le', 'acompte_rembourse_le',
         'acompte_frais_centimes', 'acompte_rembourse_centimes', 'annulation_demandee_le',
         'annulation_motif', 'annulation_decision', 'annulation_traitee_le',
     ];

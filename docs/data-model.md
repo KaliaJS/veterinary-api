@@ -251,7 +251,7 @@ Ce qu'une clinique propose, coché par l'administrateur (écran Organisation, `P
 - **Calendrier de la prise de rendez-vous** : `GET public/cliniques/{id}/disponibilites?semaine=AAAA-MM-JJ` donne une semaine (lundi à dimanche) : d'aujourd'hui à un mois plus tard (les autres jours `visible` à faux), chaque jour ouvert avec toutes ses heures au pas d'un rendez-vous (20 minutes, pause exclue), libres ou non ; le passé n'est jamais libre.
 - **`demandes_rendez_vous.urgence`** et **`symptomes`** : le propriétaire dit si c'est urgent ; une urgence exige ce qu'il voit (symptômes), gardés seulement pour une urgence.
 - **`cliniques.urgences_a_valider`** (vrai par défaut) : une urgence prise en ligne attend toujours la réponse de la clinique, qui peut choisir de les réserver aussitôt comme le reste.
-- **Acompte pour réserver** (`cliniques.acompte_centimes`, null : aucun) : contre les rendez-vous non honorés, seulement pour une réservation directe (jamais pour une urgence ni une demande à valider). La demande naît `a_payer` avec un jeton ; le client paie dans le parcours (Payment Element de Stripe : `paiement.client_secret`), puis `POST public/demandes/{jeton}/paiement` (ou le webhook `payment_intent.succeeded`, métadonnée `objet = acompte_rdv`) vérifie le paiement et réserve l'heure ; prise entre-temps, la demande passe `a_traiter` avec l'acompte. Champs de la demande : `acompte_centimes`, `acompte_intention_id`, `acompte_paye_le`, `acompte_frais_centimes` (frais du paiement, relevés au paiement), `acompte_rembourse_le`, `acompte_rembourse_centimes`. Le rendez-vous porte le drapeau `acompte` ; sa facture le déduit (`factures.acompte`, reste à payer = total moins l'acompte ; la caisse n'encaisse que le reste, une facture réglée entièrement par l'acompte se solde sans moyen de paiement ; clôture et statistiques comptent par moyen ce qui est passé à la caisse). **Jamais rendu d'office** (23.10.2026, sinon réserver puis annuler ne coûte rien) : le client n'annule plus en ligne (`peut_annuler` faux), il demande l'annulation (`POST espace/rendez-vous/{id}/demander-annulation`, un mot facultatif : `annulation_demandee_le`, `annulation_motif`, drapeau `annulation` au planning). La clinique la voit dans la cloche et décide (`POST demandes/{id}/annulation`, `annulation_decision` : `complet` rendu en entier, `hors_frais` rendu moins les frais du paiement, `sans` gardé, `refusee` rendez-vous maintenu ; `annulation_traitee_le`) ; le propriétaire reçoit la réponse par e-mail. Quand la clinique annule elle-même, elle choisit de même (`acompte` dans l'annulation, `complet` par défaut). Une demande refusée par la clinique (heure prise pendant le paiement) rend tout. Non venu : gardé. L'acompte se paie sur le compte de paiement de la société (Connect, ci-dessous : `paiement.compte` pour Stripe.js), avec la commission des paiements en ligne ; les frais relevés au paiement comprennent ceux de Stripe et la commission. Il n'est demandé que si ce compte encaisse (`Clinique::acompteExigible`).
+- **Acompte pour réserver** (`cliniques.acompte_centimes`, null : aucun) : contre les rendez-vous non honorés, seulement pour une réservation directe (jamais pour une urgence ni une demande à valider). La demande naît `a_payer` avec un jeton ; le client paie dans le parcours (Payment Element de Stripe : `paiement.client_secret`), puis `POST public/demandes/{jeton}/paiement` (ou le webhook `payment_intent.succeeded`, métadonnée `objet = acompte_rdv`) vérifie le paiement et réserve l'heure ; prise entre-temps, la demande passe `a_traiter` avec l'acompte. Champs de la demande : `acompte_centimes`, `acompte_intention_id`, `acompte_stripe_compte_id` (compte qui a reçu l'acompte, où il se rend), `acompte_paye_le`, `acompte_frais_centimes` (frais du paiement, relevés au paiement), `acompte_rembourse_le`, `acompte_rembourse_centimes`. Le rendez-vous porte le drapeau `acompte` ; sa facture le déduit (`factures.acompte`, reste à payer = total moins l'acompte ; la caisse n'encaisse que le reste, une facture réglée entièrement par l'acompte se solde sans moyen de paiement ; clôture et statistiques comptent par moyen ce qui est passé à la caisse). **Jamais rendu d'office** (23.10.2026, sinon réserver puis annuler ne coûte rien) : le client n'annule plus en ligne (`peut_annuler` faux), il demande l'annulation (`POST espace/rendez-vous/{id}/demander-annulation`, un mot facultatif : `annulation_demandee_le`, `annulation_motif`, drapeau `annulation` au planning). La clinique la voit dans la cloche et décide (`POST demandes/{id}/annulation`, `annulation_decision` : `complet` rendu en entier, `hors_frais` rendu moins les frais du paiement, `sans` gardé, `refusee` rendez-vous maintenu ; `annulation_traitee_le`) ; le propriétaire reçoit la réponse par e-mail. Quand la clinique annule elle-même, elle choisit de même (`acompte` dans l'annulation, `complet` par défaut). Une demande refusée par la clinique (heure prise pendant le paiement) rend tout. Non venu : gardé. L'acompte se paie sur le compte de paiement de la société (Connect, ci-dessous : `paiement.compte` pour Stripe.js), avec la commission des paiements en ligne ; les frais relevés au paiement comprennent ceux de Stripe et la commission. Il n'est demandé que si ce compte encaisse (`Clinique::acompteExigible`).
 - **`cliniques.rdv_a_valider`** (faux par défaut) : sans lui, une demande en ligne réserve aussitôt l'heure choisie si elle est encore libre (le rendez-vous est créé, la demande `acceptee` en mode `confirme`, le propriétaire reçoit la confirmation) ; prise entre-temps, le dépôt répond 422 sur `debut_souhaite`. Avec lui, la clinique valide chaque demande (mode `valider`, réponse ci-dessous). Un report demandé depuis un rendez-vous reste toujours à traiter.
 - **Réponse à une demande de rendez-vous** (`demandes_rendez_vous.statut`, enum `StatutDemandeRendezVous`) : `a_traiter`, puis `acceptee` (le rendez-vous est au planning, `rendez_vous_id`), `proposee` (un à trois débuts libres dans `creneaux_proposes`, le propriétaire en choisit un, ce qui l'accepte) ou `refusee` (`motif_refus`, enum `MotifRefusDemande`) ; `message` est le mot de la clinique, `traitee_le` l'heure de la réponse. Une demande traitée n'est plus supprimée. Elle garde l'heure choisie dans le calendrier (`debut_souhaite`, UTC) et la vidéo (`teleconsultation`) ; accepter sans heure prend celle-ci, sur une ligne libre (consultation d'abord). `user_id` : le compte qui l'a déposée ; sans compte, `jeton` (48 caractères) donne le lien de suivi `/demande/{jeton}` (`GET public/demandes/{jeton}`, `POST …/choisir`). Le propriétaire reçoit un e-mail au dépôt et à chaque réponse (accusé, confirmation, horaires proposés, refus). Côté clinique : `GET demandes` (ouvertes et traitées du jour), `POST demandes/{id}/placer` (sans corps : l'heure demandée), `/proposer`, `/refuser`. Côté espace : `GET espace/demandes`, `POST espace/demandes/{id}/choisir` ; « Mes rendez-vous » compte aussi ceux nés de ses demandes acceptées (l'animal du compte n'est pas forcément une fiche de la clinique).
 - **`specialites_veterinaire`** (`user_id`, `specialite`) : spécialités d'un vétérinaire (enum `Specialite`, avec mots-clés de recherche : « hanche » mène à l'orthopédie), sur **son compte** : il les déclare lui-même avec son GLN (`GET`/`PUT /auth/profil-veterinaire`, Réglages › Profil), et elles le suivent dans toutes ses cliniques et organisations. Le GLN est cherché dans MedReg au nom du compte (`users.gln_verifie_le` : trouvé au registre) ; un GLN d'un autre compte est refusé. Celles d'une clinique se déduisent de ses vétérinaires affectés.
@@ -910,8 +910,9 @@ caisse.
 | `moyen` | enum | `tpe` \| `twint` |
 | `montant` | decimal | Total TTC au lancement |
 | `stripe_payment_intent_id` | string unique | Intention Stripe (CHF, `allowed_payment_method_types`) |
+| `stripe_compte_id` | string nullable | Compte de la société qui a reçu le paiement (23.10.2026) : suivi et remboursement s'y font toujours, même si la clinique change de société |
 | `terminal_paiement_id` | FK nullable | Terminal choisi (carte) |
-| `statut` | enum | `en_attente` → `reussi` \| `echoue` \| `annule` |
+| `statut` | enum | `en_attente` → `reussi` \| `echoue` \| `annule` ; puis `rembourse` \| `litige` (23.10.2026) |
 | `erreur` | string | Message lisible (refus, terminal hors ligne…) |
 | `url_twint` | text | Page TWINT de Stripe, affichée en QR à la caisse |
 
@@ -925,14 +926,28 @@ caisse.
   redirection en QR, le client la scanne.
 - **Issue** : webhook `POST /api/v1/stripe/webhook` (signé ;
   `payment_intent.succeeded|payment_failed|canceled`,
-  `terminal.reader.action_failed`), dédupliqué par id dans
-  `evenements_stripe` ; une intention inconnue est ignorée. La caisse
+  `terminal.reader.action_failed`, `charge.refunded`,
+  `charge.dispute.created|closed`), dédupliqué par id dans
+  `evenements_stripe` ; une intention inconnue est ignorée, comme
+  l'événement d'un autre compte que `stripe_compte_id`. La caisse
   interroge aussi `GET /facturation/paiements/{id}` (filet sans
   webhook). Réussie, la tentative encaisse la facture une seule fois
   (verrou) — stock et statut comme l'encaissement manuel.
+- **Remboursements et litiges** (23.10.2026) : faits chez Stripe (composant
+  intégré, droit `rembourser`, ou banque du client). Rendu en entier, le
+  paiement passe `rembourse` (en partie : noté dans `erreur`) ; contesté,
+  `litige`, puis `reussi` si la clinique gagne, `rembourse` si elle perd.
+  La facture reste payée (et `paye_par_stripe`) : la clinique la corrige
+  si besoin. Alerte de la famille paiement à la facturation, et e-mail
+  immédiat sur un litige (`PaiementConteste`, échéance de la banque).
+  **La commission de la plateforme n'est jamais rendue** : remboursements
+  de l'API avec `refund_application_fee` faux, et Stripe ne la rend pas
+  sur un paiement direct remboursé par le compte ; litiges et pertes
+  restent au compte de la société (`losses_collector` : `stripe`).
 - **Terminaux** : appairage par le code du lecteur ; la clinique reçoit
   sa *location* Stripe (`cliniques.stripe_location_id`) au premier, sur
-  le compte de sa société.
+  le compte de sa société. Changer la clinique de société est refusé tant
+  qu'elle a des terminaux (ils encaissent sur l'ancien compte).
 - **Clôture** : la liste des factures expose `paye_par_stripe` ; les
   totaux carte / TWINT encaissés par Stripe sont vérifiés d'office.
 - **Compte de paiement de la société** (Stripe Connect, 23.10.2026) :
@@ -1208,13 +1223,15 @@ Calculées à la demande (`AlertesClinique`), jamais stockées. Stock
 cliniques de l'organisation), lots de la clinique périmés ou qui périment
 d'ici la fin du mois suivant. Consommation (domaine organisation) :
 transcription et suggestions diagnostiques à 80 % puis à 100 % du
-plafond. `GET alertes` (avec `lue`), `POST alertes/lues` ; chaque clé
+plafond. Paiement (domaine facturation) : paiements en litige, et
+remboursés chez Stripe depuis moins de 30 jours. `GET alertes` (avec `lue`), `POST alertes/lues` ; chaque clé
 change avec son contenu, une alerte vue redevient nouvelle quand la
 situation change (`employes.alertes_lues`). E-mails par famille,
 coupables dans Réglages, Notifications (`employes.alertes_email_coupees`,
 `GET|PUT alertes/reglages`) : point du stock chaque matin à 7 h
 (`alertes:stock`, aux personnes de la clinique qui ont le domaine stocks),
-plafonds au franchissement (administrateurs).
+plafonds au franchissement (administrateurs), litige dès son ouverture
+(facturation, `DestinatairesAlertes`).
 
 ### Suggestion diagnostique de l'IA (23.10.2026)
 

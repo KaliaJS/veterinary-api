@@ -2,15 +2,19 @@
 
 namespace Tests\Feature\Facturation;
 
+use App\Auth\RolesParDefaut;
 use App\Enums\StatutFacture;
+use App\Mail\PaiementConteste;
 use App\Models\Clinique;
 use App\Models\Facture;
 use App\Models\FactureLigne;
 use App\Models\Paiement;
+use App\Models\Role;
 use App\Models\TerminalPaiement;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Testing\TestResponse;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserellePaiementFactice;
@@ -245,6 +249,61 @@ class PaiementStripeTest extends TestCase
         $this->webhook($this->evenement('evt_tardif', 'payment_intent.succeeded', ['id' => $intention, 'status' => 'succeeded']))->assertNoContent();
         $this->assertSame('rembourse', $tardif->refresh()->statut->value);
         $this->assertContains($intention, $this->stripe->remboursements);
+    }
+
+    public function test_un_remboursement_et_un_litige_chez_stripe_suivent_le_paiement_et_alertent_la_facturation(): void
+    {
+        Mail::fake();
+        $rendu = Paiement::query()->findOrFail($this->payerParTerminal($this->factureDue(120)));
+        $conteste = Paiement::query()->findOrFail($this->payerParTerminal($this->factureDue(80)));
+        foreach ([$rendu, $conteste] as $i => $paiement) {
+            $this->webhook($this->evenement('evt_ok_'.$i, 'payment_intent.succeeded', ['id' => $paiement->stripe_payment_intent_id, 'status' => 'succeeded']))->assertNoContent();
+        }
+
+        // Rendu en partie : noté, le paiement reste réussi ; en entier : remboursé
+        $this->webhook($this->evenement('evt_r1', 'charge.refunded', ['payment_intent' => $rendu->stripe_payment_intent_id, 'refunded' => false, 'amount_refunded' => 2000]))->assertNoContent();
+        $this->assertSame(['reussi', 'Remboursé en partie : CHF 20.00.'], [$rendu->refresh()->statut->value, $rendu->erreur]);
+        $this->webhook($this->evenement('evt_r2', 'charge.refunded', ['payment_intent' => $rendu->stripe_payment_intent_id, 'refunded' => true, 'amount_refunded' => 12000]))->assertNoContent();
+        $this->assertSame('rembourse', $rendu->refresh()->statut->value);
+        // La facture reste payée, et payée par Stripe
+        $this->assertSame(StatutFacture::Payee, $rendu->facture->refresh()->statut);
+
+        // Contesté : en litige, et la facturation est prévenue tout de suite
+        $this->webhook($this->evenement('evt_l1', 'charge.dispute.created', [
+            'payment_intent' => $conteste->stripe_payment_intent_id, 'reason' => 'fraudulent', 'evidence_details' => ['due_by' => now()->addDays(7)->timestamp],
+        ]))->assertNoContent();
+        $this->assertSame('litige', $conteste->refresh()->statut->value);
+        Mail::assertSent(PaiementConteste::class, fn (PaiementConteste $mail) => $mail->paiement->is($conteste) && $mail->echeance !== null);
+
+        $alertes = collect($this->getJson('/api/v1/alertes', $this->enTetes($this->jeton))->assertOk()->json('data.alertes'))->where('type', 'paiement');
+        $this->assertSame(['1 paiement contesté', '1 paiement remboursé'], $alertes->pluck('titre')->all());
+        $this->assertSame(['urgent', 'warn'], $alertes->pluck('niveau')->all());
+
+        // Gagné : de nouveau réussi ; perdu : remboursé
+        $this->webhook($this->evenement('evt_l2', 'charge.dispute.closed', ['payment_intent' => $conteste->stripe_payment_intent_id, 'status' => 'won']))->assertNoContent();
+        $this->assertSame('reussi', $conteste->refresh()->statut->value);
+        $this->webhook($this->evenement('evt_l3', 'charge.dispute.created', ['payment_intent' => $conteste->stripe_payment_intent_id]))->assertNoContent();
+        $this->webhook($this->evenement('evt_l4', 'charge.dispute.closed', ['payment_intent' => $conteste->stripe_payment_intent_id, 'status' => 'lost']))->assertNoContent();
+        $this->assertSame('rembourse', $conteste->refresh()->statut->value);
+
+        // Les factures restent comptées comme payées par Stripe
+        $this->getJson('/api/v1/facturation/factures', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.0.paye_par_stripe', true)
+            ->assertJsonPath('data.1.paye_par_stripe', true);
+    }
+
+    public function test_les_alertes_de_paiement_restent_a_la_facturation(): void
+    {
+        $paiement = Paiement::query()->findOrFail($this->payerParTerminal($this->factureDue(50)));
+        $paiement->update(['statut' => 'litige']);
+
+        ['employe' => $assistant, 'jeton' => $sansFacturation] = $this->employeAvecJeton($this->clinique);
+        $assistant->update(['role_id' => Role::withoutGlobalScope('organisation')
+            ->where('organisation_id', $this->clinique->societe->organisation_id)
+            ->where('nom', RolesParDefaut::ASSISTANT)
+            ->value('id')]);
+        $this->assertSame([], collect($this->getJson('/api/v1/alertes', $this->enTetes($sansFacturation))->assertOk()->json('data.alertes'))->where('type', 'paiement')->all());
     }
 
     private function factureDue(float $montant): Facture
