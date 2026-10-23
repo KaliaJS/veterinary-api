@@ -42,7 +42,7 @@ class VaccinationResource extends JsonResource
             'veterinaire' => $this->whenLoaded('employe', fn () => $this->employe?->nom),
             'injectee_le' => $this->injectee_le?->toDateString(),
             'echeance_le' => $this->echeance_le?->toDateString(),
-            'jours' => $this->echeance_le ? (int) today()->diffInDays($this->echeance_le, false) : null,
+            'jours' => $this->echeance_le ? (int) aujourdhui()->diffInDays($this->echeance_le, false) : null,
         ];
     }
 }

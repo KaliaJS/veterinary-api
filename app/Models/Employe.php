@@ -149,7 +149,7 @@ class Employe extends Model
             ->withoutGlobalScope('clinique')
             ->where('type', TypeAbsence::Conge)
             ->where('statut', StatutAbsence::Validee)
-            ->whereDate('fin_le', '>=', today());
+            ->whereDate('fin_le', '>=', aujourdhui());
     }
 
     /**
@@ -163,7 +163,7 @@ class Employe extends Model
     {
         $planifies = (int) $this->congesAVenir
             ->sum(function (Absence $absence): int {
-                $depart = $absence->debut_le->greaterThan(today()) ? $absence->debut_le : today();
+                $depart = $absence->debut_le->greaterThan(aujourdhui()) ? $absence->debut_le : aujourdhui();
 
                 return (int) $depart->diffInDays($absence->fin_le) + 1;
             });

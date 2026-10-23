@@ -112,7 +112,7 @@ final class InscriptionClinique
                     ->value('id'),
                 'taux' => 100,
                 'contrat_statut' => StatutContrat::Signe,
-                'entree_le' => today(),
+                'entree_le' => aujourdhui(),
                 'email' => $user->email,
             ]));
             $employe->cliniques()->attach($clinique->id);

@@ -29,11 +29,9 @@ class RotationGardes
             return [];
         }
 
-        $premierSamedi = CarbonImmutable::today()->next(CarbonImmutable::SATURDAY);
-
-        if (CarbonImmutable::today()->isSaturday()) {
-            $premierSamedi = CarbonImmutable::today();
-        }
+        // Le jour de la clinique, immuable : la boucle ajoute des semaines
+        $aujourdhui = aujourdhui()->toImmutable();
+        $premierSamedi = $aujourdhui->isSaturday() ? $aujourdhui : $aujourdhui->next(CarbonImmutable::SATURDAY);
 
         $reattributions = GardeWeekend::query()
             ->whereDate('samedi_le', '>=', $premierSamedi)

@@ -20,7 +20,7 @@ class ModifierFichePubliqueRequest extends FormRequest
     /** @return array<string, mixed> */
     public function rules(): array
     {
-        $annee = ['nullable', 'integer', 'min:1950', 'max:'.(now()->year + 6)];
+        $annee = ['nullable', 'integer', 'min:1950', 'max:'.(aujourdhui()->year + 6)];
 
         return [
             'presentation' => ['nullable', 'string', 'max:600'],

@@ -77,7 +77,7 @@ class Embauche
                 'contrat' => $donnees['contrat'] ?? 'CDI',
                 'contrat_statut' => $donnees['contrat_statut'],
                 'salaire_mensuel' => $donnees['salaire_mensuel'] ?? null,
-                'entree_le' => $donnees['entree_le'] ?? today(),
+                'entree_le' => $donnees['entree_le'] ?? aujourdhui(),
                 'tel' => $donnees['tel'] ?? null,
                 'email' => $donnees['email'] ?? $compte->email,
                 'conges_droit' => $donnees['conges_droit'] ?? 25,

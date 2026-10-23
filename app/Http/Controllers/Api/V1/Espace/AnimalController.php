@@ -78,11 +78,11 @@ class AnimalController extends Controller
                 'sexe' => $donnees['sexe'],
                 'ne_le' => $donnees['ne_le'] ?? null,
                 'puce' => isset($donnees['puce']) ? NumeroPuce::formater($donnees['puce']) : null,
-                'client_depuis' => now()->year,
+                'client_depuis' => aujourdhui()->year,
             ]);
 
             if (isset($donnees['poids_kg'])) {
-                $animal->pesees()->create(['poids_kg' => $donnees['poids_kg'], 'pesee_le' => today()]);
+                $animal->pesees()->create(['poids_kg' => $donnees['poids_kg'], 'pesee_le' => aujourdhui()]);
             }
 
             return $animal;

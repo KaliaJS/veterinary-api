@@ -70,7 +70,7 @@ class GardeEquipe
             ->where('organisation_id', $employe->organisation_id)
             ->whereKeyNot($employe->id)
             ->where('acces_suspendu', false)
-            ->where(fn ($q) => $q->whereNull('fin_contrat_le')->orWhereDate('fin_contrat_le', '>=', today()))
+            ->where(fn ($q) => $q->whereNull('fin_contrat_le')->orWhereDate('fin_contrat_le', '>=', aujourdhui()))
             ->with('role', 'derogations')
             ->get()
             ->contains(fn (Employe $autre): bool => in_array(DomainePermission::Organisation->value, $this->calculateur->pour($autre), true));

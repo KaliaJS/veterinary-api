@@ -154,7 +154,7 @@ class FinConsultationController extends Controller
                     'numero' => $this->numeroteur->attribuer(PieceNumerotee::Ordonnance),
                     'patient_id' => $patient->id,
                     'employe_id' => app(ContexteClinique::class)->employe()->id,
-                    'signee_le' => today(),
+                    'signee_le' => aujourdhui(),
                     'renouvellements' => 0,
                     'statut' => StatutOrdonnance::Active,
                 ]);
@@ -241,7 +241,7 @@ class FinConsultationController extends Controller
             'marque' => $vaccination['marque'] ?? null,
             'valences' => $produit?->valences->pluck('code')->all() ?: null,
             'lot' => $vaccination['lot'] ?? null,
-            'injectee_le' => today(),
+            'injectee_le' => aujourdhui(),
             'echeance_le' => $vaccination['echeance_le'] ?? null,
             'employe_id' => app(ContexteClinique::class)->employe()?->id,
         ]);

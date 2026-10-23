@@ -7,6 +7,7 @@ use App\Auth\SousContexteClinique;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\JetonApi;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -53,5 +54,18 @@ class ContexteCliniqueTest extends TestCase
 
         $this->getJson('/api/v1/patients', $this->enTetes($autre->plainTextToken))->assertForbidden();
         $this->assertNotSame($ailleurs->societe->organisation_id, Employe::withoutGlobalScopes()->findOrFail($employe->id)->organisation_id);
+    }
+
+    public function test_le_jour_est_celui_du_calendrier_de_la_clinique(): void
+    {
+        // 23 h 30 en UTC : déjà le lendemain à Zurich
+        $this->travelTo(CarbonImmutable::parse('2026-10-23 23:30:00', 'UTC'));
+        $this->assertSame('2026-10-23', today()->toDateString());
+        $this->assertSame('2026-10-24', aujourdhui()->toDateString());
+
+        // Une clinique d'un autre fuseau garde le sien
+        $this->assertSame('2026-10-23', aujourdhui(Clinique::factory()->create(['fuseau_horaire' => 'America/New_York']))->toDateString());
+        // Minuit en UTC, comme les dates de la base
+        $this->assertSame('00:00:00', aujourdhui()->format('H:i:s'));
     }
 }

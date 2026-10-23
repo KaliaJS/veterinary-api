@@ -69,7 +69,7 @@ class AppliquerContexteClinique
         }
 
         // Fin de contrat passée : l'accès se ferme de lui-même (23.10.2026)
-        if ($employe->fin_contrat_le !== null && $employe->fin_contrat_le->lt(today())) {
+        if ($employe->fin_contrat_le !== null && $employe->fin_contrat_le->lt(aujourdhui($jeton->clinique))) {
             abort(403, 'Contrat terminé : l’accès à la clinique est fermé.');
         }
 

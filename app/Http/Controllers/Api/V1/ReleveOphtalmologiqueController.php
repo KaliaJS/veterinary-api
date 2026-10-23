@@ -39,7 +39,7 @@ class ReleveOphtalmologiqueController extends Controller
 
         $releve = $patient->relevesOphtalmologiques()->create([
             ...$donnees,
-            'releve_le' => $donnees['releve_le'] ?? today()->toDateString(),
+            'releve_le' => $donnees['releve_le'] ?? aujourdhui()->toDateString(),
         ]);
 
         return new ReleveOphtalmologiqueResource($releve);

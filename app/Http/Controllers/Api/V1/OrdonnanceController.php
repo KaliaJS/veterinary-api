@@ -72,7 +72,7 @@ class OrdonnanceController extends Controller
                 'numero' => $this->numeroteur->attribuer(PieceNumerotee::Ordonnance),
                 'patient_id' => $donnees['patient_id'],
                 'employe_id' => $contexte->employe()->id,
-                'signee_le' => today(),
+                'signee_le' => aujourdhui(),
                 'renouvellements' => $donnees['renouvellements'] ?? 0,
                 'statut' => StatutOrdonnance::Active,
                 'note' => $donnees['note'] ?? null,

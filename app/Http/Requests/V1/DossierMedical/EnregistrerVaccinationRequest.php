@@ -20,7 +20,7 @@ class EnregistrerVaccinationRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $this->mergeIfMissing(['injectee_le' => today()->toDateString()]);
+        $this->mergeIfMissing(['injectee_le' => aujourdhui()->toDateString()]);
         if ($this->filled('gtin')) {
             $this->merge(['gtin' => preg_replace('/\D/', '', (string) $this->input('gtin'))]);
         }

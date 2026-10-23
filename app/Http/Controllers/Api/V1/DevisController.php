@@ -36,12 +36,12 @@ class DevisController extends Controller
             ->with(['lignes', 'patient.client'])
             ->when($statut === StatutDevis::EXPIRE, fn (Builder $requete) => $requete
                 ->where('statut', StatutDevis::Envoye)
-                ->whereDate('valide_jusquau', '<', today()))
+                ->whereDate('valide_jusquau', '<', aujourdhui()))
             ->when($statut === StatutDevis::Envoye->value, fn (Builder $requete) => $requete
                 ->where('statut', StatutDevis::Envoye)
                 ->where(fn (Builder $clause) => $clause
                     ->whereNull('valide_jusquau')
-                    ->orWhereDate('valide_jusquau', '>=', today())))
+                    ->orWhereDate('valide_jusquau', '>=', aujourdhui())))
             ->when(in_array($statut, [StatutDevis::Brouillon->value, StatutDevis::Accepte->value, StatutDevis::Refuse->value], true),
                 fn (Builder $requete) => $requete->where('statut', $statut))
             ->when($request->integer('patient_id'), fn (Builder $requete, int $patient) => $requete->where('patient_id', $patient))
@@ -68,7 +68,7 @@ class DevisController extends Controller
         $devis = DB::transaction(function () use ($donnees): Devis {
             $devis = Devis::create([
                 'numero' => $this->numeroteur->attribuer(PieceNumerotee::Devis),
-                'emis_le' => today(),
+                'emis_le' => aujourdhui(),
                 'patient_id' => $donnees['patient_id'],
                 'motif' => $donnees['motif'] ?? 'Devis de soins',
                 'remise_pct' => $donnees['remise_pct'] ?? 0,

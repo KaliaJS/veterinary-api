@@ -156,7 +156,7 @@ class PatientController extends Controller
     /** Un rappel vaccinal « proche » : échéance dans les 30 jours (ou passée). */
     private function horizonRappels(): Carbon
     {
-        return today()->addDays(30);
+        return aujourdhui()->addDays(30);
     }
 
     public function store(EnregistrerPatientRequest $request): PatientResource
@@ -171,7 +171,7 @@ class PatientController extends Controller
 
         $patient = Patient::create([
             ...$donnees,
-            'client_depuis' => $donnees['client_depuis'] ?? now()->year,
+            'client_depuis' => $donnees['client_depuis'] ?? aujourdhui()->year,
         ]);
 
         return new PatientResource($patient->load('client'));

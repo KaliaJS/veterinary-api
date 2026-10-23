@@ -156,7 +156,7 @@ class OrganisationRoleController extends Controller
             $administrateurs = Employe::withoutGlobalScopes()
                 ->where('organisation_id', $this->organisationId())
                 ->where('acces_suspendu', false)
-                ->where(fn ($q) => $q->whereNull('fin_contrat_le')->orWhereDate('fin_contrat_le', '>=', today()))
+                ->where(fn ($q) => $q->whereNull('fin_contrat_le')->orWhereDate('fin_contrat_le', '>=', aujourdhui()))
                 ->with('role', 'derogations')
                 ->get()
                 ->filter(fn (Employe $employe): bool => in_array(DomainePermission::Organisation->value, $this->calculateur->pour($employe), true));

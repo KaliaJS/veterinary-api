@@ -116,7 +116,7 @@ class Devis extends Model
     {
         return $this->statut === StatutDevis::Envoye
             && $this->valide_jusquau !== null
-            && $this->valide_jusquau->isBefore(today());
+            && $this->valide_jusquau->isBefore(aujourdhui());
     }
 
     public function statutEffectif(): string

@@ -114,7 +114,7 @@ class AccueilProprietaire
             return new Collection;
         }
 
-        $aujourdhui = today();
+        $aujourdhui = aujourdhui();
         $limite = $aujourdhui->copy()->addDays(self::RAPPEL_JOURS);
 
         return Vaccination::query()
@@ -156,7 +156,7 @@ class AccueilProprietaire
             ->where('statut', StatutDevis::Envoye)
             ->where('canal', CanalDevis::Portail)
             ->whereNull('signe_le')
-            ->where(fn ($q) => $q->whereNull('valide_jusquau')->orWhereDate('valide_jusquau', '>=', today()))
+            ->where(fn ($q) => $q->whereNull('valide_jusquau')->orWhereDate('valide_jusquau', '>=', aujourdhui()))
             ->orderBy('emis_le')
             ->get();
     }

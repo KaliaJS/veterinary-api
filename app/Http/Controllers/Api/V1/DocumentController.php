@@ -36,7 +36,7 @@ class DocumentController extends Controller
 
         $document = $patient->documents()->create([
             ...$donnees,
-            'etabli_le' => $donnees['etabli_le'] ?? today()->toDateString(),
+            'etabli_le' => $donnees['etabli_le'] ?? aujourdhui()->toDateString(),
         ]);
 
         return new DocumentResource($document);

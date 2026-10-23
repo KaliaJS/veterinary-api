@@ -32,7 +32,7 @@ final class EtatVaccinal
      */
     public static function parValence(Collection $vaccinations, ?Carbon $aujourdhui = null): array
     {
-        $aujourdhui ??= today();
+        $aujourdhui ??= aujourdhui();
         $parValence = [];
         $noms = [];
         foreach ($vaccinations->sortBy('injectee_le')->values() as $vaccination) {
@@ -84,7 +84,7 @@ final class EtatVaccinal
         if ($schema === null) {
             return null;
         }
-        $injectee = $nouvelle->injectee_le ?? today();
+        $injectee = $nouvelle->injectee_le ?? aujourdhui();
         $codes = array_keys(self::valencesDe($nouvelle));
         $couvrantes = $anterieures
             ->filter(fn (Vaccination $v) => $v->injectee_le && $v->injectee_le->lte($injectee))

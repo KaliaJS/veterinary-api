@@ -123,7 +123,7 @@ final class ImportRefdata
             }
         }
         if ($journal->export_le === null) {
-            $journal->export_le = today();
+            $journal->export_le = aujourdhui();
         }
 
         return ['ajoutes' => 0, 'modifies' => $modifies, 'retires' => 0,

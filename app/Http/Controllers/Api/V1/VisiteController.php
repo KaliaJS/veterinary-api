@@ -37,7 +37,7 @@ class VisiteController extends Controller
 
         $visite = $patient->visites()->create([
             ...$donnees,
-            'visite_le' => $donnees['visite_le'] ?? today()->toDateString(),
+            'visite_le' => $donnees['visite_le'] ?? aujourdhui()->toDateString(),
             // Le signataire est toujours la personne connectée
             'employe_id' => app(ContexteClinique::class)->employe()?->id,
         ]);

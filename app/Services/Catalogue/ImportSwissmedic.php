@@ -189,7 +189,7 @@ final class ImportSwissmedic
         $retires = 0;
         foreach ($parNumero as $numero => $produit) {
             if (! isset($vus[$numero]) && $produit->retire_le === null) {
-                $produit->update(['retire_le' => $exportLe ?? today()]);
+                $produit->update(['retire_le' => $exportLe ?? aujourdhui()]);
                 $retires++;
             }
         }

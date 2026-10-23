@@ -29,7 +29,7 @@ class LicenciementEmployeController extends Controller
         }
 
         $fiche->update([
-            'licenciement_notifie_le' => today(),
+            'licenciement_notifie_le' => aujourdhui(),
             'fin_contrat_le' => $request->validated('fin_contrat_le'),
             'licenciement_motif' => $request->validated('motif'),
             ...($request->boolean('revoquer_acces') ? ['acces_suspendu' => true] : []),

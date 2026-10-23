@@ -46,7 +46,7 @@ class CycleOrdonnanceController extends Controller
                 'numero' => $this->numeroteur->attribuer(PieceNumerotee::Ordonnance),
                 'patient_id' => $ordonnance->patient_id,
                 'employe_id' => $contexte->employe()->id,
-                'signee_le' => today(),
+                'signee_le' => aujourdhui(),
                 'renouvellements' => $ordonnance->renouvellements - 1,
                 'statut' => StatutOrdonnance::Active,
                 'note' => $ordonnance->note,

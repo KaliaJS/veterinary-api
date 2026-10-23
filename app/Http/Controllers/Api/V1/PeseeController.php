@@ -23,7 +23,7 @@ class PeseeController extends Controller
     {
         $this->authorize('update', $patient);
 
-        $peseeLe = $request->validated('pesee_le') ?? today()->toDateString();
+        $peseeLe = $request->validated('pesee_le') ?? aujourdhui()->toDateString();
         $poids = $request->validated('poids_kg');
 
         /** @var Pesee|null $existante */

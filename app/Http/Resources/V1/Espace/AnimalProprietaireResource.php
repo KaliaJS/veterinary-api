@@ -66,17 +66,17 @@ class AnimalProprietaireResource extends JsonResource
             return null;
         }
 
-        $ans = (int) $neLe->diffInYears(today());
+        $ans = (int) $neLe->diffInYears(aujourdhui());
         if ($ans >= 1) {
             return $ans.' an'.($ans > 1 ? 's' : '');
         }
 
-        $mois = (int) $neLe->diffInMonths(today());
+        $mois = (int) $neLe->diffInMonths(aujourdhui());
         if ($mois >= 1) {
             return $mois.' mois';
         }
 
-        $semaines = max(1, (int) $neLe->diffInWeeks(today()));
+        $semaines = max(1, (int) $neLe->diffInWeeks(aujourdhui()));
 
         return $semaines.' semaine'.($semaines > 1 ? 's' : '');
     }

@@ -26,7 +26,7 @@ class FermerContratsTermines extends Command
             ->with('user', 'organisation')
             ->where('acces_suspendu', false)
             ->whereNotNull('fin_contrat_le')
-            ->whereDate('fin_contrat_le', '<', today())
+            ->whereDate('fin_contrat_le', '<', aujourdhui())
             ->each(function (Employe $employe) use ($revocation, &$fermes): void {
                 $employe->forceFill(['acces_suspendu' => true])->save();
                 $revocation->pourEmploye($employe);

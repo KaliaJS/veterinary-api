@@ -37,7 +37,7 @@ class CycleDevisController extends Controller
         $devis->update([
             'statut' => StatutDevis::Envoye,
             'canal' => $proprietaireALEspaceClient ? CanalDevis::Portail : CanalDevis::Papier,
-            'valide_jusquau' => today()->addDays($devis->validite_jours),
+            'valide_jusquau' => aujourdhui()->addDays($devis->validite_jours),
         ]);
 
         return new DevisResource($devis->load(['lignes', 'patient.client']));
@@ -91,7 +91,7 @@ class CycleDevisController extends Controller
         $copie = DB::transaction(function () use ($devis): Devis {
             $copie = Devis::create([
                 'numero' => $this->numeroteur->attribuer(PieceNumerotee::Devis),
-                'emis_le' => today(),
+                'emis_le' => aujourdhui(),
                 'patient_id' => $devis->patient_id,
                 'motif' => $devis->motif,
                 'remise_pct' => $devis->remise_pct,

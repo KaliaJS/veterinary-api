@@ -31,7 +31,7 @@ class VeterinairePublicController extends Controller
         $anciens = Employe::withoutGlobalScopes()
             ->where('user_id', $compte->id)
             ->whereNotNull('fin_contrat_le')
-            ->whereDate('fin_contrat_le', '<', today())
+            ->whereDate('fin_contrat_le', '<', aujourdhui())
             ->with('organisation')
             ->get()
             ->filter(fn (Employe $fiche): bool => $fiche->estVeterinaire());

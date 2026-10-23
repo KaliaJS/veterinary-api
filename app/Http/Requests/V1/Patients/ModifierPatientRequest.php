@@ -31,7 +31,7 @@ class ModifierPatientRequest extends FormRequest
             'a_allergies' => ['sometimes', 'boolean'],
             'traitement_en_cours' => ['sometimes', 'nullable', 'string'],
             'rappels_coupes' => ['sometimes', 'boolean'],
-            'client_depuis' => ['sometimes', 'integer', 'min:1990', 'max:'.now()->year],
+            'client_depuis' => ['sometimes', 'integer', 'min:1990', 'max:'.aujourdhui()->year],
         ];
     }
 }
