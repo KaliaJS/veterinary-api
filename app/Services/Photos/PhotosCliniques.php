@@ -3,16 +3,17 @@
 namespace App\Services\Photos;
 
 use App\Models\Clinique;
-use GdImage;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
-use RuntimeException;
+use Illuminate\Support\Str;
 
 /**
- * Photos des cliniques (annuaire) : à l'envoi, l'originale est gardée et
- * l'on en tire des versions WebP de quelques largeurs (le navigateur prend
- * celle qu'il faut) et un aperçu minuscule, flouté à l'écran le temps que
- * la vraie photo arrive (comme le foodtruck). GD suffit, sans paquet.
+ * Photos des cliniques (annuaire) : à l'envoi, l'on tire de la photo des
+ * versions WebP de quelques largeurs (le navigateur prend celle qu'il
+ * faut) et un aperçu minuscule, flouté à l'écran le temps que la vraie
+ * photo arrive (comme le foodtruck). L'originale n'est plus gardée
+ * (23.10.2026) : elle portait la position GPS de l'appareil. GD suffit,
+ * sans paquet.
  */
 final class PhotosCliniques
 {
@@ -34,19 +35,17 @@ final class PhotosCliniques
      */
     public function enregistrer(UploadedFile $fichier, int $organisationId): array
     {
-        // Une photo d'appareil de 8 Mo se décompresse en bien plus en mémoire
-        ini_set('memory_limit', '512M');
-
-        $image = $this->lire($fichier);
-        $chemin = $fichier->store('photos-cliniques/'.$organisationId, self::DISQUE);
+        $image = ImageReencodee::lire($fichier);
+        // Le chemin de base : seules ses versions existent sur le disque
+        $chemin = 'photos-cliniques/'.$organisationId.'/'.Str::random(40).'.webp';
 
         foreach (self::LARGEURS as $largeur) {
             $version = imagesx($image) > $largeur ? imagescale($image, $largeur) : $image;
-            Storage::disk(self::DISQUE)->put(self::version($chemin, $largeur), $this->webp($version, self::QUALITE));
+            Storage::disk(self::DISQUE)->put(self::version($chemin, $largeur), ImageReencodee::webp($version ?: $image, self::QUALITE));
         }
 
         $petite = imagescale($image, self::APERCU_LARGEUR);
-        $apercu = 'data:image/webp;base64,'.base64_encode($this->webp($petite, self::APERCU_QUALITE));
+        $apercu = 'data:image/webp;base64,'.base64_encode(ImageReencodee::webp($petite ?: $image, self::APERCU_QUALITE));
 
         return ['chemin' => $chemin, 'apercu' => $apercu];
     }
@@ -89,28 +88,5 @@ final class PhotosCliniques
             'srcset' => implode(', ', array_map(fn (int $largeur): string => $url($largeur).' '.$largeur.'w', self::LARGEURS)),
             'apercu' => $clinique->photo_apercu,
         ];
-    }
-
-    private function lire(UploadedFile $fichier): GdImage
-    {
-        $image = @imagecreatefromstring((string) file_get_contents($fichier->getRealPath()));
-
-        if (! $image instanceof GdImage) {
-            throw new RuntimeException('Image illisible.');
-        }
-
-        // Photo de téléphone : redressée selon son orientation EXIF
-        $orientation = function_exists('exif_read_data') ? (@exif_read_data($fichier->getRealPath())['Orientation'] ?? 1) : 1;
-        $angle = [3 => 180, 6 => 270, 8 => 90][$orientation] ?? 0;
-
-        return $angle ? imagerotate($image, $angle, 0) : $image;
-    }
-
-    private function webp(GdImage $image, int $qualite): string
-    {
-        ob_start();
-        imagewebp($image, null, $qualite);
-
-        return (string) ob_get_clean();
     }
 }

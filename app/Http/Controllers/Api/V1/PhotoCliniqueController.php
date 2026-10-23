@@ -42,12 +42,12 @@ class PhotoCliniqueController extends Controller
         return new CliniqueResource($fiche);
     }
 
-    /** L'originale ou une de ses versions (« …-480.webp »), rangées côte à côte. */
+    /** Une de ses versions (« …-480.webp »), jamais une originale (23.10.2026 : elle portait le GPS). */
     public function afficher(string $fichier): StreamedResponse
     {
-        $base = preg_replace('/(-\d+)?\.[a-z]+$/', '', $fichier);
-        $fiche = Clinique::query()->where('photo_chemin', 'like', '%/'.$base.'.%')->firstOrFail();
-        $chemin = dirname($fiche->photo_chemin).'/'.$fichier;
+        abort_unless(preg_match('/^([A-Za-z0-9]+)-(\d+)\.webp$/', $fichier, $parties) === 1, 404);
+        $fiche = Clinique::query()->where('photo_fichier', $parties[1])->firstOrFail();
+        $chemin = dirname((string) $fiche->photo_chemin).'/'.$fichier;
         abort_unless(Storage::disk('local')->exists($chemin), 404);
 
         return Storage::disk('local')->response($chemin, null, [

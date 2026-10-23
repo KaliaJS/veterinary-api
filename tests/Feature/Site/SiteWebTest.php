@@ -295,10 +295,21 @@ class SiteWebTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.equipe_masquee', [$lea->id]);
 
+        // Sans son accord (nLPD), personne ne paraît ; avec, et non masqué, oui
+        $this->assertCount(0, $this->getJson('/api/v1/public/sites/deux-rives-veterinaires')->json('data.equipe'));
+        $this->putJson('/api/v1/auth/accord-site', ['accord' => true], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.accord', true);
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($this->jeton))->assertJsonPath('data.employe.accord_site', true);
+        $lea->forceFill(['accord_site_le' => now()])->save();
+
         $public = collect($this->getJson('/api/v1/public/sites/deux-rives-veterinaires')->json('data.equipe'));
         $this->assertCount(1, $public);
         $this->assertNull($public->firstWhere('nom', 'Léa Fontaine'));
         $this->assertArrayNotHasKey('est_masque', $public->first());
+        $this->assertArrayNotHasKey('a_accepte', $public->first());
+
+        // L'accord se retire
+        $this->putJson('/api/v1/auth/accord-site', ['accord' => false], $this->enTetes($this->jeton))->assertOk();
+        $this->assertCount(0, $this->getJson('/api/v1/public/sites/deux-rives-veterinaires')->json('data.equipe'));
     }
 
     public function test_les_contacts_sont_ceux_des_cliniques_et_le_site_choisit_de_les_afficher(): void
@@ -325,6 +336,14 @@ class SiteWebTest extends TestCase
         $soeur = Clinique::factory()->create(['nom' => 'Le Lac', 'societe_id' => $this->clinique->societe_id]);
         $lea = Employe::factory()->dans($soeur)->create(['nom' => 'Léa Fontaine']);
         $etranger = Employe::factory()->dans(Clinique::factory()->create())->create();
+
+        // Sans son accord, sa photo ne se sert pas
+        $this->post("/api/v1/site/equipe/{$lea->id}/photo", ['photo' => UploadedFile::fake()->image('lea.jpg', 400, 400)], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])->assertOk();
+        $this->assertNull($lea->refresh()->photoUrl());
+        $this->get(route('employe.photo', ['fichier' => basename((string) $lea->photo_chemin)]))->assertNotFound();
+        // Réécrite en WebP : rien de l'appareil ne reste
+        $this->assertStringEndsWith('.webp', (string) $lea->photo_chemin);
+        $lea->forceFill(['accord_site_le' => now()])->save();
 
         $reponse = $this->post("/api/v1/site/equipe/{$lea->id}/photo", ['photo' => UploadedFile::fake()->image('lea.jpg', 400, 400)], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])
             ->assertOk();

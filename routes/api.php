@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\AbonnementController;
 use App\Http\Controllers\Api\V1\AbsenceController;
 use App\Http\Controllers\Api\V1\AccesEmployeController;
+use App\Http\Controllers\Api\V1\AccordSiteController;
 use App\Http\Controllers\Api\V1\AffectationsEmployeController;
 use App\Http\Controllers\Api\V1\AjustementStockController;
 use App\Http\Controllers\Api\V1\AlertesController;
@@ -181,6 +182,8 @@ Route::prefix('v1')->group(function (): void {
         Route::get('identite', [IdentiteController::class, 'afficher']);
         Route::post('identite/paiement', [IdentiteController::class, 'payer'])->middleware('throttle:5,1');
         Route::post('identite/session', [IdentiteController::class, 'commencer'])->middleware('throttle:10,1');
+        // Paraître sur le site public de son organisation : son accord (nLPD)
+        Route::put('accord-site', AccordSiteController::class)->middleware('throttle:20,1');
         Route::put('profil-veterinaire/fiche', [ProfilVeterinaireController::class, 'modifierFiche']);
 
         Route::get('passkeys', [PasskeyController::class, 'index']);

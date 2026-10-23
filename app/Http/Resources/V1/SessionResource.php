@@ -48,6 +48,8 @@ class SessionResource extends JsonResource
                 'titre' => $this->employe->titre(),
                 'role_libelle' => $this->employe->role_libelle,
                 'role_id' => $this->employe->role_id,
+                // Paraît sur le site public, s'il l'accepte (nLPD)
+                'accord_site' => $this->employe->accord_site_le !== null,
             ] : null,
             // La clinique du jeton (celle de la session, parmi les cliniques
             // de l'employé)

@@ -11,7 +11,7 @@ class TeleverserPhotoRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'photo' => ['required', 'file', 'image', 'mimes:png,jpg,jpeg,webp', 'max:4096'],
+            'photo' => ['required', 'file', 'image', 'mimes:png,jpg,jpeg,webp', 'max:4096', 'dimensions:max_width=8000,max_height=8000'],
         ];
     }
 

@@ -62,7 +62,10 @@ class PhotoCliniqueTest extends TestCase
         $this->assertLessThan(1500, strlen($photo['apercu']));
 
         $premier = $soeur->refresh()->photo_chemin;
-        Storage::disk('local')->assertExists([$premier, PhotosCliniques::version($premier, 480), PhotosCliniques::version($premier, 1200)]);
+        Storage::disk('local')->assertExists([PhotosCliniques::version($premier, 480), PhotosCliniques::version($premier, 1200)]);
+        // L'originale n'est pas gardée (elle portait la position de l'appareil)
+        Storage::disk('local')->assertMissing($premier);
+        $this->get(route('clinique.photo', ['fichier' => basename($premier)]))->assertNotFound();
         $this->get($photo['url'])->assertOk()->assertHeader('Cache-Control', 'immutable, max-age=31536000, public');
         $this->assertSame(1200, getimagesizefromstring(Storage::disk('local')->get(PhotosCliniques::version($premier, 1200)))[0]);
 

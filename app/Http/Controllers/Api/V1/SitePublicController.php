@@ -33,8 +33,9 @@ class SitePublicController extends Controller
             'presentation' => $site->presentation,
             'tel_urgences' => $site->tel_urgences,
             'services' => array_values($site->services ?? []),
-            'equipe' => collect($site->equipe())->reject(fn (array $m): bool => $m['est_masque'])
-                ->map(fn (array $m): array => collect($m)->except('est_masque')->all())->values()->all(),
+            // Seulement qui l'accepte (nLPD) et que l'administrateur montre
+            'equipe' => collect($site->equipe())->reject(fn (array $m): bool => $m['est_masque'] || ! $m['a_accepte'])
+                ->map(fn (array $m): array => collect($m)->except(['est_masque', 'a_accepte'])->all())->values()->all(),
             'actualites' => collect($site->actualites ?? [])->sortByDesc('date')->values()->all(),
             'organisation' => ['nom' => $organisation->nom],
             'cliniques' => $cliniques->map(fn (Clinique $clinique): array => [

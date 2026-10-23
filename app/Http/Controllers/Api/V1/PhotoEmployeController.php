@@ -9,17 +9,23 @@ use App\Http\Resources\V1\SiteWebResource;
 use App\Models\Employe;
 use App\Models\Organisation;
 use App\Models\SiteWeb;
+use App\Services\Photos\ImageReencodee;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Photo d'un employé, posée depuis l'éditeur du site (domaine
  * organisation) mais rangée sur la fiche : elle sert partout (site,
- * écran Équipe, planning). Fichier privé au nom imprévisible, servi par
- * une route publique en cache.
+ * écran Équipe, planning). Fichier privé au nom imprévisible, réécrit en
+ * WebP sans les données de l'appareil, servi par une route publique en
+ * cache, seulement pour une personne présente qui accepte de paraître
+ * sur le site (23.10.2026).
  */
 class PhotoEmployeController extends Controller
 {
+    /** Plus grand côté de la photo gardée, en pixels */
+    private const int COTE = 800;
+
     public function televerser(TeleverserPhotoRequest $request, int $employe): SiteWebResource
     {
         $this->authorize('update', SiteWeb::class);
@@ -27,7 +33,7 @@ class PhotoEmployeController extends Controller
         $fiche = $this->employeDeLOrganisation($employe);
         $ancien = $fiche->photo_chemin;
 
-        $fiche->update(['photo_chemin' => $request->file('photo')->store('photos/'.$this->organisationId(), 'local')]);
+        $fiche->update(['photo_chemin' => ImageReencodee::enregistrer($request->file('photo'), 'photos/'.$this->organisationId(), self::COTE)]);
 
         if ($ancien) {
             Storage::disk('local')->delete($ancien);
@@ -52,8 +58,10 @@ class PhotoEmployeController extends Controller
 
     public function afficher(string $fichier): StreamedResponse
     {
-        $fiche = Employe::withoutGlobalScopes()->where('photo_chemin', 'like', '%/'.$fichier)->firstOrFail();
-        abort_unless(Storage::disk('local')->exists($fiche->photo_chemin), 404);
+        $fiche = Employe::withoutGlobalScopes()->where('photo_fichier', pathinfo($fichier, PATHINFO_FILENAME))->firstOrFail();
+        abort_unless(basename((string) $fiche->photo_chemin) === $fichier && Storage::disk('local')->exists($fiche->photo_chemin), 404);
+        // Partie, suspendue, ou sans son accord : sa photo ne se sert plus
+        abort_unless($fiche->estPresentable() && $fiche->accord_site_le !== null, 404);
 
         return Storage::disk('local')->response($fiche->photo_chemin, null, [
             'Cache-Control' => 'public, max-age=31536000, immutable',

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Site\TeleverserPhotoRequest;
 use App\Http\Resources\V1\PatientResource;
 use App\Models\Patient;
+use App\Services\Photos\ImageReencodee;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -23,7 +24,8 @@ class PhotoPatientController extends Controller
         $this->authorize('updateIdentity', $patient);
 
         $ancien = $patient->photo_chemin;
-        $patient->update(['photo_chemin' => $request->file('photo')->store('photos-animaux/'.$patient->organisation_id, 'local')]);
+        // Réécrite en WebP, sans les données de l'appareil (23.10.2026)
+        $patient->update(['photo_chemin' => ImageReencodee::enregistrer($request->file('photo'), 'photos-animaux/'.$patient->organisation_id, 1200)]);
 
         if ($ancien) {
             Storage::disk('local')->delete($ancien);
@@ -46,8 +48,8 @@ class PhotoPatientController extends Controller
 
     public function afficher(string $fichier): StreamedResponse
     {
-        $patient = Patient::withoutGlobalScopes()->where('photo_chemin', 'like', '%/'.$fichier)->firstOrFail();
-        abort_unless(Storage::disk('local')->exists($patient->photo_chemin), 404);
+        $patient = Patient::withoutGlobalScopes()->where('photo_fichier', pathinfo($fichier, PATHINFO_FILENAME))->firstOrFail();
+        abort_unless(basename((string) $patient->photo_chemin) === $fichier && Storage::disk('local')->exists($patient->photo_chemin), 404);
 
         return Storage::disk('local')->response($patient->photo_chemin, null, [
             'Cache-Control' => 'public, max-age=31536000, immutable',

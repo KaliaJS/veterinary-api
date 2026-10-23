@@ -7,6 +7,7 @@ use App\Enums\Espece;
 use App\Enums\Sexe;
 use App\Enums\StatutRendezVous;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Models\Concerns\AUnePhoto;
 use Database\Factories\PatientFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -18,7 +19,7 @@ class Patient extends Model
     public const int POINTS_COURBE_POIDS = 12;
 
     /** @use HasFactory<PatientFactory> */
-    use AppartientAUneOrganisation, HasFactory;
+    use AppartientAUneOrganisation, AUnePhoto, HasFactory;
 
     /** Identité de l animal : ce que le propriétaire peut réserver à sa main (AccesClinique) */
     public const CHAMPS_IDENTITE = ['nom', 'espece', 'race', 'sexe', 'ne_le', 'est_sterilise', 'puce'];

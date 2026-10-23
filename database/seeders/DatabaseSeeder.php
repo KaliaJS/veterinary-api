@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Employe;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -43,5 +44,9 @@ class DatabaseSeeder extends Seeder
             // Des heures déjà prises dans le calendrier de la prise de rendez-vous
             RendezVousAVenirSeeder::class,
         ]);
+
+        // Démonstration : les personnes (fictives) des équipes acceptent de
+        // paraître sur les sites publics (accord nLPD, 23.10.2026)
+        Employe::withoutGlobalScopes()->update(['accord_site_le' => now()]);
     }
 }

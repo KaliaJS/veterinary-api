@@ -95,9 +95,10 @@ class SiteWeb extends Model
     /**
      * Équipe de l'organisation telle que le site la connaît : employés
      * présentables, avec leurs cliniques (si l'organisation en a
-     * plusieurs) et l'état « masqué ».
+     * plusieurs), l'état « masqué » (choix de l'administrateur) et leur
+     * accord (nLPD, 23.10.2026 : sans lui, personne ne paraît).
      *
-     * @return list<array{id: int, nom: string, role: string|null, clinique: string|null, photo_url: string|null, est_masque: bool}>
+     * @return list<array{id: int, nom: string, role: string|null, clinique: string|null, photo_url: string|null, est_masque: bool, a_accepte: bool}>
      */
     public function equipe(): array
     {
@@ -118,6 +119,7 @@ class SiteWeb extends Model
                 'clinique' => $plusieurs ? $employe->cliniques->pluck('nom')->implode(', ') : null,
                 'photo_url' => $employe->photoUrl(),
                 'est_masque' => in_array($employe->id, $masques, true),
+                'a_accepte' => $employe->accord_site_le !== null,
             ])
             ->values()
             ->all();

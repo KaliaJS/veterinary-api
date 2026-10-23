@@ -30,6 +30,7 @@ return new class extends Migration
             $table->boolean('paiements_integres')->default(true)->comment('Cartes et TWINT encaissés par Veterinary (compte de paiement de la société) ; faux : la clinique garde son terminal (Worldline…) et l’équipe marque les paiements comme payés');
             $table->string('photo_chemin')->nullable()->comment('Photo de la clinique (annuaire), posée par l’administrateur');
             $table->text('photo_apercu')->nullable()->comment('Aperçu flou de la photo, quelques centaines d’octets en data URI');
+            $table->string('photo_fichier', 64)->nullable()->index()->comment('Nom du fichier de la photo, sans dossier ni extension : la route publique la retrouve par lui (23.10.2026)');
             $table->string('stripe_location_id')->nullable();
             $table->timestamps();
         });

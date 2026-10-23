@@ -30,6 +30,7 @@ return new class extends Migration
             $table->boolean('est_sterilise')->default(false);
             $table->string('puce', 24)->nullable()->index()->comment('Format AMICUS « 756 09X XXX XXX XXX »');
             $table->string('photo_chemin')->nullable()->comment('Chemin sur le disque local (photos-animaux/{organisation}/…)');
+            $table->string('photo_fichier', 64)->nullable()->index()->comment('Nom du fichier de la photo, sans dossier ni extension : la route publique la retrouve par lui (23.10.2026)');
             $table->decimal('dette', 8, 2)->default(0)->comment('Solde dû en CHF — alerte « solde » dérivée');
             $table->boolean('est_agressif')->default(false);
             $table->boolean('a_allergies')->default(false);

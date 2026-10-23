@@ -8,6 +8,7 @@ use App\Enums\StatutContrat;
 use App\Enums\TypeAbsence;
 use App\Enums\TypeAlerte;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Models\Concerns\AUnePhoto;
 use Database\Factories\EmployeFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -28,7 +29,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Employe extends Model
 {
     /** @use HasFactory<EmployeFactory> */
-    use AppartientAUneOrganisation, HasFactory;
+    use AppartientAUneOrganisation, AUnePhoto, HasFactory;
 
     protected $fillable = [
         'organisation_id', 'user_id', 'nom', 'initiales', 'role_libelle', 'role_id',
@@ -48,6 +49,7 @@ class Employe extends Model
             'conges_droit' => 'integer',
             'conges_pris' => 'integer',
             'acces_suspendu' => 'boolean',
+            'accord_site_le' => 'datetime',
             'contrat_statut' => StatutContrat::class,
             'salaire_mensuel' => 'decimal:2',
             'licenciement_notifie_le' => 'date',
@@ -194,7 +196,10 @@ class Employe extends Model
     /** URL publique de la photo (nom de fichier imprévisible), ou null. */
     public function photoUrl(): ?string
     {
-        return $this->photo_chemin ? route('employe.photo', ['fichier' => basename($this->photo_chemin)]) : null;
+        // Servie seulement pour qui est là et l'accepte (23.10.2026, nLPD)
+        return $this->photo_chemin && $this->accord_site_le !== null && $this->estPresentable()
+            ? route('employe.photo', ['fichier' => basename($this->photo_chemin)])
+            : null;
     }
 
     /** Présenté sur le site : accès actif, contrat pas encore terminé. */

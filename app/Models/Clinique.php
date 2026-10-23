@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ServiceClinique;
+use App\Models\Concerns\AUnePhoto;
 use Database\Factories\CliniqueFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Clinique extends Model
 {
     /** @use HasFactory<CliniqueFactory> */
-    use HasFactory;
+    use AUnePhoto, HasFactory;
 
     protected $fillable = [
         'societe_id', 'nom', 'raison_sociale', 'rue', 'npa', 'ville',

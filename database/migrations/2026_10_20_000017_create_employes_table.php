@@ -34,6 +34,8 @@ return new class extends Migration
             $table->string('tel')->nullable();
             $table->string('email')->nullable();
             $table->string('photo_chemin')->nullable();
+            $table->string('photo_fichier', 64)->nullable()->index()->comment('Nom du fichier de la photo, sans dossier ni extension : la route publique la retrouve par lui (23.10.2026)');
+            $table->timestamp('accord_site_le')->nullable()->comment('La personne accepte de paraître sur le site public (nom, poste, photo), nLPD (23.10.2026)');
             $table->unsignedTinyInteger('conges_droit')->default(25);
             $table->unsignedTinyInteger('conges_pris')->default(0);
             $table->boolean('acces_suspendu')->default(false);
