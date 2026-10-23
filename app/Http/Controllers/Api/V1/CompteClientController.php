@@ -8,6 +8,7 @@ use App\Http\Resources\V1\ClientResource;
 use App\Models\Client;
 use App\Models\User;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -55,8 +56,10 @@ class CompteClientController extends Controller
     }
 
     /**
-     * Révocation : le compte est détaché puis supprimé s'il ne sert
-     * qu'au portail (jamais un compte employé), jetons révoqués.
+     * Révocation : le compte est détaché de la fiche. Il n'est supprimé
+     * que s'il ne servait qu'à cette fiche (23.10.2026) : ni employé, ni
+     * client d'une autre organisation, ni animal à lui, ni abonnement,
+     * achats, messages ou demandes ; sinon il reste à son titulaire.
      */
     public function supprimer(Client $client): Response
     {
@@ -64,13 +67,34 @@ class CompteClientController extends Controller
 
         $user = $client->user;
 
-        $client->update(['user_id' => null]);
+        DB::transaction(function () use ($client, $user): void {
+            $client->update(['user_id' => null]);
 
-        if ($user !== null && $user->employes()->doesntExist()) {
-            $user->tokens()->delete();
-            $user->delete();
-        }
+            if ($user !== null && ! self::aDAutresAttaches($user)) {
+                $user->tokens()->delete();
+                $user->delete();
+            }
+        });
 
         return response()->noContent();
+    }
+
+    /** Le compte sert-il ailleurs que pour cette fiche ? (hors de tout scope) */
+    private static function aDAutresAttaches(User $user): bool
+    {
+        $tables = [
+            'employes' => 'user_id', 'clients' => 'user_id', 'patients' => 'proprietaire_id',
+            'proprietaire_factures' => 'user_id', 'achats_planete' => 'user_id', 'messages_clientele' => 'user_id',
+            'demandes_rattachement' => 'user_id', 'demandes_rendez_vous' => 'user_id',
+            'demandes_renouvellement_ordonnance' => 'user_id', 'specialites_veterinaire' => 'user_id',
+        ];
+
+        foreach ($tables as $table => $colonne) {
+            if (DB::table($table)->where($colonne, $user->id)->exists()) {
+                return true;
+            }
+        }
+
+        return $user->stripe_client_id !== null;
     }
 }

@@ -107,6 +107,16 @@ class VerificationVeterinaireTest extends TestCase
             ->assertJsonPath('data.verification.statut', null);
     }
 
+    public function test_un_moderateur_ne_verifie_pas_son_propre_compte(): void
+    {
+        [$jim, $jetonJim] = $this->moderateur();
+        $jim->forceFill(['gln' => self::GLN])->save();
+
+        $this->postJson("/api/v1/plateforme/veterinaires/{$jim->id}/decision", ['decision' => 'verifie'], $this->enTetes($jetonJim))
+            ->assertUnprocessable()->assertJsonValidationErrors('decision');
+        $this->assertFalse($jim->fresh()->estVerifie());
+    }
+
     public function test_un_badge_se_retire_avec_un_motif(): void
     {
         $lea = User::factory()->create(['name' => 'Léa Fontaine', 'gln' => self::GLN, 'verification_veterinaire' => 'verifie']);

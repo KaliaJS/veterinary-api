@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Enums\StatutDemandeRattachement;
 use App\Http\Controllers\Controller;
 use App\Models\DemandeRattachement;
+use App\Models\Patient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -21,6 +22,9 @@ class DemandeRattachementController extends Controller
 {
     public function index(): JsonResponse
     {
+        // Le dossier médical : droit `patients` (23.10.2026)
+        $this->authorize('viewAny', Patient::class);
+
         $demandes = DemandeRattachement::query()
             ->with(['patient.client', 'user'])
             ->where('statut', StatutDemandeRattachement::Attente)
@@ -32,6 +36,8 @@ class DemandeRattachementController extends Controller
 
     public function accepter(DemandeRattachement $demande, ContexteClinique $contexte): JsonResponse
     {
+        // Donner l'animal à un compte : modifier la fiche
+        $this->authorize('update', $demande->patient);
         $this->enAttente($demande);
 
         DB::transaction(function () use ($demande, $contexte): void {
@@ -54,6 +60,7 @@ class DemandeRattachementController extends Controller
 
     public function refuser(DemandeRattachement $demande, ContexteClinique $contexte): JsonResponse
     {
+        $this->authorize('update', $demande->patient);
         $this->enAttente($demande);
 
         $demande->forceFill([

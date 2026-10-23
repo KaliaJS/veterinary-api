@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Plateforme;
 use App\Enums\VerificationOrganisation;
 use App\Http\Controllers\Controller;
 use App\Models\Clinique;
+use App\Models\Employe;
 use App\Models\Organisation;
 use App\Services\Inscription\InscriptionClinique;
 use Illuminate\Http\JsonResponse;
@@ -29,9 +30,12 @@ class OrganisationPlateformeController extends Controller
         return response()->json(['data' => $organisations->map(fn (Organisation $organisation): array => $this->resume($organisation))->values()]);
     }
 
-    public function valider(Organisation $organisation, InscriptionClinique $inscription): JsonResponse
+    public function valider(Request $request, Organisation $organisation, InscriptionClinique $inscription): JsonResponse
     {
         abort_unless($organisation->verification === VerificationOrganisation::EnAttente, 422, 'Cette clinique n’est plus en attente.');
+        // Jamais sa propre organisation : un autre modérateur la vérifie
+        $estLaSienne = Employe::withoutGlobalScopes()->where('organisation_id', $organisation->id)->where('user_id', $request->user()->id)->exists();
+        abort_if($estLaSienne || $organisation->inscritePar?->is($request->user()), 422, 'Un autre modérateur doit vérifier votre propre clinique.');
         $inscription->valider($organisation);
 
         return response()->json(['data' => $this->resume($organisation->fresh('inscritePar'))]);

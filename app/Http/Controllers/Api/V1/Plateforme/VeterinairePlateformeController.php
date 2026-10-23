@@ -75,6 +75,11 @@ class VeterinairePlateformeController extends Controller
         ]);
         $decision = DecisionVerification::from($donnees['decision']);
 
+        // Jamais sa propre vérification : un autre modérateur s'en charge
+        if ($user->is($request->user())) {
+            throw ValidationException::withMessages(['decision' => 'Un autre modérateur doit vérifier votre propre compte.']);
+        }
+
         if ($decision !== DecisionVerification::Verifie && blank($donnees['note'] ?? null)) {
             throw ValidationException::withMessages(['note' => 'Dites pourquoi : le vétérinaire verra ce motif.']);
         }

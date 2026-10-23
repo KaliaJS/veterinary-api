@@ -120,6 +120,8 @@ class PatientsPermissionsTest extends TestCase
             ['patchJson', "/api/v1/clients/{$client}", []],
             ['postJson', "/api/v1/clients/{$client}/compte", []],
             ['deleteJson', "/api/v1/clients/{$client}/compte", []],
+            // Demandes de rattachement par puce (23.10.2026 : sans autorisation avant)
+            ['getJson', '/api/v1/patients/rattachements', []],
             ['getJson', '/api/v1/patients', []],
             ['postJson', '/api/v1/patients', ['client_id' => $client, 'nom' => 'Refusé', 'espece' => 'CH', 'sexe' => 'Mâle']],
             ['getJson', "/api/v1/patients/{$patient}", []],
