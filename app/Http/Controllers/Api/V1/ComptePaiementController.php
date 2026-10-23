@@ -90,6 +90,8 @@ class ComptePaiementController extends Controller
             'a_completer' => $societe->paiements_a_completer,
             'commission_terminal' => (float) config('services.stripe.commission_terminal'),
             'commission_twint' => (float) config('services.stripe.commission_twint'),
+            'commission_en_ligne' => (float) config('services.stripe.commission_en_ligne'),
+            'frais_stripe' => config('services.stripe.frais_stripe'),
             'peut_gerer' => Gate::allows(DomainePermission::Organisation->value),
         ]]);
     }

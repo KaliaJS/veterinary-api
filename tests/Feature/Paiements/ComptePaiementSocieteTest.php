@@ -58,6 +58,8 @@ class ComptePaiementSocieteTest extends TestCase
             ->assertJsonPath('data.ouvert', false)
             ->assertJsonPath('data.societe.nom', 'Deux Rives Sàrl')
             ->assertJsonPath('data.commission_terminal', 0.5)
+            ->assertJsonPath('data.commission_en_ligne', 0.5)
+            ->assertJsonPath('data.frais_stripe.terminal', ['taux' => 1.4, 'fixe' => 10, 'taux_autres_cartes' => 2.9])
             ->assertJsonPath('data.peut_gerer', false);
 
         $this->postJson('/api/v1/facturation/terminaux', ['code_appairage' => 'simulated-wpe', 'libelle' => 'Comptoir'], $this->enTetes($this->jeton))
@@ -149,7 +151,9 @@ class ComptePaiementSocieteTest extends TestCase
         ])->assertCreated()->json('data.paiement');
 
         $this->assertSame('acct_deux_rives', $paiement['compte']);
-        $this->assertSame('acct_deux_rives', collect($this->stripe->intentions)->last()['compte']);
+        $intention = collect($this->stripe->intentions)->last();
+        // Des frais sur toutes les transactions : 0,5 % de 30 CHF
+        $this->assertSame(['acct_deux_rives', 15], [$intention['compte'], $intention['commission']]);
     }
 
     public function test_un_compte_modifie_chez_le_prestataire_est_relu(): void

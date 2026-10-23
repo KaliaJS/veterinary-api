@@ -135,8 +135,8 @@ class AcompteReservationTest extends TestCase
         ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
         $this->clinique->update(['acompte_centimes' => 3000]);
         $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
-        // Les frais du paiement sont relevés au paiement : 2,9 % + 30 centimes
-        $this->assertSame(117, $demande->acompte_frais_centimes);
+        // Les frais du paiement sont relevés au paiement : 2,9 % + 30 centimes, plus 0,5 % de commission
+        $this->assertSame(132, $demande->acompte_frais_centimes);
 
         $this->getJson('/api/v1/espace/rendez-vous', $this->enTetes($jetonProprietaire))
             ->assertJsonPath('data.a_venir.0.peut_annuler', false)
@@ -161,7 +161,7 @@ class AcompteReservationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.annulation.motif', 'Je pars en voyage')
             ->assertJsonPath('data.0.annulation.acompte', 30)
-            ->assertJsonPath('data.0.annulation.frais', 1.17);
+            ->assertJsonPath('data.0.annulation.frais', 1.32);
     }
 
     public function test_la_clinique_decide_de_rendre_tout_moins_les_frais_rien_ou_de_maintenir(): void
@@ -170,7 +170,7 @@ class AcompteReservationTest extends TestCase
         ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
         $this->clinique->update(['acompte_centimes' => 3000]);
 
-        $attendus = ['complet' => 3000, 'hors_frais' => 2883, 'sans' => null, 'refusee' => null];
+        $attendus = ['complet' => 3000, 'hors_frais' => 2868, 'sans' => null, 'refusee' => null];
         $semaine = 0;
         foreach ($attendus as $decision => $rendu) {
             $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi->addWeeks($semaine++));

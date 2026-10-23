@@ -88,7 +88,7 @@ class PasserelleStripe implements PasserellePaiement
         ];
     }
 
-    public function creerIntentionEnLigne(int $centimes, array $metadonnees, string $cleIdempotence): array
+    public function creerIntentionEnLigne(int $centimes, array $metadonnees, string $cleIdempotence, int $commission = 0): array
     {
         $intention = $this->appel(fn () => $this->client->paymentIntents->create([
             'amount' => $centimes,
@@ -96,6 +96,7 @@ class PasserelleStripe implements PasserellePaiement
             // Les moyens activés sur le compte (carte, TWINT…), redirection permise
             'automatic_payment_methods' => ['enabled' => true],
             'metadata' => $metadonnees,
+            ...$this->commission($commission),
         ], $this->options(['idempotency_key' => $cleIdempotence])));
 
         return ['id' => $intention->id, 'statut' => $intention->status, 'client_secret' => $intention->client_secret];

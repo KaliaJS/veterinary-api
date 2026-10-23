@@ -42,6 +42,19 @@ return [
         'commission_terminal' => (float) env('STRIPE_COMMISSION_TERMINAL', 0.5),
         // Et sur TWINT à la caisse (QR à l'écran), comme le terminal (décision du 23.10.2026)
         'commission_twint' => (float) env('STRIPE_COMMISSION_TWINT', 0.5),
+        // Et sur les acomptes en ligne (carte ou TWINT) : des frais sur toutes les transactions
+        'commission_en_ligne' => (float) env('STRIPE_COMMISSION_EN_LIGNE', 0.5),
+        // Frais de Stripe pour une société suisse, affichés dans Réglages, Paiements. Stripe
+        // ne publie pas d'API de ses tarifs : relevés sur stripe.com/ch/pricing, à revoir
+        // quand ils changent (taux en %, montants fixes en centimes). Les frais réels de
+        // chaque paiement sont lus après coup (fraisIntention, composant des encaissements).
+        'frais_stripe' => [
+            'releves_le' => '2026-10-23',
+            'terminal' => ['taux' => 1.4, 'fixe' => 10, 'taux_autres_cartes' => 2.9],
+            'twint' => ['taux' => 1.9, 'fixe' => 30],
+            'carte_en_ligne' => ['taux' => 2.9, 'fixe' => 30, 'taux_cartes_etrangeres' => 3.25, 'conversion' => 2],
+            'litige' => 2000,
+        ],
     ],
 
     // Achats dans l'app iPhone (StoreKit 2). Les transactions arrivent

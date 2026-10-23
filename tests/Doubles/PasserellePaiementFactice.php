@@ -67,9 +67,9 @@ class PasserellePaiementFactice implements PasserellePaiement
         return ['id' => $id, 'statut' => 'requires_action', 'url' => 'https://pm-redirects.stripe.com/twint/'.$id];
     }
 
-    public function creerIntentionEnLigne(int $centimes, array $metadonnees, string $cleIdempotence): array
+    public function creerIntentionEnLigne(int $centimes, array $metadonnees, string $cleIdempotence, int $commission = 0): array
     {
-        $id = $this->intention($centimes, $metadonnees, 'requires_payment_method');
+        $id = $this->intention($centimes, $metadonnees, 'requires_payment_method', $commission);
 
         return ['id' => $id, 'statut' => 'requires_payment_method', 'client_secret' => $id.'_secret_test'];
     }
@@ -80,11 +80,13 @@ class PasserellePaiementFactice implements PasserellePaiement
         $this->montantsRembourses[$intentionId] = $centimes ?? $this->intentions[$intentionId]['centimes'];
     }
 
-    /** Comme Stripe en Suisse pour une carte en ligne : 2,9 % + 30 centimes */
+    /** Comme Stripe en Suisse pour une carte en ligne : 2,9 % + 30 centimes, plus la commission */
     public function fraisIntention(string $intentionId): ?int
     {
-        return $this->intentions[$intentionId]['statut'] === 'succeeded'
-            ? (int) round($this->intentions[$intentionId]['centimes'] * 0.029) + 30
+        $intention = $this->intentions[$intentionId];
+
+        return $intention['statut'] === 'succeeded'
+            ? (int) round($intention['centimes'] * 0.029) + 30 + $intention['commission']
             : null;
     }
 

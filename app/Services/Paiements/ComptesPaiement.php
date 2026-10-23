@@ -14,7 +14,8 @@ use Illuminate\Validation\ValidationException;
  * la gestion du compte, les paiements et les virements sont des composants
  * intégrés à Veterinary. Le prestataire collecte les informations légales,
  * prélève ses frais auprès de la société et porte les pertes (impayés,
- * litiges) ; la plateforme ne garde que sa commission sur le terminal.
+ * litiges) ; la plateforme prend sa commission sur chaque transaction
+ * (terminal, TWINT à la caisse, acomptes en ligne).
  */
 class ComptesPaiement
 {
@@ -53,6 +54,12 @@ class ComptesPaiement
     public static function commissionTwint(int $centimes): int
     {
         return (int) round($centimes * (float) config('services.stripe.commission_twint') / 100);
+    }
+
+    /** Et sur un acompte payé en ligne (carte ou TWINT). */
+    public static function commissionEnLigne(int $centimes): int
+    {
+        return (int) round($centimes * (float) config('services.stripe.commission_en_ligne') / 100);
     }
 
     /** Ouvre le compte de la société s'il n'existe pas encore. */
