@@ -785,7 +785,7 @@ RDV** (section 3).
 | Champ front | Type suggéré | Description |
 |---|---|---|
 | `id` | PK | `ci1`… |
-| `n` | string unique | « FC-2026-0341 » — séquence annuelle (voir Numérotations) |
+| `n` | string unique dans l'organisation | « FC-2026-0341 » — séquence annuelle (voir Numérotations) |
 | `date`, `time` | datetime | Émission (au front « JJ.MM.AAAA » + « HH:MM » — en base un datetime) |
 | `pat`, `sp`, `ow` | dénormalisés → `patient_id` | Patient, espèce, propriétaire |
 | `lane` | FK → ligne / praticien | Praticien facturant |
@@ -1454,6 +1454,14 @@ comme la démo :
 | Ordonnance | `RX-YYYY-NNN` | RX-2026-058 |
 | Analyse labo | `A-YY-NNNN` | A-26-0141 |
 | Clôture de caisse | `Z-YYYY-NNN` | Z-2026-041 |
+
+Chaque organisation numérote à partir de 1 : le numéro est unique dans
+l'organisation (`unique(organisation_id, numero)` pour les factures, devis
+et ordonnances ; `unique(clinique_id, numero)` pour les pièces tenues par
+clinique, dont la séquence de l'organisation garantit déjà l'unicité entre
+cliniques). Deux organisations ont chacune leur FC-2026-0001 (23.10.2026).
+Seules les factures de la plateforme (`MS-AAAA-NNNNN`) ont un numéro
+unique sur toute la base.
 
 ---
 

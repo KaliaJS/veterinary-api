@@ -30,7 +30,9 @@ return new class extends Migration
             $table->foreignId('ordonnance_precedente_id')->nullable()->constrained('ordonnances')->nullOnDelete();
             $table->timestamps();
 
-            $table->unique('numero');
+            // Numéro unique dans l'organisation : chaque organisation
+            // numérote à partir de 1 (SequenceNumerotation)
+            $table->unique(['organisation_id', 'numero']);
             $table->index(['organisation_id', 'statut']);
             $table->index(['patient_id', 'signee_le']);
         });

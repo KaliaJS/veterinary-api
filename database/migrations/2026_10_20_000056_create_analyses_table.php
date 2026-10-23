@@ -36,7 +36,10 @@ return new class extends Migration
 
             $table->index(['clinique_id', 'preleve_le']);
             $table->index(['clinique_id', 'statut']);
-            $table->unique('numero');
+            // Numéro unique par clinique : chaque organisation numérote à
+            // partir de 1, et sa séquence (SequenceNumerotation) garantit
+            // l'unicité entre ses cliniques
+            $table->unique(['clinique_id', 'numero']);
             $table->index('patient_id');
         });
     }

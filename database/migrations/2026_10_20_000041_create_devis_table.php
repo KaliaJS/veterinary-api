@@ -38,7 +38,9 @@ return new class extends Migration
             $table->foreignId('facture_finale_id')->nullable()->constrained('factures')->nullOnDelete();
             $table->timestamps();
 
-            $table->unique('numero');
+            // Numéro unique dans l'organisation : chaque organisation
+            // numérote à partir de 1 (SequenceNumerotation)
+            $table->unique(['organisation_id', 'numero']);
             $table->index(['organisation_id', 'statut']);
             $table->index('patient_id');
         });
