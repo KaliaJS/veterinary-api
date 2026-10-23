@@ -46,12 +46,6 @@ parameters:
 			message: '#^Access to an undefined property App\\Models\\Client\:\:\$nom_affiche\.$#'
 			identifier: property.notFound
 			count: 1
-			path: app/Http/Controllers/Api/V1/CycleDevisController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Client\:\:\$nom_affiche\.$#'
-			identifier: property.notFound
-			count: 1
 			path: app/Http/Controllers/Api/V1/DemandeRattachementController.php
 
 		-
@@ -125,12 +119,6 @@ parameters:
 			identifier: nullsafe.neverNull
 			count: 1
 			path: app/Http/Controllers/Api/V1/Espace/CoordonneesProprietaireController.php
-
-		-
-			message: '#^Access to an undefined property App\\Models\\Client\:\:\$nom_affiche\.$#'
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Api/V1/Espace/DocumentProprietaireController.php
 
 		-
 			message: '#^Parameter \#1 \$callback of method Illuminate\\Database\\Eloquent\\Collection\<int,Laravel\\Sanctum\\PersonalAccessToken\>\:\:map\(\) expects callable\(Laravel\\Sanctum\\PersonalAccessToken, int\)\: array\{id\: int\<0, max\>, nom\: string, cree_le\: string\|null, dernier_usage_le\: string\|null, est_courant\: bool\}, Closure\(App\\Models\\JetonApi\)\: array\{id\: int\<0, max\>, nom\: string, cree_le\: string\|null, dernier_usage_le\: string\|null, est_courant\: bool\} given\.$#'

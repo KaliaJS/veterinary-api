@@ -57,7 +57,7 @@ class CycleDevisController extends Controller
 
         // L'équipe enregistre l'accord : ce n'est jamais une signature
         // électronique du client (23.10.2026), on dit qui l'a enregistré
-        $parQui = app(ContexteClinique::class)->employe()?->nom ?? 'la clinique';
+        $parQui = app(ContexteClinique::class)->employe()->nom ?? 'la clinique';
 
         $devis->update([
             'statut' => StatutDevis::Accepte,
