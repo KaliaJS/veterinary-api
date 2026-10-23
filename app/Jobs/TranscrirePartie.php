@@ -69,9 +69,20 @@ final class TranscrirePartie implements ShouldQueue
         $partie->increment('tentatives');
         $fichier = $partie->fichier;
 
+        // Copie locale le temps de l'envoi : le disque privé peut être un bucket
+        $local = tempnam(sys_get_temp_dir(), 'audio');
         try {
+            $entree = Storage::disk('prive')->readStream($fichier);
+            $sortie = fopen((string) $local, 'wb');
+            if (! is_resource($entree) || ! is_resource($sortie)) {
+                throw new TranscriptionImpossible('Audio introuvable.');
+            }
+            stream_copy_to_stream($entree, $sortie);
+            fclose($entree);
+            fclose($sortie);
+
             $resultat = $transcripteur->transcrire(
-                Storage::disk('local')->path($fichier),
+                (string) $local,
                 $partie->format,
                 $termes->pour($partie->enregistrement),
             );
@@ -80,6 +91,10 @@ final class TranscrirePartie implements ShouldQueue
             self::echec($partie);
 
             return;
+        } finally {
+            if ($local !== false && is_file($local)) {
+                unlink($local);
+            }
         }
 
         $partie->forceFill([
@@ -92,7 +107,7 @@ final class TranscrirePartie implements ShouldQueue
         ])->save();
 
         // L'audio n'est pas gardé
-        Storage::disk('local')->delete($fichier);
+        Storage::disk('prive')->delete($fichier);
 
         $consommation->surveiller();
         if ($partie->enregistrement->organisation) {

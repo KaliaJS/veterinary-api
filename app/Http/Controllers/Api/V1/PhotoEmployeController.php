@@ -36,7 +36,7 @@ class PhotoEmployeController extends Controller
         $fiche->update(['photo_chemin' => ImageReencodee::enregistrer($request->file('photo'), 'photos/'.$this->organisationId(), self::COTE)]);
 
         if ($ancien) {
-            Storage::disk('local')->delete($ancien);
+            Storage::disk('prive')->delete($ancien);
         }
 
         return new SiteWebResource(SiteWeb::courant());
@@ -49,7 +49,7 @@ class PhotoEmployeController extends Controller
         $fiche = $this->employeDeLOrganisation($employe);
 
         if ($fiche->photo_chemin) {
-            Storage::disk('local')->delete($fiche->photo_chemin);
+            Storage::disk('prive')->delete($fiche->photo_chemin);
             $fiche->update(['photo_chemin' => null]);
         }
 
@@ -59,11 +59,11 @@ class PhotoEmployeController extends Controller
     public function afficher(string $fichier): StreamedResponse
     {
         $fiche = Employe::withoutGlobalScopes()->where('photo_fichier', pathinfo($fichier, PATHINFO_FILENAME))->firstOrFail();
-        abort_unless(basename((string) $fiche->photo_chemin) === $fichier && Storage::disk('local')->exists($fiche->photo_chemin), 404);
+        abort_unless(basename((string) $fiche->photo_chemin) === $fichier && Storage::disk('prive')->exists($fiche->photo_chemin), 404);
         // Partie, suspendue, ou sans son accord : sa photo ne se sert plus
         abort_unless($fiche->estPresentable() && $fiche->accord_site_le !== null, 404);
 
-        return Storage::disk('local')->response($fiche->photo_chemin, null, [
+        return Storage::disk('prive')->response($fiche->photo_chemin, null, [
             'Cache-Control' => 'public, max-age=31536000, immutable',
         ]);
     }

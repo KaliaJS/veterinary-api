@@ -63,7 +63,7 @@ class EnregistrementConsultationTest extends TestCase
     {
         parent::setUp();
 
-        Storage::fake('local');
+        Storage::fake('prive');
         $this->app->instance(Transcripteur::class, $this->transcripteur = new TranscripteurFactice);
         $this->app->instance(Redacteur::class, $this->redacteur = new RedacteurFactice);
 
@@ -98,7 +98,7 @@ class EnregistrementConsultationTest extends TestCase
         $this->envoyer($id, 2, 'DEUXIEME');
 
         $this->assertSame(['AABBCC', 'DEUXIEME'], array_column($this->transcripteur->appels, 'contenu'));
-        $this->assertSame([], Storage::disk('local')->allFiles('transcriptions'));
+        $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions'));
         $this->assertContains('Bouvier bernois', $this->transcripteur->appels[0]['termes']);
 
         $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 2], $this->enTetes($this->jeton))
@@ -251,13 +251,13 @@ class EnregistrementConsultationTest extends TestCase
             ->assertJsonPath('data.statut', 'erreur')
             ->assertJsonPath('data.erreur', 'transcription');
         // L'audio reste pour la relance
-        $this->assertCount(1, Storage::disk('local')->allFiles('transcriptions'));
+        $this->assertCount(1, Storage::disk('prive')->allFiles('transcriptions'));
 
         $this->transcripteur->refus = null;
         $this->postJson("/api/v1/enregistrements/{$id}/relancer", [], $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonPath('data.statut', 'pret');
-        $this->assertSame([], Storage::disk('local')->allFiles('transcriptions'));
+        $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions'));
     }
 
     public function test_une_redaction_impossible_se_relance(): void
@@ -282,7 +282,10 @@ class EnregistrementConsultationTest extends TestCase
         $this->morceau($id, (int) config('transcription.parties_max') + 1, 0, 1, 'AAA')
             ->assertUnprocessable()->assertJsonValidationErrors('numero');
 
-        config(['transcription.octets_max_enregistrement' => 5]);
+        // Le premier morceau doit être de l'audio du format annoncé
+        $this->morceauBrut($id, 1, 0, 2, '<?php echo 1;')->assertUnprocessable()->assertJsonValidationErrors('fichier');
+
+        config(['transcription.octets_max_enregistrement' => strlen(TranscripteurFactice::ENTETE) + 4]);
         $this->morceau($id, 1, 0, 2, 'AAA')->assertOk();
         $this->morceau($id, 1, 1, 2, 'BBB')->assertUnprocessable()->assertJsonValidationErrors('fichier');
     }
@@ -331,6 +334,29 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertCount(0, $this->transcripteur->appels);
     }
 
+    public function test_la_purge_efface_l_audio_ancien_et_celui_d_une_erreur_au_bout_de_deux_jours(): void
+    {
+        $enregistrement = $this->enregistrementTranscrit(60);
+        $partie = fn (int $numero, StatutPartie $statut, int $jours) => tap(PartieEnregistrement::query()->create([
+            'enregistrement_consultation_id' => $enregistrement->id, 'numero' => $numero, 'statut' => $statut,
+            'format' => 'audio/mp4', 'morceaux' => 1, 'fichier' => 'transcriptions/'.$enregistrement->id.'/'.$numero.'.audio',
+        ]), function (PartieEnregistrement $p) use ($jours): void {
+            Storage::disk('prive')->put($p->fichier, 'AUDIO');
+            PartieEnregistrement::query()->whereKey($p->id)->update(['updated_at' => now()->subDays($jours)]);
+        });
+        $ancienne = $partie(2, StatutPartie::Recue, 8);
+        $erreurAncienne = $partie(3, StatutPartie::Erreur, 3);
+        $erreurRecente = $partie(4, StatutPartie::Erreur, 1);
+        $recente = $partie(5, StatutPartie::Recue, 1);
+
+        $this->artisan('transcriptions:purger')->assertSuccessful();
+
+        Storage::disk('prive')->assertMissing([$ancienne->fichier, $erreurAncienne->fichier]);
+        Storage::disk('prive')->assertExists([$erreurRecente->fichier, $recente->fichier]);
+        $this->assertNull($erreurAncienne->refresh()->fichier);
+        $this->assertSame(StatutPartie::Erreur, $ancienne->refresh()->statut);
+    }
+
     public function test_le_compte_rendu_enregistre_valide_le_brouillon_puis_un_nouvel_enregistrement_peut_commencer(): void
     {
         $id = $this->demarrer()->json('data.id');
@@ -374,11 +400,11 @@ class EnregistrementConsultationTest extends TestCase
     {
         $id = $this->demarrer()->json('data.id');
         $this->morceau($id, 1, 0, 2, 'AA')->assertOk();
-        $this->assertCount(1, Storage::disk('local')->allFiles('transcriptions'));
+        $this->assertCount(1, Storage::disk('prive')->allFiles('transcriptions'));
 
         $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
 
-        $this->assertSame([], Storage::disk('local')->allFiles('transcriptions'));
+        $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions'));
         $this->assertSame(0, PartieEnregistrement::query()->count());
     }
 
@@ -432,7 +458,13 @@ class EnregistrementConsultationTest extends TestCase
         return $this->postJson("/api/v1/rendez-vous/{$this->rendezVous->id}/enregistrement", [], $this->enTetes($this->jeton));
     }
 
+    /** Le premier morceau commence par un vrai en-tête de fichier audio (retiré par le transcripteur factice) */
     private function morceau(int $id, int $numero, int $index, int $total, string $octets): TestResponse
+    {
+        return $this->morceauBrut($id, $numero, $index, $total, ($index === 0 ? TranscripteurFactice::ENTETE : '').$octets);
+    }
+
+    private function morceauBrut(int $id, int $numero, int $index, int $total, string $octets): TestResponse
     {
         return $this->post("/api/v1/enregistrements/{$id}/parties/{$numero}", [
             'morceau' => $index,

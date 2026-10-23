@@ -26,7 +26,7 @@ final class PhotosCliniques
 
     public const int APERCU_QUALITE = 30;
 
-    private const string DISQUE = 'local';
+    private const string DISQUE = 'prive';
 
     /**
      * Range la photo déposée et ses versions.

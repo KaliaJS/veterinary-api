@@ -32,7 +32,7 @@ class ConsentementInterventionController extends Controller
 
         $contexte = app(ContexteClinique::class);
         $chemin = 'consentements/'.$intervention->id.'-'.Str::uuid().'.png';
-        Storage::disk('local')->put($chemin, (string) $request->signaturePng());
+        Storage::disk('prive')->put($chemin, (string) $request->signaturePng());
 
         try {
             DB::transaction(function () use ($request, $intervention, $contexte, $chemin): void {
@@ -53,7 +53,7 @@ class ConsentementInterventionController extends Controller
                 $intervention->checklist()->where('code', 'consent')->update(['est_coche' => true]);
             });
         } catch (Throwable $e) {
-            Storage::disk('local')->delete($chemin);
+            Storage::disk('prive')->delete($chemin);
 
             throw $e;
         }

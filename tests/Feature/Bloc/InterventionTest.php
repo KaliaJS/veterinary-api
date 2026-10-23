@@ -149,7 +149,7 @@ class InterventionTest extends TestCase
 
     public function test_le_consentement_ne_se_coche_que_par_sa_signature(): void
     {
-        Storage::fake('local');
+        Storage::fake('prive');
         $intervention = $this->intervention();
 
         // Sans signature tracée, ou avec autre chose qu'une image : refusé
@@ -175,7 +175,7 @@ class InterventionTest extends TestCase
 
         // La preuve : l'image de la signature, qui a signé, qui l'a recueillie
         $this->assertSame('Mme Pineau', $document->signataire);
-        $this->assertStringStartsWith("\x89PNG", Storage::disk('local')->get($document->chemin));
+        $this->assertStringStartsWith("\x89PNG", Storage::disk('prive')->get($document->chemin));
         $this->assertNotNull($intervention->consentement_recueilli_par_id);
 
         // Une seule signature.

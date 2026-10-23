@@ -245,7 +245,7 @@ class SiteWebTest extends TestCase
 
     public function test_le_logo_se_televerse_se_sert_et_se_supprime(): void
     {
-        Storage::fake('local');
+        Storage::fake('prive');
 
         $url = $this->post('/api/v1/site/logo', ['logo' => UploadedFile::fake()->image('logo.png', 256, 256)], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])
             ->assertOk()
@@ -262,12 +262,12 @@ class SiteWebTest extends TestCase
             ->assertJsonPath('data.logo_url', null);
 
         $this->get($url)->assertNotFound();
-        $this->assertSame([], Storage::disk('local')->allFiles('logos'));
+        $this->assertSame([], Storage::disk('prive')->allFiles('logos'));
     }
 
     public function test_un_logo_svg_est_refuse_et_un_veterinaire_ne_peut_pas_televerser(): void
     {
-        Storage::fake('local');
+        Storage::fake('prive');
         $this->getJson('/api/v1/site', $this->enTetes($this->jeton));
 
         $this->post('/api/v1/site/logo', ['logo' => UploadedFile::fake()->create('logo.svg', 4, 'image/svg+xml')], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])
@@ -332,7 +332,7 @@ class SiteWebTest extends TestCase
 
     public function test_la_photo_d_un_employe_se_pose_depuis_le_site_et_sert_partout(): void
     {
-        Storage::fake('local');
+        Storage::fake('prive');
         $soeur = Clinique::factory()->create(['nom' => 'Le Lac', 'societe_id' => $this->clinique->societe_id]);
         $lea = Employe::factory()->dans($soeur)->create(['nom' => 'Léa Fontaine']);
         $etranger = Employe::factory()->dans(Clinique::factory()->create())->create();

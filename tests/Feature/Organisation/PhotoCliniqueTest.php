@@ -31,7 +31,7 @@ class PhotoCliniqueTest extends TestCase
     {
         parent::setUp();
 
-        Storage::fake('local');
+        Storage::fake('prive');
         $this->clinique = Clinique::factory()->create();
         ['employe' => $employe, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
         $employe->update([
@@ -62,23 +62,23 @@ class PhotoCliniqueTest extends TestCase
         $this->assertLessThan(1500, strlen($photo['apercu']));
 
         $premier = $soeur->refresh()->photo_chemin;
-        Storage::disk('local')->assertExists([PhotosCliniques::version($premier, 480), PhotosCliniques::version($premier, 1200)]);
+        Storage::disk('prive')->assertExists([PhotosCliniques::version($premier, 480), PhotosCliniques::version($premier, 1200)]);
         // L'originale n'est pas gardée (elle portait la position de l'appareil)
-        Storage::disk('local')->assertMissing($premier);
+        Storage::disk('prive')->assertMissing($premier);
         $this->get(route('clinique.photo', ['fichier' => basename($premier)]))->assertNotFound();
         $this->get($photo['url'])->assertOk()->assertHeader('Cache-Control', 'immutable, max-age=31536000, public');
-        $this->assertSame(1200, getimagesizefromstring(Storage::disk('local')->get(PhotosCliniques::version($premier, 1200)))[0]);
+        $this->assertSame(1200, getimagesizefromstring(Storage::disk('prive')->get(PhotosCliniques::version($premier, 1200)))[0]);
 
         // Remplacée : l'ancienne et ses versions partent
         $this->post("/api/v1/organisation/cliniques/{$soeur->id}/photo", ['photo' => UploadedFile::fake()->image('accueil.png', 800, 600)], $this->entetesJson())->assertOk();
-        Storage::disk('local')->assertMissing([$premier, PhotosCliniques::version($premier, 480)]);
+        Storage::disk('prive')->assertMissing([$premier, PhotosCliniques::version($premier, 480)]);
 
         $nouvelle = $soeur->refresh()->photo_chemin;
         $this->deleteJson("/api/v1/organisation/cliniques/{$soeur->id}/photo", [], $this->entetesJson())
             ->assertOk()
             ->assertJsonPath('data.photo', null);
         $this->assertNull($soeur->refresh()->photo_chemin);
-        Storage::disk('local')->assertMissing([$nouvelle, PhotosCliniques::version($nouvelle, 1200)]);
+        Storage::disk('prive')->assertMissing([$nouvelle, PhotosCliniques::version($nouvelle, 1200)]);
     }
 
     public function test_l_ecran_organisation_dit_ce_qui_manque_pour_paraitre_dans_l_annuaire(): void

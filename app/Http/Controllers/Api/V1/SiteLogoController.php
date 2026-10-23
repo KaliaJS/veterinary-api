@@ -22,11 +22,11 @@ class SiteLogoController extends Controller
         $site = $this->site();
         $ancien = $site->logo_chemin;
 
-        $chemin = $request->file('logo')->store("logos/{$site->organisation_id}", 'local');
+        $chemin = $request->file('logo')->store("logos/{$site->organisation_id}", 'prive');
         $site->update(['logo_chemin' => $chemin]);
 
         if ($ancien && $ancien !== $chemin) {
-            Storage::disk('local')->delete($ancien);
+            Storage::disk('prive')->delete($ancien);
         }
 
         return new SiteWebResource($site->refresh()->load('organisation'));
@@ -39,7 +39,7 @@ class SiteLogoController extends Controller
         $site = $this->site();
 
         if ($site->logo_chemin) {
-            Storage::disk('local')->delete($site->logo_chemin);
+            Storage::disk('prive')->delete($site->logo_chemin);
             $site->update(['logo_chemin' => null]);
         }
 

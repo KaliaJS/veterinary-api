@@ -68,9 +68,9 @@ class SitePublicController extends Controller
     public function logo(string $slug): StreamedResponse
     {
         $site = SiteWeb::withoutGlobalScopes()->where('slug', $slug)->whereNotNull('logo_chemin')->firstOrFail();
-        abort_unless(Storage::disk('local')->exists($site->logo_chemin), 404);
+        abort_unless(Storage::disk('prive')->exists($site->logo_chemin), 404);
 
-        return Storage::disk('local')->response($site->logo_chemin, null, [
+        return Storage::disk('prive')->response($site->logo_chemin, null, [
             'Cache-Control' => 'public, max-age=31536000, immutable',
         ]);
     }

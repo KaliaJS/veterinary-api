@@ -64,7 +64,7 @@ final class ImageReencodee
     public static function enregistrer(UploadedFile $fichier, string $dossier, int $cote): string
     {
         $chemin = trim($dossier, '/').'/'.Str::random(40).'.webp';
-        Storage::disk('local')->put($chemin, self::webp(self::reduire(self::lire($fichier), $cote)));
+        Storage::disk('prive')->put($chemin, self::webp(self::reduire(self::lire($fichier), $cote)));
 
         return $chemin;
     }

@@ -13,6 +13,9 @@ use App\Services\Transcription\TranscriptionImpossible;
  */
 class TranscripteurFactice implements Transcripteur
 {
+    /** En-tête d'un fichier MP4 (`ftyp`) : le premier morceau d'un test commence par lui */
+    public const string ENTETE = "\x00\x00\x00\x18ftypM4A ";
+
     /** @var list<array{contenu: string, format: string, termes: list<string>}> */
     public array $appels = [];
 
@@ -28,7 +31,9 @@ class TranscripteurFactice implements Transcripteur
 
     public function transcrire(string $chemin, string $format, array $termes): Transcription
     {
-        $this->appels[] = ['contenu' => (string) file_get_contents($chemin), 'format' => $format, 'termes' => $termes];
+        // L'en-tête audio des tests retiré : le contenu se lit tel qu'envoyé
+        $contenu = (string) file_get_contents($chemin);
+        $this->appels[] = ['contenu' => str_starts_with($contenu, self::ENTETE) ? substr($contenu, strlen(self::ENTETE)) : $contenu, 'format' => $format, 'termes' => $termes];
         if ($this->refus) {
             throw $this->refus;
         }

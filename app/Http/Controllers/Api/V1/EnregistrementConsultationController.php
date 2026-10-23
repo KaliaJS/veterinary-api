@@ -150,7 +150,7 @@ class EnregistrementConsultationController extends Controller
             throw ValidationException::withMessages(['enregistrement' => 'Le compte rendu de cet enregistrement est déjà validé.']);
         }
 
-        Storage::disk('local')->deleteDirectory($enregistrement->dossierAudio());
+        Storage::disk('prive')->deleteDirectory($enregistrement->dossierAudio());
         $enregistrement->delete();
 
         return response()->noContent();

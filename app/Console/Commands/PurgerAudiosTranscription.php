@@ -21,12 +21,15 @@ class PurgerAudiosTranscription extends Command
     public function handle(): int
     {
         $limite = now()->subDays((int) config('transcription.conservation_audio_jours'));
-        $disque = Storage::disk('local');
+        // En erreur, l'audio ne reste que le temps de relancer (23.10.2026)
+        $limiteErreur = now()->subDays((int) config('transcription.conservation_erreur_jours'));
+        $disque = Storage::disk('prive');
         $effacees = 0;
 
         PartieEnregistrement::query()
-            ->whereIn('statut', [StatutPartie::Envoi, StatutPartie::Recue, StatutPartie::Erreur])
-            ->where('updated_at', '<', $limite)
+            ->where(fn ($requete) => $requete
+                ->where(fn ($q) => $q->whereIn('statut', [StatutPartie::Envoi, StatutPartie::Recue])->where('updated_at', '<', $limite))
+                ->orWhere(fn ($q) => $q->where('statut', StatutPartie::Erreur)->whereNotNull('fichier')->where('updated_at', '<', $limiteErreur)))
             ->each(function (PartieEnregistrement $partie) use ($disque, &$effacees): void {
                 if ($partie->fichier) {
                     $disque->delete($partie->fichier);

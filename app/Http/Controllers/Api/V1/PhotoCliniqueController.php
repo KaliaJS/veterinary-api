@@ -48,9 +48,9 @@ class PhotoCliniqueController extends Controller
         abort_unless(preg_match('/^([A-Za-z0-9]+)-(\d+)\.webp$/', $fichier, $parties) === 1, 404);
         $fiche = Clinique::query()->where('photo_fichier', $parties[1])->firstOrFail();
         $chemin = dirname((string) $fiche->photo_chemin).'/'.$fichier;
-        abort_unless(Storage::disk('local')->exists($chemin), 404);
+        abort_unless(Storage::disk('prive')->exists($chemin), 404);
 
-        return Storage::disk('local')->response($chemin, null, [
+        return Storage::disk('prive')->response($chemin, null, [
             'Cache-Control' => 'public, max-age=31536000, immutable',
         ]);
     }

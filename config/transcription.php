@@ -44,6 +44,8 @@ return [
 
     // Audio d'une partie non transcrite (erreur) effacé au bout de ce délai
     'conservation_audio_jours' => 7,
+    // Audio d'une partie en erreur : gardé le temps de relancer, pas plus (23.10.2026)
+    'conservation_erreur_jours' => 2,
 
     // Formats d'audio acceptés (enregistreur de l'iPhone, navigateurs)
     'formats' => ['audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/wav'],

@@ -116,7 +116,7 @@ class PatientTest extends TestCase
 
     public function test_la_photo_de_l_animal_se_televerse_se_sert_et_se_supprime(): void
     {
-        Storage::fake('local');
+        Storage::fake('prive');
         $rex = Patient::factory()->for($this->client)->create(['nom' => 'Rex']);
 
         $url = $this->post("/api/v1/patients/{$rex->id}/photo", ['photo' => UploadedFile::fake()->image('rex.jpg', 300, 300)], $this->enTetes($this->jeton))
@@ -124,7 +124,7 @@ class PatientTest extends TestCase
             ->json('data.photo_url');
         $this->assertNotNull($url);
         $this->assertStringContainsString('/photos-animaux/', $url);
-        Storage::disk('local')->assertExists($rex->fresh()->photo_chemin);
+        Storage::disk('prive')->assertExists($rex->fresh()->photo_chemin);
 
         $this->get($url)->assertOk()->assertHeader('Cache-Control', 'immutable, max-age=31536000, public');
         $this->post("/api/v1/patients/{$rex->id}/photo", ['photo' => UploadedFile::fake()->create('rex.svg', 10, 'image/svg+xml')], $this->enTetes($this->jeton))

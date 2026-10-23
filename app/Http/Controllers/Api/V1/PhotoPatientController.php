@@ -28,7 +28,7 @@ class PhotoPatientController extends Controller
         $patient->update(['photo_chemin' => ImageReencodee::enregistrer($request->file('photo'), 'photos-animaux/'.$patient->organisation_id, 1200)]);
 
         if ($ancien) {
-            Storage::disk('local')->delete($ancien);
+            Storage::disk('prive')->delete($ancien);
         }
 
         return new PatientResource($patient->load('client'));
@@ -39,7 +39,7 @@ class PhotoPatientController extends Controller
         $this->authorize('updateIdentity', $patient);
 
         if ($patient->photo_chemin) {
-            Storage::disk('local')->delete($patient->photo_chemin);
+            Storage::disk('prive')->delete($patient->photo_chemin);
             $patient->update(['photo_chemin' => null]);
         }
 
@@ -49,9 +49,9 @@ class PhotoPatientController extends Controller
     public function afficher(string $fichier): StreamedResponse
     {
         $patient = Patient::withoutGlobalScopes()->where('photo_fichier', pathinfo($fichier, PATHINFO_FILENAME))->firstOrFail();
-        abort_unless(basename((string) $patient->photo_chemin) === $fichier && Storage::disk('local')->exists($patient->photo_chemin), 404);
+        abort_unless(basename((string) $patient->photo_chemin) === $fichier && Storage::disk('prive')->exists($patient->photo_chemin), 404);
 
-        return Storage::disk('local')->response($patient->photo_chemin, null, [
+        return Storage::disk('prive')->response($patient->photo_chemin, null, [
             'Cache-Control' => 'public, max-age=31536000, immutable',
         ]);
     }
