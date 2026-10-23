@@ -244,6 +244,6 @@ class AlertesClinique
 
     private function chf(int $centimes): string
     {
-        return number_format($centimes / 100, 2, '.', "'").' CHF';
+        return chf($centimes / 100);
     }
 }

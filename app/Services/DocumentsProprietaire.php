@@ -118,7 +118,7 @@ class DocumentsProprietaire
                     'type' => 'FACTURE',
                     'id' => $f->id,
                     'date' => $f->emise_le->toDateString(),
-                    'titre' => 'Facture '.$libelle.', CHF '.self::montant($f->totalTtc()).' ('.$f->patient_name.')',
+                    'titre' => 'Facture '.$libelle.', '.chf($f->totalTtc()).' ('.$f->patient_name.')',
                     'sous_ligne' => $payee
                         ? 'PAYÉE · '.mb_strtoupper(self::dateLongue($f->payee_le ?? $f->emise_le))
                         : 'À RÉGLER · '.mb_strtoupper(self::dateLongue($f->emise_le)),
@@ -166,7 +166,7 @@ class DocumentsProprietaire
                     'type' => 'DEVIS',
                     'id' => $d->id,
                     'date' => $d->emis_le->toDateString(),
-                    'titre' => 'Devis '.mb_strtolower($d->motif ?? $d->numero).', CHF '.self::montant($d->totalTtc()).' ('.$d->patient->nom.')',
+                    'titre' => 'Devis '.mb_strtolower($d->motif ?? $d->numero).', '.chf($d->totalTtc()).' ('.$d->patient->nom.')',
                     'sous_ligne' => match ($effectif) {
                         StatutDevis::Envoye->value => 'EN ATTENTE DE VOTRE SIGNATURE',
                         StatutDevis::Accepte->value => 'SIGNÉ ÉLECTRONIQUEMENT'.($d->signe_le ? ' · '.mb_strtoupper(self::dateLongue($d->signe_le)) : ''),
@@ -265,11 +265,6 @@ class DocumentsProprietaire
                 'sous_ligne' => mb_strtoupper(($d->signataire ? $d->signataire.' · ' : '').self::dateLongue($d->etabli_le)),
                 'pdf' => null,
             ]);
-    }
-
-    private static function montant(float $v): string
-    {
-        return number_format($v, 2, '.', ' ');
     }
 
     private static function dateLongue(mixed $date): string

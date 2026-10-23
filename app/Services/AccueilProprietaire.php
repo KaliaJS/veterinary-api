@@ -192,7 +192,7 @@ class AccueilProprietaire
         foreach ($devis as $unDevis) {
             $items[] = [
                 'type' => 'devis',
-                'libelle' => sprintf('Signer le devis %s (CHF %s)', mb_strtolower($unDevis->motif ?? $unDevis->numero), number_format($unDevis->totalTtc(), 2, '.', ' ')),
+                'libelle' => sprintf('Signer le devis %s (%s)', mb_strtolower($unDevis->motif ?? $unDevis->numero), chf($unDevis->totalTtc())),
                 'cible' => 'documents',
                 'devis_id' => $unDevis->id,
             ];

@@ -31,7 +31,8 @@
             "Database\\Seeders\\": "database/seeders/"
         },
         "files": [
-            "app/Support/aujourdhui.php"
+            "app/Support/aujourdhui.php",
+            "app/Support/chf.php"
         ]
     },
     "autoload-dev": {

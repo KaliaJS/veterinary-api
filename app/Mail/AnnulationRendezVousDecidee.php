@@ -32,7 +32,7 @@ class AnnulationRendezVousDecidee extends Mailable
     public function content(): Content
     {
         $fuseau = $this->demande->clinique->fuseau_horaire ?? 'Europe/Zurich';
-        $chf = fn (?int $centimes) => 'CHF '.number_format(($centimes ?? 0) / 100, 2, '.', "'");
+        $chf = fn (?int $centimes) => chf(($centimes ?? 0) / 100);
 
         return new Content(markdown: 'emails.rendez-vous.annulation-decidee', with: [
             'quand' => $this->debut?->setTimezone($fuseau)->locale('fr')->isoFormat('dddd D MMMM [à] HH[:]mm'),

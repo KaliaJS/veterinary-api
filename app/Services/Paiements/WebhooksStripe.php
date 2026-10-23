@@ -154,10 +154,10 @@ class WebhooksStripe
             return;
         }
 
-        $rendu = number_format(((int) ($charge['amount_refunded'] ?? 0)) / 100, 2, '.', '’');
+        $rendu = chf(((int) ($charge['amount_refunded'] ?? 0)) / 100);
         $paiement->update(($charge['refunded'] ?? false)
-            ? ['statut' => StatutPaiement::Rembourse, 'erreur' => 'Remboursé (CHF '.$rendu.').']
-            : ['erreur' => 'Remboursé en partie : CHF '.$rendu.'.']);
+            ? ['statut' => StatutPaiement::Rembourse, 'erreur' => 'Remboursé ('.$rendu.').']
+            : ['erreur' => 'Remboursé en partie : '.$rendu.'.']);
     }
 
     /**
