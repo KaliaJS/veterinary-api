@@ -30,6 +30,9 @@ use Illuminate\Validation\ValidationException;
  */
 class BoutiqueProprietaireController extends Controller
 {
+    /** Le stock montré au public, plafonné. */
+    public const int STOCK_AFFICHE_MAX = 10;
+
     public function __construct(private Numeroteur $numeroteur) {}
 
     public function vitrine(): JsonResponse
@@ -66,7 +69,9 @@ class BoutiqueProprietaireController extends Controller
                         'promo_pct' => (int) $produit->promo_pct,
                         'est_vedette' => (bool) $produit->est_vedette,
                         'est_sur_ordonnance' => (bool) $produit->est_sur_ordonnance,
-                        'stock' => $stock,
+                        // Au-delà de quelques pièces, « en stock » suffit : le stock
+                        // exact d'une clinique ne regarde qu'elle (23.10.2026)
+                        'stock' => min($stock, self::STOCK_AFFICHE_MAX),
                         'disponible' => $stock > 0 && ! $produit->refusVenteLibre(),
                     ];
                 })->values()->all(),

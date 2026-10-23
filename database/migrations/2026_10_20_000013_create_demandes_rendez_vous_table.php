@@ -38,7 +38,9 @@ return new class extends Migration
             // Clé étrangère posée avec la table rendez_vous (000021), créée après celle-ci
             $table->unsignedBigInteger('rendez_vous_id')->nullable()->comment('Le rendez-vous créé à l’acceptation');
             $table->timestamp('traitee_le')->nullable();
-            $table->string('jeton', 64)->nullable()->unique()->comment('Lien de suivi d’une demande sans compte, ou du retour d’un paiement');
+            $table->string('jeton', 64)->nullable()->unique()->comment('Empreinte (SHA-256) du lien de suivi d’une demande sans compte, ou du retour d’un paiement');
+            $table->text('jeton_chiffre')->nullable()->comment('Le lien lui-même, chiffré, pour les e-mails suivants (23.10.2026)');
+            $table->timestamp('jeton_expire_le')->nullable()->comment('Le lien ne sert plus après');
             $table->unsignedInteger('acompte_centimes')->nullable()->comment('Acompte demandé pour réserver');
             $table->string('acompte_intention_id')->nullable()->unique()->comment('Intention de paiement Stripe de l’acompte');
             $table->string('acompte_stripe_compte_id')->nullable()->comment('Compte Stripe de la société qui a reçu l’acompte (remboursement), 23.10.2026');

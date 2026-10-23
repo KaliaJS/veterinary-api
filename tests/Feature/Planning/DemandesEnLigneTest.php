@@ -255,16 +255,22 @@ class DemandesEnLigneTest extends TestCase
     {
         $demande = $this->demande(['statut' => 'proposee', 'creneaux_proposes' => [$this->mardi->addHour()->utc()->toIso8601String()]]);
 
-        $this->getJson("/api/v1/public/demandes/{$demande->jeton}")
+        $this->getJson("/api/v1/public/demandes/{$demande->jetonClair()}")
             ->assertOk()
             ->assertJsonPath('data.statut', 'proposee')
             ->assertJsonPath('data.patient_name', $demande->patient_name);
 
-        $this->postJson("/api/v1/public/demandes/{$demande->jeton}/choisir", ['starts_at' => $this->mardi->addHour()->toIso8601String()])
+        $this->postJson("/api/v1/public/demandes/{$demande->jetonClair()}/choisir", ['starts_at' => $this->mardi->addHour()->toIso8601String()])
             ->assertOk()
             ->assertJsonPath('data.statut', 'acceptee');
 
         $this->getJson('/api/v1/public/demandes/'.Str::random(48))->assertNotFound();
         Mail::assertSent(DemandeRendezVousAcceptee::class);
+
+        // En base, seulement l'empreinte du lien ; il ne sert plus 30 jours après l'heure
+        $this->assertSame(64, strlen((string) $demande->refresh()->getRawOriginal('jeton')));
+        $this->assertNotSame($demande->jetonClair(), $demande->getRawOriginal('jeton'));
+        $this->travelTo($demande->debut_souhaite->addDays(31));
+        $this->getJson("/api/v1/public/demandes/{$demande->jetonClair()}")->assertStatus(410);
     }
 }

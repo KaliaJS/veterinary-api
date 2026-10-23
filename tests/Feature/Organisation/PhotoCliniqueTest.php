@@ -115,7 +115,7 @@ class PhotoCliniqueTest extends TestCase
     {
         $this->clinique->update(['rue' => 'Rue du Lac 1', 'npa' => '1000', 'ville' => 'Lausanne', 'latitude' => 46.5, 'longitude' => 6.6]);
         ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
-        $annuaire = fn () => collect($this->getJson('/api/v1/espace/cliniques', $this->enTetes($jetonProprietaire))->assertOk()->json('data'))
+        $annuaire = fn () => collect($this->getJson('/api/v1/espace/cliniques?cliniques='.$this->clinique->id, $this->enTetes($jetonProprietaire))->assertOk()->json('data'))
             ->firstWhere('id', $this->clinique->id);
 
         // Sans photo : hors de l'annuaire, mais toujours servie (créneaux du site de la clinique)

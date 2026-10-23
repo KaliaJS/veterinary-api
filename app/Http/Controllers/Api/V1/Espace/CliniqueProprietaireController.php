@@ -36,6 +36,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -62,10 +63,31 @@ class CliniqueProprietaireController extends Controller
     /** Les créneaux proposés tombent au quart d'heure (horaires suisses : décalage en heures entières). */
     private const int QUART = 900;
 
-    public function index(CalculateurCreneaux $calculateur): JsonResponse
+    /**
+     * L'annuaire : les cliniques ouvertes avec photo, adresse complète et
+     * position. `?cliniques=1,2` sert une clinique précise même hors de
+     * l'annuaire (le site d'une clinique y prend ses créneaux, 23.10.2026).
+     */
+    public function index(Request $request, CalculateurCreneaux $calculateur): JsonResponse
     {
+        $ids = array_slice(array_filter(array_map('intval', explode(',', $request->string('cliniques')->toString()))), 0, 20);
+        $secondes = (int) config('plateforme.annuaire_cache_secondes');
+
+        return response()->json(['data' => $secondes > 0
+            ? Cache::remember('annuaire:'.implode(',', $ids), $secondes, fn (): array => $this->annuaire($ids, $calculateur))
+            : $this->annuaire($ids, $calculateur)]);
+    }
+
+    /**
+     * @param  list<int>  $ids
+     * @return list<array<string, mixed>>
+     */
+    private function annuaire(array $ids, CalculateurCreneaux $calculateur): array
+    {
+
         $cliniques = Clinique::withoutGlobalScopes()
             ->ouvertes()
+            ->when($ids !== [], fn ($requete) => $requete->whereKey($ids))
             ->with([
                 'societe.organisation',
                 'services',
@@ -75,7 +97,8 @@ class CliniqueProprietaireController extends Controller
                 'employes.user.specialites',
             ])
             ->orderBy('id')
-            ->get();
+            ->get()
+            ->when($ids === [], fn ($liste) => $liste->filter(fn (Clinique $clinique): bool => $clinique->estDansLAnnuaire())->values());
 
         // Une semaine de créneaux pour toutes les cliniques d'un coup : le nombre de requêtes ne dépend pas du nombre de cliniques.
         $semaines = $calculateur->creneauxDesCliniques($cliniques, self::JOURS_EXPLORES, self::DUREE_MINUTES);
@@ -83,7 +106,7 @@ class CliniqueProprietaireController extends Controller
         // Site web de l'organisation de chaque clinique : lien s'il est publié, logo dans tous les cas.
         $sites = SiteWeb::withoutGlobalScopes()->get()->keyBy('organisation_id');
 
-        return response()->json(['data' => $cliniques->map(fn (Clinique $clinique): array => [
+        return $cliniques->map(fn (Clinique $clinique): array => [
             'id' => $clinique->id,
             'nom' => $clinique->nom,
             'rue' => $clinique->rue,
@@ -98,11 +121,11 @@ class CliniqueProprietaireController extends Controller
             'logo_url' => $site?->logoUrl(),
             'photo' => PhotosCliniques::pour($clinique),
             // Sans photo, adresse complète ni position, l'annuaire ne la montre
-            // pas ; elle reste ici pour les créneaux du site de sa clinique
+            // pas ; demandée par son id, elle sert aux créneaux de son site
             'dans_annuaire' => $clinique->estDansLAnnuaire(),
             'creneaux' => $this->retenir($semaines[$clinique->id]),
             ...$this->offre($clinique),
-        ])->all()]);
+        ])->values()->all();
     }
 
     /**
@@ -360,7 +383,7 @@ class CliniqueProprietaireController extends Controller
             'statut' => $demande->refresh()->statut,
             'rendez_vous_id' => $demande->rendez_vous_id,
             'paiement' => $paiement,
-            'jeton' => $paiement ? $demande->jeton : null,
+            'jeton' => $paiement ? $demande->jetonClair() : null,
         ]], 201);
     }
 
@@ -391,7 +414,7 @@ class CliniqueProprietaireController extends Controller
      * chaque jour, puis on complète chronologiquement.
      *
      * @param  list<Collection<int, array{ligne_planning_id: int, debut: CarbonImmutable, fin: CarbonImmutable}>>  $semaine
-     * @return list<array{debut: string, ligne_planning_id: int}>
+     * @return list<array{debut: string}>
      */
     private function retenir(array $semaine): array
     {
@@ -436,9 +459,9 @@ class CliniqueProprietaireController extends Controller
             $retenus = array_slice(array_merge($retenus, $restants), 0, self::CRENEAUX_PAR_CLINIQUE);
         }
 
+        // L'heure seule : l'organisation interne du planning reste à la clinique (23.10.2026)
         return array_map(fn (array $c): array => [
             'debut' => CarbonImmutable::createFromTimestampUTC($c['debut'])->toIso8601String(),
-            'ligne_planning_id' => $c['ligne_planning_id'],
         ], $retenus);
     }
 }

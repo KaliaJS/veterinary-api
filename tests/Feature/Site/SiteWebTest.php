@@ -32,7 +32,7 @@ class SiteWebTest extends TestCase
     {
         parent::setUp();
 
-        $this->clinique = Clinique::factory()->create(['nom' => 'Deux Rives']);
+        $this->clinique = Clinique::factory()->dansLAnnuaire()->create(['nom' => 'Deux Rives']);
         $this->clinique->societe->organisation->update(['nom' => 'Deux Rives Vétérinaires']);
         $this->jeton = $this->administrateur($this->clinique);
     }
@@ -201,7 +201,7 @@ class SiteWebTest extends TestCase
 
     public function test_l_annuaire_public_expose_le_site_de_l_organisation_sur_chaque_clinique(): void
     {
-        Clinique::factory()->create(['nom' => 'Le Lac', 'societe_id' => $this->clinique->societe_id]);
+        Clinique::factory()->dansLAnnuaire()->create(['nom' => 'Le Lac', 'societe_id' => $this->clinique->societe_id]);
 
         $this->getJson('/api/v1/public/cliniques')->assertOk()->assertJsonPath('data.0.site_slug', null);
 

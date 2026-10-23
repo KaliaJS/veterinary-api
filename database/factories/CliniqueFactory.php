@@ -48,6 +48,12 @@ class CliniqueFactory extends Factory
         });
     }
 
+    /** Clinique visible dans l'annuaire : photo, adresse complète, position. */
+    public function dansLAnnuaire(): static
+    {
+        return $this->state(fn (): array => ['photo_chemin' => 'cliniques/test.webp']);
+    }
+
     /** Clinique sans aucun service, comme une clinique créée par l'administrateur. */
     public function sansServices(): static
     {

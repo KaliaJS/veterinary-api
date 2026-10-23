@@ -20,7 +20,7 @@ class AnnuaireOffreTest extends TestCase
 
     public function test_seuls_les_veterinaires_verifies_et_leurs_specialites_paraissent(): void
     {
-        $clinique = Clinique::factory()->sansServices()->create(['nombre_boxes' => 6]);
+        $clinique = Clinique::factory()->dansLAnnuaire()->sansServices()->create(['nombre_boxes' => 6]);
         $clinique->services()->create(['service' => 'hospitalisation']);
         $clinique->services()->create(['service' => 'urgences', 'modalite' => 'permanence']);
         $clinique->especes()->create(['espece' => 'CT']);

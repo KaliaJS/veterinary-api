@@ -48,6 +48,11 @@ class DemandePubliqueController extends Controller
     /** Le jeton est secret : il vient de l'e-mail ou du parcours qui a ouvert le paiement. */
     private function parJeton(string $jeton): DemandeRendezVous
     {
-        return DemandeRendezVous::withoutGlobalScopes()->where('jeton', $jeton)->firstOrFail();
+        $demande = DemandeRendezVous::withoutGlobalScopes()->where('jeton', DemandeRendezVous::empreinte($jeton))->firstOrFail();
+
+        // Un lien ne sert pas toujours (23.10.2026) : 30 jours après l'heure demandée
+        abort_if($demande->lienEstExpire(), 410, 'Ce lien a expiré : votre clinique vous renseigne.');
+
+        return $demande;
     }
 }

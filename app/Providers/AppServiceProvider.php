@@ -27,6 +27,7 @@ use Illuminate\Http\Request;
 use Illuminate\Mail\Markdown;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
 use Stripe\StripeClient;
@@ -80,6 +81,15 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Sanctum::usePersonalAccessTokenModel(JetonApi::class);
+
+        // Les adresses que l'API écrit (photos, logos, liens signés, e-mails)
+        // partent d'APP_URL, jamais de l'en-tête Host de la requête (23.10.2026)
+        if (filled(config('app.url'))) {
+            URL::forceRootUrl((string) config('app.url'));
+            if (str_starts_with((string) config('app.url'), 'https://')) {
+                URL::forceScheme('https');
+            }
+        }
 
         // E-mails : une saisie (nom d'un animal, message) ne devient jamais
         // un lien ou du HTML (« [Payer](https://…) » reste du texte)

@@ -49,4 +49,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        // Un paramètre attendu seul, reçu en tableau (`?q[]=…`) : la requête
+        // est mal formée (422), pas une panne du serveur (23.10.2026)
+        $exceptions->render(fn (ErrorException $e, Request $request) => $request->is('api/*') && str_contains($e->getMessage(), 'Array to string conversion')
+            ? response()->json(['message' => 'Un paramètre de la requête n’a pas la bonne forme.'], 422)
+            : null);
+        $exceptions->dontReportWhen(fn (Throwable $e) => $e instanceof ErrorException && str_contains($e->getMessage(), 'Array to string conversion') && request()->is('api/*'));
     })->create();

@@ -23,4 +23,8 @@ return [
     // MedReg, autre nom, MedReg en panne) : e-mail avec Valider et Refuser
     'verification_email' => env('PLATEFORME_VERIFICATION_EMAIL') ?: env('TRANSCRIPTION_ALERTE_EMAIL') ?: env('PLATEFORME_EMETTEUR_EMAIL'),
 
+    // L'annuaire public et ses créneaux, gardés quelques secondes : chaque
+    // visite ne recalcule pas toutes les cliniques (23.10.2026). 0 : jamais
+    'annuaire_cache_secondes' => (int) env('ANNUAIRE_CACHE_SECONDES', 60),
+
 ];

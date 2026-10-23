@@ -381,7 +381,7 @@ class InscriptionCliniqueTest extends TestCase
 
     public function test_les_cliniques_fermees_ne_paraissent_ni_dans_l_annuaire_ni_dans_les_boutiques(): void
     {
-        $ouverte = Clinique::factory()->create(['nom' => 'Ouverte']);
+        $ouverte = Clinique::factory()->dansLAnnuaire()->create(['nom' => 'Ouverte']);
         Clinique::factory()->for(Societe::factory()->for(Organisation::factory()->enAttente()))->create(['nom' => 'En attente']);
         Clinique::factory()->for(Societe::factory()->for(Organisation::factory()->sansAbonnement()))->create(['nom' => 'Sans abonnement']);
 

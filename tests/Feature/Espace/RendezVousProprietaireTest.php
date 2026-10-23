@@ -94,9 +94,9 @@ class RendezVousProprietaireTest extends TestCase
     public function test_l_annuaire_des_cliniques_porte_leurs_prochains_creneaux(): void
     {
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();
-        $clinique = Clinique::factory()->create(['nom' => 'Deux Rives', 'ville' => 'Lausanne']);
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['nom' => 'Deux Rives', 'ville' => 'Lausanne']);
         LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
-        Clinique::factory()->create(['nom' => 'Sans ligne']);
+        Clinique::factory()->dansLAnnuaire()->create(['nom' => 'Sans ligne']);
 
         $reponse = $this->getJson('/api/v1/espace/cliniques', $this->enTetes($jeton))
             ->assertOk()
@@ -124,7 +124,7 @@ class RendezVousProprietaireTest extends TestCase
         // Un mardi en heures d'ouverture, quelques secondes après l'heure ronde
         $this->travelTo(CarbonImmutable::parse('next tuesday 14:00:20', 'Europe/Zurich'));
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();
-        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['fuseau_horaire' => 'Europe/Zurich']);
         LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
 
         $premier = $this->getJson('/api/v1/espace/cliniques', $this->enTetes($jeton))->assertOk()->json('data.0.creneaux.0.debut');
@@ -136,7 +136,7 @@ class RendezVousProprietaireTest extends TestCase
     public function test_le_nombre_de_requetes_de_l_annuaire_ne_depend_pas_du_nombre_de_cliniques(): void
     {
         $peupler = function (int $nombre): void {
-            Clinique::factory()->count($nombre)->create()->each(function (Clinique $clinique): void {
+            Clinique::factory()->dansLAnnuaire()->count($nombre)->create()->each(function (Clinique $clinique): void {
                 $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
                 RendezVous::factory()->create([
                     'clinique_id' => $clinique->id,

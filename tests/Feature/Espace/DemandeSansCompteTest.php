@@ -50,7 +50,7 @@ class DemandeSansCompteTest extends TestCase
     public function test_la_clinique_qui_l_accepte_recoit_la_demande_avec_les_coordonnees(): void
     {
         // Elle valide chaque rendez-vous : la demande reste dans sa file
-        $clinique = Clinique::factory()->create(['rdv_sans_compte' => true, 'rdv_a_valider' => true]);
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['rdv_sans_compte' => true, 'rdv_a_valider' => true]);
 
         $this->getJson('/api/v1/public/cliniques')->assertOk()
             ->assertJsonPath('data.0.rdv_sans_compte', true);
@@ -91,5 +91,25 @@ class DemandeSansCompteTest extends TestCase
             ->assertJsonValidationErrors(['email', 'telephone', 'nom_proprietaire']);
         $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['urgence' => true]))
             ->assertUnprocessable()->assertJsonValidationErrors('symptomes');
+    }
+
+    public function test_hors_de_l_annuaire_une_clinique_ne_parait_que_demandee_par_son_id(): void
+    {
+        $absente = Clinique::factory()->create(['nom' => 'Sans photo']);
+        $presente = Clinique::factory()->dansLAnnuaire()->create();
+
+        $ids = collect($this->getJson('/api/v1/public/cliniques')->assertOk()->json('data'))->pluck('id');
+        $this->assertContains($presente->id, $ids);
+        $this->assertNotContains($absente->id, $ids);
+
+        // Le site de la clinique la demande par son id, pour ses créneaux
+        $this->getJson('/api/v1/public/cliniques?cliniques='.$absente->id)
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $absente->id)
+            ->assertJsonPath('data.0.dans_annuaire', false)
+            ->assertJsonMissingPath('data.0.creneaux.0.ligne_planning_id');
+
+        // Un paramètre en tableau : requête mal formée, pas une panne
+        $this->getJson('/api/v1/public/cliniques?cliniques[]=1')->assertUnprocessable();
     }
 }

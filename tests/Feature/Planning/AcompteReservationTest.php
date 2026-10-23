@@ -298,7 +298,7 @@ class AcompteReservationTest extends TestCase
             'debut_souhaite' => $debut->toIso8601String(),
         ], $this->enTetes($jetonProprietaire))->assertCreated()->assertJsonPath('data.statut', 'a_payer')->json('data.jeton');
 
-        $demande = DemandeRendezVous::withoutGlobalScopes()->where('jeton', $jeton)->sole();
+        $demande = DemandeRendezVous::withoutGlobalScopes()->where('jeton', DemandeRendezVous::empreinte($jeton))->sole();
         $this->stripe->conclure($demande->acompte_intention_id, 'succeeded');
         $this->postJson("/api/v1/public/demandes/{$jeton}/paiement")->assertOk()->assertJsonPath('data.statut', 'acceptee');
 
