@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Espace;
 
+use App\Auth\EmetteurJetons;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\Organisation;
@@ -59,7 +60,7 @@ class FicheVeterinaireTest extends TestCase
     public function test_la_fiche_publique_d_un_veterinaire_verifie(): void
     {
         $clinique = $this->cliniqueDeLAnnuaire();
-        $compte = User::factory()->create(['verification_veterinaire' => 'verifie', 'langues' => ['fr', 'it'], 'presentation' => 'Bonjour.']);
+        $compte = User::factory()->create(['verification_veterinaire' => 'verifie', 'annuaire_accord_le' => now(), 'langues' => ['fr', 'it'], 'presentation' => 'Bonjour.']);
         $compte->specialites()->create(['specialite' => 'dermatologie']);
         $compte->parcours()->create(['type' => 'formation', 'titre' => 'Doctorat', 'lieu' => 'Vetsuisse, Zurich', 'annee_fin' => 2012, 'ordre' => 0]);
         Employe::factory()->dans($clinique)->create(['user_id' => $compte->id, 'nom' => 'Dr Paola Rossi', 'role_libelle' => 'Vétérinaire', 'entree_le' => '2020-03-01']);
@@ -100,10 +101,23 @@ class FicheVeterinaireTest extends TestCase
         $clinique->update(['affiche_veterinaires' => false]);
         $this->getJson("/api/v1/public/veterinaires/{$compte->id}")->assertNotFound();
 
-        // Montré : la fiche existe ; un compte qui n'est pas vétérinaire n'en a jamais
+        // Montré, mais sans son accord pour l'annuaire (nLPD) : pas de fiche
         $clinique->update(['affiche_veterinaires' => true]);
+        $this->getJson("/api/v1/public/veterinaires/{$compte->id}")->assertNotFound();
+
+        // Son accord donné depuis son profil : la fiche existe ; un compte
+        // qui n'est pas vétérinaire n'en a jamais
+        $jeton = $this->enTetes(app(EmetteurJetons::class)->emettre($compte)['jeton']->plainTextToken);
+        $this->putJson('/api/v1/auth/profil-veterinaire/annuaire', ['accord' => true], $jeton)
+            ->assertOk()
+            ->assertJsonPath('data.annuaire_accord', true);
         $this->getJson("/api/v1/public/veterinaires/{$compte->id}")->assertOk();
-        $asv = User::factory()->create(['verification_veterinaire' => 'verifie']);
+
+        // Retiré : la fiche disparaît
+        $this->putJson('/api/v1/auth/profil-veterinaire/annuaire', ['accord' => false], $jeton)->assertOk();
+        $this->getJson("/api/v1/public/veterinaires/{$compte->id}")->assertNotFound();
+
+        $asv = User::factory()->create(['verification_veterinaire' => 'verifie', 'annuaire_accord_le' => now()]);
         Employe::factory()->dans($clinique)->create(['user_id' => $asv->id, 'role_libelle' => 'ASV']);
         $this->getJson("/api/v1/public/veterinaires/{$asv->id}")->assertNotFound();
     }

@@ -84,6 +84,10 @@ class ServicesCliniquesSeeder extends Seeder
                 if ($graine % 3 !== 1 && $employe->user->verification_veterinaire === null) {
                     $employe->user->consignerVerification(DecisionVerification::Verifie, StatutVerificationVeterinaire::Verifie, 'Données de démonstration');
                 }
+                // Les vérifiés de la démonstration ont accepté d'être nommés dans l'annuaire (nLPD)
+                if ($employe->user->estVerifie() && $employe->user->annuaire_accord_le === null) {
+                    $employe->user->forceFill(['annuaire_accord_le' => now()])->save();
+                }
                 for ($i = 0; $i < $nombre; $i++) {
                     // Sur le compte du vétérinaire : il les déclare lui-même
                     $employe->user->specialites()->firstOrCreate(['specialite' => $toutes[($graine >> (4 * $i)) % count($toutes)]]);

@@ -25,7 +25,8 @@ class VeterinairePublicController extends Controller
     public function afficher(int $veterinaire): JsonResponse
     {
         $compte = User::query()->with('specialites')->find($veterinaire);
-        $postes = $compte?->estVerifie() ? $compte->postesVisibles() : collect();
+        // Jamais nommé sans son accord (nLPD)
+        $postes = $compte?->estNommableDansLAnnuaire() ? $compte->postesVisibles() : collect();
         abort_if($postes->isEmpty(), 404, 'Ce vétérinaire n’a pas de fiche publique.');
 
         $anciens = Employe::withoutGlobalScopes()

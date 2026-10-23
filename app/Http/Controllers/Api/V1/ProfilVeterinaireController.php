@@ -78,6 +78,16 @@ class ProfilVeterinaireController extends Controller
         return response()->json(['data' => [...$this->profil($compte->fresh()), 'registre_resultat' => $registre]]);
     }
 
+    /** Accord pour paraître nommément dans l'annuaire de Veterinary, donné ou retiré à tout moment (nLPD). */
+    public function annuaire(Request $request): JsonResponse
+    {
+        $accord = $request->validate(['accord' => ['required', 'boolean']])['accord'];
+        $compte = $request->user();
+        $compte->forceFill(['annuaire_accord_le' => $accord ? ($compte->annuaire_accord_le ?? now()) : null])->save();
+
+        return response()->json(['data' => $this->profil($compte->fresh())]);
+    }
+
     /** Fiche publique : présentation, langues, et tout le parcours d'un coup (dans l'ordre reçu). */
     public function modifierFiche(ModifierFichePubliqueRequest $request): JsonResponse
     {
@@ -127,6 +137,8 @@ class ProfilVeterinaireController extends Controller
                 ->sortBy(fn (SpecialiteVeterinaire $ligne): int => array_search($ligne->specialite, Specialite::cases(), true))
                 ->map(fn (SpecialiteVeterinaire $ligne): string => $ligne->specialite->value)
                 ->values()->all(),
+            // D'accord pour paraître nommément dans l'annuaire (nLPD)
+            'annuaire_accord' => $compte->annuaire_accord_le !== null,
             // Fiche publique de l'annuaire
             'presentation' => $compte->presentation,
             'langues' => $compte->langues ?? [],

@@ -187,6 +187,7 @@ Route::prefix('v1')->group(function (): void {
         // Paraître sur le site public de son organisation : son accord (nLPD)
         Route::put('accord-site', AccordSiteController::class)->middleware('throttle:20,1');
         Route::put('profil-veterinaire/fiche', [ProfilVeterinaireController::class, 'modifierFiche']);
+        Route::put('profil-veterinaire/annuaire', [ProfilVeterinaireController::class, 'annuaire']);
 
         Route::get('passkeys', [PasskeyController::class, 'index']);
         Route::post('passkeys/options', [PasskeyController::class, 'options']);

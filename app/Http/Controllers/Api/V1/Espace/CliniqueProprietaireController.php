@@ -177,8 +177,9 @@ class CliniqueProprietaireController extends Controller
             // Acompte pour réserver (centimes, null : aucun) et délai de remboursement
             'acompte_centimes' => $clinique->acompteExigible(),
             // null : la clinique ne montre pas ses vétérinaires (les icônes seules)
+            // Nommés seulement s'ils l'ont accepté (nLPD, 23.10.2026)
             'veterinaires' => $clinique->affiche_veterinaires
-                ? $verifies->map(fn (Employe $fiche): array => [
+                ? $verifies->filter(fn (Employe $fiche): bool => $fiche->user?->annuaire_accord_le !== null)->values()->map(fn (Employe $fiche): array => [
                     // Le compte : sa fiche publique (public/veterinaires/{id})
                     'id' => $fiche->user_id,
                     'nom' => $fiche->nom,

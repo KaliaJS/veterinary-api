@@ -26,8 +26,13 @@ class AnnuaireOffreTest extends TestCase
         $clinique->especes()->create(['espece' => 'CT']);
         $clinique->especes()->create(['espece' => 'CH']);
 
-        $verifiee = User::factory()->create(['verification_veterinaire' => 'verifie']);
+        $verifiee = User::factory()->create(['verification_veterinaire' => 'verifie', 'annuaire_accord_le' => now()]);
         $verifiee->specialites()->create(['specialite' => 'ophtalmologie']);
+
+        // Vérifié mais sans accord pour l'annuaire (nLPD) : jamais nommé, ses spécialités comptent
+        $discret = User::factory()->create(['verification_veterinaire' => 'verifie']);
+        $discret->specialites()->create(['specialite' => 'dentisterie']);
+        Employe::factory()->dans($clinique)->create(['user_id' => $discret->id, 'nom' => 'Dr Paul Discret', 'role_libelle' => 'Vétérinaire']);
         Employe::factory()->dans($clinique)->create(['user_id' => $verifiee->id, 'nom' => 'Dr Léa Fontaine', 'role_libelle' => 'Vétérinaire']);
 
         $nonVerifie = User::factory()->create();
@@ -40,13 +45,13 @@ class AnnuaireOffreTest extends TestCase
         $this->assertSame([['service' => 'hospitalisation', 'modalite' => null], ['service' => 'urgences', 'modalite' => 'permanence']], $fiche['services']);
         $this->assertSame(6, $fiche['nombre_boxes']);
         $this->assertSame(['CH', 'CT'], $fiche['especes']);
-        $this->assertSame(['ophtalmologie'], $fiche['specialites']);
+        $this->assertSame(['ophtalmologie', 'dentisterie'], $fiche['specialites']);
         $this->assertSame([['id' => $verifiee->id, 'nom' => 'Dr Léa Fontaine', 'photo_url' => null, 'specialites' => ['ophtalmologie']]], $fiche['veterinaires']);
 
         // Vétérinaires masqués : leurs spécialités restent, sans les noms
         $clinique->update(['affiche_veterinaires' => false]);
         $fiche = $donnees();
         $this->assertNull($fiche['veterinaires']);
-        $this->assertSame(['ophtalmologie'], $fiche['specialites']);
+        $this->assertSame(['ophtalmologie', 'dentisterie'], $fiche['specialites']);
     }
 }

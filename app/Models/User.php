@@ -47,6 +47,7 @@ class User extends Authenticatable
             'apple_signe_le' => 'datetime',
             'apple_renouvelle' => 'boolean',
             'langues' => 'array',
+            'annuaire_accord_le' => 'datetime',
             'gln_verifie_le' => 'datetime',
             'verification_veterinaire' => StatutVerificationVeterinaire::class,
             'verification_veterinaire_le' => 'datetime',
@@ -61,6 +62,12 @@ class User extends Authenticatable
     public function estVerifie(): bool
     {
         return $this->verification_veterinaire === StatutVerificationVeterinaire::Verifie;
+    }
+
+    /** Vérifié et d'accord pour paraître nommément dans l'annuaire (nLPD, 23.10.2026). */
+    public function estNommableDansLAnnuaire(): bool
+    {
+        return $this->estVerifie() && $this->annuaire_accord_le !== null;
     }
 
     /**
