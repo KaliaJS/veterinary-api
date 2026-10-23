@@ -1,0 +1,158 @@
+/* Thème des e-mails Markdown de Veterinary (23.10.2026), dans le style du
+   code de connexion : texte clair sur carte sombre. Mis en ligne par
+   Laravel dans chaque e-mail (les messageries ignorent les feuilles). */
+
+body,
+body *:not(html):not(style):not(br):not(tr):not(code) {
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    position: relative;
+}
+
+body {
+    -webkit-text-size-adjust: none;
+    background-color: #08070d;
+    color: #a39cb4;
+    height: 100%;
+    line-height: 1.5;
+    margin: 0;
+    padding: 0;
+    width: 100% !important;
+}
+
+p,
+ul,
+ol,
+blockquote {
+    line-height: 23px;
+    text-align: left;
+}
+
+a {
+    color: #ff8fbd;
+}
+
+a img {
+    border: none;
+}
+
+h1 {
+    color: #ffffff;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.4px;
+    line-height: 30px;
+    margin: 0 0 16px;
+    text-align: left;
+}
+
+h2 {
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 24px;
+    margin: 26px 0 10px;
+    text-align: left;
+}
+
+h3 {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 700;
+    margin-top: 0;
+    text-align: left;
+}
+
+p {
+    color: #a39cb4;
+    font-size: 15px;
+    margin: 0 0 14px;
+}
+
+p.sub {
+    font-size: 12px;
+}
+
+strong {
+    color: #ffffff;
+    font-weight: 600;
+}
+
+ul,
+ol {
+    color: #a39cb4;
+    font-size: 15px;
+    margin: 0 0 14px;
+    padding-left: 20px;
+}
+
+li {
+    margin-bottom: 4px;
+}
+
+hr {
+    border: 0;
+    border-top: 1px solid #27232f;
+    margin: 24px 0;
+}
+
+img {
+    max-width: 100%;
+}
+
+/* Tableaux (récapitulatifs, factures) */
+
+.table table {
+    margin: 22px 0;
+    width: 100%;
+}
+
+.table th {
+    border-bottom: 1px solid #27232f;
+    color: #7d7690;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    margin: 0;
+    padding-bottom: 8px;
+    text-transform: uppercase;
+}
+
+.table td {
+    border-bottom: 1px solid #1f1c27;
+    color: #c9c3d6;
+    font-size: 14px;
+    line-height: 20px;
+    margin: 0;
+    padding: 10px 0;
+}
+
+/* Note de bas de carte */
+
+.subcopy p {
+    color: #7d7690;
+    font-size: 13px;
+    line-height: 20px;
+}
+
+/* Encadré */
+
+.panel-content p {
+    color: #c9c3d6;
+}
+
+.panel-content p:last-of-type {
+    margin-bottom: 0;
+}
+
+.footer p {
+    color: #5d566e;
+    font-size: 12px;
+    line-height: 19px;
+    margin: 0;
+    text-align: center;
+}
+
+.break-all {
+    word-break: break-all;
+}
