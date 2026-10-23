@@ -40,6 +40,7 @@ return new class extends Migration
             $table->unsignedInteger('quota_extra_sms')->default(0);
             $table->unsignedInteger('quota_extra_stockage_go')->default(0);
             $table->unsignedInteger('plafond_transcription')->default(20000);
+            $table->unsignedInteger('plafond_diagnostic')->default(5000)->comment('Plafond des suggestions diagnostiques par période, en centimes');
             $table->json('termes_transcription')->nullable();
             $table->json('premiers_pas')->nullable()->comment('Premiers pas d’une clinique neuve : étapes confirmées à la main, liste masquée');
             $table->timestamps();

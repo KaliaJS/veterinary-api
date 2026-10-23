@@ -35,6 +35,8 @@ class FilesAttenteTest extends TestCase
     {
         parent::setUp();
 
+        // Le matin à Zurich : « demain » est le même jour en UTC et à la clinique
+        $this->travelTo(CarbonImmutable::now('Europe/Zurich')->setTime(9, 0));
         $this->clinique = Clinique::factory()->create();
         HoraireOuverture::factory()->create(['clinique_id' => $this->clinique->id]);
         $this->ligne = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id]);

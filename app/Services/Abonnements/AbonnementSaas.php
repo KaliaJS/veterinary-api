@@ -13,9 +13,11 @@ use App\Models\FacturationTranscription;
 use App\Models\FactureProprietaire;
 use App\Models\Organisation;
 use App\Models\OrganisationFacture;
+use App\Models\SuggestionDiagnostique;
 use App\Models\User;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleAbonnement;
+use App\Services\Diagnostic\ConsommationDiagnostic;
 use App\Services\Transcription\ConsommationTranscription;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -42,8 +44,9 @@ use Illuminate\Validation\ValidationException;
  * - un renouvellement refusé laisse l'accès et se retente 3, 5 puis 7 jours
  *   plus tard (les administrateurs sont prévenus) ; après le dernier refus,
  *   l'abonnement prend fin.
- * Les minutes de transcription de la période s'ajoutent à la facture du
- * renouvellement (ou à celle du changement de formule, qui clôt la période).
+ * Les minutes de transcription de la période et les suggestions
+ * diagnostiques rendues s'ajoutent à la facture du renouvellement (ou à
+ * celle du changement de formule, qui clôt la période).
  * Packs de quota et objets de la planète se paient aussitôt.
  *
  * Quand la banque demande au client de confirmer, la facture attend : la
@@ -71,7 +74,11 @@ final class AbonnementSaas
         'diners' => 'Diners Club', 'discover' => 'Discover', 'jcb' => 'JCB', 'unionpay' => 'UnionPay',
     ];
 
-    public function __construct(private PasserelleAbonnement $stripe, private ConsommationTranscription $transcription) {}
+    public function __construct(
+        private PasserelleAbonnement $stripe,
+        private ConsommationTranscription $transcription,
+        private ConsommationDiagnostic $diagnostic,
+    ) {}
 
     /* ————— Carte ————— */
 
@@ -542,7 +549,7 @@ final class AbonnementSaas
             $fin = CarbonImmutable::parse($abonne->periode_fin->toDateString(), 'Europe/Zurich');
             $usage = $this->usageDeLaPeriode($abonne, $fin);
             if ($usage !== []) {
-                $facture = $this->creerFacture($abonne, [], ['type' => 'transcription', 'action' => 'fin'], null, null, $usage);
+                $facture = $this->creerFacture($abonne, [], ['type' => 'consommation', 'action' => 'fin'], null, null, $usage);
                 if ($abonne->stripe_client_id && $abonne->stripe_moyen_paiement_id) {
                     $this->encaisser($abonne, $facture, true);
                 }
@@ -602,7 +609,7 @@ final class AbonnementSaas
         if ($abonne instanceof Organisation) {
             $usage = $this->usageDeLaPeriode($abonne, CarbonImmutable::parse($abonne->periode_fin->toDateString(), 'Europe/Zurich'));
             if ($usage !== []) {
-                $transcription = $this->creerFacture($abonne, [], ['type' => 'transcription', 'action' => 'fin'], null, null, $usage);
+                $transcription = $this->creerFacture($abonne, [], ['type' => 'consommation', 'action' => 'fin'], null, null, $usage);
             }
             $abonne->forceFill(['formule_suivante' => null]);
         } else {
@@ -622,11 +629,12 @@ final class AbonnementSaas
 
     /**
      * Facture numérotée (MS-AAAA-NNNNN), en centimes, sans TVA. Les minutes
-     * de transcription jointes sont marquées facturées pour leur période.
+     * de transcription jointes sont marquées facturées pour leur période,
+     * les suggestions diagnostiques jointes, une à une.
      *
      * @param  list<array{libelle: string, montant: int}>  $lignes
      * @param  array<string, string>  $metadonnees
-     * @param  list<array{libelle: string, montant: int, secondes: int, minutes: int, debut: CarbonImmutable, fin: CarbonImmutable}>  $usage
+     * @param  list<array<string, mixed>>  $usage
      */
     private function creerFacture(Organisation|User $abonne, array $lignes, array $metadonnees, ?CarbonImmutable $debut = null, ?CarbonImmutable $fin = null, array $usage = []): OrganisationFacture|FactureProprietaire
     {
@@ -650,6 +658,14 @@ final class AbonnementSaas
             ])->save();
 
             foreach ($usage as $u) {
+                if ($u['type'] === 'diagnostic') {
+                    SuggestionDiagnostique::withoutGlobalScopes()
+                        ->whereIn('id', $u['ids'])
+                        ->whereNull('organisation_facture_id')
+                        ->update(['organisation_facture_id' => $facture->id]);
+
+                    continue;
+                }
                 FacturationTranscription::query()->create([
                     'organisation_id' => $abonne->id,
                     'periode_debut' => $u['debut']->toDateString(),
@@ -776,20 +792,22 @@ final class AbonnementSaas
         }
     }
 
-    /** Facture annulée : rien n'est dû, ses minutes de transcription redeviennent à facturer. */
+    /** Facture annulée : rien n'est dû, ses minutes de transcription et ses suggestions redeviennent à facturer. */
     private function annuler(OrganisationFacture|FactureProprietaire $facture): void
     {
         $facture->forceFill(['statut' => 'annulee'])->save();
         if ($facture instanceof OrganisationFacture) {
             FacturationTranscription::query()->where('organisation_facture_id', $facture->id)->delete();
+            SuggestionDiagnostique::withoutGlobalScopes()->where('organisation_facture_id', $facture->id)->update(['organisation_facture_id' => null]);
         }
     }
 
     /**
-     * Minutes de transcription de la période en cours, jusqu'à `$fin`, pas
-     * encore facturées : une ligne de facture, ou rien.
+     * Consommation de la période en cours, jusqu'à `$fin`, pas encore
+     * facturée : une ligne pour les minutes de transcription, une pour les
+     * suggestions diagnostiques rendues, ou rien.
      *
-     * @return list<array{libelle: string, montant: int, secondes: int, minutes: int, debut: CarbonImmutable, fin: CarbonImmutable}>
+     * @return list<array<string, mixed>>
      */
     private function usageDeLaPeriode(Organisation $organisation, CarbonImmutable $fin): array
     {
@@ -797,24 +815,38 @@ final class AbonnementSaas
             return [];
         }
         $debut = CarbonImmutable::parse($organisation->periode_debut->toDateString(), 'Europe/Zurich');
+        $usage = [];
+
         $deja = FacturationTranscription::query()
             ->where('organisation_id', $organisation->id)
             ->whereDate('periode_debut', $debut->toDateString())
             ->exists();
         $secondes = $this->transcription->secondes($organisation->id, $debut, $fin);
-        if ($deja || $secondes === 0) {
-            return [];
+        if (! $deja && $secondes > 0) {
+            $minutes = ConsommationTranscription::minutes($secondes);
+            $usage[] = [
+                'type' => 'transcription',
+                'libelle' => 'Transcription des consultations, '.self::periode($debut, $fin).' : '.$minutes.' min',
+                'montant' => $this->transcription->montant($secondes),
+                'secondes' => $secondes,
+                'minutes' => $minutes,
+                'debut' => $debut,
+                'fin' => $fin,
+            ];
         }
-        $minutes = ConsommationTranscription::minutes($secondes);
 
-        return [[
-            'libelle' => 'Transcription des consultations, '.self::periode($debut, $fin).' : '.$minutes.' min',
-            'montant' => $this->transcription->montant($secondes),
-            'secondes' => $secondes,
-            'minutes' => $minutes,
-            'debut' => $debut,
-            'fin' => $fin,
-        ]];
+        $suggestions = $this->diagnostic->aFacturer($organisation, $fin);
+        if ($suggestions->isNotEmpty()) {
+            $nombre = $suggestions->count();
+            $usage[] = [
+                'type' => 'diagnostic',
+                'libelle' => 'Suggestions diagnostiques, '.self::periode($debut, $fin).' : '.$nombre.' suggestion'.($nombre > 1 ? 's' : ''),
+                'montant' => (int) $suggestions->sum('montant_centimes'),
+                'ids' => $suggestions->modelKeys(),
+            ];
+        }
+
+        return $usage;
     }
 
     /** Numéro suivant de la plateforme, sans trou ni doublon : MS-2026-00001. */

@@ -11,6 +11,8 @@ use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserelleAbonnementStripe;
 use App\Paiements\PasserellePaiement;
 use App\Paiements\PasserelleStripe;
+use App\Services\Diagnostic\Suggesteur;
+use App\Services\Diagnostic\SuggesteurClaude;
 use App\Services\Domaines\FournisseurCloudflare;
 use App\Services\Domaines\FournisseurDomaines;
 use App\Services\Domaines\FournisseurManuel;
@@ -54,6 +56,7 @@ class AppServiceProvider extends ServiceProvider
         // interface (doubles dans les tests)
         $this->app->bind(Transcripteur::class, TranscripteurDeepgram::class);
         $this->app->bind(Redacteur::class, RedacteurClaude::class);
+        $this->app->bind(Suggesteur::class, SuggesteurClaude::class);
 
         // Domaines personnalisés des sites : fournisseur choisi par configuration
         $this->app->bind(FournisseurDomaines::class, fn ($app) => config('sites.domaines.fournisseur') === 'cloudflare'

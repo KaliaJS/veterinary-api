@@ -1127,6 +1127,38 @@ validation enregistre le CR ci-dessus.
   sont prévenus par e-mail à 80 % puis à 100 % de leur plafond ; plafond
   et mots rares se règlent dans Réglages, onglet Transcription.
 
+### Suggestion diagnostique de l'IA (23.10.2026)
+
+Depuis le compte rendu (bouton « Suggestion IA » de la rubrique A), le
+vétérinaire demande un diagnostic différentiel. Une aide à la réflexion,
+jamais un diagnostic : pas de traitement ni de posologie.
+
+- `suggestions_diagnostiques` (niveau organisation) : `rendez_vous_id`,
+  `clinique_id`, `user_id`, `statut` (`en_cours` → `prete` | `erreur`),
+  `soap` chiffré (le compte rendu tel qu'il était à l'écran, enregistré
+  ou non), `avec_transcription`, `contenu` chiffré `{synthese,
+  hypotheses[{nom, probabilite: elevee|moyenne|faible, pour[], contre[],
+  examens[]}], alertes[{nom, raison}], examens[{examen, raison}],
+  manques[]}`, `modele`, `jetons_entree`, `jetons_sortie`,
+  `montant_centimes` (0 tant qu'elle n'est pas rendue),
+  `organisation_facture_id`, `rendue_le`.
+- Claude (`Suggesteur`, Opus 5.5 par défaut, effort `high`, JSON imposé)
+  reçoit le signalement **sans nom** (espèce, race, sexe et
+  stérilisation, âge, dernier poids, allergies, traitement en cours,
+  motif), les 5 derniers comptes rendus du patient (diagnostic et plan),
+  le compte rendu en cours et la transcription du dernier enregistrement
+  rédigé. En file d'attente (`SuggererDiagnostic`) ; l'écran relit la
+  suggestion toutes les 3 s. Une demande en cours n'est jamais doublée.
+- Facturation : 50 centimes la suggestion rendue
+  (`DIAGNOSTIC_TARIF_CENTIMES`), sans TVA ; une suggestion en échec n'est
+  pas due. Les suggestions rendues et pas encore facturées s'ajoutent à la
+  facture du renouvellement (ou du changement de formule, ou à la facture
+  finale), marquées par `organisation_facture_id` ; une facture annulée
+  les rend à facturer. Plafond par période
+  (`organisations.plafond_diagnostic`, 50 CHF par défaut, Réglages, onglet
+  Diagnostic IA), administrateurs prévenus à 80 % puis à 100 %.
+  Abonnement en cours requis (refusé si un renouvellement est impayé).
+
 ### Carnet de santé & vaccination (modale carnet)
 
 **Artefact de démo à ne pas reproduire** : la modale carnet est indexée

@@ -85,6 +85,7 @@ use App\Http\Controllers\Api\V1\MoyenPaiementController;
 use App\Http\Controllers\Api\V1\OrdonnanceController;
 use App\Http\Controllers\Api\V1\OrganisationCliniqueController;
 use App\Http\Controllers\Api\V1\OrganisationController;
+use App\Http\Controllers\Api\V1\OrganisationDiagnosticController;
 use App\Http\Controllers\Api\V1\OrganisationFactureController;
 use App\Http\Controllers\Api\V1\OrganisationHoraireController;
 use App\Http\Controllers\Api\V1\OrganisationPrestationController;
@@ -128,6 +129,7 @@ use App\Http\Controllers\Api\V1\SortieSejourController;
 use App\Http\Controllers\Api\V1\StatistiquesBoutiqueController;
 use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
+use App\Http\Controllers\Api\V1\SuggestionDiagnostiqueController;
 use App\Http\Controllers\Api\V1\TerminalPaiementController;
 use App\Http\Controllers\Api\V1\TrameImagerieController;
 use App\Http\Controllers\Api\V1\TranscriptionController;
@@ -457,6 +459,13 @@ Route::prefix('v1')->group(function (): void {
         Route::post('enregistrements/{enregistrement}/relancer', [EnregistrementConsultationController::class, 'relancer'])->whereNumber('enregistrement');
         Route::delete('enregistrements/{enregistrement}', [EnregistrementConsultationController::class, 'supprimer'])->whereNumber('enregistrement');
 
+        // Suggestion diagnostique (23.10.2026) — Claude propose un
+        // diagnostic différentiel à partir du compte rendu ci-dessus, tel
+        // qu'il est à l'écran ; payante à la suggestion rendue.
+        Route::get('diagnostic', [SuggestionDiagnostiqueController::class, 'etat']);
+        Route::get('rendez-vous/{rendezVous}/suggestion-diagnostique', [SuggestionDiagnostiqueController::class, 'afficher']);
+        Route::post('rendez-vous/{rendezVous}/suggestion-diagnostique', [SuggestionDiagnostiqueController::class, 'demander'])->middleware('throttle:10,1,diagnostic');
+
         // Registre des ordonnances — du dossier médical : domaine
         // patients (Policies), niveau organisation. La signature sort
         // le stock de la clinique du jeton ; jamais de modification
@@ -558,6 +567,8 @@ Route::prefix('v1')->group(function (): void {
             Route::post('packs', [PackQuotaController::class, 'acheter']);
             Route::get('transcription', [OrganisationTranscriptionController::class, 'afficher']);
             Route::put('transcription', [OrganisationTranscriptionController::class, 'modifier']);
+            Route::get('diagnostic', [OrganisationDiagnosticController::class, 'afficher']);
+            Route::put('diagnostic', [OrganisationDiagnosticController::class, 'modifier']);
             // Catalogue d'actes : un acte, un prix (lecture : facturation/prestations)
             Route::post('prestations', [OrganisationPrestationController::class, 'store']);
             Route::patch('prestations/{prestation}', [OrganisationPrestationController::class, 'update'])->whereNumber('prestation');

@@ -11,7 +11,7 @@ Vous pouvez régler la facture ou changer de carte dans l'application, {{ $pourC
 Après plusieurs tentatives, l'abonnement a pris fin et l'accès à l'application est fermé. Choisissez une formule dans l'application pour le rouvrir : une nouvelle période commencera le jour du paiement.
 @if ($factureTranscription)
 
-Les minutes de transcription déjà utilisées restent dues : facture {{ $factureTranscription->numero }}, {{ number_format((float) $factureTranscription->montant, 2, '.', "'") }} CHF, à régler avant de reprendre une formule.
+La transcription et les suggestions diagnostiques déjà utilisées restent dues : facture {{ $factureTranscription->numero }}, {{ number_format((float) $factureTranscription->montant, 2, '.', "'") }} CHF, à régler avant de reprendre une formule.
 @endif
 @else
 Après plusieurs tentatives, l'abonnement Plus a pris fin : votre espace repasse en Gratuit, vos animaux et leurs données restent là. Vous pouvez reprendre Plus à tout moment, dans Réglages, Abonnement.
