@@ -10,7 +10,7 @@ use Illuminate\Http\Request;
 
 /**
  * Vérification de l'adresse d'un compte déjà connecté (inscrit par
- * passkey, l'adresse n'a pas été prouvée) : même code à 6 chiffres que
+ * passkey, l'adresse n'a pas été prouvée) : même code à 8 chiffres que
  * la connexion. L'adresse prouvée sert aux échanges avec les cliniques ;
  * elle ne rattache aucune fiche (le rattachement passe par la clinique).
  */

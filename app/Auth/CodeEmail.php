@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Connexion par code e-mail à 6 chiffres (secours de la passkey), et
+ * Connexion par code e-mail à 8 chiffres (secours de la passkey), et
  * inscription par la même voie : un e-mail inconnu reçoit aussi un
  * code, et sa vérification crée le compte (sans clinique). Le code est
  * haché en cache, à usage unique, valable 10 minutes, 5 essais de
@@ -42,7 +42,8 @@ class CodeEmail
      */
     public function envoyer(string $email, bool $lienConnexion = true): void
     {
-        $code = (string) random_int(100000, 999999);
+        // Huit chiffres (23.10.2026) : cent fois plus long à deviner que six
+        $code = (string) random_int(10000000, 99999999);
 
         Cache::put($this->cle($email), Hash::make($code), now()->addMinutes(self::VALIDITE_MINUTES));
 

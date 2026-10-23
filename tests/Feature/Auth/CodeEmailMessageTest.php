@@ -35,7 +35,7 @@ class CodeEmailMessageTest extends TestCase
 
             $html = (string) $notification->toMail(new User(['email' => 'nouvelle+test@exemple.ch']))->render();
             $this->assertStringContainsString('Me connecter', $html);
-            $this->assertStringContainsString(substr($notification->code, 0, 3).'<span', $html);
+            $this->assertStringContainsString(substr($notification->code, 0, 4).'<span', $html);
 
             return true;
         });

@@ -60,7 +60,7 @@
                                                 <td bgcolor="#ee42a1" style="background-color:#ee42a1; background-image:linear-gradient(92deg, #ff9d6b, #ff5fa2 48%, #a06bff); border-radius:20px; padding:2px;">
                                                     <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                                                         <tr>
-                                                            <td class="code" bgcolor="#0b0a10" style="background-color:#0b0a10; border-radius:18px; padding:16px 26px; font-family:{{ $police }}; font-size:30px; line-height:36px; font-weight:700; letter-spacing:5px; color:#ffffff; font-variant-numeric:tabular-nums; white-space:nowrap;">{{ substr($code, 0, 3) }}<span style="padding-left:12px;">{{ substr($code, 3) }}</span></td>
+                                                            <td class="code" bgcolor="#0b0a10" style="background-color:#0b0a10; border-radius:18px; padding:16px 26px; font-family:{{ $police }}; font-size:30px; line-height:36px; font-weight:700; letter-spacing:5px; color:#ffffff; font-variant-numeric:tabular-nums; white-space:nowrap;">{{ substr($code, 0, 4) }}<span style="padding-left:12px;">{{ substr($code, 4) }}</span></td>
                                                         </tr>
                                                     </table>
                                                 </td>

@@ -10,7 +10,7 @@ class VerifierEmailCompteRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'code' => ['required', 'digits:6'],
+            'code' => ['required', 'digits:8'],
         ];
     }
 }

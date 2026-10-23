@@ -181,7 +181,7 @@ class AccueilProprietaireTest extends TestCase
             return true;
         });
 
-        $this->postJson('/api/v1/espace/email/verifier', ['code' => '000000'], $this->enTetes($jeton))
+        $this->postJson('/api/v1/espace/email/verifier', ['code' => '00000000'], $this->enTetes($jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('code');
         $this->assertNull($user->fresh()->email_verified_at);
 

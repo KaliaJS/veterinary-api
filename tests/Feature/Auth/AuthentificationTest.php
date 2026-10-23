@@ -84,7 +84,7 @@ class AuthentificationTest extends TestCase
         $this->assertDatabaseMissing('users', ['email' => 'nouveau@exemple.ch']);
 
         // Un mauvais code ne crée rien.
-        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => 'nouveau@exemple.ch', 'code' => '000000'])
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => 'nouveau@exemple.ch', 'code' => '00000000'])
             ->assertUnprocessable()->assertJsonValidationErrors('code');
         $this->assertDatabaseMissing('users', ['email' => 'nouveau@exemple.ch']);
 
@@ -118,7 +118,7 @@ class AuthentificationTest extends TestCase
 
         $this->postJson('/api/v1/auth/code-email/verifier', [
             'email' => $user->email,
-            'code' => '000000',
+            'code' => '00000000',
         ])->assertUnprocessable();
     }
 

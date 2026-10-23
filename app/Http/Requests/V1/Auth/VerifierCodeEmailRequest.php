@@ -11,7 +11,7 @@ class VerifierCodeEmailRequest extends FormRequest
     {
         return [
             'email' => ['required', 'email'],
-            'code' => ['required', 'digits:6'],
+            'code' => ['required', 'digits:8'],
             'clinique_id' => ['sometimes', 'integer'],
             'appareil' => ['sometimes', 'string', 'max:100'],
         ];

@@ -49,7 +49,7 @@ class LimitesConnexionTest extends TestCase
         Notification::fake();
         $user = User::factory()->create();
         $code = $this->envoyerEtRecupererLeCode($user);
-        $faux = $code === '111111' ? '222222' : '111111';
+        $faux = $code === '11111111' ? '22222222' : '11111111';
 
         foreach (range(1, 5) as $essai) {
             $this->withServerVariables(['REMOTE_ADDR' => "192.0.2.{$essai}"])
@@ -67,7 +67,7 @@ class LimitesConnexionTest extends TestCase
         Notification::fake();
         $user = User::factory()->create();
         $code = $this->envoyerEtRecupererLeCode($user);
-        $faux = $code === '111111' ? '222222' : '111111';
+        $faux = $code === '11111111' ? '22222222' : '11111111';
 
         foreach (range(1, 3) as $essai) {
             $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $faux])->assertUnprocessable();
