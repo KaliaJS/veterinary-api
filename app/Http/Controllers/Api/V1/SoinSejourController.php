@@ -31,7 +31,10 @@ class SoinSejourController extends Controller
             throw ValidationException::withMessages(['sejour' => 'Un séjour sorti ne se modifie plus.']);
         }
 
-        return new SejourSoinResource($sejour->soins()->create($request->validated())->load('produit'));
+        return new SejourSoinResource($sejour->soins()->create([
+            'jour' => aujourdhui($sejour->clinique)->toDateString(),
+            ...$request->validated(),
+        ])->load('produit'));
     }
 
     public function faire(Request $request, Sejour $sejour, int $soin): SejourSoinResource
@@ -59,7 +62,7 @@ class SoinSejourController extends Controller
             return $this->stock->sortir(
                 $soin->produit,
                 1,
-                'Soin d\'hospitalisation — '.$soin->acte,
+                'Soin d\'hospitalisation : '.$soin->acte,
                 $request->user(),
                 $soin,
             );

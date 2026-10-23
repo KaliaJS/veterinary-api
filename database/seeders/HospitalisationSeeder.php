@@ -75,8 +75,12 @@ class HospitalisationSeeder extends Seeder
                 'perfusion' => $perfusion,
             ]);
 
+            // Feuille de soins et constantes : celles du jour
+            $jour = CarbonImmutable::today('Europe/Zurich')->toDateString();
+
             foreach ($soins as [$minutes, $acte, $produit, $fait]) {
                 $sejour->soins()->create([
+                    'jour' => $jour,
                     'prevu_a' => $minutes,
                     'acte' => $acte,
                     'produit_id' => $produit === null ? null : $produits[$produit],
@@ -87,6 +91,7 @@ class HospitalisationSeeder extends Seeder
 
             foreach ($constantes as [$minutes, $temperature, $fc, $fr]) {
                 $sejour->constantes()->create([
+                    'jour' => $jour,
                     'mesure_a' => $minutes,
                     'temperature' => $temperature,
                     'fc' => $fc,

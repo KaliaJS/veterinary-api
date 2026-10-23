@@ -55,8 +55,9 @@ class SejourController extends Controller
                 'cree_par_id' => $request->user()?->id,
             ]);
 
+            $jour = aujourdhui()->toDateString();
             foreach ($this->planDeSoinsDEntree() as [$minutes, $acte]) {
-                $sejour->soins()->create(['prevu_a' => $minutes, 'acte' => $acte]);
+                $sejour->soins()->create(['jour' => $jour, 'prevu_a' => $minutes, 'acte' => $acte]);
             }
 
             return $sejour;

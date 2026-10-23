@@ -15,6 +15,7 @@ use App\Models\Produit;
 use App\Models\Role;
 use App\Models\Sejour;
 use App\Models\Stock;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -95,6 +96,19 @@ class SejourTest extends TestCase
             ->assertJsonValidationErrors('box');
     }
 
+    public function test_un_patient_deja_hospitalise_n_est_pas_admis_une_seconde_fois(): void
+    {
+        $this->sejour(['box' => 2]);
+
+        $this->postJson('/api/v1/hospitalisation/sejours', [
+            'patient_id' => $this->patient->id,
+            'box' => 5,
+            'motif' => 'Surveillance',
+        ], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['patient_id' => 'déjà hospitalisé']);
+    }
+
     public function test_un_box_sorti_se_reoccupe(): void
     {
         $this->sejour(['box' => 4, 'sorti_le' => now()]);
@@ -161,7 +175,7 @@ class SejourTest extends TestCase
         $sejour = $this->sejour();
         $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
 
-        $soin = $sejour->soins()->create(['prevu_a' => 600, 'acte' => 'Antibiotique', 'produit_id' => $produit->id]);
+        $soin = $sejour->soins()->create(['jour' => today()->toDateString(), 'prevu_a' => 600, 'acte' => 'Antibiotique', 'produit_id' => $produit->id]);
 
         $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins/{$soin->id}/faire", [], $this->enTetes($this->jeton))
             ->assertOk()
@@ -174,7 +188,7 @@ class SejourTest extends TestCase
     public function test_un_soin_deja_fait_ne_se_refait_pas(): void
     {
         $sejour = $this->sejour();
-        $soin = $sejour->soins()->create(['prevu_a' => 600, 'acte' => 'Contrôle', 'fait' => true, 'fait_le' => now()]);
+        $soin = $sejour->soins()->create(['jour' => today()->toDateString(), 'prevu_a' => 600, 'acte' => 'Contrôle', 'fait' => true, 'fait_le' => now()]);
 
         $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins/{$soin->id}/faire", [], $this->enTetes($this->jeton))
             ->assertUnprocessable();
@@ -191,7 +205,32 @@ class SejourTest extends TestCase
             'fr' => 24,
         ], $this->enTetes($this->jeton))
             ->assertCreated()
-            ->assertJsonPath('data.temperature', '38.4');
+            ->assertJsonPath('data.temperature', '38.4')
+            ->assertJsonPath('data.jour', aujourdhui($this->clinique)->toDateString());
+    }
+
+    public function test_soins_et_constantes_se_datent_au_jour_de_la_clinique(): void
+    {
+        // 00:30 à Zurich le 23.10, encore le 22 en UTC
+        $this->travelTo(CarbonImmutable::parse('2026-10-22 22:30:00', 'UTC'));
+        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        $sejour = $this->sejour();
+
+        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins", ['prevu_a' => 60, 'acte' => 'Contrôle'], $this->enTetes($jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.jour', '2026-10-23');
+
+        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins", ['jour' => '2026-10-24', 'prevu_a' => 480, 'acte' => 'Pansement'], $this->enTetes($jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.jour', '2026-10-24');
+
+        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/constantes", ['mesure_a' => 30, 'temperature' => 38.1, 'fc' => 90, 'fr' => 22], $this->enTetes($jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.jour', '2026-10-23');
+
+        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins", ['jour' => '24.10.2026', 'prevu_a' => 480, 'acte' => 'x'], $this->enTetes($jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('jour');
     }
 
     public function test_le_suivi_du_sejour_se_modifie_en_cours(): void
@@ -216,9 +255,9 @@ class SejourTest extends TestCase
             'perfusion' => 'Ringer lactate · 45 ml/h',
             'admis_le' => now()->subDay(),
         ]);
-        $sejour->soins()->create(['prevu_a' => 480, 'acte' => 'Contrôle', 'fait' => true, 'fait_le' => now()]);
-        $sejour->soins()->create(['prevu_a' => 600, 'acte' => 'Pansement', 'fait' => true, 'fait_le' => now()]);
-        $sejour->soins()->create(['prevu_a' => 900, 'acte' => 'Repas', 'fait' => false]);
+        $sejour->soins()->create(['jour' => today()->toDateString(), 'prevu_a' => 480, 'acte' => 'Contrôle', 'fait' => true, 'fait_le' => now()]);
+        $sejour->soins()->create(['jour' => today()->toDateString(), 'prevu_a' => 600, 'acte' => 'Pansement', 'fait' => true, 'fait_le' => now()]);
+        $sejour->soins()->create(['jour' => today()->toDateString(), 'prevu_a' => 900, 'acte' => 'Repas', 'fait' => false]);
 
         $reponse = $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/sortie", [], $this->enTetes($this->jeton))
             ->assertOk();

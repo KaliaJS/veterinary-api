@@ -36,7 +36,7 @@ class FactureSejour
 
         $lignes = [[
             'libelle' => sprintf(
-                'Hospitalisation box %s — %s, %d jour%s',
+                'Hospitalisation box %s, %s, %d jour%s',
                 $box,
                 $sejour->statut->libelleFacturation(),
                 $jours,
@@ -49,7 +49,7 @@ class FactureSejour
 
         if ($sejour->perfusion !== null) {
             $lignes[] = [
-                'libelle' => 'Perfusion continue — '.$sejour->perfusion,
+                'libelle' => 'Perfusion continue : '.$sejour->perfusion,
                 'quantite' => $jours,
                 'prix_chf' => $this->prix('hosp_perfusion'),
                 'type' => TypeLigneFacture::Acte,

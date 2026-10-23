@@ -17,6 +17,7 @@ class SejourConstanteResource extends JsonResource
         return [
             'id' => $this->id,
             'sejour_id' => $this->sejour_id,
+            'jour' => $this->jour->toDateString(),
             'mesure_a' => $this->mesure_a,
             'temperature' => $this->temperature,
             'fc' => $this->fc,

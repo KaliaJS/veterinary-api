@@ -14,6 +14,8 @@ class EnregistrerConstanteRequest extends FormRequest
     public function rules(): array
     {
         return [
+            // Jour local de la clinique, aujourd'hui par défaut
+            'jour' => ['sometimes', 'date_format:Y-m-d'],
             'mesure_a' => ['required', 'integer', 'between:0,1439'],
             'temperature' => ['required', 'numeric', 'decimal:0,1', 'between:25,45'],
             'fc' => ['required', 'integer', 'between:1,400'],

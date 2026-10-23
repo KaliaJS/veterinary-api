@@ -39,6 +39,13 @@ class AdmettreSejourRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
+            // Un patient n'occupe qu'un box à la fois, toutes cliniques
+            // de l'organisation confondues
+            if (! $validator->errors()->has('patient_id')
+                && Sejour::withoutGlobalScope('clinique')->enCours()->where('patient_id', (int) $this->input('patient_id'))->exists()) {
+                $validator->errors()->add('patient_id', 'Ce patient est déjà hospitalisé.');
+            }
+
             if ($validator->errors()->has('box')) {
                 return;
             }

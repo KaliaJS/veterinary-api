@@ -9,18 +9,19 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Relevé de constantes d'un séjour (température, FC, FR) à une heure
- * locale du jour. Enfant du dossier : résolu via le séjour.
+ * locale d'un jour de la clinique. Enfant du dossier : résolu via le séjour.
  */
 class SejourConstante extends Model
 {
     /** @use HasFactory<SejourConstanteFactory> */
     use HasFactory;
 
-    protected $fillable = ['sejour_id', 'mesure_a', 'temperature', 'fc', 'fr'];
+    protected $fillable = ['sejour_id', 'jour', 'mesure_a', 'temperature', 'fc', 'fr'];
 
     protected function casts(): array
     {
         return [
+            'jour' => 'date',
             'mesure_a' => 'integer',
             'temperature' => 'decimal:1',
             'fc' => 'integer',

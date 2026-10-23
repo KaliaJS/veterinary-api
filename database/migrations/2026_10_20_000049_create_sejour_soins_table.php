@@ -18,6 +18,7 @@ return new class extends Migration
         Schema::create('sejour_soins', function (Blueprint $table) {
             $table->id();
             $table->foreignId('sejour_id')->constrained()->cascadeOnDelete();
+            $table->date('jour')->comment('Jour local de la clinique');
             $table->unsignedSmallInteger('prevu_a')->comment('Minutes locales du jour (0–1439)');
             $table->string('acte');
             $table->foreignId('produit_id')->nullable()->constrained()->restrictOnDelete();
@@ -26,7 +27,7 @@ return new class extends Migration
             $table->foreignId('fait_par_id')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
 
-            $table->index(['sejour_id', 'prevu_a']);
+            $table->index(['sejour_id', 'jour', 'prevu_a']);
         });
     }
 

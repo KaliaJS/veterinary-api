@@ -15,6 +15,7 @@ class SejourSoinFactory extends Factory
     {
         return [
             'sejour_id' => Sejour::factory(),
+            'jour' => now()->toDateString(),
             'prevu_a' => fake()->numberBetween(0, 47) * 30,
             'acte' => fake()->randomElement([
                 'Contrôle T° / constantes', 'Contrôle perfusion / hydratation',

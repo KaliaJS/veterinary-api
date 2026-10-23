@@ -18,13 +18,14 @@ return new class extends Migration
         Schema::create('sejour_constantes', function (Blueprint $table) {
             $table->id();
             $table->foreignId('sejour_id')->constrained()->cascadeOnDelete();
+            $table->date('jour')->comment('Jour local de la clinique');
             $table->unsignedSmallInteger('mesure_a')->comment('Minutes locales du jour (0–1439)');
             $table->decimal('temperature', 3, 1)->comment('°C');
             $table->unsignedSmallInteger('fc')->comment('Fréquence cardiaque, bpm');
             $table->unsignedSmallInteger('fr')->comment('Fréquence respiratoire, mpm');
             $table->timestamps();
 
-            $table->index(['sejour_id', 'mesure_a']);
+            $table->index(['sejour_id', 'jour', 'mesure_a']);
         });
     }
 

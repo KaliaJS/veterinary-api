@@ -17,6 +17,7 @@ class SejourSoinResource extends JsonResource
         return [
             'id' => $this->id,
             'sejour_id' => $this->sejour_id,
+            'jour' => $this->jour->toDateString(),
             'prevu_a' => $this->prevu_a,
             'acte' => $this->acte,
             'produit_id' => $this->produit_id,

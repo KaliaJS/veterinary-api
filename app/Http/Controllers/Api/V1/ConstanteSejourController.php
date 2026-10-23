@@ -22,6 +22,9 @@ class ConstanteSejourController extends Controller
             throw ValidationException::withMessages(['sejour' => 'Un séjour sorti ne se modifie plus.']);
         }
 
-        return new SejourConstanteResource($sejour->constantes()->create($request->validated()));
+        return new SejourConstanteResource($sejour->constantes()->create([
+            'jour' => aujourdhui($sejour->clinique)->toDateString(),
+            ...$request->validated(),
+        ]));
     }
 }

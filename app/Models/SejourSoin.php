@@ -18,13 +18,14 @@ class SejourSoin extends Model
     use HasFactory;
 
     protected $fillable = [
-        'sejour_id', 'prevu_a', 'acte', 'produit_id',
+        'sejour_id', 'jour', 'prevu_a', 'acte', 'produit_id',
         'fait', 'fait_le', 'fait_par_id',
     ];
 
     protected function casts(): array
     {
         return [
+            'jour' => 'date',
             'prevu_a' => 'integer',
             'fait' => 'boolean',
             'fait_le' => 'datetime',

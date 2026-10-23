@@ -72,13 +72,13 @@ class Sejour extends Model
     /** @return HasMany<SejourSoin, $this> */
     public function soins(): HasMany
     {
-        return $this->hasMany(SejourSoin::class)->orderBy('prevu_a')->orderBy('id');
+        return $this->hasMany(SejourSoin::class)->orderBy('jour')->orderBy('prevu_a')->orderBy('id');
     }
 
     /** @return HasMany<SejourConstante, $this> */
     public function constantes(): HasMany
     {
-        return $this->hasMany(SejourConstante::class)->orderBy('mesure_a')->orderBy('id');
+        return $this->hasMany(SejourConstante::class)->orderBy('jour')->orderBy('mesure_a')->orderBy('id');
     }
 
     /** @param Builder<self> $requete */

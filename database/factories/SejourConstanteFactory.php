@@ -15,6 +15,7 @@ class SejourConstanteFactory extends Factory
     {
         return [
             'sejour_id' => Sejour::factory(),
+            'jour' => now()->toDateString(),
             'mesure_a' => fake()->numberBetween(16, 44) * 30,
             'temperature' => fake()->randomFloat(1, 37.5, 39.5),
             'fc' => fake()->numberBetween(70, 130),

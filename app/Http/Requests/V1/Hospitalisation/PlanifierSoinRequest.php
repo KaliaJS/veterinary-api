@@ -18,6 +18,8 @@ class PlanifierSoinRequest extends FormRequest
     public function rules(): array
     {
         return [
+            // Jour local de la clinique, aujourd'hui par défaut
+            'jour' => ['sometimes', 'date_format:Y-m-d'],
             'prevu_a' => ['required', 'integer', 'between:0,1439'],
             'acte' => ['required', 'string', 'max:255'],
             'produit_id' => ['sometimes', 'nullable', $this->existeDansLOrganisation('produits')],
