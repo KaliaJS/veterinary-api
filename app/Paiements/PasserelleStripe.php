@@ -207,15 +207,23 @@ class PasserelleStripe implements PasserellePaiement
 
     public function creerComptePaiement(array $societe): string
     {
+        $adresse = $societe['adresse'] ?? null;
         $compte = $this->appel(fn () => $this->client->v2->core->accounts->create([
-            'display_name' => $societe['nom'],
+            // Le nom commercial : celui que les clients voient sur leur relevé et dans TWINT
+            'display_name' => $societe['nom_commercial'] ?? $societe['nom'],
             'contact_email' => $societe['email'],
             // Aucun tableau de bord Stripe : tout se fait dans Veterinary (composants intégrés)
             'dashboard' => 'none',
             'identity' => [
                 'country' => 'ch',
                 'entity_type' => 'company',
-                'business_details' => ['registered_name' => $societe['nom']],
+                // Prérempli pour raccourcir l'inscription : la société reste libre de corriger
+                'business_details' => array_filter([
+                    'registered_name' => $societe['nom'],
+                    'id_numbers' => ! empty($societe['ide']) ? [['type' => 'ch_uid', 'value' => $societe['ide']]] : null,
+                    'address' => $adresse ? array_filter(['country' => 'ch', 'line1' => $adresse['rue'], 'postal_code' => $adresse['npa'], 'city' => $adresse['ville']]) : null,
+                    'phone' => $societe['telephone'] ?? null,
+                ]),
             ],
             'configuration' => [
                 'merchant' => [
@@ -230,6 +238,7 @@ class PasserelleStripe implements PasserellePaiement
             'defaults' => [
                 'currency' => 'chf',
                 'locales' => ['fr'],
+                'profile' => ['doing_business_as' => $societe['nom_commercial'] ?? $societe['nom']],
                 // Le prestataire collecte ses frais auprès de la société et porte les pertes
                 'responsibilities' => ['fees_collector' => 'stripe', 'losses_collector' => 'stripe'],
             ],

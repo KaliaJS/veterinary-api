@@ -67,18 +67,41 @@ class ComptesPaiement
     }
 
     /** Ouvre le compte de la société s'il n'existe pas encore. */
-    public function ouvrir(Societe $societe, ?string $email): Societe
+    /**
+     * Ouvre le compte de la société s'il n'existe pas encore, prérempli
+     * pour raccourcir l'inscription : nom commercial (celui de la clinique,
+     * vu par les clients sur leur relevé et dans TWINT), IDE, adresse et
+     * téléphone de la clinique.
+     */
+    public function ouvrir(Societe $societe, ?string $email, ?Clinique $clinique = null): Societe
     {
         if (! $societe->stripe_compte_id) {
             $id = $this->passerelle->pourCompte(null)->creerComptePaiement([
                 'nom' => $societe->nom,
+                'nom_commercial' => $clinique?->raison_sociale ?: $clinique?->nom ?: $societe->nom,
                 'email' => $email,
+                'ide' => $societe->ide,
+                'adresse' => $clinique?->rue ? ['rue' => $clinique->rue, 'npa' => $clinique->npa, 'ville' => $clinique->ville] : null,
+                'telephone' => self::telephone($clinique?->tel),
                 'metadonnees' => ['societe_id' => (string) $societe->id, 'organisation_id' => (string) $societe->organisation_id],
             ]);
             $societe->update(['stripe_compte_id' => $id]);
         }
 
         return $this->rafraichir($societe);
+    }
+
+    /** Numéro au format international (+41…), null s'il n'est pas lisible. */
+    public static function telephone(?string $numero): ?string
+    {
+        $chiffres = preg_replace('/[^\d+]/', '', (string) $numero);
+        if (str_starts_with($chiffres, '00')) {
+            $chiffres = '+'.substr($chiffres, 2);
+        } elseif (str_starts_with($chiffres, '0')) {
+            $chiffres = '+41'.substr($chiffres, 1);
+        }
+
+        return preg_match('/^\+\d{8,15}$/', $chiffres) ? $chiffres : null;
     }
 
     /** Relit l'état du compte : encaisse-t-il, reçoit-il ses virements, manque-t-il des informations. */

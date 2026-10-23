@@ -36,7 +36,7 @@ class ComptePaiementController extends Controller
     {
         Gate::authorize(DomainePermission::Organisation->value);
 
-        return $this->reponse($this->sansErreur(fn () => $this->comptes->ouvrir($this->societe(), $request->user()->email)));
+        return $this->reponse($this->sansErreur(fn () => $this->comptes->ouvrir($this->societe(), $request->user()->email, app(ContexteClinique::class)->clinique())));
     }
 
     /**

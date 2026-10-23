@@ -14,6 +14,7 @@ use App\Models\Role;
 use App\Models\Societe;
 use App\Models\TerminalPaiement;
 use App\Paiements\PasserellePaiement;
+use App\Services\Paiements\ComptesPaiement;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
@@ -94,6 +95,12 @@ class ComptePaiementSocieteTest extends TestCase
             ->assertJsonPath('data.a_completer', true)
             ->assertJsonPath('data.peut_gerer', true);
         $this->assertSame('Deux Rives Sàrl', $this->stripe->comptesCrees[0]['nom']);
+        // Prérempli depuis la clinique et la société : nom commercial, IDE, adresse, téléphone
+        $clinique = $this->clinique->refresh();
+        $cree = $this->stripe->comptesCrees[0];
+        $this->assertSame($clinique->raison_sociale ?: $clinique->nom, $cree['nom_commercial']);
+        $this->assertSame($clinique->societe->ide, $cree['ide']);
+        $this->assertSame($clinique->rue, $cree['adresse']['rue'] ?? null);
         $this->assertSame('acct_1', $this->clinique->societe->refresh()->stripe_compte_id);
         // Rouvrir ne recrée rien
         $this->postJson('/api/v1/facturation/compte-paiement', [], $this->enTetes($this->jeton))->assertOk();
@@ -210,6 +217,15 @@ class ComptePaiementSocieteTest extends TestCase
         // Et l'on peut revenir aux paiements intégrés
         $this->putJson('/api/v1/facturation/compte-paiement/integration', ['integres' => true], $this->enTetes($this->jeton))->assertOk();
         $this->assertSame(3000, $this->clinique->refresh()->acompteExigible());
+    }
+
+    public function test_le_telephone_passe_au_format_international(): void
+    {
+        $this->assertSame('+41216014242', ComptesPaiement::telephone('+41 21 601 42 42'));
+        $this->assertSame('+41216014242', ComptesPaiement::telephone('021 601 42 42'));
+        $this->assertSame('+33142000000', ComptesPaiement::telephone('0033 1 42 00 00 00'));
+        $this->assertNull(ComptesPaiement::telephone('pas de numéro'));
+        $this->assertNull(ComptesPaiement::telephone(null));
     }
 
     /** L'employé du jeton devient administrateur : le domaine organisation s'ouvre. */

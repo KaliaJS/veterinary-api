@@ -910,7 +910,10 @@ caisse.
   organisation, le reste à la facturation). `societes.stripe_compte_id`,
   `paiements_actifs`, `virements_actifs`, `paiements_a_completer`,
   `paiements_maj_le`, relus à l'affichage et au webhook `account.updated`
-  (comptes connectés). Paiements directs sur le compte (en-tête
+  (comptes connectés). Le compte naît prérempli pour raccourcir
+  l'inscription : nom commercial de la clinique (`display_name` et
+  `doing_business_as`, vu par les clients sur leur relevé et dans TWINT),
+  IDE de la société (`ch_uid`), adresse et téléphone de la clinique. Paiements directs sur le compte (en-tête
   Stripe-Account) ; commission de la plateforme en frais d'application sur
   toutes les transactions : 0,5 % des paiements au terminal, par TWINT à
   la caisse et des acomptes en ligne (`STRIPE_COMMISSION_TERMINAL`,
