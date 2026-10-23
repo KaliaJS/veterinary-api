@@ -118,6 +118,26 @@ class ExamenImagerieTest extends TestCase
         );
     }
 
+    public function test_le_rdv_lie_ne_se_termine_pas_a_la_main_avant_la_signature(): void
+    {
+        $rendezVous = $this->rendezVousImagerie();
+        $examen = ExamenImagerie::query()->findOrFail($this->postJson('/api/v1/imagerie/examens', [
+            'patient_id' => $this->patient->id,
+            'modalite' => 'DX',
+            'libelle' => 'Radiographie thorax',
+            'realise_le' => now()->toISOString(),
+            'rendez_vous_id' => $rendezVous->id,
+        ], $this->jeton())->assertCreated()->json('data.id'));
+
+        $this->postJson("/api/v1/rendez-vous/{$rendezVous->id}/statut", ['status' => 'fini'], $this->jeton())
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.status.0', 'Ce rendez-vous se termine par la signature du compte rendu d’imagerie.');
+
+        // La signature le termine
+        $this->postJson("/api/v1/imagerie/examens/{$examen->id}/compte-rendu", ['constatations' => 'Normal.', 'sans_facture' => true], $this->jeton())->assertOk();
+        $this->assertSame('fini', $rendezVous->refresh()->status->value);
+    }
+
     public function test_la_reprogrammation_pousse_la_projection_sans_retour_du_planning(): void
     {
         $rendezVous = $this->rendezVousImagerie();

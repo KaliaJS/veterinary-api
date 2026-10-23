@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\DomainePermission;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\FactureResource;
 use App\Http\Resources\V1\SejourResource;
@@ -22,12 +23,23 @@ class SortieSejourController extends Controller
 {
     public function __construct(private FactureSejour $factureSejour) {}
 
-    /** Aperçu dérivé de la facture du séjour — rien n'est créé. */
+    /**
+     * Aperçu dérivé de la facture du séjour — rien n'est créé. Les
+     * montants ne vont qu'à qui a la facturation (23.10.2026) ; les
+     * autres voient les jours et les prestations.
+     */
     public function apercu(Sejour $sejour): JsonResponse
     {
         $this->authorize('view', $sejour);
 
         $lignes = $this->factureSejour->lignes($sejour);
+        if (! Gate::allows(DomainePermission::Facturation->value)) {
+            return response()->json(['data' => [
+                'jours' => $sejour->joursFactures(),
+                'lignes' => array_map(fn (array $ligne): array => ['libelle' => $ligne['libelle'], 'quantite' => $ligne['quantite'], 'type' => $ligne['type']], $lignes),
+                'total_chf' => null,
+            ]]);
+        }
 
         return response()->json(['data' => [
             'jours' => $sejour->joursFactures(),

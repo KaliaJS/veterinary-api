@@ -91,6 +91,24 @@ class AcompteReservationTest extends TestCase
             ->assertJsonPath('data.statut', 'acceptee');
     }
 
+    public function test_une_urgence_reservee_directement_paie_aussi_l_acompte(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+
+        // Validée par la clinique : pas d'acompte
+        $this->deposer(['urgence' => true, 'symptomes' => 'Boite depuis ce matin'])
+            ->assertCreated()
+            ->assertJsonPath('data.statut', 'a_traiter');
+
+        // Réservée directement : l'acompte comme pour tout rendez-vous
+        $this->clinique->update(['urgences_a_valider' => false]);
+        $this->deposer(['urgence' => true, 'symptomes' => 'Boite depuis ce matin', 'debut_souhaite' => $this->mardi->addHour()->toIso8601String()])
+            ->assertCreated()
+            ->assertJsonPath('data.statut', 'a_payer')
+            ->assertJsonPath('data.paiement.montant_centimes', 3000);
+        $this->assertSame(0, RendezVous::withoutGlobalScopes()->count());
+    }
+
     public function test_sans_compte_le_telephone_est_obligatoire(): void
     {
         $this->deposer(['telephone' => ''])->assertUnprocessable()->assertJsonValidationErrors('telephone');
@@ -132,6 +150,32 @@ class AcompteReservationTest extends TestCase
         $facture = Facture::withoutGlobalScopes()->where('rendez_vous_id', $rendezVous->id)->sole();
         $this->assertSame(30.0, (float) $facture->acompte);
         $this->assertSame(round($facture->totalTtc() - 30, 2), $facture->resteAPayer());
+    }
+
+    public function test_une_demande_avec_acompte_ne_se_supprime_pas_et_un_paiement_tardif_est_rendu(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        $jeton = $this->deposer()->assertCreated()->json('data.jeton');
+        $demande = DemandeRendezVous::withoutGlobalScopes()->sole();
+        ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
+
+        // Le paiement peut arriver : la demande ne disparaît pas
+        $this->deleteJson("/api/v1/demandes/{$demande->id}", [], $this->enTetes($jetonClinique))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('demande');
+
+        // Close entre-temps (abandonnée), puis payée quand même : rien ne se réserve, tout est rendu
+        $demande->update(['statut' => 'refusee']);
+        $this->stripe->conclure($demande->acompte_intention_id, 'succeeded');
+        $this->postJson("/api/v1/public/demandes/{$jeton}/paiement")->assertOk()->assertJsonPath('data.statut', 'refusee');
+
+        $this->assertSame(0, RendezVous::withoutGlobalScopes()->count());
+        $this->assertSame([$demande->acompte_intention_id], $this->stripe->remboursements);
+        $this->assertSame(3000, $this->stripe->montantsRembourses[$demande->acompte_intention_id]);
+        $this->assertNotNull($demande->refresh()->acompte_rembourse_le);
+
+        // Rendu, elle peut être retirée
+        $this->deleteJson("/api/v1/demandes/{$demande->id}", [], $this->enTetes($jetonClinique))->assertNoContent();
     }
 
     public function test_le_client_n_annule_plus_un_rendez_vous_avec_acompte_il_demande_l_annulation(): void

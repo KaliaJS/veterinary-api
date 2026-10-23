@@ -46,6 +46,10 @@ class RendezVousStatutController extends Controller
 
         $statut = StatutRendezVous::from($request->validated('status'));
 
+        if ($statut === StatutRendezVous::Fini && ($geste = $rendezVous->gesteEnAttente())) {
+            throw ValidationException::withMessages(['status' => $geste]);
+        }
+
         $attributs = ['status' => $statut];
 
         if ($statut === StatutRendezVous::Salle && $rendezVous->arrived_at === null) {

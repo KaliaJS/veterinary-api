@@ -60,6 +60,10 @@ class FinConsultationController extends Controller
             throw ValidationException::withMessages(['status' => 'Seule une consultation du cycle actif se clôture.']);
         }
 
+        if ($geste = $rendezVous->gesteEnAttente()) {
+            throw ValidationException::withMessages(['status' => $geste]);
+        }
+
         if (Facture::where('rendez_vous_id', $rendezVous->id)->exists()) {
             throw ValidationException::withMessages(['rendez_vous' => 'Ce rendez-vous est déjà facturé — rouvrez sa facture en caisse.']);
         }

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Hospitalisation;
 
+use App\Auth\RolesParDefaut;
 use App\Enums\StatutSejour;
 use App\Models\Client;
 use App\Models\Clinique;
@@ -11,6 +12,7 @@ use App\Models\MouvementStock;
 use App\Models\Patient;
 use App\Models\Prestation;
 use App\Models\Produit;
+use App\Models\Role;
 use App\Models\Sejour;
 use App\Models\Stock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -278,6 +280,19 @@ class SejourTest extends TestCase
             ->assertJsonPath('data.total_chf', 140);
 
         $this->assertDatabaseCount('factures', 0);
+
+        // Sans la facturation : les prestations, pas les montants
+        ['employe' => $asv, 'jeton' => $jetonAsv] = $this->employeAvecJeton($this->clinique);
+        $asv->update(['role_id' => Role::withoutGlobalScope('organisation')
+            ->where('organisation_id', $this->clinique->societe->organisation_id)
+            ->where('nom', RolesParDefaut::ASSISTANT)
+            ->value('id')]);
+        $apercu = $this->getJson("/api/v1/hospitalisation/sejours/{$sejour->id}/facture", $this->enTetes($jetonAsv))
+            ->assertOk()
+            ->assertJsonPath('data.jours', 1)
+            ->assertJsonPath('data.total_chf', null)
+            ->json('data.lignes');
+        $this->assertArrayNotHasKey('prix_chf', $apercu[0]);
     }
 
     public function test_un_sejour_sorti_ne_se_modifie_plus_et_ne_se_ressort_pas(): void

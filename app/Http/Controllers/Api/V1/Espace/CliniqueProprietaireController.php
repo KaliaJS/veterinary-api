@@ -287,8 +287,10 @@ class CliniqueProprietaireController extends Controller
         // la clinique (sauf si elle ne veut pas les valider), et la clinique
         // peut préférer valider chaque rendez-vous (déconseillé)
         $reserver = $urgence ? ! $clinique->urgences_a_valider : ! $clinique->rdv_a_valider;
-        // Acompte de la clinique : seulement pour une réservation directe, jamais pour une urgence
-        $acompte = $reserver && ! $urgence ? $clinique->acompteExigible() : null;
+        // Acompte de la clinique : pour toute réservation directe, urgence
+        // comprise (23.10.2026 : cocher « urgence » ne l'évite pas) ; jamais
+        // pour une demande que la clinique valide
+        $acompte = $reserver ? $clinique->acompteExigible() : null;
 
         $demande = $sousContexte->pour($clinique, function () use ($qui, $donnees, $urgence, $debut, $reserver, $acompte, $auteur): DemandeRendezVous {
             $traitement = app(TraitementDemande::class);

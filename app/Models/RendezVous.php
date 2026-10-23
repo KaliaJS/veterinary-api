@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Auth\ContexteClinique;
 use App\Enums\DrapeauRendezVous;
 use App\Enums\Espece;
+use App\Enums\StatutIntervention;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
 use App\Models\Concerns\AppartientAUneClinique;
@@ -83,6 +84,22 @@ class RendezVous extends Model
     public function audits(): HasMany
     {
         return $this->hasMany(RendezVousAudit::class, 'rendez_vous_id');
+    }
+
+    /**
+     * Le geste métier qui termine ce rendez-vous projeté, s'il attend
+     * encore (23.10.2026) : signer le compte rendu d'imagerie, finir
+     * l'intervention, clore la téléconsultation. Un « fini » posé à la
+     * main les court-circuiterait (facture sans acte, examen sans lecture).
+     */
+    public function gesteEnAttente(): ?string
+    {
+        return match (true) {
+            ExamenImagerie::withoutGlobalScopes()->where('rendez_vous_id', $this->id)->whereNull('signe_le')->exists() => 'Ce rendez-vous se termine par la signature du compte rendu d’imagerie.',
+            Intervention::withoutGlobalScopes()->where('rendez_vous_id', $this->id)->where('statut', '!=', StatutIntervention::Fini)->exists() => 'Ce rendez-vous se termine avec l’intervention, au bloc.',
+            SessionTeleconsultation::withoutGlobalScopes()->where('rendez_vous_id', $this->id)->whereNull('terminee_le')->exists() => 'Ce rendez-vous se termine à la fin de la téléconsultation.',
+            default => null,
+        };
     }
 
     /** Compte rendu SOAP (0..1 — docs/data-model.md §13).

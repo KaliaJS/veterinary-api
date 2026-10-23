@@ -80,10 +80,19 @@ class AcomptesRendezVous
         DB::transaction(function () use ($demande, $auteur): void {
             $demande = DemandeRendezVous::withoutGlobalScopes()->with(['clinique', 'user'])->lockForUpdate()->findOrFail($demande->id);
 
-            if ($demande->statut !== StatutDemandeRendezVous::APayer || ! $demande->acompte_intention_id) {
+            if (! $demande->acompte_intention_id || $demande->acompte_paye_le !== null) {
                 return;
             }
             if ($this->comptes->passerellePourCompte($demande->acompte_stripe_compte_id, $demande->clinique_id)->lireIntention($demande->acompte_intention_id)['statut'] !== 'succeeded') {
+                return;
+            }
+
+            // Payé après la réponse de la clinique (refusée entre-temps) :
+            // rien ne se réserve, l'acompte est rendu (23.10.2026)
+            if ($demande->statut !== StatutDemandeRendezVous::APayer) {
+                $demande->update(['acompte_paye_le' => now(), 'acompte_frais_centimes' => $this->frais($demande)]);
+                $this->rembourser($demande);
+
                 return;
             }
 

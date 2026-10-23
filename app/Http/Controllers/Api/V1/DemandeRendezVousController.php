@@ -118,10 +118,19 @@ class DemandeRendezVousController extends Controller
         return new DemandeRendezVousResource($demande->refresh());
     }
 
-    /** Retire une demande sans répondre (doublon, demande farfelue). */
+    /**
+     * Retire une demande sans répondre (doublon, demande farfelue). Jamais
+     * celle qui porte un acompte en jeu (23.10.2026) : retirée, l'argent
+     * payé ou en train de l'être n'aurait plus de demande où revenir.
+     */
     public function destroy(DemandeRendezVous $demande): Response
     {
         $this->authorize('delete', $demande);
+
+        if ($demande->acompte_intention_id !== null && $demande->acompte_rembourse_le === null
+            && ($demande->acompte_paye_le !== null || $demande->statut === StatutDemandeRendezVous::APayer)) {
+            throw ValidationException::withMessages(['demande' => 'Cette demande porte un acompte : refusez-la plutôt, l’acompte payé est rendu au propriétaire.']);
+        }
 
         $demande->delete();
 
