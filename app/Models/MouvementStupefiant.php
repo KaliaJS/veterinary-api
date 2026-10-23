@@ -67,7 +67,11 @@ class MouvementStupefiant extends Model
         return $this->belongsTo(Patient::class);
     }
 
-    /** Signataire du mouvement. @return BelongsTo<Employe, $this> */
+    /**
+     * Signataire du mouvement.
+     *
+     * @return BelongsTo<Employe, $this>
+     */
     public function employe(): BelongsTo
     {
         return $this->belongsTo(Employe::class);

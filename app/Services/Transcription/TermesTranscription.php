@@ -31,7 +31,7 @@ final class TermesTranscription
         $race = $patientId ? DB::table('patients')->where('id', $patientId)->value('race') : null;
 
         return self::retenir([
-            ...($enregistrement->organisation?->termes_transcription ?? []),
+            ...($enregistrement->organisation->termes_transcription ?? []),
             $race,
             ...($patientId ? $this->vaccins($patientId) : []),
             ...($patientId ? $this->medicamentsDuPatient($patientId) : []),

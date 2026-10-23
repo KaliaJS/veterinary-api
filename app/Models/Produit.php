@@ -15,11 +15,24 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * cliniques, les quantités vivent dans `stocks` par clinique
  * (docs/data-model.md §14). Le seuil d'alerte s'évalue sur le stock
  * total de l'organisation, comme au front.
+ *
+ * Sommes chargées à la demande (`withSum`), absentes sinon :
+ *
+ * @property-read float|int|string|null $solde  mouvements de stupéfiants (registre)
+ * @property-read float|int|string|null $stock_total  stocks de toutes les cliniques (alertes)
  */
 class Produit extends Model
 {
     /** @use HasFactory<ProduitFactory> */
     use AppartientAUneOrganisation, HasFactory;
+
+    /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'est_boutique' => false,
+        'est_sur_ordonnance' => false,
+        'est_stupefiant' => false,
+        'est_vedette' => false,
+    ];
 
     protected $fillable = [
         'organisation_id', 'nom', 'categorie', 'reference', 'prix', 'cout',
@@ -68,7 +81,11 @@ class Produit extends Model
         return $this->hasMany(Lot::class);
     }
 
-    /** Registre des stupéfiants. @return HasMany<MouvementStupefiant, $this> */
+    /**
+     * Registre des stupéfiants.
+     *
+     * @return HasMany<MouvementStupefiant, $this>
+     */
     public function mouvementsStupefiants(): HasMany
     {
         return $this->hasMany(MouvementStupefiant::class);

@@ -58,7 +58,7 @@ class CommandeBoutiqueController extends Controller
             $commande = CommandeBoutique::create([
                 'numero' => $this->numeroteur->attribuer(PieceNumerotee::CommandeBoutique),
                 'client_id' => $client?->id,
-                'client_nom' => $client?->nom_affiche ?? $donnees['client_nom'],
+                'client_nom' => $client->nom_affiche ?? $donnees['client_nom'],
                 'statut' => StatutCommandeBoutique::APreparer,
                 'passee_le' => now(),
             ]);

@@ -24,6 +24,15 @@ class Patient extends Model
     /** Identité de l animal : ce que le propriétaire peut réserver à sa main (AccesClinique) */
     public const CHAMPS_IDENTITE = ['nom', 'espece', 'race', 'sexe', 'ne_le', 'est_sterilise', 'puce'];
 
+    /** Le défaut de la colonne, connu dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'acces_clinique' => AccesClinique::Modification->value,
+        'est_sterilise' => false,
+        'est_agressif' => false,
+        'a_allergies' => false,
+        'rappels_coupes' => false,
+    ];
+
     protected $fillable = [
         'organisation_id', 'client_id', 'proprietaire_id', 'acces_clinique', 'nom', 'espece', 'race', 'sexe',
         'ne_le', 'decede_le', 'est_sterilise', 'puce', 'photo_chemin', 'dette', 'est_agressif',
@@ -104,7 +113,7 @@ class Patient extends Model
             'client_id' => $this->client_id,
             'patient_name' => $this->nom,
             'species' => $this->espece,
-            'owner_name' => $this->client?->nom_affiche ?? $this->proprietaire?->name ?? '',
+            'owner_name' => $this->client->nom_affiche ?? $this->proprietaire->name ?? '',
         ];
     }
 

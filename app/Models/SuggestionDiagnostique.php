@@ -29,6 +29,7 @@ class SuggestionDiagnostique extends Model
 
     protected $attributes = [
         'statut' => 'en_cours',
+        'avec_transcription' => false,
     ];
 
     protected function casts(): array

@@ -17,12 +17,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Jamais supprimé : l'annulation est le statut `annule` (auteur,
  * horodatage et motif dans l'audit). Le chevauchement d'intervalles est
  * autorisé — aucune contrainte d'exclusivité (docs/data-model.md §3).
+ *
+ * @property Collection<int, DrapeauRendezVous>|null $flags (AsEnumCollection, que Larastan ne lit pas)
  */
 class RendezVous extends Model
 {

@@ -6,6 +6,7 @@ use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\DemandeRattachement;
 use App\Models\Employe;
+use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\User;
 use App\Models\Vaccination;
@@ -73,6 +74,14 @@ class AnimauxProprietaireTest extends TestCase
             ->assertJsonPath('data.visites.0.motif', 'Vaccins annuels + contrôle')
             ->assertJsonPath('data.visites.0.veterinaire', $veterinaire->nom)
             ->assertJsonPath('data.ordonnance_active_id', null);
+
+        // L'ordonnance active, pas une clôturée
+        Ordonnance::factory()->cloturee()->create(['patient_id' => $max->id]);
+        $active = Ordonnance::factory()->create(['patient_id' => $max->id]);
+
+        $this->getJson("/api/v1/espace/animaux/{$max->id}", $this->enTetes($jeton))
+            ->assertOk()
+            ->assertJsonPath('data.ordonnance_active_id', $active->id);
     }
 
     public function test_l_animal_d_un_autre_compte_est_introuvable(): void
@@ -104,7 +113,9 @@ class AnimauxProprietaireTest extends TestCase
             ->assertJsonPath('data.espece_libelle', 'Chien')
             ->assertJsonPath('data.age_libelle', '3 ans')
             ->assertJsonPath('data.poids_kg', 12.4)
-            ->assertJsonPath('data.fiche_id', null);
+            ->assertJsonPath('data.fiche_id', null)
+            // Le défaut de la base, connu dès la création (pas null)
+            ->assertJsonPath('data.est_sterilise', false);
 
         $this->assertDatabaseHas('patients', ['nom' => 'Nala', 'proprietaire_id' => $user->id, 'client_id' => null, 'organisation_id' => null]);
 

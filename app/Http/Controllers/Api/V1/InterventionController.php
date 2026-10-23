@@ -35,7 +35,7 @@ class InterventionController extends Controller
 
         $interventions = Intervention::query()
             ->when($request->date('date'), function ($requete, $date): void {
-                $fuseau = Clinique::find(app(ContexteClinique::class)->cliniqueId())?->fuseau_horaire ?? 'Europe/Zurich';
+                $fuseau = Clinique::find(app(ContexteClinique::class)->cliniqueId())->fuseau_horaire ?? 'Europe/Zurich';
                 $jour = CarbonImmutable::parse($date->toDateString(), $fuseau);
                 $requete->whereBetween('prevu_le', [$jour->utc(), $jour->addDay()->utc()]);
             })

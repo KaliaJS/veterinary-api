@@ -121,7 +121,7 @@ class ServicesCliniquesSeeder extends Seeder
         if ($compte->presentation !== null || $compte->parcours()->exists()) {
             return;
         }
-        $npa = (int) ($employe->cliniques()->withoutGlobalScopes()->first()?->npa ?? 1000);
+        $npa = (int) ($employe->cliniques()->withoutGlobalScopes()->first()->npa ?? 1000);
         $langues = match (true) {
             $npa >= 6500 && $npa < 7000 => ['it', 'fr', 'de'],
             $npa >= 3000 => ['de', 'fr', 'en'],

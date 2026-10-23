@@ -116,6 +116,18 @@ class VaccinationsTest extends TestCase
             ->assertOk()->assertJsonPath('data.nom', 'Nobivac DHPPi')->assertJsonPath('emballage.gtin', '8713184095282');
     }
 
+    public function test_un_produit_sans_valence_au_catalogue_prend_son_nom_court(): void
+    {
+        // Les valences ne se déduisent pas toujours à l'import (description ATCvet muette)
+        $sansValence = ProduitVeterinaire::create(['numero_autorisation' => '9001', 'nom' => 'Vaccin X ad us. vet.', 'nom_court' => 'Vaccin X', 'categorie' => 'immunologique', 'especes' => ['CH']]);
+        $patient = $this->patient();
+
+        $this->postJson("/api/v1/patients/{$patient->id}/vaccinations", ['produit_id' => $sansValence->id], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.nom', 'Vaccin X')
+            ->assertJsonPath('data.marque', 'Vaccin X');
+    }
+
     public function test_une_saisie_libre_reste_possible_et_se_corrige(): void
     {
         $patient = $this->patient();

@@ -10,7 +10,6 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Carbon;
 
 /**
  * Le renouvellement d'un abonnement n'a pas pu être prélevé : la prochaine
@@ -25,7 +24,7 @@ class PaiementAbonnementRefuse extends Mailable
     public function __construct(
         public OrganisationFacture|FactureProprietaire $facture,
         public string $raison,
-        public ?Carbon $prochaineTentative,
+        public ?CarbonInterface $prochaineTentative,
         public ?CarbonInterface $fermetureLe,
         public bool $pourClinique,
         public ?OrganisationFacture $factureTranscription = null,

@@ -106,9 +106,8 @@ class VaccinationController extends Controller
     private function attributs(array $donnees, ?ProduitVeterinaire $produit): array
     {
         $valences = $produit?->valences->pluck('code')->all() ?: ($donnees['valences'] ?? null) ?: null;
-        $nomValences = $produit
-            ? $produit->valences->pluck('nom_court')->implode(' · ')
-            : null;
+        // Sans valence connue au catalogue, le nom court du produit prend le relais
+        $nomValences = $produit?->valences->pluck('nom_court')->implode(' · ') ?: null;
 
         return array_filter([
             'produit_id' => $produit?->id,

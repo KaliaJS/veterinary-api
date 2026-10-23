@@ -3,6 +3,7 @@
 namespace Tests\Feature\Boutique;
 
 use App\Enums\StatutFacture;
+use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\CommandeBoutique;
 use App\Models\CommandeBoutiqueLigne;
@@ -83,6 +84,25 @@ class BoutiqueTest extends TestCase
 
         // La commande ne touche pas le stock — seule la remise le sort.
         $this->assertSame(10, $this->stockDe($produit));
+    }
+
+    public function test_un_identifiant_envoye_en_tableau_est_refuse_proprement(): void
+    {
+        $produit = $this->produitEnRayon(10);
+        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+
+        // Un tableau d'identifiants existants passait `exists` : la fiche devenait une collection
+        $this->postJson('/api/v1/boutique/commandes', [
+            'client_id' => [$client->id],
+            'lignes' => [['produit_id' => $produit->id, 'quantite' => 1]],
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('client_id');
+
+        $this->postJson('/api/v1/boutique/commandes', [
+            'client_nom' => 'Marie Aubert',
+            'lignes' => [['produit_id' => [$produit->id], 'quantite' => 1]],
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('lignes.0.produit_id');
+
+        $this->assertSame(0, CommandeBoutique::query()->count());
     }
 
     public function test_un_article_hors_boutique_ne_se_commande_pas_en_ligne(): void

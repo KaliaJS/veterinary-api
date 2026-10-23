@@ -43,7 +43,12 @@ class RenouvelerAbonnements extends Command
         return self::SUCCESS;
     }
 
-    /** Un abonné en échec n'empêche pas les autres d'être traités. */
+    /**
+     * Un abonné en échec n'empêche pas les autres d'être traités.
+     *
+     * @param  Builder<Organisation>|Builder<User>  $requete
+     * @param  callable(Organisation|User): mixed  $traiter
+     */
     private function parcourir(Builder $requete, callable $traiter, int &$traites): void
     {
         $requete->each(function ($abonne) use ($traiter, &$traites): void {

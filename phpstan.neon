@@ -1,7 +1,8 @@
 includes:
     - vendor/larastan/larastan/extension.neon
-    # Erreurs connues au 23.10.2026, à résorber (docs/todo.md du web) :
-    # le nouveau code, lui, doit passer sans erreur
+    # Résorbée le 24.10.2026 : il reste cinq faux positifs des seeders
+    # (tableaux de démo, `$this->command` nullable) ; le reste du code
+    # passe sans erreur
     - phpstan-baseline.neon
 
 parameters:

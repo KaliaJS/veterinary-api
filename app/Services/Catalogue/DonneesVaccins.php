@@ -169,13 +169,21 @@ final class DonneesVaccins
         'hühner' => ['VO'], 'hühnereiern' => ['VO'], 'küken' => ['VO'], 'eintagsküken' => ['VO'], 'tauben' => ['VO'], 'geflügel' => ['VO'],
     ];
 
-    /** Groupe ATCvet (4 caractères) → espèce par défaut quand le nom n'en cite aucune. @var array<string, list<string>> */
+    /**
+     * Groupe ATCvet (4 caractères) → espèce par défaut quand le nom n'en cite aucune.
+     *
+     * @var array<string, list<string>>
+     */
     public const ESPECES_PAR_ATC = [
         'QI01' => ['VO'], 'QI02' => ['BV'], 'QI03' => ['CP'], 'QI04' => ['OV'], 'QI05' => ['CV'],
         'QI06' => ['CT'], 'QI07' => ['CH'], 'QI08' => ['LP'], 'QI09' => ['PO'],
     ];
 
-    /** Voies Swissmedic (APPLIKATIONSART_CODE) → libellé. @var array<string, string> */
+    /**
+     * Voies Swissmedic (APPLIKATIONSART_CODE) → libellé.
+     *
+     * @var array<string, string>
+     */
     public const VOIES = [
         'SUBC' => 'sous-cutanée', 'IM' => 'intramusculaire', 'INTM' => 'intramusculaire', 'NAS' => 'intranasale',
         'OR' => 'orale', 'PO' => 'orale', 'ID' => 'intradermique', 'INTD' => 'intradermique', 'IV' => 'intraveineuse',
@@ -187,8 +195,9 @@ final class DonneesVaccins
      * ou incomplet), `especes` (quand le nom ne les dit pas), `schema`.
      * Schéma : age (semaines), primo (injections), intervalle (semaines),
      * premier_rappel (mois), rappel (mois), voie, remarques, source.
+     * Les numéros, tout en chiffres, deviennent des clés entières en PHP.
      *
-     * @var array<string, array<string, mixed>>
+     * @var array<int, array<string, mixed>>
      */
     public const PRODUITS = [
         // ——— Chiens ———

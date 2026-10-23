@@ -63,7 +63,7 @@ class BoutiqueProprietaireController extends Controller
                     return [
                         'id' => $produit->id,
                         'nom' => $produit->nom,
-                        'categorie' => $produit->categorie?->value ?? $produit->categorie,
+                        'categorie' => $produit->categorie->value,
                         'prix' => $produit->prixEffectif(),
                         'prix_base' => (float) $produit->prix,
                         'promo_pct' => (int) $produit->promo_pct,
@@ -164,10 +164,10 @@ class BoutiqueProprietaireController extends Controller
                 StatutCommandeBoutique::Prete => 'Prête au retrait',
                 StatutCommandeBoutique::Retiree => 'Retirée',
             },
-            'passee_le' => $c->passee_le?->toIso8601String(),
+            'passee_le' => $c->passee_le->toIso8601String(),
             'retiree_le' => $c->retiree_le?->toIso8601String(),
             'clinique' => ['id' => $c->clinique->id, 'nom' => $c->clinique->nom, 'ville' => $c->clinique->ville],
-            'articles' => $c->lignes->map(fn ($l) => ($l->produit?->nom ?? 'Article').($l->quantite > 1 ? ' ×'.$l->quantite : ''))->implode(' · '),
+            'articles' => $c->lignes->map(fn ($l) => ($l->produit->nom ?? 'Article').($l->quantite > 1 ? ' ×'.$l->quantite : ''))->implode(' · '),
             'lignes' => $c->lignes->map(fn ($l): array => ['produit' => $l->produit?->nom, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf])->values()->all(),
             'total_ttc' => round($c->totalTtc(), 2),
         ];

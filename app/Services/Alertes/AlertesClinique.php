@@ -212,7 +212,11 @@ class AlertesClinique
         return substr(md5($parties->implode('|')), 0, 12);
     }
 
-    /** Les trois premiers, puis « et N autres » @param  Collection<int, string>  $noms */
+    /**
+     * Les trois premiers, puis « et N autres ».
+     *
+     * @param  Collection<int, covariant string>  $noms
+     */
     private function noms(Collection $noms): string
     {
         $reste = $noms->count() - 3;
@@ -230,7 +234,7 @@ class AlertesClinique
         // Le numéro porte souvent déjà « LOT » : pas de « lot LOT … »
         $numero = preg_match('/^lot\b/i', $lot->numero_lot) ? $lot->numero_lot : 'lot '.$lot->numero_lot;
 
-        return ($lot->produit?->nom ?? 'Produit').', '.$numero.' ('.$lot->peremption_le->format('m.Y').')';
+        return ($lot->produit->nom ?? 'Produit').', '.$numero.' ('.$lot->peremption_le->format('m.Y').')';
     }
 
     private function paiement(Paiement $paiement): string

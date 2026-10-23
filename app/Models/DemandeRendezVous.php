@@ -46,7 +46,7 @@ class DemandeRendezVous extends Model
     public const int JOURS_LIEN = 30;
 
     /** Une demande neuve attend la réponse de la clinique. */
-    protected $attributes = ['statut' => 'a_traiter', 'teleconsultation' => false];
+    protected $attributes = ['statut' => 'a_traiter', 'teleconsultation' => false, 'urgence' => false];
 
     protected function casts(): array
     {

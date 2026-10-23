@@ -25,6 +25,7 @@ class CredentialRecordCast implements CastsAttributes
         return PasskeyJsonSerializer::deserialize($value, CredentialRecord::class);
     }
 
+    /** @param  mixed  $value  ce qui a été assigné, quoi que ce soit : vérifié ici */
     public function set(Model $model, string $key, mixed $value, array $attributes): ?string
     {
         if ($value === null) {

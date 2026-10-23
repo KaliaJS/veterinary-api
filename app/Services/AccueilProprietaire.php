@@ -89,11 +89,11 @@ class AccueilProprietaire
     {
         return [
             'id' => $rendezVous->id,
-            'debute_le' => $rendezVous->starts_at?->toIso8601String(),
-            'termine_le' => $rendezVous->ends_at?->toIso8601String(),
-            'type' => $rendezVous->type?->value ?? $rendezVous->type,
+            'debute_le' => $rendezVous->starts_at->toIso8601String(),
+            'termine_le' => $rendezVous->ends_at->toIso8601String(),
+            'type' => $rendezVous->type->value,
             'motif' => $rendezVous->reason,
-            'statut' => $rendezVous->status?->value ?? $rendezVous->status,
+            'statut' => $rendezVous->status->value,
             'patient' => $rendezVous->patient ? ['id' => $rendezVous->patient->id, 'nom' => $rendezVous->patient->nom] : ['id' => null, 'nom' => $rendezVous->patient_name],
             'clinique' => ['id' => $rendezVous->clinique->id, 'nom' => $rendezVous->clinique->nom],
             'veterinaire' => $rendezVous->lignePlanning?->nom,
@@ -106,7 +106,7 @@ class AccueilProprietaire
      * négatifs) et échéances à J+30, du plus urgent au moins urgent.
      *
      * @param  list<int>  $patientIds
-     * @return Collection<int, array<string, mixed>>
+     * @return Collection<int, array{vaccination_id: int, vaccin: string, patient: array{id: int, nom: string}, echeance_le: string, jours: int, est_en_retard: bool}>
      */
     private function rappels(array $patientIds): Collection
     {
@@ -182,7 +182,7 @@ class AccueilProprietaire
     /**
      * @param  Collection<int, Devis>  $devis
      * @param  Collection<int, CommandeBoutique>  $commandesPretes
-     * @param  Collection<int, array<string, mixed>>  $rappels
+     * @param  Collection<int, covariant array<string, mixed>>  $rappels
      * @return list<array<string, mixed>>
      */
     private function aFaire(Collection $devis, Collection $commandesPretes, Collection $rappels, int $messagesNonLus = 0): array
@@ -232,8 +232,8 @@ class AccueilProprietaire
         return [
             'id' => $patient->id,
             'nom' => $patient->nom,
-            'espece' => $patient->espece?->value,
-            'espece_libelle' => $patient->espece?->libelle(),
+            'espece' => $patient->espece->value,
+            'espece_libelle' => $patient->espece->libelle(),
         ];
     }
 
@@ -266,7 +266,7 @@ class AccueilProprietaire
             'patient' => ['id' => $ordonnance->patient->id, 'nom' => $ordonnance->patient->nom],
             'veterinaire' => $ordonnance->employe?->nom,
             'clinique' => ['id' => $ordonnance->clinique->id, 'nom' => $ordonnance->clinique->nom],
-            'signee_le' => $ordonnance->signee_le?->toDateString(),
+            'signee_le' => $ordonnance->signee_le->toDateString(),
             'renouvellements' => $ordonnance->renouvellements,
             'renouvellement_en_attente' => $enAttente = $ordonnance->demandesRenouvellement->whereNull('traitee_le')->isNotEmpty(),
             'peut_renouveler' => $ordonnance->renouvellements > 0 && ! $enAttente,
@@ -285,9 +285,9 @@ class AccueilProprietaire
                 StatutCommandeBoutique::Prete => 'Prête au retrait',
                 StatutCommandeBoutique::Retiree => 'Retirée',
             },
-            'passee_le' => $commande->passee_le?->toIso8601String(),
+            'passee_le' => $commande->passee_le->toIso8601String(),
             'articles' => $commande->lignes
-                ->map(fn ($ligne) => ($ligne->produit?->nom ?? 'Article').($ligne->quantite > 1 ? ' ×'.$ligne->quantite : ''))
+                ->map(fn ($ligne) => ($ligne->produit->nom ?? 'Article').($ligne->quantite > 1 ? ' ×'.$ligne->quantite : ''))
                 ->implode(' · '),
             'total_ttc' => round($commande->totalTtc(), 2),
             'clinique' => ['id' => $commande->clinique->id, 'nom' => $commande->clinique->nom],

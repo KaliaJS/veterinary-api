@@ -142,7 +142,7 @@ final class SuggererDiagnostic implements ShouldQueue
         $poids = $patient?->pesees()->orderByDesc('pesee_le')->orderByDesc('id')->first();
 
         return array_filter([
-            'Espèce' => ($patient?->espece ?? $rendezVous?->species)?->libelle(),
+            'Espèce' => ($patient->espece ?? $rendezVous?->species)?->libelle(),
             'Race' => $patient?->race,
             'Sexe' => $patient?->sexe ? strtolower($patient->sexe->value).($patient->est_sterilise ? ', stérilisé' : ', non stérilisé') : null,
             'Âge' => $patient?->ne_le ? self::age($patient->ne_le) : null,
@@ -178,6 +178,8 @@ final class SuggererDiagnostic implements ShouldQueue
             ->where('rendez_vous.starts_at', '<', $rendezVous->starts_at)
             ->orderByDesc('rendez_vous.starts_at')
             ->limit((int) config('diagnostic.antecedents'))
+            // Lignes de la jointure, pas des comptes rendus : lues telles quelles
+            ->toBase()
             ->get(['comptes_rendus.a', 'comptes_rendus.p', 'rendez_vous.starts_at', 'rendez_vous.reason'])
             ->filter(fn ($cr) => trim((string) $cr->a) !== '' || trim((string) $cr->p) !== '')
             ->map(fn ($cr) => [

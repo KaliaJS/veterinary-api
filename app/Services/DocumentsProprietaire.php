@@ -69,24 +69,24 @@ class DocumentsProprietaire
                 return [
                     'type' => 'ORDONNANCE',
                     'id' => $o->id,
-                    'date' => $o->signee_le?->toDateString(),
+                    'date' => $o->signee_le->toDateString(),
                     'titre' => 'Ordonnance : '.($produits ?: $o->numero).' ('.$o->patient->nom.')',
                     'sous_ligne' => $enAttente
                         ? 'RENOUVELLEMENT DEMANDÉ · EN ATTENTE'
-                        : mb_strtoupper(($o->employe?->nom ?? $o->clinique->nom).' · '.self::dateLongue($o->signee_le)).($active ? '' : ' · CLÔTURÉE'),
+                        : mb_strtoupper(($o->employe->nom ?? $o->clinique->nom).' · '.self::dateLongue($o->signee_le)).($active ? '' : ' · CLÔTURÉE'),
                     'peut_renouveler' => $active && $o->renouvellements > 0 && ! $enAttente,
                     'renouvellement_en_attente' => $enAttente,
                     'pdf' => [
                         'numero' => $o->numero,
                         'patient' => $o->patient->nom,
-                        'espece' => $o->patient->espece?->libelle(),
+                        'espece' => $o->patient->espece->libelle(),
                         'veterinaire' => $o->employe?->nom,
                         'clinique' => $o->clinique->nom,
                         'en_tete' => $o->clinique->enTeteDocument(),
-                        'signee_le' => $o->signee_le?->toDateString(),
+                        'signee_le' => $o->signee_le->toDateString(),
                         'note' => $o->note,
                         'lignes' => $o->lignes->map(fn ($l): array => [
-                            'produit' => $l->produit?->nom ?? '—',
+                            'produit' => $l->produit->nom ?? '—',
                             'posologie' => $l->posologie,
                             'duree' => $l->duree,
                         ])->values()->all(),
@@ -111,13 +111,13 @@ class DocumentsProprietaire
             ->orderByDesc('emise_le')
             ->get()
             ->map(function (Facture $f): array {
-                $libelle = mb_strtolower($f->lignes->first()?->libelle ?? 'prestations');
+                $libelle = mb_strtolower($f->lignes->first()->libelle ?? 'prestations');
                 $payee = $f->statut === StatutFacture::Payee;
 
                 return [
                     'type' => 'FACTURE',
                     'id' => $f->id,
-                    'date' => $f->emise_le?->toDateString(),
+                    'date' => $f->emise_le->toDateString(),
                     'titre' => 'Facture '.$libelle.', CHF '.self::montant($f->totalTtc()).' ('.$f->patient_name.')',
                     'sous_ligne' => $payee
                         ? 'PAYÉE · '.mb_strtoupper(self::dateLongue($f->payee_le ?? $f->emise_le))
@@ -128,7 +128,7 @@ class DocumentsProprietaire
                         'proprietaire' => $f->owner_name,
                         'clinique' => $f->clinique->nom,
                         'en_tete' => $f->clinique->enTeteDocument(),
-                        'emise_le' => $f->emise_le?->toIso8601String(),
+                        'emise_le' => $f->emise_le->toIso8601String(),
                         'statut' => $f->statut->value,
                         'payee_le' => $f->payee_le?->toIso8601String(),
                         'total_ttc' => round($f->totalTtc(), 2),
@@ -165,7 +165,7 @@ class DocumentsProprietaire
                 return [
                     'type' => 'DEVIS',
                     'id' => $d->id,
-                    'date' => $d->emis_le?->toDateString(),
+                    'date' => $d->emis_le->toDateString(),
                     'titre' => 'Devis '.mb_strtolower($d->motif ?? $d->numero).', CHF '.self::montant($d->totalTtc()).' ('.$d->patient->nom.')',
                     'sous_ligne' => match ($effectif) {
                         StatutDevis::Envoye->value => 'EN ATTENTE DE VOTRE SIGNATURE',
@@ -179,7 +179,7 @@ class DocumentsProprietaire
                         'en_tete' => $d->clinique->enTeteDocument(),
                         'patient' => $d->patient->nom,
                         'motif' => $d->motif,
-                        'emis_le' => $d->emis_le?->toDateString(),
+                        'emis_le' => $d->emis_le->toDateString(),
                         'valide_jusquau' => $d->valide_jusquau?->toDateString(),
                         'remise_pct' => $d->remise_pct,
                         'alea_pct' => $d->alea_pct,
@@ -226,14 +226,14 @@ class DocumentsProprietaire
                     'sous_ligne' => 'MIS À JOUR LE '.mb_strtoupper(self::dateLongue($derniere)),
                     'pdf' => [
                         'patient' => $p->nom,
-                        'espece' => $p->espece?->libelle(),
+                        'espece' => $p->espece->libelle(),
                         'race' => $p->race,
                         'puce' => $p->puce,
                         'vaccinations' => $p->vaccinations->sortByDesc('injectee_le')->values()->map(fn (Vaccination $v): array => [
                             'nom' => $v->nom,
                             'marque' => $v->marque,
                             'lot' => $v->lot,
-                            'injectee_le' => $v->injectee_le?->toDateString(),
+                            'injectee_le' => $v->injectee_le->toDateString(),
                             'echeance_le' => $v->echeance_le?->toDateString(),
                         ])->all(),
                     ],
@@ -260,7 +260,7 @@ class DocumentsProprietaire
             ->map(fn (Document $d): array => [
                 'type' => mb_strtoupper($d->type ?: 'DOCUMENT'),
                 'id' => $d->id,
-                'date' => $d->etabli_le?->toDateString(),
+                'date' => $d->etabli_le->toDateString(),
                 'titre' => $d->nom.' ('.$d->patient->nom.')',
                 'sous_ligne' => mb_strtoupper(($d->signataire ? $d->signataire.' · ' : '').self::dateLongue($d->etabli_le)),
                 'pdf' => null,

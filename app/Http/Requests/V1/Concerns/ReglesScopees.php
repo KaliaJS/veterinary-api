@@ -7,24 +7,59 @@ use App\Models\Clinique;
 use App\Models\Societe;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
+use WeakMap;
 
 /**
  * Règles `exists` bornées au contexte du jeton : `Rule::exists`
  * n'applique pas les global scopes — sans ces clauses, la validation
- * accepterait des identifiants d'une autre clinique.
+ * accepterait des identifiants d'une autre clinique. Le champ d'une de
+ * ces règles est aussi un entier (24.10.2026) : envoyé en tableau
+ * (`client_id[]=3`), `exists` le laisserait passer et le contrôleur
+ * recevrait une collection (erreur 500).
  */
 trait ReglesScopees
 {
+    /** @var WeakMap<Exists, true>|null Règles d'identifiant posées par ces aides */
+    private ?WeakMap $identifiants = null;
+
+    /** @return array<string, mixed> */
+    protected function validationRules(): array
+    {
+        $regles = parent::validationRules();
+        foreach ($regles as $champ => $liste) {
+            if (! is_array($liste) || in_array('integer', $liste, true)) {
+                continue;
+            }
+            foreach ($liste as $i => $regle) {
+                if ($regle instanceof Exists && isset($this->identifiants[$regle])) {
+                    array_splice($liste, $i, 0, ['integer']);
+                    $regles[$champ] = $liste;
+                    break;
+                }
+            }
+        }
+
+        return $regles;
+    }
+
+    private function identifiant(Exists $regle): Exists
+    {
+        $this->identifiants ??= new WeakMap;
+        $this->identifiants[$regle] = true;
+
+        return $regle;
+    }
+
     protected function existeDansLaClinique(string $table): Exists
     {
-        return Rule::exists($table, 'id')
-            ->where('clinique_id', app(ContexteClinique::class)->cliniqueId());
+        return $this->identifiant(Rule::exists($table, 'id')
+            ->where('clinique_id', app(ContexteClinique::class)->cliniqueId()));
     }
 
     protected function existeDansLOrganisation(string $table): Exists
     {
-        return Rule::exists($table, 'id')
-            ->where('organisation_id', app(ContexteClinique::class)->organisationId());
+        return $this->identifiant(Rule::exists($table, 'id')
+            ->where('organisation_id', app(ContexteClinique::class)->organisationId()));
     }
 
     /**
@@ -34,8 +69,8 @@ trait ReglesScopees
      */
     protected function employeDeLaClinique(): Exists
     {
-        return Rule::exists('clinique_employe', 'employe_id')
-            ->where('clinique_id', app(ContexteClinique::class)->cliniqueId());
+        return $this->identifiant(Rule::exists('clinique_employe', 'employe_id')
+            ->where('clinique_id', app(ContexteClinique::class)->cliniqueId()));
     }
 
     /**
@@ -60,6 +95,6 @@ trait ReglesScopees
             ->pluck('id')
             ->all();
 
-        return Rule::exists('cliniques', 'id')->whereIn('societe_id', $societes);
+        return $this->identifiant(Rule::exists('cliniques', 'id')->whereIn('societe_id', $societes));
     }
 }

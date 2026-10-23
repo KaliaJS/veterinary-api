@@ -22,6 +22,11 @@ use Laravel\Sanctum\HasApiTokens;
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
+    /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'est_moderateur' => false,
+    ];
+
     private const ALPHABET_CODE = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
     /** @use HasFactory<UserFactory> */

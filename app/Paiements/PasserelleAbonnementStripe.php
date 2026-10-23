@@ -113,7 +113,8 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
             'processing' => 'en_cours',
             default => 'refuse',
         };
-        $code = $intention->last_payment_error?->code;
+        // Clé facultative de l'objet Stripe : lue dans le tableau
+        $code = $intention->last_payment_error?->toArray()['code'] ?? null;
 
         return [
             'id' => $intention->id,

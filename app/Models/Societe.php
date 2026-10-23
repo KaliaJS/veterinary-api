@@ -13,6 +13,14 @@ class Societe extends Model
     /** @use HasFactory<SocieteFactory> */
     use HasFactory;
 
+    /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'assujettie_tva' => true,
+        'paiements_actifs' => false,
+        'virements_actifs' => false,
+        'paiements_a_completer' => false,
+    ];
+
     protected $fillable = [
         'organisation_id', 'nom', 'ide', 'assujettie_tva',
         'stripe_compte_id', 'paiements_actifs', 'virements_actifs', 'paiements_a_completer', 'paiements_maj_le',

@@ -146,8 +146,8 @@ final class RedigerCompteRendu implements ShouldQueue
         $patient = $rendezVous?->patient;
 
         return array_filter([
-            'Animal' => $patient?->nom ?? $rendezVous?->patient_name,
-            'Espèce' => ($patient?->espece ?? $rendezVous?->species)?->libelle(),
+            'Animal' => $patient->nom ?? $rendezVous?->patient_name,
+            'Espèce' => ($patient->espece ?? $rendezVous?->species)?->libelle(),
             'Race' => $patient?->race,
             'Sexe' => $patient?->sexe?->value,
             'Âge' => $patient?->ne_le ? self::age($patient->ne_le) : null,

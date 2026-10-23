@@ -57,13 +57,21 @@ class Sejour extends Model
         return $this->belongsTo(Patient::class);
     }
 
-    /** Vétérinaire référent. @return BelongsTo<Employe, $this> */
+    /**
+     * Vétérinaire référent.
+     *
+     * @return BelongsTo<Employe, $this>
+     */
     public function veterinaire(): BelongsTo
     {
         return $this->belongsTo(Employe::class, 'veterinaire_id');
     }
 
-    /** Facture du séjour, créée à la sortie. @return BelongsTo<Facture, $this> */
+    /**
+     * Facture du séjour, créée à la sortie.
+     *
+     * @return BelongsTo<Facture, $this>
+     */
     public function facture(): BelongsTo
     {
         return $this->belongsTo(Facture::class);

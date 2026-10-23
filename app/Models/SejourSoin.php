@@ -17,6 +17,11 @@ class SejourSoin extends Model
     /** @use HasFactory<SejourSoinFactory> */
     use HasFactory;
 
+    /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'fait' => false,
+    ];
+
     protected $fillable = [
         'sejour_id', 'jour', 'prevu_a', 'acte', 'produit_id',
         'fait', 'fait_le', 'fait_par_id',

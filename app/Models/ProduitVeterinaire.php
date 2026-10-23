@@ -17,6 +17,11 @@ class ProduitVeterinaire extends Model
 {
     use HasFactory;
 
+    /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'liberation_lot' => false,
+    ];
+
     public const VACCIN = 'vaccin';
 
     public const IMMUNOLOGIQUE = 'immunologique';

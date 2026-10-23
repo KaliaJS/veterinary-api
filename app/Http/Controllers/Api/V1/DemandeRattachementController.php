@@ -91,7 +91,7 @@ class DemandeRattachementController extends Controller
             'patient' => [
                 'id' => $demande->patient->id,
                 'nom' => $demande->patient->nom,
-                'espece' => $demande->patient->espece?->value,
+                'espece' => $demande->patient->espece->value,
                 'race' => $demande->patient->race,
                 'puce' => $demande->patient->puce,
                 'proprietaire_fiche' => $demande->patient->client?->nom_affiche,

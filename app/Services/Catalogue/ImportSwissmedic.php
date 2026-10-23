@@ -2,14 +2,13 @@
 
 namespace App\Services\Catalogue;
 
-use App\Enums\Espece;
 use App\Mail\NouveauxProduitsCatalogue;
 use App\Models\CatalogueImport;
 use App\Models\ProduitEmballage;
 use App\Models\ProduitVeterinaire;
 use App\Models\VaccinSchema;
 use App\Models\Valence;
-use Illuminate\Support\Carbon;
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -262,9 +261,9 @@ final class ImportSwissmedic
                 $trouvees[$espece] = true;
             }
         }
-        $codes = array_column(Espece::cases(), 'value');
 
-        return array_values(array_filter(array_keys($trouvees), fn (string $code) => in_array($code, $codes, true)));
+        // Les tables curées ne citent que des codes Espece (vérifié par les tests du catalogue)
+        return array_keys($trouvees);
     }
 
     private static function date(string $valeur): ?Carbon

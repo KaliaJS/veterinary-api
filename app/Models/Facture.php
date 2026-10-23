@@ -20,6 +20,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * caisse s'y font. Le total est dérivé des lignes, la TVA extraite au
  * taux normal 8.1 % ; jamais de suppression hors fenêtre d'annulation
  * d'une création.
+ *
+ * @property-read bool|null $paye_par_stripe  encaissée par Stripe (`withExists` de la liste des factures)
  */
 class Facture extends Model
 {

@@ -58,8 +58,8 @@ class SessionTeleconsultationController extends Controller
             $session = SessionTeleconsultation::create([
                 'rendez_vous_id' => $rendezVous?->id,
                 // Sur un RDV lié, la FK patient du RDV fait foi.
-                'patient_id' => $rendezVous?->patient_id ?? $donnees['patient_id'] ?? null,
-                'motif' => $donnees['motif'] ?? $rendezVous?->reason ?? 'Appel vidéo',
+                'patient_id' => $rendezVous->patient_id ?? $donnees['patient_id'] ?? null,
+                'motif' => $donnees['motif'] ?? $rendezVous->reason ?? 'Appel vidéo',
                 'demarre_le' => now(),
                 'demarre_par_id' => app(ContexteClinique::class)->employe()?->id,
             ]);

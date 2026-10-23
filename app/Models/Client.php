@@ -65,10 +65,14 @@ class Client extends Model
         return $this->hasMany(RendezVous::class);
     }
 
-    /** « Mme Lefèvre » — dénormalisation affichée par le planning. */
+    /**
+     * « Mme Lefèvre » — dénormalisation affichée par le planning.
+     *
+     * @return Attribute<string, never>
+     */
     protected function nomAffiche(): Attribute
     {
-        return Attribute::get(fn (): string => trim(($this->civilite?->value ?? '').' '.$this->nom));
+        return Attribute::get(fn (): string => trim(($this->civilite->value ?? '').' '.$this->nom));
     }
 
     /** Compteur no-show dérivé des RDV (badge « NO-SHOW ×N »). */

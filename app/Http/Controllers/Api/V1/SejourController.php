@@ -94,7 +94,7 @@ class SejourController extends Controller
      */
     private function planDeSoinsDEntree(): array
     {
-        $fuseau = Clinique::find(app(ContexteClinique::class)->cliniqueId())?->fuseau_horaire ?? 'Europe/Zurich';
+        $fuseau = Clinique::find(app(ContexteClinique::class)->cliniqueId())->fuseau_horaire ?? 'Europe/Zurich';
         $locale = CarbonImmutable::now($fuseau);
         $base = min(1350, (int) ceil(($locale->hour * 60 + $locale->minute + 45) / 30) * 30);
 

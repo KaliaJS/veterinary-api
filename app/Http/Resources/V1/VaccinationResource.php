@@ -30,7 +30,7 @@ class VaccinationResource extends JsonResource
             ] : null),
             'nom' => $this->nom,
             'marque' => $this->marque,
-            'valences' => array_values(array_map(fn (string $code, array $v) => ['code' => $code, 'nom' => $v['nom'], 'nom_court' => $v['court']], array_keys($valences), $valences)),
+            'valences' => array_map(fn (string $code, array $v) => ['code' => $code, 'nom' => $v['nom'], 'nom_court' => $v['court']], array_keys($valences), $valences),
             'lot' => $this->lot,
             'gtin' => $this->gtin,
             'peremption_le' => $this->peremption_le?->toDateString(),
@@ -40,7 +40,7 @@ class VaccinationResource extends JsonResource
             'reaction' => $this->reaction,
             'employe_id' => $this->employe_id,
             'veterinaire' => $this->whenLoaded('employe', fn () => $this->employe?->nom),
-            'injectee_le' => $this->injectee_le?->toDateString(),
+            'injectee_le' => $this->injectee_le->toDateString(),
             'echeance_le' => $this->echeance_le?->toDateString(),
             'jours' => $this->echeance_le ? (int) aujourdhui()->diffInDays($this->echeance_le, false) : null,
         ];

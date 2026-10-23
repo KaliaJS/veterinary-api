@@ -17,6 +17,11 @@ class OrganisationFacture extends Model
     /** @use HasFactory<OrganisationFactureFactory> */
     use HasFactory;
 
+    /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'quota_applique' => false,
+    ];
+
     protected $fillable = ['organisation_id', 'numero', 'emise_le', 'libelle', 'montant'];
 
     protected function casts(): array

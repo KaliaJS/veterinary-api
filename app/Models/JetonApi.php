@@ -10,9 +10,10 @@ use Laravel\Sanctum\PersonalAccessToken;
  * Jeton Sanctum lié à une clinique : le middleware `clinique` en
  * dérive le contexte appliqué globalement (scopes multi-clinique).
  *
+ * @property-read User $tokenable  les jetons de l'application sont ceux d'un compte
  * @property int|null $clinique_id
- * @property \Illuminate\Support\Carbon|null $session_depuis
- * @property \Illuminate\Support\Carbon|null $created_at
+ * @property Carbon|null $session_depuis
+ * @property Carbon|null $created_at
  */
 class JetonApi extends PersonalAccessToken
 {

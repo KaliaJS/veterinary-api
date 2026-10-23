@@ -36,7 +36,7 @@ class EmployeResource extends JsonResource
             // Badge « Vérifié manuellement » de la plateforme
             'verifie' => (bool) $this->user?->estVerifie(),
             // Celles que le vétérinaire déclare sur son compte
-            'specialites' => ($this->user?->specialites ?? collect())
+            'specialites' => ($this->user->specialites ?? collect())
                 ->sortBy(fn (SpecialiteVeterinaire $ligne): int => array_search($ligne->specialite, Specialite::cases(), true))
                 ->map(fn (SpecialiteVeterinaire $ligne): string => $ligne->specialite->value)
                 ->values()->all(),

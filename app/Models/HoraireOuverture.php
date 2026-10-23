@@ -18,6 +18,13 @@ class HoraireOuverture extends Model
     /** @use HasFactory<HoraireOuvertureFactory> */
     use AppartientAUneClinique, HasFactory;
 
+    /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'samedi_ferme' => false,
+        'dimanche_ferme' => true,
+        'pause_active' => true,
+    ];
+
     /** Valeurs par défaut du front (docs/data-model.md §3 — Horaires). */
     public const array DEFAUTS = [
         'ouverture' => '08:00',

@@ -84,7 +84,8 @@ class PasserelleStripe implements PasserellePaiement
         return [
             'id' => $intention->id,
             'statut' => $intention->status,
-            'url' => $intention->next_action?->redirect_to_url?->url,
+            // Clé facultative de l'objet Stripe : lue dans le tableau
+            'url' => $intention->next_action?->toArray()['redirect_to_url']['url'] ?? null,
         ];
     }
 
@@ -257,7 +258,7 @@ class PasserelleStripe implements PasserellePaiement
         return [
             'paiements' => (bool) $lu->charges_enabled,
             'virements' => (bool) $lu->payouts_enabled,
-            'a_completer' => ! empty($exigences?->currently_due) || ! empty($exigences?->past_due) || ($exigences?->disabled_reason ?? null) !== null,
+            'a_completer' => ! empty($exigences->currently_due) || ! empty($exigences->past_due) || ($exigences->disabled_reason ?? null) !== null,
         ];
     }
 
@@ -277,7 +278,10 @@ class PasserelleStripe implements PasserellePaiement
         return $session->client_secret;
     }
 
-    /** @return array<string, string> */
+    /**
+     * @param  array{idempotency_key?: string}  $options
+     * @return array{idempotency_key?: string, stripe_account?: string}
+     */
     private function options(array $options = []): array
     {
         return $this->compte ? [...$options, 'stripe_account' => $this->compte] : $options;

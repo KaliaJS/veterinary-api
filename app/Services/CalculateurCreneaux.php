@@ -43,7 +43,7 @@ class CalculateurCreneaux
     /** Fuseau de la clinique du contexte. */
     public function fuseau(): string
     {
-        return app(ContexteClinique::class)->clinique()?->fuseau_horaire ?? 'Europe/Zurich';
+        return app(ContexteClinique::class)->clinique()->fuseau_horaire ?? 'Europe/Zurich';
     }
 
     /** Le jour calendaire courant, vu de la clinique. */
@@ -164,7 +164,7 @@ class CalculateurCreneaux
             return [];
         }
 
-        $ids = $cliniques->modelKeys();
+        $ids = $cliniques->pluck('id')->all();
         $fuseaux = $cliniques->mapWithKeys(fn (Clinique $clinique): array => [$clinique->id => $clinique->fuseau_horaire ?? 'Europe/Zurich']);
         $minuits = $fuseaux->map(fn (string $fuseau): array => $this->minuits($premierJour ?? CarbonImmutable::today($fuseau), $nombreJours, $fuseau));
 

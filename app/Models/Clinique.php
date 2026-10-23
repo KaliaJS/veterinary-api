@@ -18,6 +18,15 @@ class Clinique extends Model
     /** @use HasFactory<CliniqueFactory> */
     use AUnePhoto, HasFactory;
 
+    /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'affiche_veterinaires' => true,
+        'rdv_sans_compte' => false,
+        'rdv_a_valider' => false,
+        'urgences_a_valider' => true,
+        'paiements_integres' => true,
+    ];
+
     protected $fillable = [
         'societe_id', 'nom', 'raison_sociale', 'rue', 'npa', 'ville',
         'latitude', 'longitude', 'tel', 'email', 'fuseau_horaire', 'nombre_boxes', 'affiche_veterinaires', 'rdv_sans_compte', 'rdv_a_valider', 'urgences_a_valider',
@@ -93,9 +102,14 @@ class Clinique extends Model
         $requete->whereHas('services', fn (Builder $services) => $services->where('service', $service));
     }
 
+    /**
+     * Cliniques dont l'organisation est ouverte (vérifiée et payée).
+     *
+     * @param  Builder<Clinique>  $requete
+     */
     public function scopeOuvertes(Builder $requete): void
     {
-        $requete->whereHas('societe.organisation', fn (Builder $organisation) => $organisation->ouvertes());
+        $requete->whereHas('societe.organisation', /** @param  Builder<Organisation>  $organisation */ fn (Builder $organisation) => $organisation->ouvertes());
     }
 
     /** L'acompte demandé pour réserver en ligne, si la société peut l'encaisser (sinon aucun). */

@@ -5,9 +5,9 @@ namespace App\Http\Resources\V1\Espace;
 use App\Models\Patient;
 use App\Models\Visite;
 use App\Services\EtatVaccinal;
+use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Carbon;
 
 /**
  * Animal vu par son propriétaire (liste et fiche du proto « Mes
@@ -20,16 +20,26 @@ use Illuminate\Support\Carbon;
  */
 class AnimalProprietaireResource extends JsonResource
 {
+    private ?int $ordonnanceActiveId = null;
+
+    /** Fiche de l'animal : son ordonnance active, s'il en a une. */
+    public function avecOrdonnanceActive(?int $ordonnanceId): static
+    {
+        $this->ordonnanceActiveId = $ordonnanceId;
+
+        return $this;
+    }
+
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
         return [
             'id' => $this->id,
             'nom' => $this->nom,
-            'espece' => $this->espece?->value,
-            'espece_libelle' => $this->espece?->libelle(),
+            'espece' => $this->espece->value,
+            'espece_libelle' => $this->espece->libelle(),
             'race' => $this->race,
-            'sexe' => $this->sexe?->value,
+            'sexe' => $this->sexe->value,
             'ne_le' => $this->ne_le?->toDateString(),
             'decede_le' => $this->decede_le?->toDateString(),
             'age_libelle' => self::age($this->ne_le),
@@ -38,7 +48,7 @@ class AnimalProprietaireResource extends JsonResource
             'est_sterilise' => $this->est_sterilise,
             /* Droits : la fiche est gérée par ce compte (modifiable ici), et ce que la clinique peut en faire */
             'gere_par_moi' => $this->proprietaire_id !== null && $this->proprietaire_id === $request->user()?->id,
-            'acces_clinique' => $this->acces_clinique?->value ?? 'modification',
+            'acces_clinique' => $this->acces_clinique->value,
             'poids_kg' => $this->whenLoaded('courbePoids', fn (): ?float => $this->courbePoids->first()?->poids_kg === null
                 ? null
                 : (float) $this->courbePoids->first()->poids_kg),
@@ -55,12 +65,12 @@ class AnimalProprietaireResource extends JsonResource
                     'veterinaire' => $visite->employe?->nom,
                 ])
                 ->all()),
-            'ordonnance_active_id' => $this->when(isset($this->ordonnance_active_id), fn () => $this->ordonnance_active_id),
+            'ordonnance_active_id' => $this->when($this->ordonnanceActiveId !== null, fn (): ?int => $this->ordonnanceActiveId),
         ];
     }
 
     /** « 5 ans », « 8 mois », « 3 semaines » ; null sans date de naissance. */
-    public static function age(?Carbon $neLe): ?string
+    public static function age(?CarbonInterface $neLe): ?string
     {
         if (! $neLe) {
             return null;

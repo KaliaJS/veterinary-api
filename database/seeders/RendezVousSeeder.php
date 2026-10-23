@@ -111,7 +111,7 @@ class RendezVousSeeder extends Seeder
                 'client_id' => $patient?->client_id,
                 'salle_id' => null,
                 'patient_name' => $nomPatient,
-                'species' => $patient?->espece ?? ($espece ? Espece::from($espece) : null),
+                'species' => $patient->espece ?? ($espece ? Espece::from($espece) : null),
                 'owner_name' => $patient ? $patient->client->nom_affiche : $proprietaire,
                 'type' => TypeRendezVous::from($type),
                 'status' => StatutRendezVous::from($statut),

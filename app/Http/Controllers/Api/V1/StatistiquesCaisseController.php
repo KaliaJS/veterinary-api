@@ -23,7 +23,7 @@ class StatistiquesCaisseController extends Controller
         $this->authorize('viewAny', Facture::class);
 
         $contexte = app(ContexteClinique::class);
-        $fuseau = $contexte->clinique()?->fuseau_horaire ?? 'Europe/Zurich';
+        $fuseau = $contexte->clinique()->fuseau_horaire ?? 'Europe/Zurich';
 
         $duJour = Facture::query()
             ->where('statut', StatutFacture::Payee)

@@ -41,7 +41,7 @@ class ProjectionPlanningImagerie
 
         // Parité audit planning : un déplacement n'audite pas le
         // `endsAt` qui suit le début ; un pur changement de durée, si.
-        $champsNonAudites = $rendezVous->starts_at?->ne($attributs['starts_at']) ? ['ends_at'] : [];
+        $champsNonAudites = $rendezVous->starts_at->ne($attributs['starts_at']) ? ['ends_at'] : [];
 
         $this->mutation->appliquer($rendezVous, $attributs, $auteur, $champsNonAudites);
     }

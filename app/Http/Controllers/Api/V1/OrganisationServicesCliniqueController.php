@@ -48,7 +48,7 @@ class OrganisationServicesCliniqueController extends Controller
         if ($request->validated('acompte_centimes') && ! $fiche->encaisseAvecVeterinary()) {
             throw ValidationException::withMessages([
                 'acompte_centimes' => $fiche->paiements_integres
-                    ? 'Activez d’abord les paiements de '.($fiche->societe?->nom ?? 'la société').' (Réglages, Paiements) : l’acompte y est encaissé.'
+                    ? 'Activez d’abord les paiements de '.($fiche->societe->nom ?? 'la société').' (Réglages, Paiements) : l’acompte y est encaissé.'
                     : 'L’acompte en ligne demande les paiements intégrés (Réglages, Paiements).',
             ]);
         }

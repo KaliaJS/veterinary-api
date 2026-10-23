@@ -18,11 +18,12 @@ class EnregistrerCommandeBoutiqueRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'client_id' => ['nullable', $this->existeDansLOrganisation('clients')],
+            'client_id' => ['nullable', 'integer', $this->existeDansLOrganisation('clients')],
             'client_nom' => ['required_without:client_id', 'string', 'max:255'],
             'lignes' => ['required', 'array', 'min:1'],
             'lignes.*.produit_id' => [
                 'required',
+                'integer',
                 $this->existeDansLOrganisation('produits')->where('est_boutique', true),
             ],
             'lignes.*.quantite' => ['required', 'integer', 'between:1,99'],

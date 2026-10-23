@@ -67,20 +67,30 @@ class FacturePlateformeResource extends JsonResource
     /** @return array{nom: string, lignes: list<string>} */
     private function client(): array
     {
-        if ($this->resource instanceof FactureProprietaire) {
-            $user = User::query()->find($this->user_id);
+        return $this->resource instanceof FactureProprietaire
+            ? $this->proprietaire($this->resource)
+            : $this->organisation($this->resource);
+    }
 
-            return ['nom' => (string) $user?->name, 'lignes' => array_values(array_filter([$user?->email]))];
-        }
+    /** @return array{nom: string, lignes: list<string>} */
+    private function proprietaire(FactureProprietaire $facture): array
+    {
+        $user = User::query()->find($facture->user_id);
 
-        $organisation = Organisation::query()->with('societes')->find($this->organisation_id);
+        return ['nom' => (string) $user?->name, 'lignes' => array_filter([$user?->email])];
+    }
+
+    /** @return array{nom: string, lignes: list<string>} */
+    private function organisation(OrganisationFacture $facture): array
+    {
+        $organisation = Organisation::query()->with('societes')->find($facture->organisation_id);
         $societe = $organisation?->societes->first();
         $clinique = $societe ? Clinique::withoutGlobalScopes()->where('societe_id', $societe->id)->orderBy('id')->first() : null;
 
         return [
             'nom' => (string) ($societe?->nom ?: $organisation?->nom),
             'lignes' => array_values(array_filter([
-                $societe && $societe->nom !== $organisation?->nom ? $organisation?->nom : null,
+                $societe && $societe->nom !== $organisation->nom ? $organisation->nom : null,
                 $clinique?->rue,
                 $clinique ? trim($clinique->npa.' '.$clinique->ville) : null,
                 $societe?->ide ? 'IDE '.$societe->ide : null,

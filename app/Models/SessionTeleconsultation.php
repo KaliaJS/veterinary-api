@@ -21,6 +21,11 @@ class SessionTeleconsultation extends Model
     /** @use HasFactory<SessionTeleconsultationFactory> */
     use AppartientAUneClinique, HasFactory;
 
+    /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'cloture_rendez_vous' => false,
+    ];
+
     protected $table = 'sessions_teleconsultation';
 
     protected $fillable = [

@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\Patient;
 use App\Models\Vaccination;
 use App\Services\Catalogue\DonneesVaccins;
-use Illuminate\Support\Carbon;
+use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
 /**
@@ -57,7 +57,7 @@ final class EtatVaccinal
                 'statut' => $statut,
                 'jours' => $jours,
                 'echeance_le' => $echeance?->toDateString(),
-                'injectee_le' => $derniere->injectee_le?->toDateString(),
+                'injectee_le' => $derniere->injectee_le->toDateString(),
                 'produit' => $derniere->marque ?: $derniere->produit?->nom_court,
                 'lot' => $derniere->lot,
                 'vaccination_id' => $derniere->id,
@@ -87,7 +87,7 @@ final class EtatVaccinal
         $injectee = $nouvelle->injectee_le ?? aujourdhui();
         $codes = array_keys(self::valencesDe($nouvelle));
         $couvrantes = $anterieures
-            ->filter(fn (Vaccination $v) => $v->injectee_le && $v->injectee_le->lte($injectee))
+            ->filter(fn (Vaccination $v) => $v->injectee_le->lte($injectee))
             ->filter(fn (Vaccination $v) => array_intersect($codes, array_keys(self::valencesDe($v))) !== [])
             ->sortBy('injectee_le')->values();
         // Rappel d un animal déjà protégé : une injection couvrante assez
@@ -130,19 +130,19 @@ final class EtatVaccinal
     {
         $derniere = end($injections);
         $schema = $derniere->produit?->schema;
-        if ($schema === null || ($schema->primo_injections ?? 1) < 2 || ! $derniere->injectee_le) {
+        if ($schema === null || ($schema->primo_injections ?? 1) < 2) {
             return null;
         }
         $intervalle = $schema->primo_intervalle_semaines ?? 4;
         $fenetre = $derniere->injectee_le->copy()->subWeeks(2 * $intervalle * ($schema->primo_injections - 1) + 4);
-        $faites = count(array_filter($injections, fn (Vaccination $v) => $v->injectee_le && $v->injectee_le->gte($fenetre)));
+        $faites = count(array_filter($injections, fn (Vaccination $v) => $v->injectee_le->gte($fenetre)));
         if ($faites >= $schema->primo_injections) {
             return null;
         }
         // Rappel d un animal déjà protégé (injection plus ancienne mais
         // pas trop) : pas une primo-vaccination
         $tolerance = max(24, 2 * ($schema->rappel_mois ?? 12));
-        $ancienne = array_filter($injections, fn (Vaccination $v) => $v->injectee_le && $v->injectee_le->lt($fenetre) && $v->injectee_le->gte($derniere->injectee_le->copy()->subMonths($tolerance)));
+        $ancienne = array_filter($injections, fn (Vaccination $v) => $v->injectee_le->lt($fenetre) && $v->injectee_le->gte($derniere->injectee_le->copy()->subMonths($tolerance)));
         if ($ancienne !== []) {
             return null;
         }

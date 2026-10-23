@@ -21,16 +21,16 @@ class RendezVousProprietaireResource extends JsonResource
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
-        $aVenir = $this->status === StatutRendezVous::Prevu && $this->starts_at?->isFuture();
+        $aVenir = $this->status === StatutRendezVous::Prevu && $this->starts_at->isFuture();
         $acompte = $this->acompte();
 
         return [
             'id' => $this->id,
-            'debute_le' => $this->starts_at?->toIso8601String(),
-            'termine_le' => $this->ends_at?->toIso8601String(),
-            'type' => $this->type?->value ?? $this->type,
+            'debute_le' => $this->starts_at->toIso8601String(),
+            'termine_le' => $this->ends_at->toIso8601String(),
+            'type' => $this->type->value,
             'motif' => $this->reason,
-            'statut' => $this->status?->value ?? $this->status,
+            'statut' => $this->status->value,
             'patient' => $this->patient
                 ? ['id' => $this->patient->id, 'nom' => $this->patient->nom]
                 : ['id' => null, 'nom' => $this->patient_name],

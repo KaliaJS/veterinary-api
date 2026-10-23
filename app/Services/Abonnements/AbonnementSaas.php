@@ -166,23 +166,36 @@ final class AbonnementSaas
                 ->whereDate('periode_fin', '<=', $aujourdhui->addDays(max(self::ALERTE_CARTE_JOURS))->toDateString())
                 ->get()
                 ->each(function (Organisation|User $abonne) use ($aujourdhui, &$envoyees): void {
-                    $echeance = CarbonImmutable::parse($abonne->periode_fin->toDateString(), 'Europe/Zurich');
-                    // Le palier le plus proche déjà atteint n'a pas encore eu son alerte
-                    $palier = min(array_filter(self::ALERTE_CARTE_JOURS, fn (int $jours) => $aujourdhui->gte($echeance->subDays($jours))));
-                    if ($abonne->carte_alertee_le && $abonne->carte_alertee_le->toDateString() >= $echeance->subDays($palier)->toDateString()) {
-                        return;
+                    if ($this->alerterCarte($abonne, $aujourdhui)) {
+                        $envoyees++;
                     }
-
-                    $destinataires = $abonne instanceof Organisation ? $abonne->emailsAdministrateurs() : array_filter([$abonne->email]);
-                    if ($destinataires !== []) {
-                        Mail::to($destinataires)->send(new CarteExpireAvantPrelevement($abonne, $echeance, $abonne instanceof Organisation));
-                    }
-                    $abonne->forceFill(['carte_alertee_le' => $aujourdhui->toDateString()])->save();
-                    $envoyees++;
                 });
         }
 
         return $envoyees;
+    }
+
+    /**
+     * L'alerte d'un abonné, si le palier le plus proche déjà atteint ne l'a
+     * pas encore eue.
+     *
+     * @return bool Alerte envoyée
+     */
+    private function alerterCarte(Organisation|User $abonne, CarbonImmutable $aujourdhui): bool
+    {
+        $echeance = CarbonImmutable::parse($abonne->periode_fin->toDateString(), 'Europe/Zurich');
+        $palier = min(array_filter(self::ALERTE_CARTE_JOURS, fn (int $jours) => $aujourdhui->gte($echeance->subDays($jours))));
+        if ($abonne->carte_alertee_le && $abonne->carte_alertee_le->toDateString() >= $echeance->subDays($palier)->toDateString()) {
+            return false;
+        }
+
+        $destinataires = $abonne instanceof Organisation ? $abonne->emailsAdministrateurs() : array_filter([$abonne->email]);
+        if ($destinataires !== []) {
+            Mail::to($destinataires)->send(new CarteExpireAvantPrelevement($abonne, $echeance, $abonne instanceof Organisation));
+        }
+        $abonne->forceFill(['carte_alertee_le' => $aujourdhui->toDateString()])->save();
+
+        return true;
     }
 
     /**

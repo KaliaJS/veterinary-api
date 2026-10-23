@@ -51,8 +51,8 @@ class CoordonneesProprietaireController extends Controller
         $fiche = $contexte->clients()->first()?->fresh();
 
         return [
-            'prenom' => $fiche?->prenom ?? $user->prenom(),
-            'nom' => $fiche?->nom ?? $user->nomFamille(),
+            'prenom' => $fiche->prenom ?? $user->prenom(),
+            'nom' => $fiche->nom ?? $user->nomFamille(),
             'tel' => $fiche?->tel,
             'email' => $user->email,
             'rue' => $fiche?->rue,

@@ -13,6 +13,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class InterventionChecklistPoint extends Model
 {
+    /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'est_coche' => false,
+        'est_ajoute' => false,
+    ];
+
     protected $fillable = ['intervention_id', 'code', 'libelle', 'est_coche', 'est_ajoute'];
 
     protected function casts(): array

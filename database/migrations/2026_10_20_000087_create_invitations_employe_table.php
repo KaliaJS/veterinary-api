@@ -27,7 +27,7 @@ return new class extends Migration
             $table->foreignId('invitee_par')->nullable()->constrained('employes')->nullOnDelete();
             $table->timestamp('expire_le');
             $table->timestamp('acceptee_le')->nullable();
-            $table->foreignId('employe_id')->nullable()->constrained()->nullOnDelete()->comment('La fiche créée à l’acceptation');
+            $table->foreignId('employe_id')->nullable()->comment('La fiche créée à l’acceptation')->constrained()->nullOnDelete();
             $table->timestamp('annulee_le')->nullable();
             $table->timestamps();
 

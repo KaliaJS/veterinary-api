@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Catalogue;
 
+use App\Enums\Espece;
 use App\Models\CatalogueImport;
 use App\Models\ProduitEmballage;
 use App\Models\ProduitVeterinaire;
+use App\Services\Catalogue\DonneesVaccins;
 use App\Services\Catalogue\ImportRefdata;
 use App\Services\Catalogue\ImportSwissmedic;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -49,6 +51,18 @@ class ImportCatalogueTest extends TestCase
         $rage = ProduitVeterinaire::query()->where('numero_autorisation', '1337')->with('valences')->firstOrFail();
         $this->assertEqualsCanonicalizing(['CH', 'CT', 'CV', 'BV', 'OV', 'CP', 'FU'], $rage->especes);
         $this->assertSame(['rage'], $rage->valences->pluck('code')->all());
+    }
+
+    public function test_les_tables_curees_ne_citent_que_des_especes_connues(): void
+    {
+        $codes = [
+            ...array_merge(...array_values(DonneesVaccins::ESPECES_PAR_MOT)),
+            ...array_merge(...array_values(DonneesVaccins::ESPECES_PAR_ATC)),
+            ...array_merge(...array_values(array_map(fn (array $produit): array => $produit['especes'] ?? [], DonneesVaccins::PRODUITS))),
+        ];
+
+        $this->assertNotSame([], $codes);
+        $this->assertSame([], array_values(array_diff($codes, array_column(Espece::cases(), 'value'))));
     }
 
     public function test_un_fichier_identique_est_ignore_et_un_produit_disparu_est_retire(): void

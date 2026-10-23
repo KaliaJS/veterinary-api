@@ -16,7 +16,7 @@ class CalculateurPermissions
     /** @return list<string> */
     public function pour(Employe $employe): array
     {
-        $permissions = collect($employe->role?->domaines ?? [])
+        $permissions = collect($employe->role->domaines ?? [])
             ->map(fn (DomainePermission $domaine): string => $domaine->value);
 
         foreach ($employe->derogations as $derogation) {

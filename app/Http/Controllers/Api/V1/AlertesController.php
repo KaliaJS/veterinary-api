@@ -22,7 +22,7 @@ class AlertesController extends Controller
 
     public function index(): JsonResponse
     {
-        $lues = $this->contexte->employe()?->alertes_lues ?? [];
+        $lues = $this->contexte->employe()->alertes_lues ?? [];
         $alertes = array_map(
             fn (array $alerte) => [...$alerte, 'lue' => in_array($alerte['cle'], $lues, true)],
             $this->alertes->pour(

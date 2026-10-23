@@ -218,10 +218,10 @@ class CliniqueProprietaireController extends Controller
 
         return $this->enregistrer($clinique, $donnees, $sousContexte, auteur: $user, qui: [
             'patient_id' => $patient?->id,
-            'client_id' => $fiche?->id ?? $clientDuPatient,
+            'client_id' => $fiche->id ?? $clientDuPatient,
             'user_id' => $user->id,
-            'patient_name' => $patient?->nom ?? $donnees['patient_name'],
-            'species' => $patient?->espece ?? $donnees['espece'],
+            'patient_name' => $patient->nom ?? $donnees['patient_name'],
+            'species' => $patient->espece ?? $donnees['espece'],
             'owner_name' => $nomProprietaire,
         ]);
     }

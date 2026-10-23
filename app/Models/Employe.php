@@ -31,6 +31,11 @@ class Employe extends Model
     /** @use HasFactory<EmployeFactory> */
     use AppartientAUneOrganisation, AUnePhoto, HasFactory;
 
+    /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
+    protected $attributes = [
+        'acces_suspendu' => false,
+    ];
+
     protected $fillable = [
         'organisation_id', 'user_id', 'nom', 'initiales', 'role_libelle', 'role_id',
         'taux', 'contrat', 'entree_le', 'tel', 'email', 'photo_chemin', 'conges_droit', 'conges_pris',

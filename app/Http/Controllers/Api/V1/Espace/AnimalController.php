@@ -50,13 +50,13 @@ class AnimalController extends Controller
             ->with(['organisation', 'courbePoids', 'vaccinations.produit.schema', 'vaccinations.produit.valences', 'visites.employe'])
             ->findOrFail($animalId);
 
-        $animal->ordonnance_active_id = Ordonnance::withoutGlobalScopes()
+        $ordonnanceActiveId = Ordonnance::withoutGlobalScopes()
             ->where('patient_id', $animal->id)
             ->where('statut', StatutOrdonnance::Active)
             ->orderByDesc('signee_le')
             ->value('id');
 
-        return new AnimalProprietaireResource($animal);
+        return (new AnimalProprietaireResource($animal))->avecOrdonnanceActive($ordonnanceActiveId);
     }
 
     public function store(EnregistrerAnimalRequest $request, ContexteProprietaire $contexte): JsonResponse
@@ -206,8 +206,8 @@ class AnimalController extends Controller
             'animal' => [
                 'id' => $animal->id,
                 'nom' => $animal->nom,
-                'espece' => $animal->espece?->value,
-                'espece_libelle' => $animal->espece?->libelle(),
+                'espece' => $animal->espece->value,
+                'espece_libelle' => $animal->espece->libelle(),
                 'race' => $animal->race,
             ],
             'organisation' => $animal->organisation ? ['id' => $animal->organisation->id, 'nom' => $animal->organisation->nom] : null,

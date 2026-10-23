@@ -44,7 +44,7 @@ class ComptesPaiement
 
         if (! $societe?->stripe_compte_id || ($pourEncaisser && ! $societe->paiements_actifs)) {
             throw ValidationException::withMessages(['paiements' => 'Les paiements par carte et TWINT ne sont pas encore activés pour '
-                .($societe?->nom ?? 'cette clinique').'. Un administrateur les active dans Réglages, Paiements.']);
+                .($societe->nom ?? 'cette clinique').'. Un administrateur les active dans Réglages, Paiements.']);
         }
 
         return $this->passerelle->pourCompte($societe->stripe_compte_id);
@@ -167,7 +167,7 @@ class ComptesPaiement
     /**
      * Secret de session pour les composants intégrés demandés.
      *
-     * @param  list<string>  $composants
+     * @param  array<string>  $composants  tels que validés (tableau, pas forcément une liste)
      */
     public function session(Societe $societe, array $composants, bool $remboursements = false): string
     {

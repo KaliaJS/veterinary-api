@@ -47,7 +47,7 @@ class PatientResource extends JsonResource
             /* Droits sur l animal : qui gère la fiche, et si la clinique peut en modifier l identité */
             'droits' => [
                 'gere_par' => $this->estGereParProprietaire() ? 'proprietaire' : 'clinique',
-                'acces_clinique' => $this->acces_clinique?->value ?? 'modification',
+                'acces_clinique' => $this->acces_clinique->value,
                 'modifier_identite' => $this->cliniquePeutModifierIdentite(),
             ],
             'derniere_visite_le' => $this->whenHas('visites_max_visite_le'),

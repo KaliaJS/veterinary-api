@@ -19,7 +19,7 @@ class Numeroteur
     public function attribuer(PieceNumerotee $piece, ?Organisation $organisation = null): string
     {
         $contexte = app(ContexteClinique::class);
-        $organisationId = $organisation?->id ?? $contexte->organisationId();
+        $organisationId = $organisation->id ?? $contexte->organisationId();
         // L'année de la clinique : la nuit du Nouvel An, pas celle de l'UTC
         $annee = now($contexte->clinique()?->fuseau_horaire ?: 'Europe/Zurich')->year;
 
