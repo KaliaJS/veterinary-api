@@ -26,6 +26,9 @@ class PasserellePaiementFactice implements PasserellePaiement
     /** @var list<string> intentions remboursées */
     public array $remboursements = [];
 
+    /** @var array<string, int> Montant rendu par intention (centimes) */
+    public array $montantsRembourses = [];
+
     public ?ErreurPaiement $erreurLecteur = null;
 
     private int $sequence = 0;
@@ -49,9 +52,18 @@ class PasserellePaiementFactice implements PasserellePaiement
         return ['id' => $id, 'statut' => 'requires_payment_method', 'client_secret' => $id.'_secret_test'];
     }
 
-    public function rembourser(string $intentionId, string $cleIdempotence): void
+    public function rembourser(string $intentionId, string $cleIdempotence, ?int $centimes = null): void
     {
         $this->remboursements[] = $intentionId;
+        $this->montantsRembourses[$intentionId] = $centimes ?? $this->intentions[$intentionId]['centimes'];
+    }
+
+    /** Comme Stripe en Suisse pour une carte en ligne : 2,9 % + 30 centimes */
+    public function fraisIntention(string $intentionId): ?int
+    {
+        return $this->intentions[$intentionId]['statut'] === 'succeeded'
+            ? (int) round($this->intentions[$intentionId]['centimes'] * 0.029) + 30
+            : null;
     }
 
     public function presenterSurLecteur(string $lecteurId, string $intentionId): void

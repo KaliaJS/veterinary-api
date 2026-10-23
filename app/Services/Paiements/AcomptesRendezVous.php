@@ -3,12 +3,18 @@
 namespace App\Services\Paiements;
 
 use App\Auth\SousContexteClinique;
+use App\Enums\DecisionAnnulation;
+use App\Enums\DrapeauRendezVous;
 use App\Enums\StatutDemandeRendezVous;
+use App\Enums\StatutRendezVous;
+use App\Mail\AnnulationRendezVousDecidee;
 use App\Mail\DemandeRendezVousEnvoyee;
 use App\Models\DemandeRendezVous;
 use App\Models\RendezVous;
 use App\Models\User;
+use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
+use App\Services\MutationRendezVous;
 use App\Services\TraitementDemande;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -16,13 +22,17 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Acompte d'une réservation en ligne (contre les rendez-vous non
- * honorés) : la clinique en fixe le montant et le délai de remboursement
- * (cliniques.acompte_centimes, acompte_delai_heures). Le client paie dans
- * le parcours (Payment Element) ; payé, l'heure est réservée, ou, prise
- * entre-temps, la demande passe à la clinique avec l'acompte. L'acompte
- * est déduit de la facture du rendez-vous ; remboursé si la clinique
- * annule ou refuse, ou si le client annule assez tôt ; gardé sinon (non
- * venu, annulation tardive).
+ * honorés) : la clinique en fixe le montant (cliniques.acompte_centimes).
+ * Le client paie dans le parcours (Payment Element) ; payé, l'heure est
+ * réservée, ou, prise entre-temps, la demande passe à la clinique avec
+ * l'acompte. L'acompte est déduit de la facture du rendez-vous.
+ *
+ * Il n'est jamais rendu d'office (23.10.2026, règle de Jim : sinon
+ * réserver puis annuler ne coûte rien). Le client ne peut plus annuler
+ * en ligne : il demande l'annulation, et la clinique décide d'annuler en
+ * rendant tout, en rendant moins les frais du paiement, ou en le gardant,
+ * ou de maintenir le rendez-vous. Quand c'est la clinique qui annule (ou
+ * refuse la demande), elle choisit de même ; rendu en entier par défaut.
  */
 class AcomptesRendezVous
 {
@@ -73,7 +83,7 @@ class AcomptesRendezVous
                 return;
             }
 
-            $demande->update(['statut' => StatutDemandeRendezVous::ATraiter, 'acompte_paye_le' => now()]);
+            $demande->update(['statut' => StatutDemandeRendezVous::ATraiter, 'acompte_paye_le' => now(), 'acompte_frais_centimes' => $this->frais($demande)]);
 
             try {
                 $this->sousContexte->pour($demande->clinique, fn () => app(TraitementDemande::class)->accepter($demande, $demande->debut_souhaite, null, $auteur));
@@ -99,49 +109,140 @@ class AcomptesRendezVous
         }
     }
 
-    /** Rembourse l'acompte payé, une seule fois. Vrai s'il l'a été maintenant. */
-    public function rembourser(DemandeRendezVous $demande): bool
+    /**
+     * Rend l'acompte payé, une seule fois, selon la décision : tout, ou
+     * moins les frais du paiement (rien si les frais dépassent). Vrai si de
+     * l'argent est rendu maintenant.
+     */
+    public function rembourser(DemandeRendezVous $demande, DecisionAnnulation $decision = DecisionAnnulation::Complet): bool
     {
         if (! $demande->acompte_paye_le || $demande->acompte_rembourse_le || ! $demande->acompte_intention_id) {
             return false;
         }
 
-        $this->passerelle->rembourser($demande->acompte_intention_id, 'remboursement-acompte-'.$demande->id);
-        $demande->update(['acompte_rembourse_le' => now()]);
+        $montant = match ($decision) {
+            DecisionAnnulation::Complet => (int) $demande->acompte_centimes,
+            DecisionAnnulation::HorsFrais => max(0, (int) $demande->acompte_centimes - $this->fraisConnus($demande)),
+            default => 0,
+        };
+        if ($montant <= 0) {
+            return false;
+        }
+
+        $this->passerelle->rembourser(
+            $demande->acompte_intention_id,
+            'remboursement-acompte-'.$demande->id,
+            $montant < $demande->acompte_centimes ? $montant : null,
+        );
+        $demande->update(['acompte_rembourse_le' => now(), 'acompte_rembourse_centimes' => $montant]);
 
         return true;
     }
 
-    /** Remboursable si le client annule maintenant : assez tôt avant le rendez-vous (délai de la clinique). */
-    public function estRemboursable(RendezVous $rendezVous, DemandeRendezVous $demande): bool
+    /** Frais du paiement, lus chez le prestataire s'ils ne l'ont pas encore été. */
+    public function fraisConnus(DemandeRendezVous $demande): int
     {
-        $delai = $demande->clinique?->acompte_delai_heures ?? 24;
-
-        return now()->addHours($delai)->lessThanOrEqualTo($rendezVous->starts_at);
-    }
-
-    /**
-     * Le client annule : remboursé s'il prévient assez tôt, gardé sinon.
-     * Null s'il n'y avait pas d'acompte.
-     */
-    public function surAnnulationDuProprietaire(RendezVous $rendezVous): ?bool
-    {
-        $demande = $rendezVous->demandeEnLigne()->with('clinique')->first();
-
-        if (! $demande || $demande->acompteRetenu() <= 0) {
-            return null;
+        if ($demande->acompte_frais_centimes === null && $demande->acompte_paye_le) {
+            $demande->update(['acompte_frais_centimes' => $this->frais($demande)]);
+        }
+        if ($demande->acompte_frais_centimes === null) {
+            throw ValidationException::withMessages(['decision' => 'Les frais du paiement ne sont pas encore connus : rendez tout l’acompte, ou réessayez dans quelques minutes.']);
         }
 
-        return $this->estRemboursable($rendezVous, $demande) && $this->rembourser($demande);
+        return $demande->acompte_frais_centimes;
     }
 
-    /** La clinique annule : l'acompte est rendu. */
-    public function surAnnulationDeLaClinique(RendezVous $rendezVous): void
+    /** Le propriétaire demande l'annulation d'un rendez-vous dont l'acompte est payé. */
+    public function demanderAnnulation(RendezVous $rendezVous, ?string $motif): DemandeRendezVous
     {
         $demande = $rendezVous->demandeEnLigne()->first();
 
-        if ($demande) {
-            $this->rembourser($demande);
+        if (! $demande || $demande->acompteRetenu() <= 0) {
+            throw ValidationException::withMessages(['annulation' => 'Ce rendez-vous n’a pas d’acompte : annulez-le directement.']);
         }
+        if ($demande->annulation_demandee_le) {
+            throw ValidationException::withMessages(['annulation' => $demande->annulation_traitee_le
+                ? 'La clinique a déjà répondu à votre demande d’annulation.'
+                : 'Votre demande d’annulation est déjà chez la clinique.']);
+        }
+
+        $demande->update(['annulation_demandee_le' => now(), 'annulation_motif' => $motif ?: null]);
+        $this->drapeau($rendezVous, true);
+
+        return $demande;
+    }
+
+    /**
+     * La clinique répond à la demande d'annulation : le rendez-vous est
+     * annulé (acompte rendu, rendu moins les frais, ou gardé) ou maintenu.
+     * Le propriétaire est prévenu par e-mail.
+     */
+    public function deciderAnnulation(DemandeRendezVous $demande, DecisionAnnulation $decision, User $auteur): DemandeRendezVous
+    {
+        if (! $demande->annulationEnAttente()) {
+            throw ValidationException::withMessages(['decision' => 'Aucune demande d’annulation en attente.']);
+        }
+        $rendezVous = RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id);
+
+        DB::transaction(function () use ($demande, $decision, $auteur, $rendezVous): void {
+            if ($decision->annule() && $rendezVous && $rendezVous->status !== StatutRendezVous::Annule) {
+                app(MutationRendezVous::class)->appliquer(
+                    $rendezVous,
+                    ['status' => StatutRendezVous::Annule],
+                    $auteur,
+                    entreesSupplementaires: ['motifAnnulation' => [null, 'Annulation demandée par le propriétaire, acceptée par la clinique']],
+                );
+                $this->rembourser($demande, $decision);
+            }
+            if ($rendezVous) {
+                $this->drapeau($rendezVous, false);
+            }
+            $demande->update(['annulation_decision' => $decision, 'annulation_traitee_le' => now()]);
+        });
+
+        $adresse = $demande->adresseDuProprietaire();
+        if ($adresse) {
+            Mail::to($adresse)->send(new AnnulationRendezVousDecidee($demande->refresh()->load('clinique'), $rendezVous?->starts_at));
+        }
+
+        return $demande;
+    }
+
+    /**
+     * La clinique annule elle-même un rendez-vous réservé avec acompte :
+     * elle choisit ce qu'elle rend (tout par défaut). Une demande
+     * d'annulation en attente est ainsi tranchée.
+     */
+    public function surAnnulationDeLaClinique(RendezVous $rendezVous, DecisionAnnulation $decision = DecisionAnnulation::Complet): void
+    {
+        $demande = $rendezVous->demandeEnLigne()->first();
+
+        if (! $demande) {
+            return;
+        }
+        $this->rembourser($demande, $decision);
+        if ($demande->annulationEnAttente()) {
+            $demande->update(['annulation_decision' => $decision, 'annulation_traitee_le' => now()]);
+        }
+        $this->drapeau($rendezVous, false);
+    }
+
+    private function frais(DemandeRendezVous $demande): ?int
+    {
+        try {
+            return $demande->acompte_intention_id ? $this->passerelle->fraisIntention($demande->acompte_intention_id) : null;
+        } catch (ErreurPaiement) {
+            return null;
+        }
+    }
+
+    /** Le drapeau « annulation demandée » du rendez-vous, posé ou retiré. */
+    private function drapeau(RendezVous $rendezVous, bool $pose): void
+    {
+        $drapeaux = collect($rendezVous->flags ?? [])->reject(fn ($d) => $d === DrapeauRendezVous::AnnulationDemandee);
+        if ($pose) {
+            $drapeaux->push(DrapeauRendezVous::AnnulationDemandee);
+        }
+        $rendezVous->forceFill(['flags' => $drapeaux->values()->all()])->save();
     }
 }

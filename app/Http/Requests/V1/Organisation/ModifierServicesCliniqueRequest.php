@@ -36,7 +36,6 @@ class ModifierServicesCliniqueRequest extends FormRequest
             'urgences_a_valider' => ['sometimes', 'boolean'],
             // De 5 à 500 francs ; null : pas d'acompte
             'acompte_centimes' => ['sometimes', 'nullable', 'integer', 'min:500', 'max:50000'],
-            'acompte_delai_heures' => ['sometimes', 'integer', 'min:0', 'max:336'],
         ];
     }
 

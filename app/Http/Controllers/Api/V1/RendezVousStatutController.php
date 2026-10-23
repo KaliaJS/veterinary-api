@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\DecisionAnnulation;
 use App\Enums\StatutRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\RendezVous\AnnulerRendezVousRequest;
@@ -98,8 +99,11 @@ class RendezVousStatutController extends Controller
             $request->user(),
             entreesSupplementaires: $motif === '' ? [] : ['motifAnnulation' => [null, $motif]],
         );
-        // Réservé en ligne avec un acompte : la clinique annule, il est rendu
-        app(AcomptesRendezVous::class)->surAnnulationDeLaClinique($rendezVous);
+        // Réservé en ligne avec un acompte : la clinique choisit ce qu'elle rend (tout par défaut)
+        app(AcomptesRendezVous::class)->surAnnulationDeLaClinique(
+            $rendezVous,
+            DecisionAnnulation::tryFrom((string) $request->validated('acompte')) ?? DecisionAnnulation::Complet,
+        );
 
         return new RendezVousResource($rendezVous);
     }

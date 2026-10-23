@@ -260,6 +260,7 @@ Route::prefix('v1')->group(function (): void {
         Route::put('animaux/{animal}/acces', [AnimalController::class, 'acces']);
         Route::get('rendez-vous', [RendezVousProprietaireController::class, 'index']);
         Route::post('rendez-vous/{rendezVous}/annuler', [RendezVousProprietaireController::class, 'annuler']);
+        Route::post('rendez-vous/{rendezVous}/demander-annulation', [RendezVousProprietaireController::class, 'demanderAnnulation']);
         Route::post('rendez-vous/{rendezVous}/reporter', [RendezVousProprietaireController::class, 'reporter']);
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
         Route::get('documents', [DocumentProprietaireController::class, 'index']);
@@ -375,6 +376,8 @@ Route::prefix('v1')->group(function (): void {
         Route::post('demandes/{demande}/placer', [DemandeRendezVousController::class, 'placer']);
         Route::post('demandes/{demande}/proposer', [DemandeRendezVousController::class, 'proposer']);
         Route::post('demandes/{demande}/refuser', [DemandeRendezVousController::class, 'refuser']);
+        // Annulation demandée par le propriétaire (acompte) : la clinique décide
+        Route::post('demandes/{demande}/annulation', [DemandeRendezVousController::class, 'annulation']);
         Route::delete('demandes/{demande}', [DemandeRendezVousController::class, 'destroy']);
 
         Route::get('liste-attente', [ListeAttenteController::class, 'index']);

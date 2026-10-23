@@ -43,6 +43,12 @@ return new class extends Migration
             $table->string('acompte_intention_id')->nullable()->unique()->comment('Intention de paiement Stripe de l’acompte');
             $table->timestamp('acompte_paye_le')->nullable();
             $table->timestamp('acompte_rembourse_le')->nullable();
+            $table->unsignedInteger('acompte_frais_centimes')->nullable()->comment('Frais du paiement retenus par le prestataire');
+            $table->unsignedInteger('acompte_rembourse_centimes')->nullable()->comment('Montant rendu (tout, ou moins les frais)');
+            $table->timestamp('annulation_demandee_le')->nullable()->comment('Le propriétaire demande l’annulation d’un rendez-vous avec acompte');
+            $table->string('annulation_motif', 500)->nullable();
+            $table->string('annulation_decision', 12)->nullable()->comment('complet | hors_frais | sans | refusee');
+            $table->timestamp('annulation_traitee_le')->nullable();
             $table->timestamps();
         });
     }

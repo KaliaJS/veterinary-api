@@ -44,6 +44,17 @@ class DemandeRendezVousResource extends JsonResource
             'prevenu_par_email' => $this->adresseDuProprietaire() !== null,
             // Acompte payé et gardé (francs), déduit de la facture du rendez-vous
             'acompte' => $this->acompteRetenu(),
+            // Demande d'annulation du propriétaire (acompte) et décision de la clinique ;
+            // frais du paiement (francs, null tant qu'ils ne sont pas connus) et montant rendu
+            'annulation' => $this->annulation_demandee_le ? [
+                'demandee_le' => $this->annulation_demandee_le->toIso8601String(),
+                'motif' => $this->annulation_motif,
+                'decision' => $this->annulation_decision?->value,
+                'traitee_le' => $this->annulation_traitee_le?->toIso8601String(),
+                'acompte' => round(($this->acompte_centimes ?? 0) / 100, 2),
+                'frais' => $this->acompte_frais_centimes !== null ? round($this->acompte_frais_centimes / 100, 2) : null,
+                'rendu' => round(($this->acompte_rembourse_centimes ?? 0) / 100, 2),
+            ] : null,
             'traitee_le' => $this->traitee_le?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
         ];

@@ -2,16 +2,19 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\DecisionAnnulation;
 use App\Enums\MotifRefusDemande;
 use App\Enums\StatutDemandeRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\FilesAttente\AccepterDemandeRequest;
+use App\Http\Requests\V1\FilesAttente\DeciderAnnulationRequest;
 use App\Http\Requests\V1\FilesAttente\ProposerCreneauxRequest;
 use App\Http\Requests\V1\FilesAttente\RefuserDemandeRequest;
 use App\Http\Resources\V1\DemandeRendezVousResource;
 use App\Http\Resources\V1\RendezVousResource;
 use App\Models\DemandeRendezVous;
 use App\Services\CalculateurCreneaux;
+use App\Services\Paiements\AcomptesRendezVous;
 use App\Services\TraitementDemande;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -25,7 +28,10 @@ use Illuminate\Validation\ValidationException;
  * propriétaire) et celles traitées aujourd'hui. Accepter crée le
  * rendez-vous à l'heure demandée (ou à une autre heure, sur une ligne
  * donnée) ; proposer envoie d'autres horaires ; refuser donne un motif.
- * Chaque réponse est écrite au propriétaire (TraitementDemande).
+ * Chaque réponse est écrite au propriétaire (TraitementDemande). S'y
+ * ajoutent les demandes d'annulation des rendez-vous réservés avec
+ * acompte : la clinique annule (en rendant tout, moins les frais, ou
+ * rien) ou maintient le rendez-vous.
  */
 class DemandeRendezVousController extends Controller
 {
@@ -43,7 +49,9 @@ class DemandeRendezVousController extends Controller
                 ->with(['user:id,email', 'rendezVous:id,starts_at'])
                 ->where(fn ($requete) => $requete
                     ->whereIn('statut', $ouvertes)
-                    ->orWhere('traitee_le', '>=', $calculateur->aujourdHui()->utc()))
+                    ->orWhere('traitee_le', '>=', $calculateur->aujourdHui()->utc())
+                    ->orWhere(fn ($annulation) => $annulation->whereNotNull('annulation_demandee_le')->whereNull('annulation_traitee_le'))
+                    ->orWhere('annulation_traitee_le', '>=', $calculateur->aujourdHui()->utc()))
                 ->orderBy('created_at')
                 ->orderBy('id')
                 ->paginate($this->parPage($request)),
@@ -74,6 +82,16 @@ class DemandeRendezVousController extends Controller
         );
 
         return new RendezVousResource($rendezVous);
+    }
+
+    /** Le propriétaire demande l'annulation (acompte payé) : la clinique décide. */
+    public function annulation(DeciderAnnulationRequest $request, DemandeRendezVous $demande, AcomptesRendezVous $acomptes): DemandeRendezVousResource
+    {
+        $this->authorize('placer', $demande);
+
+        $acomptes->deciderAnnulation($demande, DecisionAnnulation::from($request->validated('decision')), $request->user());
+
+        return new DemandeRendezVousResource($demande->refresh()->load(['user:id,email', 'rendezVous:id,starts_at']));
     }
 
     public function proposer(ProposerCreneauxRequest $request, DemandeRendezVous $demande, TraitementDemande $traitement): DemandeRendezVousResource

@@ -18,9 +18,11 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Mes rendez-vous : à venir et passés, toutes cliniques ; annulation
- * par le propriétaire (auditée à son nom, comme un geste de clinique) ;
- * demande de report, déposée dans la file des demandes de la clinique
- * (« la clinique vous recontacte »).
+ * par le propriétaire (auditée à son nom, comme un geste de clinique),
+ * ou, avec un acompte payé, demande d'annulation que la clinique tranche
+ * (l'acompte n'est jamais rendu d'office) ; demande de report, déposée
+ * dans la file des demandes de la clinique (« la clinique vous
+ * recontacte »).
  */
 class RendezVousProprietaireController extends Controller
 {
@@ -57,7 +59,10 @@ class RendezVousProprietaireController extends Controller
         $rendezVous = $this->mien($contexte, $rendezVousId);
 
         if ($rendezVous->status !== StatutRendezVous::Prevu || ! $rendezVous->starts_at->isFuture()) {
-            throw ValidationException::withMessages(['status' => 'Ce rendez-vous ne peut plus être annulé en ligne — contactez la clinique.']);
+            throw ValidationException::withMessages(['status' => 'Ce rendez-vous ne peut plus être annulé en ligne : contactez la clinique.']);
+        }
+        if (($rendezVous->demandeEnLigne()->first()?->acompteRetenu() ?? 0) > 0) {
+            throw ValidationException::withMessages(['status' => 'Ce rendez-vous a un acompte : demandez l’annulation à la clinique, elle décide de le rendre ou non.']);
         }
 
         $mutation->appliquer(
@@ -66,8 +71,20 @@ class RendezVousProprietaireController extends Controller
             $request->user(),
             entreesSupplementaires: ['motifAnnulation' => [null, 'Annulé par le propriétaire depuis l’espace client']],
         );
-        // Acompte : rendu s'il annule assez tôt (délai de la clinique), gardé sinon
-        app(AcomptesRendezVous::class)->surAnnulationDuProprietaire($rendezVous);
+
+        return new RendezVousProprietaireResource($rendezVous->refresh()->load(['clinique', 'lignePlanning', 'patient', 'demandeEnLigne.clinique']));
+    }
+
+    /** Rendez-vous avec acompte : la demande d'annulation part à la clinique, qui décide. */
+    public function demanderAnnulation(Request $request, ContexteProprietaire $contexte, AcomptesRendezVous $acomptes, int $rendezVousId): RendezVousProprietaireResource
+    {
+        $motif = $request->validate(['motif' => ['nullable', 'string', 'max:500']])['motif'] ?? null;
+        $rendezVous = $this->mien($contexte, $rendezVousId);
+
+        if ($rendezVous->status !== StatutRendezVous::Prevu || ! $rendezVous->starts_at->isFuture()) {
+            throw ValidationException::withMessages(['status' => 'Ce rendez-vous ne peut plus être annulé en ligne : contactez la clinique.']);
+        }
+        $acomptes->demanderAnnulation($rendezVous, $motif !== null ? trim($motif) : null);
 
         return new RendezVousProprietaireResource($rendezVous->refresh()->load(['clinique', 'lignePlanning', 'patient', 'demandeEnLigne.clinique']));
     }

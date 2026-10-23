@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Planning;
 
+use App\Mail\AnnulationRendezVousDecidee;
 use App\Mail\DemandeRendezVousAcceptee;
 use App\Mail\DemandeRendezVousEnvoyee;
 use App\Models\Clinique;
@@ -22,8 +23,9 @@ use Tests\TestCase;
 /**
  * Réservation en ligne : une urgence attend la clinique (sauf si elle ne
  * veut pas les valider) ; un acompte, quand la clinique en demande un, est
- * payé avant que l'heure soit prise, déduit de la facture, rendu si la
- * clinique annule ou si le client annule assez tôt, gardé sinon.
+ * payé avant que l'heure soit prise et déduit de la facture. Il n'est
+ * jamais rendu d'office : le client demande l'annulation, la clinique
+ * décide (tout rendre, rendre moins les frais, garder, ou maintenir).
  */
 class AcompteReservationTest extends TestCase
 {
@@ -115,7 +117,8 @@ class AcompteReservationTest extends TestCase
         $rendezVous = RendezVous::withoutGlobalScopes()->sole();
         $this->assertTrue($rendezVous->starts_at->equalTo($this->mardi));
         $this->assertContains('acompte', array_map(fn ($drapeau) => $drapeau->value ?? $drapeau, $rendezVous->flags->all()));
-        Mail::assertSent(DemandeRendezVousAcceptee::class, fn ($mail) => $mail->hasTo('pineau@exemple.ch'));
+        Mail::assertSent(DemandeRendezVousAcceptee::class, fn ($mail) => $mail->hasTo('pineau@exemple.ch')
+            && str_contains($mail->render(), 'pas remboursé si vous ne venez pas'));
 
         // La facture du rendez-vous déduit l'acompte
         ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
@@ -126,28 +129,77 @@ class AcompteReservationTest extends TestCase
         $this->assertSame(round($facture->totalTtc() - 30, 2), $facture->resteAPayer());
     }
 
-    public function test_le_client_qui_annule_assez_tot_est_rembourse_sinon_l_acompte_est_garde(): void
+    public function test_le_client_n_annule_plus_un_rendez_vous_avec_acompte_il_demande_l_annulation(): void
     {
         ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
-        $this->clinique->update(['acompte_centimes' => 3000, 'acompte_delai_heures' => 24]);
+        ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        // Les frais du paiement sont relevés au paiement : 2,9 % + 30 centimes
+        $this->assertSame(117, $demande->acompte_frais_centimes);
 
-        // Dans plus de 24 h : remboursé
-        $loin = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
-        $this->postJson("/api/v1/espace/rendez-vous/{$loin->rendez_vous_id}/annuler", [], $this->enTetes($jetonProprietaire))
-            ->assertOk()
-            ->assertJsonPath('data.acompte.rembourse', true);
-        $this->assertContains($loin->acompte_intention_id, $this->stripe->remboursements);
+        $this->getJson('/api/v1/espace/rendez-vous', $this->enTetes($jetonProprietaire))
+            ->assertJsonPath('data.a_venir.0.peut_annuler', false)
+            ->assertJsonPath('data.a_venir.0.peut_demander_annulation', true);
+        $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/annuler", [], $this->enTetes($jetonProprietaire))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('status');
 
-        // Prévenu trop tard (la clinique demande deux semaines) : gardé
-        $this->clinique->update(['acompte_delai_heures' => 336]);
-        $proche = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi->addHours(2));
-        $this->postJson("/api/v1/espace/rendez-vous/{$proche->rendez_vous_id}/annuler", [], $this->enTetes($jetonProprietaire))
+        $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", ['motif' => 'Je pars en voyage'], $this->enTetes($jetonProprietaire))
             ->assertOk()
-            ->assertJsonPath('data.acompte.rembourse', false);
-        $this->assertNotContains($proche->acompte_intention_id, $this->stripe->remboursements);
+            ->assertJsonPath('data.peut_demander_annulation', false)
+            ->assertJsonPath('data.acompte.annulation.decision', null)
+            ->assertJsonPath('data.statut', 'prevu');
+        $this->assertSame([], $this->stripe->remboursements);
+        $this->assertContains('annulation', $this->drapeaux($demande->rendez_vous_id));
+        // Une seule demande
+        $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))
+            ->assertUnprocessable();
+
+        // Dans la cloche de la clinique, avec les frais connus
+        $this->getJson('/api/v1/demandes', $this->enTetes($jetonClinique))
+            ->assertOk()
+            ->assertJsonPath('data.0.annulation.motif', 'Je pars en voyage')
+            ->assertJsonPath('data.0.annulation.acompte', 30)
+            ->assertJsonPath('data.0.annulation.frais', 1.17);
     }
 
-    public function test_la_clinique_qui_annule_ou_refuse_rend_l_acompte(): void
+    public function test_la_clinique_decide_de_rendre_tout_moins_les_frais_rien_ou_de_maintenir(): void
+    {
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
+        $this->clinique->update(['acompte_centimes' => 3000]);
+
+        $attendus = ['complet' => 3000, 'hors_frais' => 2883, 'sans' => null, 'refusee' => null];
+        $semaine = 0;
+        foreach ($attendus as $decision => $rendu) {
+            $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi->addWeeks($semaine++));
+            $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+
+            $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => $decision], $this->enTetes($jetonClinique))
+                ->assertOk()
+                ->assertJsonPath('data.annulation.decision', $decision)
+                ->assertJsonPath('data.annulation.rendu', ($rendu ?? 0) / 100);
+
+            $rendezVous = RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id);
+            $this->assertSame($decision === 'refusee' ? 'prevu' : 'annule', $rendezVous->status->value, $decision);
+            $this->assertNotContains('annulation', $this->drapeaux($rendezVous->id));
+            $this->assertSame($rendu, $this->stripe->montantsRembourses[$demande->acompte_intention_id] ?? null, $decision);
+            Mail::assertSent(AnnulationRendezVousDecidee::class, fn ($mail) => $mail->demande->is($demande)
+                && str_contains($mail->render(), $decision === 'refusee' ? 'Rendez-vous maintenu' : 'Rendez-vous annulé'));
+        }
+
+        // Déjà tranchée
+        $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => 'complet'], $this->enTetes($jetonClinique))->assertUnprocessable();
+    }
+
+    /** @return list<string> */
+    private function drapeaux(int $rendezVousId): array
+    {
+        return array_map(fn ($drapeau) => $drapeau->value ?? $drapeau, RendezVous::withoutGlobalScopes()->find($rendezVousId)->flags->all());
+    }
+
+    public function test_la_clinique_qui_annule_choisit_ce_qu_elle_rend_et_qui_refuse_rend_tout(): void
     {
         $this->clinique->update(['acompte_centimes' => 3000]);
         ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
@@ -159,6 +211,14 @@ class AcompteReservationTest extends TestCase
         $this->postJson("/api/v1/public/demandes/{$jeton}/paiement")->assertOk()->assertJsonPath('data.statut', 'acceptee');
         $this->postJson("/api/v1/rendez-vous/{$demande->refresh()->rendez_vous_id}/annuler", [], $this->enTetes($jetonClinique))->assertOk();
         $this->assertContains($demande->acompte_intention_id, $this->stripe->remboursements);
+
+        // Elle peut aussi garder l'acompte (le client a appelé pour annuler)
+        $garde = $this->deposer(['debut_souhaite' => $this->mardi->addHours(2)->toIso8601String()]);
+        $gardee = DemandeRendezVous::withoutGlobalScopes()->latest('id')->first();
+        $this->stripe->conclure($gardee->acompte_intention_id, 'succeeded');
+        $this->postJson('/api/v1/public/demandes/'.$garde->json('data.jeton').'/paiement')->assertOk()->assertJsonPath('data.statut', 'acceptee');
+        $this->postJson("/api/v1/rendez-vous/{$gardee->refresh()->rendez_vous_id}/annuler", ['acompte' => 'sans'], $this->enTetes($jetonClinique))->assertOk();
+        $this->assertNotContains($gardee->acompte_intention_id, $this->stripe->remboursements);
 
         // L'heure prise pendant le paiement : la demande passe à la clinique, qui refuse
         $autre = $this->deposer(['debut_souhaite' => $this->mardi->addHours(4)->toIso8601String()]);

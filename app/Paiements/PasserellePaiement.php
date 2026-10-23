@@ -45,8 +45,11 @@ interface PasserellePaiement
      */
     public function creerIntentionEnLigne(int $centimes, array $metadonnees, string $cleIdempotence): array;
 
-    /** Rembourse entièrement une intention payée. */
-    public function rembourser(string $intentionId, string $cleIdempotence): void;
+    /** Rembourse une intention payée : entièrement, ou le montant donné (centimes). */
+    public function rembourser(string $intentionId, string $cleIdempotence, ?int $centimes = null): void;
+
+    /** Frais retenus par le prestataire sur une intention payée (centimes), null s'ils ne sont pas encore connus. */
+    public function fraisIntention(string $intentionId): ?int;
 
     /** @return array{id: string, statut: string, erreur: ?string} */
     public function lireIntention(string $intentionId): array;

@@ -39,12 +39,11 @@ class DemandeProprietaireResource extends JsonResource
             'rendez_vous' => $this->rendezVous ? ['id' => $this->rendezVous->id, 'starts_at' => $this->rendezVous->starts_at->toIso8601String()] : null,
             'created_at' => $this->created_at?->toIso8601String(),
             'traitee_le' => $this->traitee_le?->toIso8601String(),
-            // Acompte de la réservation : payé, rendu
+            // Acompte de la réservation : payé, rendu (jamais d'office)
             'acompte' => $this->acompte_centimes ? [
                 'montant' => round($this->acompte_centimes / 100, 2),
                 'paye' => $this->acompte_paye_le !== null,
                 'rembourse' => $this->acompte_rembourse_le !== null,
-                'delai_heures' => $this->clinique->acompte_delai_heures,
             ] : null,
         ];
     }

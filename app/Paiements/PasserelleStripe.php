@@ -76,9 +76,20 @@ class PasserelleStripe implements PasserellePaiement
         return ['id' => $intention->id, 'statut' => $intention->status, 'client_secret' => $intention->client_secret];
     }
 
-    public function rembourser(string $intentionId, string $cleIdempotence): void
+    public function rembourser(string $intentionId, string $cleIdempotence, ?int $centimes = null): void
     {
-        $this->appel(fn () => $this->client->refunds->create(['payment_intent' => $intentionId], ['idempotency_key' => $cleIdempotence]));
+        $this->appel(fn () => $this->client->refunds->create(
+            array_filter(['payment_intent' => $intentionId, 'amount' => $centimes]),
+            ['idempotency_key' => $cleIdempotence],
+        ));
+    }
+
+    public function fraisIntention(string $intentionId): ?int
+    {
+        $intention = $this->appel(fn () => $this->client->paymentIntents->retrieve($intentionId, ['expand' => ['latest_charge.balance_transaction']]));
+        $transaction = $intention->latest_charge->balance_transaction ?? null;
+
+        return is_object($transaction) ? (int) $transaction->fee : null;
     }
 
     public function presenterSurLecteur(string $lecteurId, string $intentionId): void

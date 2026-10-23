@@ -56,7 +56,6 @@ class CliniqueResource extends JsonResource
             'urgences_a_valider' => $this->urgences_a_valider,
             // Acompte pour réserver (centimes, null : aucun), remboursé si annulé tant d'heures avant
             'acompte_centimes' => $this->acompte_centimes,
-            'acompte_delai_heures' => $this->acompte_delai_heures,
             // Photo : grande version, largeurs pour `srcset`, aperçu flou
             'photo' => PhotosCliniques::pour($this->resource),
             // Dans l'annuaire des cliniques, ou ce qui manque pour y paraître

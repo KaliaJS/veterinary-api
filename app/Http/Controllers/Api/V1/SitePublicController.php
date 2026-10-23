@@ -55,7 +55,6 @@ class SitePublicController extends Controller
                 'urgences_a_valider' => $clinique->urgences_a_valider,
                 // Acompte pour réserver (centimes, null : aucun) et délai de remboursement
                 'acompte_centimes' => $clinique->acompte_centimes,
-                'acompte_delai_heures' => $clinique->acompte_delai_heures,
             ])->values()->all(),
         ]]);
     }

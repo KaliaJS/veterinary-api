@@ -68,15 +68,14 @@ class ServicesCliniqueTest extends TestCase
             // Rendez-vous sans compte : non par défaut, inchangé s'il n'est pas envoyé
             ->assertJsonPath('data.rdv_sans_compte', false)
             // Rendez-vous en ligne réservés aussitôt, sauf si la clinique les valide ;
-            // les urgences attendent la clinique ; pas d'acompte, 24 h pour l'annuler
+            // les urgences attendent la clinique ; pas d'acompte
             ->assertJsonPath('data.rdv_a_valider', false)
             ->assertJsonPath('data.urgences_a_valider', true)
-            ->assertJsonPath('data.acompte_centimes', null)
-            ->assertJsonPath('data.acompte_delai_heures', 24);
+            ->assertJsonPath('data.acompte_centimes', null);
 
-        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", [...$this->reglage([['service' => 'hospitalisation']], boxes: 6), 'rdv_sans_compte' => true, 'rdv_a_valider' => true, 'urgences_a_valider' => false, 'acompte_centimes' => 3000, 'acompte_delai_heures' => 48], $entetes)
+        $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", [...$this->reglage([['service' => 'hospitalisation']], boxes: 6), 'rdv_sans_compte' => true, 'rdv_a_valider' => true, 'urgences_a_valider' => false, 'acompte_centimes' => 3000], $entetes)
             ->assertOk()->assertJsonPath('data.rdv_sans_compte', true)->assertJsonPath('data.rdv_a_valider', true)
-            ->assertJsonPath('data.urgences_a_valider', false)->assertJsonPath('data.acompte_centimes', 3000)->assertJsonPath('data.acompte_delai_heures', 48);
+            ->assertJsonPath('data.urgences_a_valider', false)->assertJsonPath('data.acompte_centimes', 3000);
         $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", $this->reglage([
             ['service' => 'hospitalisation'],
             ['service' => 'urgences', 'modalite' => 'permanence'],

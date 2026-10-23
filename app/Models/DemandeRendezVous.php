@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\DecisionAnnulation;
 use App\Enums\Espece;
 use App\Enums\ModeDemandeRendezVous;
 use App\Enums\MotifRefusDemande;
@@ -32,6 +33,8 @@ class DemandeRendezVous extends Model
         'duree_minutes', 'statut', 'creneaux_proposes', 'motif_refus', 'message',
         'rendez_vous_id', 'traitee_le', 'jeton', 'acompte_centimes',
         'acompte_intention_id', 'acompte_paye_le', 'acompte_rembourse_le',
+        'acompte_frais_centimes', 'acompte_rembourse_centimes', 'annulation_demandee_le',
+        'annulation_motif', 'annulation_decision', 'annulation_traitee_le',
     ];
 
     protected $hidden = ['jeton'];
@@ -55,6 +58,11 @@ class DemandeRendezVous extends Model
             'acompte_centimes' => 'integer',
             'acompte_paye_le' => 'immutable_datetime',
             'acompte_rembourse_le' => 'immutable_datetime',
+            'acompte_frais_centimes' => 'integer',
+            'acompte_rembourse_centimes' => 'integer',
+            'annulation_demandee_le' => 'immutable_datetime',
+            'annulation_decision' => DecisionAnnulation::class,
+            'annulation_traitee_le' => 'immutable_datetime',
         ];
     }
 
@@ -91,7 +99,18 @@ class DemandeRendezVous extends Model
     /** Acompte payé et pas remboursé : en francs, sinon 0. */
     public function acompteRetenu(): float
     {
-        return $this->acompte_paye_le && ! $this->acompte_rembourse_le ? round(($this->acompte_centimes ?? 0) / 100, 2) : 0.0;
+        if (! $this->acompte_paye_le) {
+            return 0.0;
+        }
+        $rendu = $this->acompte_rembourse_le ? ($this->acompte_rembourse_centimes ?? $this->acompte_centimes) : 0;
+
+        return round(max(0, ($this->acompte_centimes ?? 0) - $rendu) / 100, 2);
+    }
+
+    /** Annulation demandée par le propriétaire, pas encore décidée par la clinique. */
+    public function annulationEnAttente(): bool
+    {
+        return $this->annulation_demandee_le !== null && $this->annulation_traitee_le === null;
     }
 
     /** À qui écrire la réponse : le compte, sinon l'adresse laissée sans compte. */
