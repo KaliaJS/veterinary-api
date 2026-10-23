@@ -5,6 +5,7 @@ namespace App\Services\Inscription;
 use App\Auth\ContexteClinique;
 use App\Auth\RolesParDefaut;
 use App\Enums\StatutContrat;
+use App\Enums\StatutIdentite;
 use App\Enums\VerificationOrganisation;
 use App\Mail\CliniqueRefusee;
 use App\Mail\CliniqueVerifiee;
@@ -29,7 +30,10 @@ use Illuminate\Validation\ValidationException;
  * et le vétérinaire comme administrateur. Le GLN est vérifié dans MedReg
  * avant ; s'il ne l'est pas, la plateforme reçoit un e-mail pour valider
  * ou refuser à la main. L'organisation reste fermée tant qu'elle n'est ni
- * vérifiée ni payée (Organisation::fermeture).
+ * vérifiée ni payée (Organisation::fermeture). Depuis le 23.10.2026, le
+ * GLN ne suffit plus (il est public) : sans identité déjà vérifiée par
+ * Stripe Identity, la clinique s'ouvre quelques jours, sans ce qui coûte,
+ * le temps que le vétérinaire montre sa pièce (VerificationIdentite).
  */
 final class InscriptionClinique
 {
@@ -62,9 +66,11 @@ final class InscriptionClinique
             // Les rôles par défaut, les prestations et les panels labo
             // naissent avec l'organisation (événement du modèle).
             $organisation = Organisation::create(['nom' => $donnees['clinique']['nom']]);
+            $identite = $verifiee && $user->identite_statut !== StatutIdentite::Verifiee;
             $organisation->forceFill([
                 'verification' => $verifiee ? VerificationOrganisation::Verifiee : VerificationOrganisation::EnAttente,
-                'verification_raison' => $resultat->raison,
+                'verification_raison' => $identite ? 'identite_requise' : $resultat->raison,
+                'identite_avant_le' => $identite ? VerificationIdentite::delai()->toDateString() : null,
                 'verification_gln' => $donnees['gln'],
                 'verifiee_le' => $verifiee ? now() : null,
                 'inscrite_par' => $user->id,
@@ -188,10 +194,12 @@ final class InscriptionClinique
         }
 
         DB::transaction(function () use ($organisation, $user, $resultat): void {
+            $identite = $user->identite_statut !== StatutIdentite::Verifiee;
             $organisation->forceFill([
                 'verification' => VerificationOrganisation::Verifiee,
                 'verifiee_le' => now(),
-                'verification_raison' => null,
+                'verification_raison' => $identite ? 'identite_requise' : null,
+                'identite_avant_le' => $identite ? VerificationIdentite::delai()->toDateString() : null,
             ])->save();
             $this->retenirGln($user, (string) $organisation->verification_gln, $resultat->fiche?->id);
         });

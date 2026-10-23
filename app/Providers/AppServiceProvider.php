@@ -9,6 +9,8 @@ use App\Models\JetonApi;
 use App\Models\User;
 use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserelleAbonnementStripe;
+use App\Paiements\PasserelleIdentite;
+use App\Paiements\PasserelleIdentiteStripe;
 use App\Paiements\PasserellePaiement;
 use App\Paiements\PasserelleStripe;
 use App\Services\Diagnostic\Suggesteur;
@@ -50,6 +52,12 @@ class AppServiceProvider extends ServiceProvider
         // Abonnement SaaS des organisations : Stripe Billing, remplacé par
         // un double dans les tests
         $this->app->singleton(PasserelleAbonnement::class, fn () => new PasserelleAbonnementStripe(
+            new StripeClient(['api_key' => config('services.stripe.secret') ?: null]),
+        ));
+
+        // Vérification d'identité des vétérinaires : Stripe Identity, sur
+        // le compte de la plateforme (double dans les tests)
+        $this->app->singleton(PasserelleIdentite::class, fn () => new PasserelleIdentiteStripe(
             new StripeClient(['api_key' => config('services.stripe.secret') ?: null]),
         ));
 

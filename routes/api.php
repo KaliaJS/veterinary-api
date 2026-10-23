@@ -73,6 +73,7 @@ use App\Http\Controllers\Api\V1\FinConsultationController;
 use App\Http\Controllers\Api\V1\FinTeleconsultationController;
 use App\Http\Controllers\Api\V1\GardeWeekendController;
 use App\Http\Controllers\Api\V1\HoraireOuvertureController;
+use App\Http\Controllers\Api\V1\IdentiteController;
 use App\Http\Controllers\Api\V1\ImageriePatientController;
 use App\Http\Controllers\Api\V1\InscriptionCliniqueController;
 use App\Http\Controllers\Api\V1\InterventionController;
@@ -176,7 +177,10 @@ Route::prefix('v1')->group(function (): void {
         // Profil vétérinaire du compte : GLN (cherché dans MedReg) et spécialités
         Route::get('profil-veterinaire', [ProfilVeterinaireController::class, 'afficher']);
         Route::put('profil-veterinaire', [ProfilVeterinaireController::class, 'modifier'])->middleware('throttle:20,1');
-        Route::post('profil-veterinaire/verification', [ProfilVeterinaireController::class, 'demanderVerification'])->middleware('throttle:5,1');
+        // Vérification d'identité (Stripe Identity) : badge et inscription d'une clinique
+        Route::get('identite', [IdentiteController::class, 'afficher']);
+        Route::post('identite/paiement', [IdentiteController::class, 'payer'])->middleware('throttle:5,1');
+        Route::post('identite/session', [IdentiteController::class, 'commencer'])->middleware('throttle:10,1');
         Route::put('profil-veterinaire/fiche', [ProfilVeterinaireController::class, 'modifierFiche']);
 
         Route::get('passkeys', [PasskeyController::class, 'index']);

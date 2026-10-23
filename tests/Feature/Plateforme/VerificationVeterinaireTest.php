@@ -7,18 +7,25 @@ use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\Organisation;
 use App\Models\User;
+use App\Paiements\PasserelleAbonnement;
+use App\Paiements\PasserelleIdentite;
+use App\Paiements\PasserellePaiement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
+use Tests\Doubles\PasserelleAbonnementFactice;
+use Tests\Doubles\PasserelleIdentiteFactice;
+use Tests\Doubles\PasserellePaiementFactice;
 use Tests\TestCase;
 
 /**
- * Vérification manuelle des vétérinaires par la plateforme : le
- * vétérinaire la demande depuis son profil, un modérateur (rôle donné
- * par commande) décide ; le badge vaut pour un GLN et l'historique garde
- * qui, quand et pourquoi.
+ * Badge des vétérinaires (23.10.2026) : payé par le vétérinaire, il se
+ * donne seul quand Stripe Identity lit sur la pièce le nom que MedReg donne
+ * pour son GLN ; un échec ou un autre nom passe à la main, et un modérateur
+ * (rôle donné par commande) décide. Le badge vaut pour un GLN et
+ * l'historique garde qui, quand et pourquoi.
  */
 class VerificationVeterinaireTest extends TestCase
 {
@@ -54,20 +61,78 @@ class VerificationVeterinaireTest extends TestCase
         return [$moderateur->fresh(), $jeton];
     }
 
-    public function test_le_veterinaire_demande_et_un_moderateur_le_verifie(): void
+    /** Le vétérinaire paie son badge (2 CHF) et ouvre la page de Stripe. */
+    private function badgePaye(string $jeton): PasserelleIdentiteFactice
+    {
+        $identite = new PasserelleIdentiteFactice;
+        $this->app->instance(PasserelleIdentite::class, $identite);
+        $this->app->instance(PasserellePaiement::class, new PasserellePaiementFactice);
+        $stripe = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $stripe);
+        $entetes = $this->enTetes($jeton);
+
+        // Rien ne s'ouvre avant le paiement
+        $this->postJson('/api/v1/auth/identite/session', [], $entetes)->assertUnprocessable()->assertJsonValidationErrors('identite');
+
+        $this->postJson('/api/v1/espace/abonnement/carte/intention', [], $entetes)->assertOk();
+        $client = User::query()->whereNotNull('stripe_client_id')->latest('id')->value('stripe_client_id');
+        $this->putJson('/api/v1/espace/abonnement/carte', ['payment_method' => $stripe->carteConfirmee($client)], $entetes)->assertOk();
+        $this->postJson('/api/v1/auth/identite/paiement', [], $entetes)
+            ->assertOk()
+            ->assertJsonPath('data.payee', true);
+        $this->assertSame(200, $stripe->dernierPrelevement()['centimes']);
+        // Une seule fois
+        $this->postJson('/api/v1/auth/identite/paiement', [], $entetes)->assertUnprocessable();
+
+        $this->postJson('/api/v1/auth/identite/session', [], $entetes)->assertOk()->assertJsonPath('data.url', 'https://verify.stripe.com/start/vs_1');
+
+        return $identite;
+    }
+
+    private function webhookIdentite(string $id, string $type, string $session): void
+    {
+        $this->call('POST', '/api/v1/stripe/webhook', [], [], [], ['HTTP_STRIPE_SIGNATURE' => 'signature-valide', 'CONTENT_TYPE' => 'application/json'], json_encode([
+            'id' => $id, 'type' => $type, 'data' => ['object' => ['id' => $session]],
+        ]))->assertNoContent();
+    }
+
+    public function test_un_badge_paye_au_meme_nom_que_medreg_se_donne_seul(): void
+    {
+        $clinique = Clinique::factory()->create();
+        ['user' => $lea, 'jeton' => $jetonLea] = $this->employeAvecJeton($clinique);
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => ['orthopedie']], $this->enTetes($jetonLea))->assertOk();
+
+        $identite = $this->badgePaye($jetonLea);
+        $identite->verifier('vs_1', 'Léa', 'Fontaine');
+        $this->webhookIdentite('evt_v1', 'identity.verification_session.verified', 'vs_1');
+
+        $this->getJson('/api/v1/auth/profil-veterinaire', $this->enTetes($jetonLea))
+            ->assertJsonPath('data.identite.statut', 'verifiee')
+            ->assertJsonPath('data.verification.statut', 'verifie');
+        Mail::assertNotSent(VerificationVeterinaireAFaire::class);
+    }
+
+    public function test_un_echec_chez_stripe_passe_a_la_main_et_un_moderateur_le_verifie(): void
     {
         $clinique = Clinique::factory()->create();
         ['user' => $lea, 'jeton' => $jetonLea] = $this->employeAvecJeton($clinique);
         $lea->update(['name' => 'Léa Fontaine']);
         $entetesLea = $this->enTetes($jetonLea);
 
-        // Sans GLN, pas de demande
-        $this->postJson('/api/v1/auth/profil-veterinaire/verification', [], $entetesLea)->assertUnprocessable()->assertJsonValidationErrors('gln');
+        // Sans GLN, pas de vérification
+        $this->postJson('/api/v1/auth/identite/paiement', [], $entetesLea)->assertUnprocessable()->assertJsonValidationErrors('gln');
 
         $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => ['orthopedie']], $entetesLea)->assertOk();
-        $this->postJson('/api/v1/auth/profil-veterinaire/verification', [], $entetesLea)
-            ->assertOk()
+        $identite = $this->badgePaye($jetonLea);
+
+        // Une seule tentative : l'échec passe à la main, la session est close
+        $identite->echouer('vs_1', 'selfie_face_mismatch');
+        $this->webhookIdentite('evt_e1', 'identity.verification_session.requires_input', 'vs_1');
+        $this->assertSame(['vs_1'], $identite->annulees);
+        $this->getJson('/api/v1/auth/profil-veterinaire', $entetesLea)
+            ->assertJsonPath('data.identite.statut', 'a_revoir')
             ->assertJsonPath('data.verification.statut', 'en_attente');
+        $this->postJson('/api/v1/auth/identite/session', [], $entetesLea)->assertUnprocessable();
         Mail::assertSent(VerificationVeterinaireAFaire::class, fn ($mail) => $mail->hasTo('verification@veterinary.test'));
 
         // L'espace Plateforme est fermé aux autres comptes
@@ -79,6 +144,7 @@ class VerificationVeterinaireTest extends TestCase
         $this->getJson('/api/v1/plateforme/veterinaires', $entetesJim)
             ->assertOk()
             ->assertJsonPath('data.0.nom', 'Léa Fontaine')
+            ->assertJsonPath('data.0.identite.statut', 'a_revoir')
             ->assertJsonPath('data.0.gln_au_registre', true)
             ->assertJsonPath('data.0.equipes.0.cliniques', [$clinique->nom]);
 
@@ -96,6 +162,8 @@ class VerificationVeterinaireTest extends TestCase
             ->assertJsonPath('data.historique.0.decision', 'verifie')
             ->assertJsonPath('data.historique.0.par', 'Jim Modérateur')
             ->assertJsonPath('data.historique.1.decision', 'demandee');
+
+        $this->assertSame('verifiee', $lea->refresh()->identite_statut->value);
 
         $fiche = Employe::withoutGlobalScopes()->where('user_id', $lea->id)->firstOrFail();
         $this->getJson("/api/v1/equipe/employes/{$fiche->id}", $entetesLea)->assertJsonPath('data.verifie', true);

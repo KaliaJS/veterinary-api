@@ -12,6 +12,7 @@ use App\Models\SpecialiteVeterinaire;
 use App\Models\User;
 use App\Services\Inscription\MedReg;
 use App\Services\Inscription\MedRegIndisponible;
+use App\Services\Inscription\VerificationIdentite;
 use App\Services\Inscription\VerificationVeterinaire;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -93,6 +94,11 @@ class VeterinairePlateformeController extends Controller
             default => null,
         }, $donnees['note'] ?? null, $request->user());
 
+        // Vérifié à la main : son identité l'est aussi, ses cliniques s'ouvrent pour de bon
+        if ($decision === DecisionVerification::Verifie) {
+            app(VerificationIdentite::class)->validerALaMain($user);
+        }
+
         return $this->show($user->fresh(), app(MedReg::class));
     }
 
@@ -112,6 +118,12 @@ class VeterinairePlateformeController extends Controller
             'gln_au_registre' => $compte->gln_verifie_le !== null,
             'statut' => $compte->verification_veterinaire?->value,
             'le' => $compte->verification_veterinaire_le?->toIso8601String(),
+            // Stripe Identity : à revoir à la main, avec le nom lu sur la pièce
+            'identite' => [
+                'statut' => $compte->identite_statut?->value,
+                'nom_lu' => $compte->identite_nom,
+                'raison' => $compte->identite_raison,
+            ],
             'specialites' => $compte->specialites
                 ->sortBy(fn (SpecialiteVeterinaire $ligne): int => array_search($ligne->specialite, Specialite::cases(), true))
                 ->map(fn (SpecialiteVeterinaire $ligne): string => $ligne->specialite->value)

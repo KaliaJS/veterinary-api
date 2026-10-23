@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\StatutIdentite;
 use App\Enums\StatutVerificationVeterinaire;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -21,6 +22,12 @@ return new class extends Migration
             $table->timestamp('gln_verifie_le')->nullable();
             $table->enum('verification_veterinaire', array_column(StatutVerificationVeterinaire::cases(), 'value'))->nullable()->comment('Vérification manuelle par la plateforme (badge) : en_attente, verifie, refuse');
             $table->timestamp('verification_veterinaire_le')->nullable()->comment('Dernière demande ou décision');
+            $table->enum('identite_statut', array_column(StatutIdentite::cases(), 'value'))->nullable()->comment('Stripe Identity (23.10.2026) : en_cours, verifiee, a_revoir (à la main)');
+            $table->string('identite_session_id')->nullable()->comment('Session Stripe Identity : une seule par personne');
+            $table->string('identite_nom')->nullable()->comment('Nom lu sur la pièce d’identité');
+            $table->string('identite_raison')->nullable()->comment('Pourquoi elle passe à la main (échec Stripe, autre nom)');
+            $table->timestamp('identite_verifiee_le')->nullable();
+            $table->timestamp('identite_payee_le')->nullable()->comment('Vérification payée par la personne (badge, 2 CHF)');
             $table->boolean('est_moderateur')->default(false)->comment('Modérateur de la plateforme Veterinary : donné par commande, jamais par l’application');
             $table->text('presentation')->nullable()->comment('Fiche publique d’un vétérinaire : quelques lignes sur lui');
             $table->json('langues')->nullable()->comment('Fiche publique d’un vétérinaire : langues parlées (fr, de, it, en…)');

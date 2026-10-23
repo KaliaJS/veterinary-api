@@ -234,7 +234,8 @@ Chaque personne qui travaille dans l'application a son compte, sans exception : 
 
 Le registre MedReg confirme qu'un GLN existe au nom du compte, pas que la personne est ce vétérinaire. La plateforme vérifie donc à la main et appose un badge « Vérifié manuellement » :
 
-- **`users.verification_veterinaire`** (`StatutVerificationVeterinaire` : `en_attente`, `verifie`, `refuse`, null) et `verification_veterinaire_le`. Le vétérinaire demande depuis son profil (`POST /auth/profil-veterinaire/verification`, GLN requis ; les modérateurs reçoivent un e-mail à `plateforme.verification_email`). Changer de GLN retire le badge.
+- **`users.verification_veterinaire`** (`StatutVerificationVeterinaire` : `en_attente`, `verifie`, `refuse`, null) et `verification_veterinaire_le`. Changer de GLN retire le badge.
+- **Stripe Identity** (23.10.2026, décisions de Jim, `VerificationIdentite`) : pièce d'identité et selfie sur la page de Stripe (redirection, `return_url` `FRONTEND_URL/identite`), puis le nom lu sur la pièce comparé à celui que MedReg donne pour le GLN. Même nom : `identite_statut` `verifiee` et badge `verifie` aussitôt. Une seule tentative par personne (`identite_session_id`, clé d'idempotence par compte) : un échec chez Stripe (`requires_input` avec `last_error`, session annulée) ou un autre nom passe `a_revoir` avec la raison et le nom lu, le badge passe `en_attente` et les modérateurs reçoivent l'e-mail ; leur décision « vérifié » vaut aussi pour l'identité. Le badge seul se paie d'avance par le vétérinaire, 2 CHF sur sa carte (`POST /auth/identite/paiement`, facture propriétaire `type = identite`, `identite_payee_le`), puis `POST /auth/identite/session` rend l'adresse de Stripe. `GET /auth/identite` et le profil (`identite`) portent l'état. Webhooks `identity.verification_session.verified|requires_input` (compte de la plateforme). Plus de demande gratuite à la main : elle vient d'un échec.
 - **`decisions_verification`** : l'historique (demandée, vérifié, refusé, badge retiré), avec le modérateur et le motif (obligatoire pour refuser ou retirer, montré au vétérinaire).
 - **`users.est_moderateur`** : rôle de modérateur, donné seulement par `php artisan plateforme:moderateur email [--retirer]`, jamais depuis l'application.
 - **Espace Plateforme** (`/api/v1/plateforme`, middleware `moderateur`) : `GET veterinaires?statut=`, `GET veterinaires/{id}` (MedReg consulté en direct, historique), `POST veterinaires/{id}/decision` ; `GET organisations?verification=`, `POST organisations/{id}/valider|refuser` (les mêmes décisions que les liens de l'e-mail de vérification des cliniques).
@@ -276,7 +277,17 @@ première formule se termine d'abord.
   avant (13 chiffres, clé de GS1).
 - **Vérifiée aussitôt** si le GLN est celui d'un vétérinaire au même nom
   (accents, casse, second prénom et titre ignorés) et d'aucun autre
-  compte : `users.gln`, `medreg_id`, `gln_verifie_le`.
+  compte : `users.gln`, `medreg_id`, `gln_verifie_le`. Depuis le
+  23.10.2026, le GLN étant public, il faut aussi l'identité (Stripe
+  Identity, ci-dessus) : sans identité déjà vérifiée, la clinique
+  s'ouvre jusqu'à `organisations.identite_avant_le` (7 jours,
+  `verification_raison` `identite_requise`) sans ce qui coûte
+  (transcription et suggestions diagnostiques refusées), puis se ferme
+  (`code` `identite_requise`, hors annuaire) jusqu'à la vérification.
+  Vérifiée par Stripe, la vérification (1.50 CHF) part sur la prochaine
+  facture d'abonnement (`frais_identite_centimes`, une ligne, rendue à
+  l'organisation si la facture est annulée). La session porte
+  `organisation.identite_avant_le` et `inscrite_par_moi`.
 - **Sinon, à la main** (`organisations.verification_raison` :
   `introuvable`, `nom_different`, `gln_deja_utilise`,
   `medreg_indisponible`) : e-mail à `PLATEFORME_VERIFICATION_EMAIL` avec

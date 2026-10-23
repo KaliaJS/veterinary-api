@@ -61,6 +61,7 @@ final class ConsommationDiagnostic
         return match (true) {
             $organisation->statut_abonnement === 'impaye' => 'Une facture de votre abonnement attend son règlement : réglez-la dans les réglages de facturation pour utiliser les suggestions diagnostiques.',
             $organisation->statut_abonnement !== 'actif' => 'Les suggestions diagnostiques demandent un abonnement en cours.',
+            $organisation->attendIdentite() => 'Les suggestions diagnostiques s’ouvrent une fois l’identité de qui a inscrit la clinique vérifiée.',
             $this->dela($organisation)['montant'] + $this->tarif() > $organisation->plafond_diagnostic => 'Le plafond des suggestions diagnostiques de votre organisation est atteint pour cette période. Un administrateur peut le relever dans les réglages.',
             default => null,
         };

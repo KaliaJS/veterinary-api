@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\DecisionVerification as Decision;
+use App\Enums\StatutIdentite;
 use App\Enums\StatutVerificationVeterinaire;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -48,6 +49,9 @@ class User extends Authenticatable
             'gln_verifie_le' => 'datetime',
             'verification_veterinaire' => StatutVerificationVeterinaire::class,
             'verification_veterinaire_le' => 'datetime',
+            'identite_statut' => StatutIdentite::class,
+            'identite_verifiee_le' => 'datetime',
+            'identite_payee_le' => 'datetime',
             'est_moderateur' => 'boolean',
         ];
     }

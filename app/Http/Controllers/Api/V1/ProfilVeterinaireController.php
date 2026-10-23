@@ -4,19 +4,17 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\DecisionVerification;
 use App\Enums\Specialite;
-use App\Enums\StatutVerificationVeterinaire;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Auth\ModifierFichePubliqueRequest;
 use App\Http\Requests\V1\Auth\ModifierProfilVeterinaireRequest;
-use App\Mail\VerificationVeterinaireAFaire;
 use App\Models\ParcoursVeterinaire;
 use App\Models\SpecialiteVeterinaire;
 use App\Models\User;
+use App\Services\Inscription\VerificationIdentite;
 use App\Services\Inscription\VerificationVeterinaire;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -108,29 +106,6 @@ class ProfilVeterinaireController extends Controller
         return response()->json(['data' => $this->profil($compte->fresh())]);
     }
 
-    /**
-     * Demande de vérification manuelle à la plateforme (badge « Vérifié
-     * manuellement ») : il faut un GLN ; les modérateurs sont prévenus.
-     */
-    public function demanderVerification(Request $request): JsonResponse
-    {
-        $compte = $request->user();
-        if ($compte->gln === null) {
-            throw ValidationException::withMessages(['gln' => 'Indiquez d’abord votre GLN.']);
-        }
-        if (in_array($compte->verification_veterinaire, [StatutVerificationVeterinaire::EnAttente, StatutVerificationVeterinaire::Verifie], true)) {
-            throw ValidationException::withMessages(['verification' => 'Votre vérification est déjà demandée ou faite.']);
-        }
-
-        $compte->consignerVerification(DecisionVerification::Demandee, StatutVerificationVeterinaire::EnAttente);
-        $destinataire = config('plateforme.verification_email');
-        if ($destinataire) {
-            Mail::to($destinataire)->send(new VerificationVeterinaireAFaire($compte));
-        }
-
-        return response()->json(['data' => $this->profil($compte->fresh())]);
-    }
-
     /** @return array<string, mixed> */
     private function profil(User $compte): array
     {
@@ -140,7 +115,9 @@ class ProfilVeterinaireController extends Controller
             'gln' => $compte->gln,
             // Trouvé dans MedReg au nom du compte
             'gln_au_registre' => $compte->gln_verifie_le !== null,
-            // Vérification manuelle par la plateforme (badge)
+            // Identité vérifiée par Stripe Identity (23.10.2026)
+            'identite' => app(VerificationIdentite::class)->etat($compte),
+            // Badge : par l'identité, ou décidé par la plateforme
             'verification' => [
                 'statut' => $compte->verification_veterinaire?->value,
                 'le' => $compte->verification_veterinaire_le?->toIso8601String(),

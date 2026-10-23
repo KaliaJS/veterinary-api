@@ -17,6 +17,8 @@ return new class extends Migration
             $table->string('verification_gln', 13)->nullable()->comment('GLN donné à l’inscription');
             $table->text('verification_note')->nullable()->comment('Motif d’un refus, montré à l’organisation');
             $table->timestamp('verifiee_le')->nullable();
+            $table->date('identite_avant_le')->nullable()->comment('Ouverte sans identité vérifiée jusqu’à cette date, sans ce qui coûte (23.10.2026)');
+            $table->unsignedInteger('frais_identite_centimes')->nullable()->comment('Vérification d’identité à porter sur la prochaine facture');
             $table->foreignId('inscrite_par')->nullable()->constrained('users')->nullOnDelete();
             $table->enum('plan', array_column(FormuleSaas::cases(), 'value'))->default('cabinet');
             $table->string('formule_suivante', 12)->nullable()->comment('Formule moins chère choisie : appliquée au prochain renouvellement');

@@ -51,6 +51,7 @@ class Organisation extends Model
             'plan' => FormuleSaas::class,
             'verification' => VerificationOrganisation::class,
             'verifiee_le' => 'datetime',
+            'identite_avant_le' => 'date',
             'resilie_le' => 'date',
             'periode_debut' => 'date',
             'periode_fin' => 'date',
@@ -130,12 +131,25 @@ class Organisation extends Model
                 'code' => 'verification_refusee',
                 'message' => 'L’inscription de votre clinique a été refusée.',
             ],
+            $this->identite_avant_le !== null && $this->identite_avant_le->toDateString() < CarbonImmutable::today('Europe/Zurich')->toDateString() => [
+                'code' => 'identite_requise',
+                'message' => 'Vérifiez votre identité pour rouvrir votre clinique.',
+            ],
             ! $this->abonnementEnCours() => [
                 'code' => 'abonnement_requis',
                 'message' => 'Votre organisation n’a pas d’abonnement en cours. Choisissez une formule pour continuer.',
             ],
             default => null,
         };
+    }
+
+    /**
+     * Ouverte avant la vérification d'identité de qui l'a inscrite
+     * (23.10.2026) : ce qui coûte (transcription, IA) attend.
+     */
+    public function attendIdentite(): bool
+    {
+        return $this->identite_avant_le !== null;
     }
 
     public function estOuverte(): bool
@@ -149,6 +163,7 @@ class Organisation extends Model
     {
         $aujourdhui = CarbonImmutable::today('Europe/Zurich');
         $requete->where('verification', VerificationOrganisation::Verifiee)
+            ->where(fn (Builder $identite) => $identite->whereNull('identite_avant_le')->orWhereDate('identite_avant_le', '>=', CarbonImmutable::today('Europe/Zurich')->toDateString()))
             ->whereIn('statut_abonnement', ['actif', 'impaye'])
             ->where(fn (Builder $periode) => $periode
                 ->where(fn (Builder $q) => $q->whereNull('resilie_le')->whereDate('periode_fin', '>=', $aujourdhui->subDays(self::GRACE_JOURS)->toDateString()))

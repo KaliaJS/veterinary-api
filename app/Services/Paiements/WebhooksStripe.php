@@ -10,6 +10,7 @@ use App\Models\EvenementStripe;
 use App\Models\Paiement;
 use App\Services\Abonnements\AbonnementSaas;
 use App\Services\Alertes\DestinatairesAlertes;
+use App\Services\Inscription\VerificationIdentite;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -32,6 +33,7 @@ class WebhooksStripe
         private AcomptesRendezVous $acomptes,
         private ComptesPaiement $comptes,
         private DestinatairesAlertes $destinataires,
+        private VerificationIdentite $identite,
     ) {}
 
     /** @param  array{id: string, type: string, objet: array<string, mixed>, compte?: ?string}  $evenement */
@@ -63,6 +65,11 @@ class WebhooksStripe
                 'payment_method.automatically_updated' => $this->abonnements->surCarteMiseAJour($objet),
                 // Compte de paiement d'une société : activé, restreint, informations demandées
                 'account.updated' => $this->comptes->surCompteModifie($objet['id'] ?? $evenement['compte'] ?? null),
+                // Vérification d'identité, sur le compte de la plateforme seulement
+                'identity.verification_session.verified',
+                'identity.verification_session.requires_input' => ($evenement['compte'] ?? null) === null && isset($objet['id'])
+                    ? $this->identite->surSession((string) $objet['id'])
+                    : null,
                 default => null,
             };
         } catch (Throwable $e) {

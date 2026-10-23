@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleAbonnement;
 use App\Services\Diagnostic\ConsommationDiagnostic;
+use App\Services\Inscription\VerificationIdentite;
 use App\Services\Transcription\ConsommationTranscription;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -378,6 +379,27 @@ final class AbonnementSaas
         return $this->encaisserMaintenant($user, $facture);
     }
 
+    /**
+     * Vérification d'identité payée par le vétérinaire pour son badge
+     * (23.10.2026, 2 CHF) : une seule, jamais deux fois.
+     */
+    public function acheterVerificationIdentite(User $user): Reglement
+    {
+        if ($user->identite_payee_le !== null || $user->identite_statut !== null) {
+            throw ValidationException::withMessages(['identite' => 'Votre vérification d’identité est déjà réglée ou en cours.']);
+        }
+        if (! $user->gln) {
+            throw ValidationException::withMessages(['gln' => 'Indiquez d’abord votre GLN dans votre profil.']);
+        }
+        $this->exigerCarte($user);
+
+        $facture = $this->creerFacture($user, [['libelle' => 'Vérification d’identité (badge vétérinaire vérifié)', 'montant' => VerificationIdentite::PRIX_BADGE_CENTIMES]], [
+            'type' => 'identite',
+        ]);
+
+        return $this->encaisserMaintenant($user, $facture);
+    }
+
     /* ————— Factures à régler ————— */
 
     /** Le client règle une facture en attente, depuis l'application. */
@@ -674,6 +696,13 @@ final class AbonnementSaas
     private function creerFacture(Organisation|User $abonne, array $lignes, array $metadonnees, ?CarbonImmutable $debut = null, ?CarbonImmutable $fin = null, array $usage = []): OrganisationFacture|FactureProprietaire
     {
         return DB::transaction(function () use ($abonne, $lignes, $metadonnees, $debut, $fin, $usage): OrganisationFacture|FactureProprietaire {
+            // La vérification d'identité de qui a inscrit la clinique (23.10.2026) :
+            // sur la prochaine facture d'abonnement, une seule fois
+            if ($abonne instanceof Organisation && ($metadonnees['type'] ?? null) === 'abonnement' && $abonne->frais_identite_centimes > 0) {
+                $lignes[] = ['libelle' => 'Vérification d’identité (Stripe Identity)', 'montant' => (int) $abonne->frais_identite_centimes];
+                $metadonnees['frais_identite'] = (string) $abonne->frais_identite_centimes;
+                $abonne->forceFill(['frais_identite_centimes' => null])->save();
+            }
             $toutes = [...$lignes, ...array_map(fn ($u) => ['libelle' => $u['libelle'], 'montant' => $u['montant']], $usage)];
             $total = array_sum(array_column($toutes, 'montant'));
             $facture = $abonne instanceof Organisation ? new OrganisationFacture : new FactureProprietaire;
@@ -784,6 +813,8 @@ final class AbonnementSaas
         match ($meta['type'] ?? null) {
             'abonnement' => $this->appliquerPeriode($abonne, $meta),
             'pack' => $this->appliquerPack($facture, $abonne, $meta),
+            // Badge du vétérinaire (23.10.2026) : la vérification peut commencer
+            'identite' => $abonne instanceof User ? $abonne->forceFill(['identite_payee_le' => now()])->save() : null,
             'planete' => ArticlePlanete::tryFrom((string) ($meta['article'] ?? ''))
                 ? AchatPlanete::query()->firstOrCreate(['user_id' => $abonne->id, 'article' => ArticlePlanete::from($meta['article'])])
                 : null,
@@ -832,6 +863,10 @@ final class AbonnementSaas
     {
         $facture->forceFill(['statut' => 'annulee'])->save();
         if ($facture instanceof OrganisationFacture) {
+            // La vérification d'identité attend la facture suivante
+            if (($frais = (int) ($facture->metadonnees['frais_identite'] ?? 0)) > 0) {
+                Organisation::query()->whereKey($facture->organisation_id)->update(['frais_identite_centimes' => $frais]);
+            }
             FacturationTranscription::query()->where('organisation_facture_id', $facture->id)->delete();
             SuggestionDiagnostique::withoutGlobalScopes()->where('organisation_facture_id', $facture->id)->update(['organisation_facture_id' => null]);
         }

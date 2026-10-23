@@ -102,6 +102,7 @@ final class ConsommationTranscription
         return match (true) {
             $organisation->statut_abonnement === 'impaye' => 'Une facture de votre abonnement attend son règlement : réglez-la dans les réglages de facturation pour utiliser la transcription.',
             $organisation->statut_abonnement !== 'actif' => 'La transcription demande un abonnement en cours.',
+            $organisation->attendIdentite() => 'La transcription s’ouvre une fois l’identité de qui a inscrit la clinique vérifiée.',
             $this->montant($this->secondesDeLaPeriode($organisation)) >= $organisation->plafond_transcription => 'Le plafond de transcription de votre organisation est atteint pour cette période. Un administrateur peut le relever dans les réglages de l’organisation.',
             $budget !== null && $this->depenseDeepgram() >= $budget => 'La transcription est momentanément indisponible. Réessayez plus tard.',
             default => null,

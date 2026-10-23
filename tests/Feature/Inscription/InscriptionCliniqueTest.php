@@ -13,12 +13,17 @@ use App\Models\Organisation;
 use App\Models\Societe;
 use App\Models\User;
 use App\Paiements\PasserelleAbonnement;
+use App\Paiements\PasserelleIdentite;
+use App\Paiements\PasserellePaiement;
+use App\Services\Transcription\ConsommationTranscription;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserelleAbonnementFactice;
+use Tests\Doubles\PasserelleIdentiteFactice;
+use Tests\Doubles\PasserellePaiementFactice;
 use Tests\TestCase;
 
 /**
@@ -176,6 +181,75 @@ class InscriptionCliniqueTest extends TestCase
         app(ContexteClinique::class)->oublier();
         $this->getJson('/api/v1/patients', $entetes)->assertOk();
         $this->getJson('/api/v1/auth/moi', $entetes)->assertJsonPath('data.organisation.fermeture', null);
+    }
+
+    public function test_sans_identite_verifiee_la_clinique_s_ouvre_quelques_jours_sans_ce_qui_coute(): void
+    {
+        $identite = new PasserelleIdentiteFactice;
+        $this->app->instance(PasserelleIdentite::class, $identite);
+        $this->app->instance(PasserellePaiement::class, new PasserellePaiementFactice);
+        ['user' => $user, 'jeton' => $ancien] = $this->proprietaireAvecJeton();
+
+        $entetes = $this->enTetes($this->postJson('/api/v1/inscription-clinique', $this->inscription(), $this->enTetes($ancien))
+            ->assertCreated()
+            ->assertJsonPath('data.organisation.verification', 'verifiee')
+            ->assertJsonPath('data.organisation.identite_avant_le', now('Europe/Zurich')->addDays(7)->toDateString())
+            ->assertJsonPath('data.organisation.inscrite_par_moi', true)
+            ->json('data.token'));
+        $organisation = Organisation::query()->where('inscrite_par', $user->id)->firstOrFail();
+
+        // Abonnée, elle travaille, mais la transcription attend l'identité
+        $stripe = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $stripe);
+        $this->postJson('/api/v1/organisation/moyen-paiement/intention', [], $entetes)->assertOk();
+        $this->putJson('/api/v1/organisation/moyen-paiement', ['payment_method' => $stripe->carteConfirmee($organisation->refresh()->stripe_client_id)], $entetes)->assertOk();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'individuel'], $entetes)->assertOk();
+        app(ContexteClinique::class)->oublier();
+        $this->getJson('/api/v1/patients', $entetes)->assertOk();
+        $this->assertStringContainsString('identité', (string) app(ConsommationTranscription::class)->refus($organisation->refresh()));
+
+        // La page de Stripe : une seule session, rouverte tant que rien n'est envoyé
+        $url = $this->postJson('/api/v1/auth/identite/session', [], $entetes)->assertOk()->json('data.url');
+        $this->assertSame($url, $this->postJson('/api/v1/auth/identite/session', [], $entetes)->assertOk()->json('data.url'));
+        $this->assertCount(1, $identite->sessions);
+
+        // Le même nom que MedReg : identité vérifiée, badge, clinique ouverte pour de bon
+        $session = $user->refresh()->identite_session_id;
+        $identite->verifier($session, 'Léa', 'Fontaine');
+        $this->webhookIdentite('evt_id_1', 'identity.verification_session.verified', $session);
+        $user->refresh();
+        $this->assertSame(['verifiee', 'verifie'], [$user->identite_statut->value, $user->verification_veterinaire->value]);
+        $organisation->refresh();
+        $this->assertNull($organisation->identite_avant_le);
+        $this->assertNull(app(ConsommationTranscription::class)->refus($organisation));
+        $this->assertSame(150, $organisation->frais_identite_centimes);
+
+        // La vérification part sur la facture suivante, une seule fois
+        $this->travelTo($organisation->periode_fin->copy()->setTime(9, 0));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $renouvellement = $organisation->refresh()->facturesAbonnement()->latest('id')->firstOrFail();
+        $this->assertContains('Vérification d’identité (Stripe Identity)', array_column($renouvellement->lignes, 'libelle'));
+        $this->assertNull($organisation->frais_identite_centimes);
+    }
+
+    public function test_sans_identite_au_bout_du_delai_la_clinique_se_ferme(): void
+    {
+        ['jeton' => $ancien] = $this->proprietaireAvecJeton();
+        $entetes = $this->enTetes($this->postJson('/api/v1/inscription-clinique', $this->inscription(), $this->enTetes($ancien))->assertCreated()->json('data.token'));
+        $organisation = Organisation::query()->latest('id')->firstOrFail();
+        $organisation->forceFill(['statut_abonnement' => 'actif', 'periode_debut' => now(), 'periode_fin' => now()->addMonth(), 'identite_avant_le' => now('Europe/Zurich')->subDay()->toDateString()])->save();
+
+        app(ContexteClinique::class)->oublier();
+        $this->getJson('/api/v1/patients', $entetes)->assertForbidden()->assertJsonPath('code', 'identite_requise');
+        $this->assertFalse(Organisation::query()->ouvertes()->whereKey($organisation->id)->exists());
+    }
+
+    /** Événement Stripe Identity (compte de la plateforme) */
+    private function webhookIdentite(string $id, string $type, string $session): void
+    {
+        $this->call('POST', '/api/v1/stripe/webhook', [], [], [], ['HTTP_STRIPE_SIGNATURE' => 'signature-valide', 'CONTENT_TYPE' => 'application/json'], json_encode([
+            'id' => $id, 'type' => $type, 'data' => ['object' => ['id' => $session]],
+        ]))->assertNoContent();
     }
 
     public function test_une_inscription_non_verifiee_attend_la_plateforme_qui_valide_par_lien_signe(): void

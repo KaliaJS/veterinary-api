@@ -76,7 +76,7 @@ class SessionResource extends JsonResource
         ];
     }
 
-    /** @return array{id: int, nom: string, verification: string, verification_note: ?string, abonnement_en_cours: bool, fermeture: ?string} */
+    /** @return array{id: int, nom: string, verification: string, verification_note: ?string, abonnement_en_cours: bool, fermeture: ?string, identite_avant_le: ?string, inscrite_par_moi: bool} */
     private function organisation(Employe $employe): array
     {
         $organisation = $employe->organisation;
@@ -88,6 +88,9 @@ class SessionResource extends JsonResource
             'verification_note' => $organisation->verification_note,
             'abonnement_en_cours' => $organisation->abonnementEnCours(),
             'fermeture' => $organisation->fermeture()['code'] ?? null,
+            // Ouverte en attendant l'identité de qui l'a inscrite (23.10.2026)
+            'identite_avant_le' => $organisation->identite_avant_le?->toDateString(),
+            'inscrite_par_moi' => $organisation->inscrite_par === $employe->user_id,
         ];
     }
 }
