@@ -36,6 +36,7 @@ class BlocPermissionsTest extends TestCase
         $intervention = Intervention::factory()->create(['clinique_id' => $this->clinique->id]);
         $entetes = $this->enTetes($jeton);
 
+        $this->getJson('/api/v1/bloc/ressources', $entetes)->assertForbidden();
         $this->getJson('/api/v1/bloc/interventions', $entetes)->assertForbidden();
         $this->postJson('/api/v1/bloc/interventions', [], $entetes)->assertForbidden();
         $this->getJson("/api/v1/bloc/interventions/{$intervention->id}", $entetes)->assertForbidden();

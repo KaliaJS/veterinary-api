@@ -78,6 +78,21 @@ class InterventionTest extends TestCase
         ]);
     }
 
+    public function test_les_ressources_du_bloc_sont_les_salles_de_bloc_et_les_veterinaires_de_la_clinique(): void
+    {
+        Salle::factory()->create(['clinique_id' => $this->clinique->id, 'type' => 'consultation', 'nom' => 'Consultation 1']);
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        Salle::factory()->bloc()->create(['clinique_id' => $soeur->id]);
+        Employe::factory()->dans($this->clinique)->create(['role_libelle' => 'ASV · Bloc', 'nom' => 'Lena Berger']);
+        Employe::factory()->dans($this->clinique)->create(['role_libelle' => 'Vétérinaire', 'nom' => 'Dr Partie', 'acces_suspendu' => true]);
+        Employe::factory()->dans($soeur)->create(['role_libelle' => 'Vétérinaire', 'nom' => 'Dr Ailleurs']);
+
+        $reponse = $this->getJson('/api/v1/bloc/ressources', $this->jeton())->assertOk();
+
+        $this->assertSame([$this->salle->id], array_column($reponse->json('data.salles'), 'id'));
+        $this->assertSame([$this->chirurgien->id], array_column($reponse->json('data.chirurgiens'), 'id'));
+    }
+
     private function rendezVousChir(): RendezVous
     {
         return RendezVous::factory()->pourPatient($this->patient)->create([

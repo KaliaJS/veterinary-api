@@ -120,6 +120,7 @@ use App\Http\Controllers\Api\V1\RendezVousAuditController;
 use App\Http\Controllers\Api\V1\RendezVousController;
 use App\Http\Controllers\Api\V1\RendezVousPlacementController;
 use App\Http\Controllers\Api\V1\RendezVousStatutController;
+use App\Http\Controllers\Api\V1\RessourcesBlocController;
 use App\Http\Controllers\Api\V1\ResultatAnalyseController;
 use App\Http\Controllers\Api\V1\SalleController;
 use App\Http\Controllers\Api\V1\SejourController;
@@ -754,6 +755,7 @@ Route::prefix('v1')->group(function (): void {
         // planning. Cycle un cran à la fois, checklist bloquante avant
         // l'incision, consentement coché par sa seule signature.
         Route::middleware(['can:bloc', 'service:chirurgie'])->prefix('bloc')->group(function (): void {
+            Route::get('ressources', RessourcesBlocController::class);
             Route::get('interventions', [InterventionController::class, 'index']);
             Route::post('interventions', [InterventionController::class, 'store']);
             Route::get('interventions/{intervention}', [InterventionController::class, 'show']);

@@ -58,6 +58,10 @@ class BlocSeeder extends Seeder
                 'duree_minutes' => $duree,
                 'statut' => $statut,
                 'protocole_anesthesique' => $protocole,
+                // Incision dix minutes après l'heure prévue, une fois démarrée
+                'incision_a' => in_array($statut, [StatutIntervention::Cours, StatutIntervention::Reveil, StatutIntervention::Fini], true)
+                    ? CarbonImmutable::today('Europe/Zurich')->addMinutes($minutes + 10)->utc()
+                    : null,
             ]);
 
             $this->creerChecklist($intervention, $statut);

@@ -26,7 +26,7 @@ class Intervention extends Model
 
     /** Checklist de sécurité de base (CKL du front), code → libellé. */
     public const array CHECKLIST_DE_BASE = [
-        'jeun' => 'À jeun depuis 12 h — vérifié auprès du propriétaire',
+        'jeun' => 'À jeun depuis 12 h, vérifié auprès du propriétaire',
         'consent' => 'Consentement éclairé signé',
         'premed' => 'Prémédication administrée',
         'iv' => 'Voie veineuse posée + fluides prêts',
@@ -36,10 +36,10 @@ class Intervention extends Model
 
     /** Protocole anesthésique proposé à la création (front). */
     public const array PROTOCOLE_PAR_DEFAUT = [
-        'Prémédication — à définir avec l\'anesthésiste',
-        'Induction — propofol IV titré',
-        'Maintien — isoflurane · O₂ 100 %',
-        'Analgésie — plan à confirmer',
+        'Prémédication : à définir avec l\'anesthésiste',
+        'Induction : propofol IV titré',
+        'Maintien : isoflurane · O₂ 100 %',
+        'Analgésie : plan à confirmer',
     ];
 
     /** Miroir des défauts de la base. */
