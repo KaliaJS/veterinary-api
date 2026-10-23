@@ -23,7 +23,9 @@ return new class extends Migration
             $table->string('domaine_statut', 10)->nullable();
             $table->string('domaine_erreur')->nullable();
             $table->string('domaine_fournisseur_id')->nullable();
-            $table->timestamp('domaine_verifie_le')->nullable();
+            $table->timestamp('domaine_verifie_le')->nullable()->comment('Dernière vérification réussie (23.10.2026 : revérifié chaque heure)');
+            $table->string('domaine_jeton', 64)->nullable()->comment('Valeur de l’enregistrement TXT qui prouve que le domaine est à l’organisation');
+            $table->timestamp('domaine_relie_le')->nullable()->comment('Relié ce jour-là : en attente plus de 14 jours, il est retiré');
             $table->boolean('est_publie')->default(false);
             $table->string('couleur', 20)->default('sauge');
             $table->string('mode', 10)->default('clair');

@@ -28,4 +28,17 @@ class ResolveurDns
 
         return false;
     }
+
+    /**
+     * Les valeurs TXT d'un nom (preuve qu'un domaine est à qui le relie).
+     *
+     * @return list<string>
+     */
+    public function txt(string $nom): array
+    {
+        return array_values(array_filter(array_map(
+            fn (array $enregistrement): ?string => $enregistrement['txt'] ?? null,
+            @dns_get_record($nom, DNS_TXT) ?: [],
+        )));
+    }
 }

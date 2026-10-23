@@ -52,7 +52,7 @@ class SiteWeb extends Model
     ];
 
     protected $fillable = [
-        'organisation_id', 'slug', 'domaine', 'domaine_statut', 'domaine_erreur', 'domaine_fournisseur_id', 'domaine_verifie_le', 'est_publie', 'couleur', 'mode', 'couleur_perso', 'police', 'coins', 'logo_chemin', 'accroche', 'presentation',
+        'organisation_id', 'slug', 'domaine', 'domaine_statut', 'domaine_erreur', 'domaine_fournisseur_id', 'domaine_verifie_le', 'domaine_jeton', 'domaine_relie_le', 'est_publie', 'couleur', 'mode', 'couleur_perso', 'police', 'coins', 'logo_chemin', 'accroche', 'presentation',
         'tel_urgences', 'afficher_tel', 'afficher_email', 'services', 'equipe_masquee', 'actualites',
     ];
 
@@ -61,6 +61,7 @@ class SiteWeb extends Model
         return [
             'est_publie' => 'boolean',
             'domaine_verifie_le' => 'datetime',
+            'domaine_relie_le' => 'datetime',
             'services' => 'array',
             'equipe_masquee' => 'array',
             'afficher_tel' => 'boolean',
@@ -142,9 +143,10 @@ class SiteWeb extends Model
         $estNu = count($etiquettes) === 2;
         $ip = config('sites.domaines.ip');
 
+        $sousDomaine = implode('.', array_slice($etiquettes, 0, -2));
         $enregistrement = $estNu && $ip
             ? ['type' => 'A', 'nom' => '@', 'valeur' => $ip]
-            : ['type' => 'CNAME', 'nom' => $estNu ? '@' : implode('.', array_slice($etiquettes, 0, -2)), 'valeur' => config('sites.domaines.cible_cname')];
+            : ['type' => 'CNAME', 'nom' => $estNu ? '@' : $sousDomaine, 'valeur' => config('sites.domaines.cible_cname')];
 
         return [
             'nom' => $this->domaine,
@@ -153,6 +155,12 @@ class SiteWeb extends Model
             'verifie_le' => $this->domaine_verifie_le?->toIso8601String(),
             'est_nu' => $estNu,
             'enregistrement' => $enregistrement,
+            // La preuve que le domaine est à l'organisation (23.10.2026)
+            'verification' => $this->domaine_jeton ? [
+                'type' => 'TXT',
+                'nom' => DomaineSite::PREFIXE_TXT.($sousDomaine !== '' ? '.'.$sousDomaine : ''),
+                'valeur' => DomaineSite::valeurTxt($this->domaine_jeton),
+            ] : null,
         ];
     }
 

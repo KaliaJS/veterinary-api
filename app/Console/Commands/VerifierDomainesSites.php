@@ -15,9 +15,18 @@ class VerifierDomainesSites extends Command
 
     public function handle(DomaineSite $domaines): int
     {
+        // En attente : vérifiés, ou retirés après 14 jours (le nom se libère)
         SiteWeb::withoutGlobalScopes()
             ->whereNotNull('domaine')
             ->where('domaine_statut', '!=', DomaineSite::ACTIF)
+            ->each(fn (SiteWeb $site) => $site->domaine_relie_le !== null && $site->domaine_relie_le->lt(now()->subDays(DomaineSite::ATTENTE_JOURS))
+                ? $domaines->retirer($site)
+                : $domaines->verifier($site));
+
+        // Actifs : revérifiés chaque heure (DNS changé, domaine vendu)
+        SiteWeb::withoutGlobalScopes()
+            ->where('domaine_statut', DomaineSite::ACTIF)
+            ->where(fn ($requete) => $requete->whereNull('domaine_verifie_le')->orWhere('domaine_verifie_le', '<', now()->subHour()))
             ->each(fn (SiteWeb $site) => $domaines->verifier($site));
 
         return self::SUCCESS;

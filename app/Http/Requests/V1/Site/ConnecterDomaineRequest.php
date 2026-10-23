@@ -3,6 +3,7 @@
 namespace App\Http\Requests\V1\Site;
 
 use App\Models\SiteWeb;
+use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -38,6 +39,17 @@ class ConnecterDomaineRequest extends FormRequest
                 'max:253',
                 'regex:/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}$/',
                 Rule::notIn(config('sites.domaines.reserves')),
+                // Ni un sous-domaine des nôtres (23.10.2026)
+                function (string $attribut, mixed $valeur, Closure $echec): void {
+                    foreach (config('sites.domaines.reserves') as $reserve) {
+                        $base = implode('.', array_slice(explode('.', (string) $reserve), -2));
+                        if ($base !== '' && ($valeur === $base || str_ends_with((string) $valeur, '.'.$base))) {
+                            $echec('Ce domaine ne peut pas être utilisé.');
+
+                            return;
+                        }
+                    }
+                },
                 Rule::unique('sites_web', 'domaine')->ignore($site?->id),
             ],
         ];

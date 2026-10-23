@@ -6,6 +6,8 @@ use App\Auth\ContexteClinique;
 use App\Auth\RolesParDefaut;
 use App\Models\Clinique;
 use App\Models\Role;
+use App\Models\SiteWeb;
+use App\Services\Domaines\DomaineSite;
 use App\Services\Domaines\ResolveurDns;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
@@ -30,6 +32,9 @@ class DomaineSiteTest extends TestCase
 
     private bool $pointe = false;
 
+    /** Le client a posé l'enregistrement TXT demandé */
+    private bool $txtPose = true;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -51,6 +56,11 @@ class DomaineSiteTest extends TestCase
             {
                 return $this->test->dnsPointe();
             }
+
+            public function txt(string $nom): array
+            {
+                return $this->test->dnsTxt($nom);
+            }
         });
 
         $clinique = Clinique::factory()->create(['nom' => 'Deux Rives']);
@@ -62,6 +72,17 @@ class DomaineSiteTest extends TestCase
     public function dnsPointe(): bool
     {
         return $this->pointe;
+    }
+
+    /** @return list<string> */
+    public function dnsTxt(string $nom): array
+    {
+        if (! $this->txtPose) {
+            return [];
+        }
+        $site = SiteWeb::withoutGlobalScopes()->whereNotNull('domaine_jeton')->first();
+
+        return $site && $nom === DomaineSite::PREFIXE_TXT.'.'.$site->domaine ? [DomaineSite::valeurTxt($site->domaine_jeton)] : [];
     }
 
     private function administrateur(Clinique $clinique): string
@@ -220,5 +241,60 @@ class DomaineSiteTest extends TestCase
         $this->assertSame('https://app.veterinary.test', $origine('https://app.veterinary.test'));
         $this->assertSame('capacitor://localhost', $origine('capacitor://localhost'));
         $this->assertNull($origine('https://site-malveillant.example'));
+    }
+
+    public function test_sans_l_enregistrement_txt_le_domaine_reste_en_attente(): void
+    {
+        $this->txtPose = false;
+        $this->pointe = true;
+
+        $info = $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.domaine.statut', 'attente')
+            ->assertJsonPath('data.domaine.verification.type', 'TXT')
+            ->assertJsonPath('data.domaine.verification.nom', '_veterinary.www')
+            ->json('data.domaine');
+        $this->assertStringStartsWith('veterinary-verification=', $info['verification']['valeur']);
+        $this->assertStringContainsString('TXT', (string) $info['erreur']);
+        $this->getJson('/api/v1/public/domaines/www.ma-clinique.ch')->assertNotFound();
+
+        $this->txtPose = true;
+        $this->artisan('sites:verifier-domaines')->assertSuccessful();
+        $this->getJson('/api/v1/public/domaines/www.ma-clinique.ch')->assertOk();
+    }
+
+    public function test_un_sous_domaine_de_la_plateforme_est_refuse(): void
+    {
+        foreach (['clinique.veterinary.ch', 'veterinary.ch', 'a.b.veterinary.ch'] as $domaine) {
+            $this->putJson('/api/v1/site/domaine', ['domaine' => $domaine], $this->enTetes($this->jeton))
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('domaine');
+        }
+    }
+
+    public function test_un_domaine_actif_qui_ne_pointe_plus_tient_un_jour_puis_se_desactive(): void
+    {
+        $this->pointe = true;
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertJsonPath('data.domaine.statut', 'actif');
+
+        // Le DNS change : une heure après, toujours servi (panne passagère ?)
+        $this->pointe = false;
+        $this->travel(2)->hours();
+        $this->artisan('sites:verifier-domaines')->assertSuccessful();
+        $this->getJson('/api/v1/public/domaines/www.ma-clinique.ch')->assertOk();
+
+        // Un jour sans réponse juste : il ne l'est plus
+        $this->travel(1)->days();
+        $this->artisan('sites:verifier-domaines')->assertSuccessful();
+        $this->getJson('/api/v1/public/domaines/www.ma-clinique.ch')->assertNotFound();
+    }
+
+    public function test_un_domaine_en_attente_plus_de_quatorze_jours_est_retire(): void
+    {
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertJsonPath('data.domaine.statut', 'attente');
+
+        $this->travel(15)->days();
+        $this->artisan('sites:verifier-domaines')->assertSuccessful();
+        $this->assertNull(SiteWeb::withoutGlobalScopes()->firstOrFail()->domaine);
     }
 }
