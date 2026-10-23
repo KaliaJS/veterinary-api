@@ -912,8 +912,9 @@ caisse.
   `paiements_maj_le`, relus à l'affichage et au webhook `account.updated`
   (comptes connectés). Paiements directs sur le compte (en-tête
   Stripe-Account) ; commission de la plateforme en frais d'application :
-  0,5 % des paiements au terminal (`STRIPE_COMMISSION_TERMINAL`), TWINT à
-  la caisse réglable (`STRIPE_COMMISSION_TWINT`, 0). Sans compte actif,
+  0,5 % des paiements au terminal et par TWINT à la caisse
+  (`STRIPE_COMMISSION_TERMINAL`, `STRIPE_COMMISSION_TWINT`) ; aucune sur
+  les acomptes en ligne. Sans compte actif,
   ni terminal, ni TWINT, ni acompte (422 `paiements`, `acompte_centimes`).
 
 ---

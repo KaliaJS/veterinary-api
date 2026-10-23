@@ -25,7 +25,7 @@ use Tests\TestCase;
  * Compte de paiement de chaque société (Stripe Connect sans tableau de
  * bord, 23.10.2026) : l'administrateur l'ouvre et s'inscrit dans l'app ;
  * terminal, TWINT et acomptes encaissent sur ce compte, la plateforme
- * prenant 0,5 % sur le terminal ; rien n'encaisse tant qu'il n'est pas actif.
+ * prenant 0,5 % sur le terminal et TWINT ; rien n'encaisse tant qu'il n'est pas actif.
  */
 class ComptePaiementSocieteTest extends TestCase
 {
@@ -126,11 +126,11 @@ class ComptePaiementSocieteTest extends TestCase
         // 0,5 % de 120 CHF
         $this->assertSame(60, $intention['commission']);
 
-        // TWINT à la caisse : pas de commission tant qu'elle n'est pas réglée
+        // TWINT à la caisse : 0,5 % aussi
         $id = $this->postJson("/api/v1/facturation/factures/{$facture->id}/paiements", ['moyen' => 'twint'], $this->enTetes($this->jeton))
             ->assertCreated()->json('data.id');
         $twint = $this->stripe->intentions[Paiement::query()->findOrFail($id)->stripe_payment_intent_id];
-        $this->assertSame(['acct_deux_rives', 0], [$twint['compte'], $twint['commission']]);
+        $this->assertSame(['acct_deux_rives', 60], [$twint['compte'], $twint['commission']]);
     }
 
     public function test_l_acompte_se_paie_sur_le_compte_de_la_societe(): void
