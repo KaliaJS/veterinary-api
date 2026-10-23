@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Equipe;
 
+use App\Auth\EmetteurJetons;
 use App\Auth\RolesParDefaut;
 use App\Enums\FormuleSaas;
 use App\Enums\StatutAbsence;
@@ -197,13 +198,16 @@ class EmployeRhTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.acces_suspendu', true);
 
-        $this->getJson('/api/v1/rendez-vous', $this->enTetes($jetonCollegue))->assertForbidden();
+        // Le jeton lui-même est révoqué (23.10.2026)
+        $this->getJson('/api/v1/rendez-vous', $this->enTetes($jetonCollegue))->assertUnauthorized();
 
         $this->postJson("/api/v1/equipe/employes/{$collegue->id}/retablir", [], $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonPath('data.acces_suspendu', false);
 
-        $this->getJson('/api/v1/rendez-vous', $this->enTetes($jetonCollegue))->assertOk();
+        // Rétablie, la personne se reconnecte et retrouve la clinique
+        $nouveau = app(EmetteurJetons::class)->emettre($collegue->user)['jeton']->plainTextToken;
+        $this->getJson('/api/v1/rendez-vous', $this->enTetes($nouveau))->assertOk();
     }
 
     public function test_le_retablissement_reverifie_le_quota_de_la_formule(): void

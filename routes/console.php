@@ -26,3 +26,7 @@ Schedule::command('inscriptions:reessayer')->hourly()->withoutOverlapping();
 Schedule::command('transcriptions:purger')->dailyAt('03:30')->timezone('Europe/Zurich')->withoutOverlapping();
 // Point du matin sur le stock (seuils, péremptions), avant l'ouverture des cliniques
 Schedule::command('alertes:stock')->dailyAt('07:00')->timezone('Europe/Zurich')->withoutOverlapping();
+
+// Contrats terminés : accès suspendu et jetons révoqués ; jetons expirés supprimés
+Schedule::command('equipe:fermer-contrats')->dailyAt('00:15')->timezone('Europe/Zurich')->withoutOverlapping();
+Schedule::command('sanctum:prune-expired --hours=48')->dailyAt('04:45')->withoutOverlapping();

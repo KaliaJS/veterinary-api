@@ -6,6 +6,7 @@ use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\JetonApi;
 use App\Models\User;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -76,10 +77,18 @@ class EmetteurJetons
      */
     public function rafraichir(User $user, JetonApi $jetonCourant): array
     {
+        // Durée absolue : une session ne se prolonge pas indéfiniment
+        if ($jetonCourant->debutSession()->lt(now()->subDays(JetonApi::SESSION_MAX_JOURS))) {
+            $jetonCourant->delete();
+
+            throw new AuthenticationException('Session expirée : reconnectez-vous.');
+        }
+
         $resultat = $jetonCourant->clinique_id === null
             ? ['jeton' => $this->emettreSansClinique($user, $jetonCourant->name), 'employe' => null]
             : $this->emettre($user, $jetonCourant->clinique_id, $jetonCourant->name);
 
+        $this->garderLaSession($resultat['jeton'], $jetonCourant);
         $jetonCourant->delete();
 
         return $resultat;
@@ -98,9 +107,16 @@ class EmetteurJetons
     {
         $resultat = $this->emettre($user, $cliniqueId, $jetonCourant->name);
 
+        $this->garderLaSession($resultat['jeton'], $jetonCourant);
         $jetonCourant->delete();
 
         return $resultat;
+    }
+
+    /** Le jeton neuf garde le début de la session de l'ancien. */
+    private function garderLaSession(NewAccessToken $neuf, JetonApi $ancien): void
+    {
+        $neuf->accessToken->forceFill(['session_depuis' => $ancien->debutSession()])->save();
     }
 
     public function expireLe(): Carbon

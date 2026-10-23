@@ -12,6 +12,7 @@ use App\Models\JetonApi;
 use App\Services\Inscription\InscriptionClinique;
 use App\Services\Inscription\VerificationVeterinaire;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Inscription d'une clinique par un compte connecté (avec ou sans
@@ -42,6 +43,10 @@ class InscriptionCliniqueController extends Controller
     public function inscrire(InscrireCliniqueRequest $request, InscriptionClinique $inscription, EmetteurJetons $emetteur): JsonResponse
     {
         $user = $request->user();
+        // Une clinique ne s'inscrit qu'avec une adresse prouvée (code e-mail)
+        if ($user->email_verified_at === null) {
+            throw ValidationException::withMessages(['email' => 'Confirmez d’abord votre adresse e-mail : connectez-vous avec le code reçu par e-mail, puis inscrivez votre clinique.']);
+        }
         $employe = $inscription->inscrire($user, $request->validated());
 
         /** @var JetonApi $ancien */

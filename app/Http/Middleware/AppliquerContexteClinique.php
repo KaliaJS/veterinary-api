@@ -38,6 +38,11 @@ class AppliquerContexteClinique
             return $next($request);
         }
 
+        // Se déconnecter reste toujours possible, même suspendu ou en fin de contrat
+        if ($mode === 'facultatif' && $request->is('api/v1/auth/deconnexion')) {
+            return $next($request);
+        }
+
         if (! $jeton instanceof JetonApi || $jeton->clinique_id === null) {
             abort(403, 'Jeton non rattaché à une clinique.');
         }
@@ -58,6 +63,11 @@ class AppliquerContexteClinique
         // jeton reste valide mais la porte est fermée.
         if ($employe->acces_suspendu) {
             abort(403, 'Accès suspendu par l’organisation.');
+        }
+
+        // Fin de contrat passée : l'accès se ferme de lui-même (23.10.2026)
+        if ($employe->fin_contrat_le !== null && $employe->fin_contrat_le->lt(today())) {
+            abort(403, 'Contrat terminé : l’accès à la clinique est fermé.');
         }
 
         $this->contexte->definir($jeton->clinique, $employe, $this->calculateur->pour($employe));

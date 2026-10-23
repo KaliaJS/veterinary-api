@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Auth\RevocationJetons;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\EmployeResource;
 use Illuminate\Http\Request;
@@ -23,6 +24,7 @@ class AccesEmployeController extends Controller
         $this->authorize('retirerAcces', $fiche);
 
         $fiche->update(['acces_suspendu' => true]);
+        app(RevocationJetons::class)->pourEmploye($fiche);
 
         return new EmployeResource($fiche);
     }

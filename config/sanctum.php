@@ -37,7 +37,8 @@ return [
     |
     */
 
-    'guard' => ['web'],
+    // Jetons porteurs seulement, jamais de session par cookie
+    'guard' => [],
 
     /*
     |--------------------------------------------------------------------------
@@ -65,7 +66,8 @@ return [
     |
     */
 
-    'token_prefix' => env('SANCTUM_TOKEN_PREFIX', ''),
+    // Préfixe : un jeton qui fuite (dépôt, journal) se repère par les outils de détection
+    'token_prefix' => env('SANCTUM_TOKEN_PREFIX', 'vet_'),
 
     /*
     |--------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Auth;
 
+use App\Auth\RevocationJetons;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Auth\EnregistrerPasskeyRequest;
 use App\Http\Resources\V1\PasskeyResource;
@@ -48,6 +49,9 @@ class PasskeyController extends Controller
     public function supprimer(Request $request, int $passkeyId): Response
     {
         $request->user()->passkeys()->findOrFail($passkeyId)->delete();
+        // Appareil perdu ou passkey retirée : les autres sessions se ferment,
+        // celle d'où l'on agit reste
+        app(RevocationJetons::class)->autresQueLeCourant($request->user());
 
         return response()->noContent();
     }

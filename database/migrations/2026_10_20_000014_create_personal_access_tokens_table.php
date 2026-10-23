@@ -21,6 +21,7 @@ return new class extends Migration
             $table->text('abilities')->nullable();
             $table->timestamp('last_used_at')->nullable();
             $table->timestamp('expires_at')->nullable();
+            $table->timestamp('session_depuis')->nullable()->comment('Connexion d’origine, gardée au rafraîchissement : 30 jours au plus (23.10.2026)');
             $table->timestamps();
 
             $table->index('expires_at');

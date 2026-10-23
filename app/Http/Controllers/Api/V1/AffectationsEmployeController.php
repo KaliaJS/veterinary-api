@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Auth\RevocationJetons;
 use App\Enums\StatutRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Equipe\AffecterEmployeRequest;
@@ -53,6 +54,11 @@ class AffectationsEmployeController extends Controller
         }
 
         $fiche->cliniques()->sync($voulues);
+
+        // Les jetons des cliniques retirées disparaissent aussi
+        foreach ($retirees as $cliniqueId) {
+            app(RevocationJetons::class)->pourEmploye($fiche, (int) $cliniqueId);
+        }
 
         return new EmployeResource($fiche->load(['cliniques', 'lignePlanning']));
     }

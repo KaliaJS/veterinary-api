@@ -69,7 +69,8 @@ class AffectationsEmployeTest extends TestCase
             'cliniques' => [$this->clinique->id],
         ], $entetes)->assertOk();
 
-        $this->getJson('/api/v1/rendez-vous', $this->enTetes($jetonSoeur))->assertForbidden();
+        // Le jeton de la clinique retirée est révoqué lui-même (23.10.2026)
+        $this->getJson('/api/v1/rendez-vous', $this->enTetes($jetonSoeur))->assertUnauthorized();
     }
 
     public function test_toutes_les_cliniques_d_un_coup(): void

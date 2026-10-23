@@ -34,7 +34,7 @@ class VerificationEmailController extends Controller
     ): JsonResponse {
         $user = $request->user();
 
-        $codeEmail->controler($user->email, $request->string('code')->toString());
+        $codeEmail->controler($user->email, $request->string('code')->toString(), parLaSession: true);
         $codeEmail->consommer($user->email);
 
         if ($user->email_verified_at === null) {

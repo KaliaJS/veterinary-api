@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Auth\RevocationJetons;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Equipe\LicencierEmployeRequest;
 use App\Http\Resources\V1\EmployeResource;
@@ -33,6 +34,9 @@ class LicenciementEmployeController extends Controller
             'licenciement_motif' => $request->validated('motif'),
             ...($request->boolean('revoquer_acces') ? ['acces_suspendu' => true] : []),
         ]);
+        if ($request->boolean('revoquer_acces')) {
+            app(RevocationJetons::class)->pourEmploye($fiche);
+        }
 
         return new EmployeResource($fiche);
     }

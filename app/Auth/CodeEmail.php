@@ -69,7 +69,7 @@ class CodeEmail
      *
      * @throws ValidationException
      */
-    public function controler(string $email, string $code): User
+    public function controler(string $email, string $code, bool $parLaSession = false): User
     {
         // L'essai est compté AVANT la vérification : des essais envoyés en
         // même temps ne passent pas tous le contrôle avant que le compteur
@@ -99,9 +99,18 @@ class CodeEmail
 
         $user = User::where('email', $email)->first() ?? $this->comptes->creer($email, emailVerifie: true);
 
-        // Un code reçu et saisi prouve l'adresse — y compris pour un
-        // compte inscrit par passkey qui ne l'avait pas encore prouvée.
+        // Un code reçu et saisi prouve l'adresse, y compris pour un compte
+        // inscrit par passkey qui ne l'avait pas encore prouvée. Ce qui a été
+        // posé sur ce compte avant la preuve (passkeys, sessions) peut venir
+        // de quelqu'un d'autre qui a pris l'adresse d'avance : effacé
+        // (23.10.2026). Le titulaire de l'adresse ajoute ensuite sa passkey.
+        // Prouvée depuis la session du compte (espace, Réglages), c'est son
+        // titulaire qui la prouve : rien n'est effacé.
         if ($user->email_verified_at === null) {
+            if (! $parLaSession) {
+                $user->passkeys()->delete();
+                $user->tokens()->delete();
+            }
             $user->forceFill(['email_verified_at' => now()])->save();
         }
 

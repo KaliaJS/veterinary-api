@@ -56,6 +56,11 @@ class InvitationController extends Controller
         if (Str::lower($compte->email) !== $invitation->email) {
             throw ValidationException::withMessages(['email' => "Cette invitation est pour {$invitation->email}. Connectez-vous avec cette adresse pour l’accepter."]);
         }
+        // L'adresse doit être prouvée (code e-mail) : sinon quelqu'un qui
+        // l'aurait prise d'avance recevrait l'accès à la clinique
+        if ($compte->email_verified_at === null) {
+            throw ValidationException::withMessages(['email' => 'Confirmez d’abord votre adresse e-mail : connectez-vous avec le code reçu par e-mail, puis acceptez l’invitation.']);
+        }
 
         $fiche = $embauche->embaucher($invitation->organisation, $compte, [...$invitation->donnees, 'nom' => $invitation->nom], 'email');
         $invitation->forceFill(['acceptee_le' => now(), 'employe_id' => $fiche->id])->save();

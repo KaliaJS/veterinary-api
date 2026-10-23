@@ -5,6 +5,7 @@ namespace Tests\Feature\Auth;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
@@ -73,6 +74,23 @@ class LimitesConnexionTest extends TestCase
         }
 
         $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $code])->assertOk();
+    }
+
+    public function test_un_compte_pris_d_avance_par_passkey_perd_passkeys_et_sessions_quand_le_titulaire_prouve_l_adresse(): void
+    {
+        Notification::fake();
+        // Quelqu'un a inscrit l'adresse de la victime avec sa propre passkey
+        $user = User::factory()->create(['email' => 'victime@exemple.ch', 'email_verified_at' => null]);
+        DB::table('passkeys')->insert(['user_id' => $user->id, 'nom' => 'Clé de l’attaquant', 'credential_id' => 'cle-attaquant', 'donnees' => '{}', 'created_at' => now(), 'updated_at' => now()]);
+        $user->createToken('attaquant');
+
+        $code = $this->envoyerEtRecupererLeCode($user);
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $code])->assertOk();
+
+        $this->assertSame(0, $user->passkeys()->count());
+        $this->assertNotNull($user->fresh()->email_verified_at);
+        // Seule reste la session que la victime vient d'ouvrir
+        $this->assertSame(1, $user->tokens()->count());
     }
 
     private function envoyerEtRecupererLeCode(User $user): string
