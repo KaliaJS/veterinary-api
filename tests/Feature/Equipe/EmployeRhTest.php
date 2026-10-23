@@ -7,11 +7,13 @@ use App\Auth\RolesParDefaut;
 use App\Enums\FormuleSaas;
 use App\Enums\StatutAbsence;
 use App\Enums\TypeAbsence;
+use App\Mail\InvitationEquipe;
 use App\Models\Absence;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -37,6 +39,7 @@ class EmployeRhTest extends TestCase
     {
         parent::setUp();
 
+        Mail::fake();
         $this->clinique = Clinique::factory()->create();
 
         ['employe' => $this->employe, 'jeton' => $this->jeton] = $this->administrateurAvecJeton($this->clinique);
@@ -56,14 +59,15 @@ class EmployeRhTest extends TestCase
             'cliniques' => [$this->clinique->id],
         ], $this->enTetes($this->jeton));
 
-        $reponse->assertCreated()
-            ->assertJsonPath('data.nom', 'Dr Nadia Rey')
-            ->assertJsonPath('data.initiales', 'NR')
-            ->assertJsonPath('data.contrat_statut', 'attente')
-            ->assertJsonPath('data.email', 'nadia@exemple.ch')
-            ->assertJsonPath('data.cliniques', [$this->clinique->id]);
+        // Jamais sans son accord : une invitation, rien n'est créé avant qu'elle accepte
+        $reponse->assertAccepted()->assertJsonPath('data.email', 'nadia@exemple.ch');
+        $this->assertDatabaseMissing('employes', ['user_id' => $compte->id]);
 
-        $fiche = Employe::withoutGlobalScopes()->find($reponse->json('data.id'));
+        $fiche = $this->accepter($compte);
+        $this->assertSame('Dr Nadia Rey', $fiche->nom);
+        $this->assertSame('NR', $fiche->initiales);
+        $this->assertSame('attente', $fiche->contrat_statut->value ?? $fiche->contrat_statut);
+        $this->assertSame([$this->clinique->id], $fiche->cliniques()->pluck('cliniques.id')->all());
 
         $this->assertSame(RolesParDefaut::VETERINAIRE, $fiche->role->nom);
         $this->assertSame('CDI', $fiche->contrat);
@@ -75,14 +79,14 @@ class EmployeRhTest extends TestCase
     {
         $compte = User::factory()->create(['name' => 'Léa Perrin']);
 
-        $reponse = $this->postJson('/api/v1/equipe/employes', [
+        $this->postJson('/api/v1/equipe/employes', [
             'code' => strtolower($compte->codeEmploye()),
             'poste' => 'ASV · Accueil',
             'contrat_statut' => 'pdf',
             'cliniques' => [$this->clinique->id],
-        ], $this->enTetes($this->jeton))->assertCreated();
+        ], $this->enTetes($this->jeton))->assertAccepted();
 
-        $fiche = Employe::withoutGlobalScopes()->find($reponse->json('data.id'));
+        $fiche = $this->accepter($compte);
 
         $this->assertSame(RolesParDefaut::ASV, $fiche->role->nom);
         $this->assertSame('Léa Perrin', $fiche->nom);
@@ -121,6 +125,16 @@ class EmployeRhTest extends TestCase
             ->assertJsonValidationErrors('code');
     }
 
+    public function test_un_nouveau_code_employe_remplace_l_ancien(): void
+    {
+        $ancien = $this->getJson('/api/v1/auth/moi', $this->enTetes($this->jeton))->json('data.user.code_employe');
+
+        $nouveau = $this->postJson('/api/v1/auth/code-employe', [], $this->enTetes($this->jeton))->assertOk()->json('data.code_employe');
+
+        $this->assertNotSame($ancien, $nouveau);
+        $this->getJson('/api/v1/equipe/comptes/'.$ancien, $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('code');
+    }
+
     public function test_chaque_compte_a_un_code_employe_stable_dans_sa_session(): void
     {
         $premier = $this->getJson('/api/v1/auth/moi', $this->enTetes($this->jeton))->json('data.user.code_employe');
@@ -136,9 +150,11 @@ class EmployeRhTest extends TestCase
         $this->clinique->societe->organisation->update(['plan' => FormuleSaas::Individuel]);
         $entetes = $this->enTetes($this->jeton);
 
+        $premier = User::factory()->create();
         $this->postJson('/api/v1/equipe/employes', [
-            'code' => User::factory()->create()->codeEmploye(), 'poste' => 'Vétérinaire', 'contrat_statut' => 'signe', 'toutes_les_cliniques' => true,
-        ], $entetes)->assertCreated();
+            'code' => $premier->codeEmploye(), 'poste' => 'Vétérinaire', 'contrat_statut' => 'signe', 'toutes_les_cliniques' => true,
+        ], $entetes)->assertAccepted();
+        $this->accepter($premier);
 
         $this->postJson('/api/v1/equipe/employes', [
             'code' => User::factory()->create()->codeEmploye(), 'poste' => 'ASV', 'contrat_statut' => 'signe', 'cliniques' => [$this->clinique->id],
@@ -151,15 +167,16 @@ class EmployeRhTest extends TestCase
     {
         $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
 
-        $reponse = $this->postJson('/api/v1/equipe/employes', [
-            'code' => User::factory()->create()->codeEmploye(),
+        $marc = User::factory()->create();
+        $this->postJson('/api/v1/equipe/employes', [
+            'code' => $marc->codeEmploye(),
             'nom' => 'Dr Marc Weber',
             'poste' => 'Vétérinaire',
             'contrat_statut' => 'signe',
             'toutes_les_cliniques' => true,
-        ], $this->enTetes($this->jeton))->assertCreated();
+        ], $this->enTetes($this->jeton))->assertAccepted();
 
-        $reponse->assertJsonPath('data.cliniques', [$this->clinique->id, $soeur->id]);
+        $this->assertSame([$this->clinique->id, $soeur->id], $this->accepter($marc)->cliniques()->orderBy('cliniques.id')->pluck('cliniques.id')->all());
 
         $this->assertSame(1, Employe::withoutGlobalScopes()->where('nom', 'Dr Marc Weber')->count());
         // Une personne compte une fois dans la limite de la formule
@@ -171,14 +188,14 @@ class EmployeRhTest extends TestCase
         $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
         $troisieme = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
 
+        $asv = User::factory()->create();
         $this->postJson('/api/v1/equipe/employes', [
-            'code' => User::factory()->create()->codeEmploye(),
+            'code' => $asv->codeEmploye(),
             'poste' => 'ASV',
             'contrat_statut' => 'signe',
             'cliniques' => [$soeur->id, $troisieme->id],
-        ], $this->enTetes($this->jeton))
-            ->assertCreated()
-            ->assertJsonPath('data.cliniques', [$soeur->id, $troisieme->id]);
+        ], $this->enTetes($this->jeton))->assertAccepted();
+        $this->assertSame([$soeur->id, $troisieme->id], $this->accepter($asv)->cliniques()->orderBy('cliniques.id')->pluck('cliniques.id')->all());
 
         // Aucune clinique cochée : refusé
         $this->postJson('/api/v1/equipe/employes', [
@@ -300,5 +317,22 @@ class EmployeRhTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.taux', 60)
             ->assertJsonPath('data.contrat', 'CDD → 12.2026');
+    }
+
+    /** La personne accepte l'invitation reçue par e-mail : sa fiche. */
+    private function accepter(User $compte): Employe
+    {
+        $lien = null;
+        Mail::assertSent(InvitationEquipe::class, function (InvitationEquipe $mail) use (&$lien, $compte): bool {
+            if ($mail->hasTo($compte->email)) {
+                $lien = $mail->jeton;
+            }
+
+            return true;
+        });
+        $jeton = app(EmetteurJetons::class)->emettreSansClinique($compte)->plainTextToken;
+        $this->postJson("/api/v1/invitations/{$lien}/accepter", [], $this->enTetes($jeton))->assertCreated();
+
+        return Employe::withoutGlobalScopes()->where('user_id', $compte->id)->firstOrFail();
     }
 }

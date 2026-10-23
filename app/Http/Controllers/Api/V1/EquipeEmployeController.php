@@ -7,9 +7,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Equipe\EmbaucherEmployeRequest;
 use App\Http\Requests\V1\Equipe\ModifierEmployeRequest;
 use App\Http\Resources\V1\EmployeResource;
+use App\Http\Resources\V1\InvitationEmployeResource;
 use App\Models\Employe;
 use App\Models\Role;
 use App\Services\Equipe\Embauche;
+use App\Services\Equipe\InvitationsEquipe;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -56,9 +58,16 @@ class EquipeEmployeController extends Controller
         $this->authorize('attribuerRole', [Employe::class, null, $embauche->role($organisation, $donnees)]);
         $compte = CompteEmployeController::compteDuCode($donnees['code']);
 
-        $fiche = $embauche->embaucher($organisation, $compte, $donnees);
+        // Jamais d'embauche sans l'accord de la personne (23.10.2026) : son
+        // code sert à la trouver, elle reçoit une invitation et l'accepte
+        $invitation = app(InvitationsEquipe::class)->inviter(
+            $organisation,
+            [...$donnees, 'email' => $compte->email, 'nom' => $donnees['nom'] ?? $compte->name],
+            app(ContexteClinique::class)->employe(),
+            'code',
+        );
 
-        return (new EmployeResource($fiche->load('cliniques')))->response()->setStatusCode(JsonResponse::HTTP_CREATED);
+        return (new InvitationEmployeResource($invitation->load('invitant')))->response()->setStatusCode(JsonResponse::HTTP_ACCEPTED);
     }
 
     public function update(ModifierEmployeRequest $request, int $employe): EmployeResource

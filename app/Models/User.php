@@ -119,13 +119,21 @@ class User extends Authenticatable
     public function codeEmploye(): string
     {
         if ($this->code_employe === null) {
-            do {
-                $code = collect(range(1, 6))->map(fn (): string => self::ALPHABET_CODE[random_int(0, strlen(self::ALPHABET_CODE) - 1)])->implode('');
-            } while (self::query()->where('code_employe', $code)->exists());
-            $this->forceFill(['code_employe' => $code])->save();
+            $this->nouveauCodeEmploye();
         }
 
         return $this->code_employe;
+    }
+
+    /** Un code neuf (Réglages, Profil) : l'ancien ne retrouve plus le compte. */
+    public function nouveauCodeEmploye(): string
+    {
+        do {
+            $code = collect(range(1, 6))->map(fn (): string => self::ALPHABET_CODE[random_int(0, strlen(self::ALPHABET_CODE) - 1)])->implode('');
+        } while (self::query()->where('code_employe', $code)->exists());
+        $this->forceFill(['code_employe' => $code])->save();
+
+        return $code;
     }
 
     /** Le code tel qu'on le lit et le dicte : « K7F-3QZ ». */

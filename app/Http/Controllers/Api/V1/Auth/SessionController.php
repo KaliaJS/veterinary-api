@@ -8,6 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\JetonEmisResource;
 use App\Http\Resources\V1\SessionResource;
 use App\Models\JetonApi;
+use App\Models\User;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
@@ -49,5 +51,13 @@ class SessionController extends Controller
         $jeton->delete();
 
         return response()->noContent();
+    }
+
+    /** Un nouveau code employé ; l'ancien ne retrouve plus le compte. */
+    public function nouveauCodeEmploye(Request $request): JsonResponse
+    {
+        $code = $request->user()->nouveauCodeEmploye();
+
+        return response()->json(['data' => ['code_employe' => User::formaterCodeEmploye($code)]]);
     }
 }

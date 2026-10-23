@@ -183,6 +183,8 @@ Route::prefix('v1')->group(function (): void {
         Route::post('passkeys/options', [PasskeyController::class, 'options']);
         Route::post('passkeys', [PasskeyController::class, 'enregistrer']);
         Route::delete('passkeys/{passkey}', [PasskeyController::class, 'supprimer']);
+        // Code employé : un nouveau, si l'ancien a trop circulé
+        Route::post('code-employe', [SessionController::class, 'nouveauCodeEmploye'])->middleware('throttle:5,1');
     });
 
     // Espace Plateforme : réservé aux modérateurs de Veterinary (rôle donné
@@ -621,7 +623,7 @@ Route::prefix('v1')->group(function (): void {
 
             // Gestes RH : droit `rh` (23.10.2026), garde-fous dans EmployePolicy
             Route::middleware('can:rh')->group(function (): void {
-                Route::post('employes', [EquipeEmployeController::class, 'store']);
+                Route::post('employes', [EquipeEmployeController::class, 'store'])->middleware('throttle:30,1');
                 Route::patch('employes/{employe}', [EquipeEmployeController::class, 'update'])->whereNumber('employe');
                 Route::post('employes/{employe}/suspendre', [AccesEmployeController::class, 'suspendre'])->whereNumber('employe');
                 Route::post('employes/{employe}/retablir', [AccesEmployeController::class, 'retablir'])->whereNumber('employe');

@@ -6,15 +6,14 @@ use App\Auth\ContexteClinique;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Equipe\InviterEmployeRequest;
 use App\Http\Resources\V1\InvitationEmployeResource;
-use App\Mail\InvitationEquipe;
 use App\Models\Employe;
 use App\Models\InvitationEmploye;
 use App\Services\Equipe\Embauche;
+use App\Services\Equipe\InvitationsEquipe;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -39,37 +38,15 @@ class InvitationEquipeController extends Controller
         );
     }
 
-    public function store(InviterEmployeRequest $request, Embauche $embauche): JsonResponse
+    public function store(InviterEmployeRequest $request, Embauche $embauche, InvitationsEquipe $invitations): JsonResponse
     {
         $this->authorize('create', Employe::class);
 
         $organisation = $this->contexte->clinique()->societe->organisation;
         $donnees = $request->validated();
         $this->authorize('attribuerRole', [Employe::class, null, $embauche->role($organisation, $donnees)]);
-        $email = Str::lower($donnees['email']);
 
-        $dejaLa = Employe::withoutGlobalScopes()
-            ->where('organisation_id', $organisation->id)
-            ->whereHas('user', fn ($compte) => $compte->where('email', $email))
-            ->exists();
-        if ($dejaLa) {
-            throw ValidationException::withMessages([
-                'email' => 'Cette personne fait déjà partie de l’équipe : ajoutez-lui des cliniques depuis sa fiche.',
-            ]);
-        }
-        $embauche->verifierPlace($organisation);
-
-        InvitationEmploye::query()->where('organisation_id', $organisation->id)->where('email', $email)->enAttente()->update(['annulee_le' => now()]);
-
-        $invitation = new InvitationEmploye([
-            'organisation_id' => $organisation->id,
-            'email' => $email,
-            'nom' => $donnees['nom'],
-            'donnees' => collect($donnees)->except(['email'])->all(),
-            'invitee_par' => $this->contexte->employe()?->id,
-            'expire_le' => now()->addDays(InvitationEmploye::DUREE_JOURS),
-        ]);
-        $this->envoyer($invitation);
+        $invitation = $invitations->inviter($organisation, $donnees, $this->contexte->employe());
 
         return (new InvitationEmployeResource($invitation->load('invitant')))->response()->setStatusCode(JsonResponse::HTTP_CREATED);
     }
@@ -83,7 +60,7 @@ class InvitationEquipeController extends Controller
         if ($fiche->acceptee_le !== null || $fiche->annulee_le !== null) {
             throw ValidationException::withMessages(['invitation' => 'Cette invitation n’est plus en attente.']);
         }
-        $this->envoyer($fiche);
+        app(InvitationsEquipe::class)->envoyer($fiche);
 
         return new InvitationEmployeResource($fiche->fresh('invitant'));
     }
@@ -98,12 +75,6 @@ class InvitationEquipeController extends Controller
         }
 
         return response()->noContent();
-    }
-
-    private function envoyer(InvitationEmploye $invitation): void
-    {
-        $jeton = $invitation->nouveauJeton();
-        Mail::to($invitation->email)->send(new InvitationEquipe($invitation->load('organisation', 'invitant'), $jeton));
     }
 
     private function invitationDeLOrganisation(int $id): InvitationEmploye
