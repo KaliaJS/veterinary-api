@@ -465,6 +465,9 @@ Route::prefix('v1')->group(function (): void {
         // (pas de binding implicite, qui le bornerait à la clinique).
         Route::get('rendez-vous/{rendezVous}/compte-rendu', [CompteRenduController::class, 'afficher']);
         Route::put('rendez-vous/{rendezVous}/compte-rendu', [CompteRenduController::class, 'enregistrer']);
+        Route::post('rendez-vous/{rendezVous}/compte-rendu/signer', [CompteRenduController::class, 'signer']);
+        Route::post('rendez-vous/{rendezVous}/compte-rendu/complements', [CompteRenduController::class, 'completer']);
+        Route::get('rendez-vous/{rendezVous}/compte-rendu/historique', [CompteRenduController::class, 'historique']);
 
         // Transcription des consultations (19.10.2026) — l'audio arrive
         // après la consultation, par morceaux ; il est transcrit, effacé,

@@ -1175,6 +1175,18 @@ a (diagnostic), p (traitement & plan) }`. Table `comptes_rendus` :
 La présence d'un CR est affichée sur le RDV (badge « CR à rédiger » /
 rédigé dans « Ma journée »). PDF signé.
 
+**Signature** (23.10.2026) : `PUT rendez-vous/{id}/compte-rendu` écrit
+le brouillon (domaine patients) ; chaque modification garde la version
+remplacée (`comptes_rendus_versions` : texte, rédacteur, `redigee_le` ;
+`GET …/compte-rendu/historique`). `POST …/compte-rendu/signer` (droit
+`signer_comptes_rendus`, avec le texte à l'écran) pose `signe_le` et
+`signe_par_id` (l'employé du jeton) : le texte ne change plus, même hors
+de l'API (le modèle refuse). Ce qui vient ensuite s'ajoute en complément
+(`POST …/compte-rendu/complements`, même droit ;
+`comptes_rendus_complements` : texte, `signe_par_id`, date), jamais
+modifié ni supprimé. Le PDF porte les compléments, et « Brouillon non
+signé » tant que le CR ne l'est pas.
+
 ### Enregistrement et transcription de la consultation (19.10.2026)
 
 Le vétérinaire enregistre la consultation (accord du propriétaire
