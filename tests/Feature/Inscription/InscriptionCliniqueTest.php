@@ -88,7 +88,7 @@ class InscriptionCliniqueTest extends TestCase
             'nom' => 'Fontaine',
             'gln' => self::GLN,
             ...$vous,
-            'societe' => ['nom' => 'Cabinet Fontaine Sàrl', 'ide' => 'che-123.456.789'],
+            'societe' => ['nom' => 'Cabinet Fontaine Sàrl', 'ide' => 'che-123.456.788'],
             'clinique' => ['nom' => 'Cabinet du Lac', 'rue' => 'Rue du Lac 3', 'npa' => '1003', 'ville' => 'Lausanne', 'tel' => '021 555 00 00', 'email' => 'contact@cabinet-du-lac.test'],
         ];
     }
@@ -148,7 +148,7 @@ class InscriptionCliniqueTest extends TestCase
         $organisation = Organisation::query()->where('inscrite_par', $user->id)->firstOrFail();
         $this->assertSame('Cabinet du Lac', $organisation->nom);
         $this->assertNotNull($organisation->verifiee_le);
-        $this->assertDatabaseHas('societes', ['organisation_id' => $organisation->id, 'nom' => 'Cabinet Fontaine Sàrl', 'ide' => 'CHE-123.456.789']);
+        $this->assertDatabaseHas('societes', ['organisation_id' => $organisation->id, 'nom' => 'Cabinet Fontaine Sàrl', 'ide' => 'CHE-123.456.788']);
         $clinique = $organisation->cliniques()->firstOrFail();
         $this->assertSame('1003', $clinique->npa);
         $this->assertDatabaseHas('horaires_ouverture', ['clinique_id' => $clinique->id]);

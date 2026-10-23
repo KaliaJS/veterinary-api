@@ -5,6 +5,7 @@ namespace App\Services\Paiements;
 use App\Models\Clinique;
 use App\Models\Societe;
 use App\Paiements\PasserellePaiement;
+use App\Rules\NumeroIde;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -80,7 +81,8 @@ class ComptesPaiement
                 'nom' => $societe->nom,
                 'nom_commercial' => $clinique?->raison_sociale ?: $clinique?->nom ?: $societe->nom,
                 'email' => $email,
-                'ide' => $societe->ide,
+                // Seulement un IDE au chiffre de contrôle juste
+                'ide' => NumeroIde::valide($societe->ide) ? $societe->ide : null,
                 'adresse' => $clinique?->rue ? ['rue' => $clinique->rue, 'npa' => $clinique->npa, 'ville' => $clinique->ville] : null,
                 'telephone' => self::telephone($clinique?->tel),
                 'metadonnees' => ['societe_id' => (string) $societe->id, 'organisation_id' => (string) $societe->organisation_id],

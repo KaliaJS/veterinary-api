@@ -34,8 +34,8 @@ class SocieteController extends Controller
     {
         $societe = $this->organisation()->societes()->create([
             'nom' => $request->validated('nom'),
-            'ide' => $request->validated('ide')
-                ?? sprintf('CHE-%03d.%03d.%03d', random_int(100, 999), random_int(100, 999), random_int(100, 999)),
+            // Sans IDE, la société reste sans numéro (jamais un numéro inventé)
+            'ide' => $request->validated('ide'),
         ]);
 
         return new SocieteResource($societe);

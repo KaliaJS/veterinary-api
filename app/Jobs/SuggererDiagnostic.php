@@ -17,6 +17,7 @@ use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Throwable;
 
 /**
@@ -38,6 +39,19 @@ final class SuggererDiagnostic implements ShouldQueue
     public int $timeout = 320;
 
     public function __construct(public int $suggestionId) {}
+
+    /**
+     * Jamais deux fois en même temps pour la même suggestion : une
+     * tâche reprise par un second worker pendant que le premier attend
+     * le fournisseur ne relance pas un appel payant (elle repasse plus
+     * tard et trouve le travail fait).
+     *
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('suggestion-diagnostique:'.$this->suggestionId))->releaseAfter(60)->expireAfter($this->timeout + 100)];
+    }
 
     public function handle(Suggesteur $suggesteur, ConsommationDiagnostic $consommation): void
     {

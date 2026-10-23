@@ -11,6 +11,7 @@ use App\Services\Transcription\RedactionImpossible;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Throwable;
 
 /**
@@ -31,6 +32,19 @@ final class RedigerCompteRendu implements ShouldQueue
     public int $timeout = 400;
 
     public function __construct(public int $enregistrementId) {}
+
+    /**
+     * Jamais deux fois en même temps pour le même enregistrement : une
+     * tâche reprise par un second worker pendant que le premier attend
+     * le fournisseur ne relance pas un appel payant (elle repasse plus
+     * tard et trouve le travail fait).
+     *
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('redaction-compte-rendu:'.$this->enregistrementId))->releaseAfter(60)->expireAfter($this->timeout + 100)];
+    }
 
     /** Le vétérinaire a terminé et la dernière partie est transcrite : la rédaction part, une seule fois. */
     public static function siPret(EnregistrementConsultation $enregistrement): void

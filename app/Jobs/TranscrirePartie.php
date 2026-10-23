@@ -12,6 +12,7 @@ use App\Services\Transcription\Transcripteur;
 use App\Services\Transcription\TranscriptionImpossible;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -35,6 +36,19 @@ final class TranscrirePartie implements ShouldQueue
     public int $timeout = 1000;
 
     public function __construct(public int $partieId) {}
+
+    /**
+     * Jamais deux fois en même temps pour la même partie : une
+     * tâche reprise par un second worker pendant que le premier attend
+     * le fournisseur ne relance pas un appel payant (elle repasse plus
+     * tard et trouve le travail fait).
+     *
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [(new WithoutOverlapping('transcription-partie:'.$this->partieId))->releaseAfter(60)->expireAfter($this->timeout + 100)];
+    }
 
     public function handle(Transcripteur $transcripteur, TermesTranscription $termes, ConsommationTranscription $consommation): void
     {

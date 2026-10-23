@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Auth\RolesParDefaut;
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
+use App\Jobs\TranscrirePartie;
 use App\Mail\AlerteTranscription;
 use App\Mail\PlafondTranscriptionOrganisation;
 use App\Models\Client;
@@ -24,6 +25,7 @@ use App\Services\Transcription\Transcripteur;
 use App\Services\Transcription\TranscriptionImpossible;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
@@ -151,6 +153,27 @@ class EnregistrementConsultationTest extends TestCase
 
         $this->assertSame(['AABB'], array_column($this->transcripteur->appels, 'contenu'));
         $this->morceau($id, 2, 3, 2, 'ZZ')->assertUnprocessable()->assertJsonValidationErrors('morceau');
+    }
+
+    public function test_une_partie_deja_en_cours_de_transcription_n_est_pas_transcrite_une_seconde_fois(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $partieId = fn (): int => (int) PartieEnregistrement::query()->value('id');
+
+        // Un premier worker tient la partie (le fournisseur répond encore)
+        $this->morceau($id, 1, 0, 2, 'AA')->assertOk();
+        $verrou = Cache::lock('laravel-queue-overlap:'.TranscrirePartie::class.':transcription-partie:'.$partieId(), 1100);
+        $this->assertTrue($verrou->get());
+
+        // La partie complète repart dans la file : la reprise ne rappelle pas le fournisseur
+        $this->morceau($id, 1, 1, 2, 'BB')->assertOk();
+        $this->assertSame([], $this->transcripteur->appels);
+
+        // Le premier worker libère la partie : la tâche reprise la transcrit une seule fois
+        $verrou->release();
+        TranscrirePartie::dispatchSync($partieId());
+        TranscrirePartie::dispatchSync($partieId());
+        $this->assertSame(['AABB'], array_column($this->transcripteur->appels, 'contenu'));
     }
 
     public function test_sans_abonnement_en_cours_ou_au_plafond_aucun_enregistrement_ne_commence_mais_celui_en_cours_continue(): void

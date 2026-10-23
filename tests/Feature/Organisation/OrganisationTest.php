@@ -108,15 +108,23 @@ class OrganisationTest extends TestCase
             ->assertJsonPath('data.stats.employes_actifs', 1);
     }
 
-    public function test_une_societe_s_ajoute_avec_un_ide_genere_au_besoin(): void
+    public function test_une_societe_sans_ide_reste_sans_numero(): void
     {
-        $reponse = $this->postJson('/api/v1/organisation/societes', [
+        $this->postJson('/api/v1/organisation/societes', [
             'nom' => 'Vet Riviera Sàrl',
-        ], $this->enTetes($this->jeton));
+        ], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.nom', 'Vet Riviera Sàrl')
+            ->assertJsonPath('data.ide', null);
+    }
 
-        $reponse->assertCreated()->assertJsonPath('data.nom', 'Vet Riviera Sàrl');
-
-        $this->assertMatchesRegularExpression('/^CHE-\d{3}\.\d{3}\.\d{3}$/', $reponse->json('data.ide'));
+    public function test_un_ide_au_chiffre_de_controle_faux_est_refuse(): void
+    {
+        // CHE-422.618.848 existe (Meteora Systems) ; …849 n'existe pas
+        $this->postJson('/api/v1/organisation/societes', ['nom' => 'A', 'ide' => 'CHE-422.618.849'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('ide');
+        $this->postJson('/api/v1/organisation/societes', ['nom' => 'B', 'ide' => 'CHE-422.618.848'], $this->enTetes($this->jeton))
+            ->assertCreated()->assertJsonPath('data.ide', 'CHE-422.618.848');
     }
 
     public function test_une_clinique_se_cree_avec_ses_horaires_par_defaut(): void

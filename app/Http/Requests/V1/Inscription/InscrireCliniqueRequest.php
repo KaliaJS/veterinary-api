@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\V1\Inscription;
 
+use App\Rules\NumeroIde;
+
 /** Le vétérinaire, sa société (IDE facultatif) et sa première clinique. */
 class InscrireCliniqueRequest extends GlnRequest
 {
@@ -20,7 +22,7 @@ class InscrireCliniqueRequest extends GlnRequest
             ...parent::rules(),
             'societe' => ['required', 'array'],
             'societe.nom' => ['required', 'string', 'max:255'],
-            'societe.ide' => ['nullable', 'string', 'regex:/^CHE-\d{3}\.\d{3}\.\d{3}$/'],
+            'societe.ide' => ['nullable', 'string', new NumeroIde],
             'clinique' => ['required', 'array'],
             'clinique.nom' => ['required', 'string', 'max:100'],
             'clinique.rue' => ['required', 'string', 'max:255'],
@@ -35,7 +37,6 @@ class InscrireCliniqueRequest extends GlnRequest
     public function messages(): array
     {
         return [
-            'societe.ide.regex' => 'Le numéro IDE s’écrit CHE-123.456.789.',
             'clinique.npa.regex' => 'Le NPA compte quatre chiffres.',
         ];
     }
