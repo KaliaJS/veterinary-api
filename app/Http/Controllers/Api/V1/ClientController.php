@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Auth\ContexteClinique;
 use App\Enums\StatutRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Clients\EnregistrerClientRequest;
 use App\Http\Requests\V1\Clients\ModifierClientRequest;
 use App\Http\Resources\V1\ClientResource;
 use App\Models\Client;
+use App\Models\RendezVous;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -94,6 +96,8 @@ class ClientController extends Controller
             ->withMin('patients', 'client_depuis')
             ->withCount(['rendezVous as no_shows_count' => fn (Builder $rendezVous) => $rendezVous
                 ->withoutGlobalScope('clinique')
+                // Jamais les absences chez une autre organisation
+                ->whereIn('rendez_vous.clinique_id', RendezVous::cliniquesDe(app(ContexteClinique::class)->organisationId()))
                 ->where('status', StatutRendezVous::Noshow)]);
     }
 }

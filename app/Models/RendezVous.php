@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Auth\ContexteClinique;
 use App\Enums\DrapeauRendezVous;
 use App\Enums\Espece;
 use App\Enums\StatutRendezVous;
@@ -15,6 +16,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Jamais supprimé : l'annulation est le statut `annule` (auteur,
@@ -121,8 +123,21 @@ class RendezVous extends Model
                 ->from('rendez_vous as no_shows')
                 ->selectRaw('count(*)')
                 ->whereColumn('no_shows.client_id', 'rendez_vous.client_id')
+                ->whereIn('no_shows.clinique_id', self::cliniquesDe(app(ContexteClinique::class)->organisationId()))
                 ->where('no_shows.status', StatutRendezVous::Noshow),
             ]);
+    }
+
+    /**
+     * Les cliniques d'une organisation (sous-requête) : un compteur de
+     * no-shows ne compte jamais ceux d'une autre organisation.
+     */
+    public static function cliniquesDe(?int $organisationId): \Illuminate\Database\Query\Builder
+    {
+        return DB::table('cliniques')
+            ->join('societes', 'societes.id', '=', 'cliniques.societe_id')
+            ->where('societes.organisation_id', $organisationId)
+            ->select('cliniques.id');
     }
 
     /** Compteur de no-shows du client — même dérivé, pour un modèle isolé. */
@@ -132,8 +147,11 @@ class RendezVous extends Model
             return 0;
         }
 
+        $organisationId = Client::withoutGlobalScopes()->whereKey($this->client_id)->value('organisation_id');
+
         return RendezVous::withoutGlobalScope('clinique')
             ->where('client_id', $this->client_id)
+            ->whereIn('clinique_id', self::cliniquesDe($organisationId))
             ->where('status', StatutRendezVous::Noshow)
             ->count();
     }
