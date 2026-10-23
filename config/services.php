@@ -52,8 +52,7 @@ return [
             'releves_le' => '2026-10-23',
             'terminal' => ['taux' => 1.4, 'fixe' => 10, 'taux_autres_cartes' => 2.9],
             'twint' => ['taux' => 1.9, 'fixe' => 30],
-            'carte_en_ligne' => ['taux' => 2.9, 'fixe' => 30, 'taux_cartes_etrangeres' => 3.25, 'conversion' => 2],
-            'litige' => 2000,
+            'carte_en_ligne' => ['taux' => 2.9, 'fixe' => 30, 'taux_cartes_etrangeres' => 3.25],
         ],
     ],
 
