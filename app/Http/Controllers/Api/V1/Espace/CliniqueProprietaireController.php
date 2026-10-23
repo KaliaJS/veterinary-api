@@ -145,7 +145,8 @@ class CliniqueProprietaireController extends Controller
             ->sortBy(fn (CliniqueService $ligne): int => $ordre(ServiceClinique::cases())($ligne->service))
             ->values();
 
-        $verifies = $clinique->employes
+        // Seulement les fiches de l'organisation de la clinique (défense en profondeur)
+        $verifies = $clinique->employes->where('organisation_id', $clinique->societe?->organisation_id)
             ->filter(fn (Employe $fiche): bool => $fiche->estVeterinaire() && (bool) $fiche->user?->estVerifie())
             ->sortBy('nom')
             ->values();

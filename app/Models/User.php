@@ -216,10 +216,11 @@ class User extends Authenticatable
     {
         return Employe::withoutGlobalScopes()
             ->where('user_id', $this->id)
-            ->with(['organisation', 'cliniques' => fn ($cliniques) => $cliniques->withoutGlobalScopes()->ouvertes()->where('affiche_veterinaires', true)])
+            ->with(['organisation', 'cliniques' => fn ($cliniques) => $cliniques->withoutGlobalScopes()->ouvertes()->where('affiche_veterinaires', true)->with('societe')])
             ->get()
             ->filter(fn (Employe $fiche): bool => $fiche->estVeterinaire() && $fiche->estPresentable())
-            ->each(fn (Employe $fiche) => $fiche->setRelation('cliniques', $fiche->cliniques->filter(fn (Clinique $clinique): bool => $clinique->estDansLAnnuaire())->values()))
+            // Les cliniques de l'organisation de la fiche seulement (défense en profondeur)
+            ->each(fn (Employe $fiche) => $fiche->setRelation('cliniques', $fiche->cliniques->filter(fn (Clinique $clinique): bool => $clinique->estDansLAnnuaire() && $clinique->societe?->organisation_id === $fiche->organisation_id)->values()))
             ->filter(fn (Employe $fiche): bool => $fiche->cliniques->isNotEmpty())
             ->values();
     }

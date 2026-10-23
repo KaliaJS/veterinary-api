@@ -20,7 +20,9 @@ class DestinatairesAlertes
     /** @return list<string> */
     public function pour(Clinique $clinique, TypeAlerte $type, DomainePermission $domaine): array
     {
+        // Les fiches de l'organisation de la clinique seulement (défense en profondeur)
         return Employe::withoutGlobalScopes()
+            ->where('organisation_id', $clinique->societe?->organisation_id)
             ->whereHas('cliniques', fn ($requete) => $requete->whereKey($clinique->id))
             ->where('acces_suspendu', false)
             ->with(['user', 'role', 'derogations'])

@@ -136,10 +136,12 @@ class EmetteurJetons
     public function rattachements(User $user): Collection
     {
         return Employe::withoutGlobalScopes()
-            ->with('cliniques')
+            ->with('cliniques.societe')
             ->where('user_id', $user->id)
             ->get()
+            // Une clinique de l'organisation de la fiche seulement (défense en profondeur)
             ->flatMap(fn (Employe $employe) => $employe->cliniques
+                ->filter(fn (Clinique $clinique): bool => $clinique->societe?->organisation_id === $employe->organisation_id)
                 ->map(fn (Clinique $clinique): Rattachement => new Rattachement($employe, $clinique)))
             ->sortBy(fn (Rattachement $rattachement): int => $rattachement->clinique->id)
             ->values();

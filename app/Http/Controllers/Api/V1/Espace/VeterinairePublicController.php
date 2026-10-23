@@ -32,6 +32,8 @@ class VeterinairePublicController extends Controller
             ->where('user_id', $compte->id)
             ->whereNotNull('fin_contrat_le')
             ->whereDate('fin_contrat_le', '<', aujourdhui())
+            // Seulement chez une organisation ouverte (jamais une refusée ou fermée)
+            ->whereHas('organisation', fn ($organisation) => $organisation->ouvertes())
             ->with('organisation')
             ->get()
             ->filter(fn (Employe $fiche): bool => $fiche->estVeterinaire());
