@@ -43,7 +43,8 @@ class SortieSejourController extends Controller
 
         return response()->json(['data' => [
             'jours' => $sejour->joursFactures(),
-            'lignes' => $lignes,
+            // Le total de chaque ligne servi : l'écran ne recalcule rien (24.10.2026)
+            'lignes' => array_map(fn (array $ligne): array => [...$ligne, 'total_chf' => round($ligne['quantite'] * $ligne['prix_chf'], 2)], $lignes),
             'total_chf' => round(array_sum(array_map(
                 fn (array $ligne): float => $ligne['quantite'] * $ligne['prix_chf'],
                 $lignes,

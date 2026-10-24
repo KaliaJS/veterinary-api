@@ -317,7 +317,8 @@ class SejourTest extends TestCase
         $this->getJson("/api/v1/hospitalisation/sejours/{$sejour->id}/facture", $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonPath('data.jours', 1)
-            ->assertJsonPath('data.total_chf', 140);
+            ->assertJsonPath('data.total_chf', 140)
+            ->assertJsonPath('data.lignes.0.total_chf', 140);
 
         $this->assertDatabaseCount('factures', 0);
 
@@ -333,6 +334,7 @@ class SejourTest extends TestCase
             ->assertJsonPath('data.total_chf', null)
             ->json('data.lignes');
         $this->assertArrayNotHasKey('prix_chf', $apercu[0]);
+        $this->assertArrayNotHasKey('total_chf', $apercu[0]);
     }
 
     public function test_un_sejour_sorti_ne_se_modifie_plus_et_ne_se_ressort_pas(): void
