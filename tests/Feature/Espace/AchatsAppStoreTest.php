@@ -104,6 +104,45 @@ class AchatsAppStoreTest extends TestCase
         $this->getJson('/api/v1/espace/abonnement', $this->enTetes($jeton))->assertOk()->assertJsonPath('data.formule', 'gratuit')->assertJsonPath('data.source', null);
     }
 
+    /** Remboursé puis réabonné : la nouvelle période donne Plus ; la transaction remboursée rejouée ne rend rien. */
+    public function test_un_reabonnement_apres_un_remboursement_redonne_plus(): void
+    {
+        ['user' => $user, 'entetes' => $entetes, 'compte' => $compte] = $this->compte();
+        $plus = AchatsAppStore::produitPlus();
+        // Une session neuve après chaque voyage dans le temps (24 h au plus)
+        $session = fn (): array => $this->enTetes(app(EmetteurJetons::class)->emettreSansClinique($user)->plainTextToken);
+        $premiere = $this->store->transaction($plus, $compte, ['transactionId' => '2000000001', 'expiresDate' => now()->addMonth()->getTimestampMs(), 'signedDate' => now()->getTimestampMs()]);
+        $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$premiere]], $entetes)->assertOk();
+
+        $this->travel(2)->days();
+        $remboursee = $this->store->transaction($plus, $compte, ['transactionId' => '2000000001', 'expiresDate' => now()->addMonth()->getTimestampMs(), 'signedDate' => now()->getTimestampMs(), 'revocationDate' => now()->getTimestampMs()]);
+        $this->postJson('/api/v1/app-store/notifications', ['signedPayload' => $this->store->notification('REFUND', $remboursee)])->assertOk();
+        $this->getJson('/api/v1/espace/abonnement', $session())->assertJsonPath('data.formule', 'gratuit');
+
+        // Deux mois plus tard, même groupe d'abonnement : même original, nouvelle transaction
+        $this->travel(60)->days();
+        $reabonnement = $this->store->transaction($plus, $compte, ['transactionId' => '2000000777', 'expiresDate' => now()->addMonth()->getTimestampMs(), 'signedDate' => now()->getTimestampMs()]);
+        $entetes = $session();
+        $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$premiere, $reabonnement]], $entetes)->assertOk();
+        $this->getJson('/api/v1/espace/abonnement', $entetes)->assertJsonPath('data.formule', 'plus')->assertJsonPath('data.source', 'app_store');
+    }
+
+    public function test_le_remboursement_d_une_periode_passee_garde_la_periode_payee(): void
+    {
+        ['entetes' => $entetes, 'compte' => $compte] = $this->compte();
+        $plus = AchatsAppStore::produitPlus();
+        $passee = ['transactionId' => '2000000001', 'expiresDate' => now()->subDay()->getTimestampMs(), 'signedDate' => now()->getTimestampMs()];
+        $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [
+            $this->store->transaction($plus, $compte, $passee),
+            $this->store->transaction($plus, $compte, ['transactionId' => '2000000002', 'expiresDate' => now()->addMonth()->getTimestampMs(), 'signedDate' => now()->getTimestampMs()]),
+        ]], $entetes)->assertOk();
+
+        $remboursee = $this->store->transaction($plus, $compte, [...$passee, 'signedDate' => now()->getTimestampMs(), 'revocationDate' => now()->getTimestampMs()]);
+        $this->postJson('/api/v1/app-store/notifications', ['signedPayload' => $this->store->notification('REFUND', $remboursee)])->assertOk();
+
+        $this->getJson('/api/v1/espace/abonnement', $entetes)->assertJsonPath('data.formule', 'plus');
+    }
+
     public function test_une_transaction_d_un_autre_compte_ou_mal_signee_est_refusee(): void
     {
         ['entetes' => $entetes, 'compte' => $compte] = $this->compte();

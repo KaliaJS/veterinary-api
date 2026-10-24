@@ -146,15 +146,19 @@ class AchatsAppStore
         $original = (string) ($transaction['originalTransactionId'] ?? $transaction['transactionId'] ?? '');
         $revoque = ! empty($transaction['revocationDate']);
         $signeLe = isset($transaction['signedDate']) ? CarbonImmutable::createFromTimestampMs((int) $transaction['signedDate']) : null;
+        // Ce qui est remboursé : pour Plus, la période elle-même (l'original
+        // reste le même à chaque renouvellement et à un réabonnement, qui
+        // doivent compter) ; pour un objet, l'achat (24.10.2026)
+        $rembourse = $produit === self::produitPlus() ? (string) ($transaction['transactionId'] ?? $original) : $original;
 
-        // Remboursé : gardé ; une ancienne transaction ne le rend jamais
-        if ($revoque && $original !== '') {
-            RevocationAppStore::query()->firstOrCreate(['transaction_id' => $original], [
+        // Remboursé : gardé ; rejouée plus tard, cette transaction ne rend jamais rien
+        if ($revoque && $rembourse !== '') {
+            RevocationAppStore::query()->firstOrCreate(['transaction_id' => $rembourse], [
                 'produit' => $produit,
                 'user_id' => $user->id,
                 'revoquee_le' => CarbonImmutable::createFromTimestampMs((int) $transaction['revocationDate']),
             ]);
-        } elseif ($original !== '' && RevocationAppStore::query()->where('transaction_id', $original)->exists()) {
+        } elseif ($rembourse !== '' && RevocationAppStore::query()->where('transaction_id', $rembourse)->exists()) {
             return;
         }
 
@@ -162,8 +166,15 @@ class AchatsAppStore
             $fin = isset($transaction['expiresDate']) ? CarbonImmutable::createFromTimestampMs((int) $transaction['expiresDate']) : null;
             $memeAbonnement = $user->apple_abonnement_id === $original;
             if ($revoque) {
-                if ($memeAbonnement) {
-                    $user->forceFill(['apple_fin' => null, 'apple_renouvelle' => false])->save();
+                // Seule la période en cours remboursée coupe Plus ; une période
+                // passée remboursée ne change rien à celle qui est payée
+                $periodeEnCours = ! $fin || ! $user->apple_fin || $fin->greaterThanOrEqualTo($user->apple_fin);
+                if ($memeAbonnement && $periodeEnCours) {
+                    $user->forceFill([
+                        'apple_fin' => null,
+                        'apple_renouvelle' => false,
+                        'apple_signe_le' => $signeLe ?? $user->apple_signe_le,
+                    ])->save();
                 }
 
                 return;
