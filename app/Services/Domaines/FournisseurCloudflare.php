@@ -50,7 +50,9 @@ class FournisseurCloudflare implements FournisseurDomaines
 
             throw new FournisseurIndisponible;
         }
-        if ($reponse->serverError() || $reponse->status() === 429) {
+        // Panne (5xx), trop d'appels (429), ou jeton refusé (401, 403 : jeton
+        // expiré ou retiré, 24.10.2026) : on ne sait rien du domaine
+        if ($reponse->serverError() || in_array($reponse->status(), [401, 403, 429], true)) {
             Log::warning('Cloudflare ne répond pas pour un domaine.', ['domaine' => $domaine, 'statut' => $reponse->status()]);
 
             throw new FournisseurIndisponible;

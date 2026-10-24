@@ -63,6 +63,26 @@ class AuthentificationTest extends TestCase
         }
     }
 
+    /** La forme vient des vraies passkeys (ici des clés USB), pas de la forme de secours, et ne change plus ensuite pour une même adresse. */
+    public function test_les_identifiants_factices_suivent_la_repartition_reelle_et_restent_stables(): void
+    {
+        foreach (['a@exemple.ch', 'b@exemple.ch', 'c@exemple.ch'] as $email) {
+            PasskeyFactory::new()->forme(64, ['usb'])->create(['user_id' => User::factory()->create(['email' => $email])->id]);
+        }
+        $options = fn (string $email) => $this->postJson('/api/v1/auth/passkey/options', ['email' => $email])->assertOk()->json('options.allowCredentials');
+
+        $factices = $options('inconnu@exemple.ch');
+        $this->assertSame(64, strlen(Base64UrlSafe::decodeNoPadding($factices[0]['id'])));
+        $this->assertSame(['usb'], $factices[0]['transports']);
+
+        // Le lendemain, d'autres passkeys sont venues : la même adresse répond pareil
+        $this->travel(2)->days();
+        foreach (range(1, 5) as $i) {
+            PasskeyFactory::new()->forme(20, ['hybrid', 'internal'])->create(['user_id' => User::factory()->create()->id]);
+        }
+        $this->assertSame($factices, $options('inconnu@exemple.ch'));
+    }
+
     public function test_le_code_email_permet_de_se_connecter(): void
     {
         Notification::fake();

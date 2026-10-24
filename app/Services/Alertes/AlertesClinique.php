@@ -132,6 +132,27 @@ class AlertesClinique
             );
         }
 
+        // Acompte rendu en partie chez Stripe, sans facture encore (24.10.2026) :
+        // la clinique le sait ; la facture déduira ce qui reste
+        $partiels = DemandeRendezVous::withoutGlobalScopes()
+            ->where('clinique_id', $clinique->id)
+            ->where('acompte_rembourse_le', '>=', now()->subDays(30))
+            ->where('acompte_rembourse_centimes', '>', 0)
+            ->whereColumn('acompte_rembourse_centimes', '<', 'acompte_centimes')
+            ->whereDoesntHave('rendezVous.facture')
+            ->orderByDesc('acompte_rembourse_le')
+            ->get();
+        if ($partiels->isNotEmpty()) {
+            $alertes[] = $this->alerte(
+                TypeAlerte::Paiement,
+                'acomptes-partiels:'.$this->empreinte($partiels->map(fn (DemandeRendezVous $d) => $d->id.'-'.$d->acompte_rembourse_centimes)),
+                'warn',
+                $this->compte($partiels->count(), 'acompte rendu en partie', 'acomptes rendus en partie'),
+                $this->noms($partiels->map(fn (DemandeRendezVous $d) => 'acompte de '.$d->patient_name.' ('.$this->chf((int) $d->acompte_rembourse_centimes).' rendus sur '.$this->chf((int) $d->acompte_centimes).')')).'. Rendu chez Stripe : la facture du rendez-vous déduira ce qui reste.',
+                'facturation',
+            );
+        }
+
         // Rendus en entier, ou en partie (le paiement reste réussi)
         $rembourses = $paiements(StatutPaiement::Rembourse)->concat(Paiement::withoutGlobalScopes()
             ->with(['facture' => fn ($requete) => $requete->withoutGlobalScopes()])

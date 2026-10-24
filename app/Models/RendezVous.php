@@ -115,6 +115,17 @@ class RendezVous extends Model
         return $this->hasOne(CompteRendu::class, 'rendez_vous_id');
     }
 
+    /**
+     * La facture du rendez-vous (une seule par rendez-vous), toutes cliniques :
+     * pour savoir si un acompte est déjà déduit.
+     *
+     * @return HasOne<Facture, $this>
+     */
+    public function facture(): HasOne
+    {
+        return $this->hasOne(Facture::class, 'rendez_vous_id')->withoutGlobalScopes();
+    }
+
     /** La demande en ligne qui l'a réservé (acompte compris), s'il y en a une.
      * @return HasOne<DemandeRendezVous, $this> */
     public function demandeEnLigne(): HasOne

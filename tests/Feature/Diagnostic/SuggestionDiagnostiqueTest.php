@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Auth\RolesParDefaut;
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
+use App\Jobs\SuggererDiagnostic;
 use App\Mail\PlafondDiagnosticOrganisation;
 use App\Models\Client;
 use App\Models\Clinique;
@@ -19,6 +20,7 @@ use App\Models\Pesee;
 use App\Models\RendezVous;
 use App\Models\Role;
 use App\Models\SuggestionDiagnostique;
+use App\Services\BudgetAnthropic;
 use App\Services\Diagnostic\Suggesteur;
 use App\Services\Diagnostic\SuggestionImpossible;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -132,6 +134,28 @@ class SuggestionDiagnostiqueTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.suggestions_periode', 1)
             ->assertJsonPath('data.montant_periode', 0.5);
+    }
+
+    /** Une suggestion reprise après une panne compte une fois de plus dans le budget Anthropic, la première non (24.10.2026). */
+    public function test_une_suggestion_reprise_compte_dans_le_budget_anthropic(): void
+    {
+        config(['services.anthropic.cout_redaction_usd' => 0, 'services.anthropic.cout_suggestion_usd' => 0.02]);
+        $budget = app(BudgetAnthropic::class);
+        $suggerer = function (int $essai) use ($budget): float {
+            $suggestion = SuggestionDiagnostique::withoutGlobalScopes()->create([
+                'organisation_id' => $this->organisation->id, 'clinique_id' => $this->clinique->id, 'rendez_vous_id' => $this->rendezVous->id,
+                'statut' => 'en_cours', 'soap' => self::SOAP, 'avec_transcription' => false,
+            ]);
+            $avant = $budget->depense();
+            $tache = (new SuggererDiagnostic($suggestion->id))->withFakeQueueInteractions();
+            $tache->job->attempts = $essai;
+            app()->call([$tache, 'handle']);
+
+            return round($budget->depense() - $avant, 2);
+        };
+
+        $this->assertSame(0.0, $suggerer(1));
+        $this->assertSame(0.02, $suggerer(2));
     }
 
     public function test_sans_compte_rendu_ni_transcription_rien_ne_part(): void

@@ -35,7 +35,9 @@ class EnregistrerExamenRequest extends FormRequest
                 'sometimes', 'nullable',
                 $this->existeDansLaClinique('rendez_vous')
                     ->where('type', TypeRendezVous::Imagerie->value)
-                    ->whereNot('status', StatutRendezVous::Annule->value),
+                    ->whereNot('status', StatutRendezVous::Annule->value)
+                    // Le rendez-vous du même animal (24.10.2026), comme au bloc
+                    ->where('patient_id', (int) $this->input('patient_id')),
                 Rule::unique('examens_imagerie', 'rendez_vous_id'),
             ],
         ];
@@ -45,7 +47,7 @@ class EnregistrerExamenRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'rendez_vous_id.exists' => 'Le rendez-vous lié doit être un RDV d\'imagerie non annulé de la clinique.',
+            'rendez_vous_id.exists' => 'Le rendez-vous lié doit être un RDV d\'imagerie non annulé de la clinique, pour cet animal.',
             'rendez_vous_id.unique' => 'Ce rendez-vous est déjà la projection d\'un autre examen.',
         ];
     }

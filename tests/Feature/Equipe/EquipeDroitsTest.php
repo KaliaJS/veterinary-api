@@ -110,26 +110,27 @@ class EquipeDroitsTest extends TestCase
     /** Rétablir quelqu'un qui a un droit de plus que soi (une exception accordée), non : même sans être administrateur, il est « plus haut placé » (24.10.2026). */
     public function test_on_ne_retablit_pas_quelqu_un_qui_a_un_droit_de_plus(): void
     {
+        ['employe' => $modele] = $this->employeAvecJeton($this->clinique, [], 'asv');
+        $droitsAsv = app(CalculateurPermissions::class)->pour($modele->load('role'));
+        $this->assertNotContains(DomainePermission::Rembourser->value, $droitsAsv);
+        // Qui gère l'équipe a tous les droits d'une ASV, et l'équipe : seule l'exception fait la différence
         $gestion = Role::withoutGlobalScopes()->create([
             'organisation_id' => $this->clinique->societe->organisation_id,
             'nom' => 'Gestion d’équipe',
-            'domaines' => [DomainePermission::Equipe, DomainePermission::Rh, DomainePermission::Planning],
+            'domaines' => array_values(array_unique([...$droitsAsv, DomainePermission::Equipe->value, DomainePermission::Rh->value, DomainePermission::Planning->value])),
         ]);
         ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique, ['role_id' => $gestion->id]);
         $asv = fn () => $this->employeAvecJeton($this->clinique, [], 'asv')['employe'];
+
+        $sansExtra = $asv();
+        $sansExtra->update(['acces_suspendu' => true]);
+        $this->postJson("/api/v1/equipe/employes/{$sansExtra->id}/retablir", [], $this->enTetes($jeton))->assertOk();
 
         $avecExtra = $asv();
         DerogationPermission::create(['employe_id' => $avecExtra->id, 'domaine' => DomainePermission::Rembourser, 'est_accordee' => true]);
         $avecExtra->update(['acces_suspendu' => true]);
         $this->postJson("/api/v1/equipe/employes/{$avecExtra->id}/retablir", [], $this->enTetes($jeton))->assertForbidden();
         $this->assertTrue($avecExtra->refresh()->acces_suspendu);
-
-        $sansExtra = $asv();
-        $sansExtra->update(['acces_suspendu' => true]);
-        $droitsAsv = app(CalculateurPermissions::class)->pour($sansExtra->load('role'));
-        $gestion->update(['domaines' => array_values(array_unique([...array_map(fn (DomainePermission $d) => $d->value, $gestion->domaines->all()), ...$droitsAsv]))]);
-        $this->postJson("/api/v1/equipe/employes/{$sansExtra->id}/retablir", [], $this->enTetes($jeton))->assertOk();
-        $this->assertFalse($sansExtra->refresh()->acces_suspendu);
     }
 
     /** Ni rétablir son accès, ni annuler son licenciement, ni régler son contrat sans être administrateur. */

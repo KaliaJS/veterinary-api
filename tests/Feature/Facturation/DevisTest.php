@@ -80,6 +80,37 @@ class DevisTest extends TestCase
             ->assertJsonPath('data.montant_acompte', 178.2);
     }
 
+    /** Le formulaire chiffré par le serveur avant l'enregistrement : les mêmes montants que le devis enregistré (24.10.2026). */
+    public function test_l_apercu_du_formulaire_donne_les_montants_du_devis_enregistre(): void
+    {
+        $saisie = [
+            'lignes' => [
+                ['libelle' => 'Détartrage', 'quantite' => 2, 'prix_chf' => 100, 'type' => 'acte'],
+                ['libelle' => 'Anesthésie', 'quantite' => 1, 'prix_chf' => 50.5, 'type' => 'acte'],
+            ],
+            'remise_pct' => 10,
+            'alea_pct' => 20,
+            'acompte_pct' => 30,
+        ];
+
+        $apercu = $this->postJson('/api/v1/facturation/devis/apercu', $saisie, $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.lignes.0.total_chf', 200)
+            ->assertJsonPath('data.lignes.1.total_chf', 50.5)
+            ->assertJsonPath('data.sous_total', 250.5)
+            ->assertJsonPath('data.total_ttc', 225.45)
+            ->assertJsonPath('data.montant_remise', 25.05)
+            ->assertJsonPath('data.total_avec_alea', 270.54)
+            ->json('data');
+        $this->assertDatabaseCount('devis', 0);
+
+        $enregistre = $this->postJson('/api/v1/facturation/devis', ['patient_id' => $this->patient->id, ...$saisie], $this->enTetes($this->jeton))
+            ->assertCreated()->json('data');
+        foreach (['sous_total', 'montant_remise', 'total_ttc', 'montant_tva', 'total_ht', 'total_avec_alea', 'montant_acompte', 'taux_tva'] as $cle) {
+            $this->assertEquals($enregistre[$cle], $apercu[$cle], $cle);
+        }
+    }
+
     public function test_l_envoi_pose_la_validite_et_choisit_le_portail_quand_le_proprietaire_a_un_compte(): void
     {
         $this->patient->client->update(['user_id' => User::factory()->create()->id]);

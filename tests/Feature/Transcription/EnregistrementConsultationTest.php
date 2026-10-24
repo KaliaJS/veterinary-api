@@ -243,20 +243,25 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertSame(0.05, $rediger(2));
     }
 
-    /** Les nouveaux essais chez Deepgram comptent dans le budget de la plateforme, pas dans ce que paie la clinique (24.10.2026). */
-    public function test_les_nouveaux_essais_comptent_dans_le_budget_deepgram(): void
+    /** Un essai envoyé à Deepgram qui échoue compte au budget de la plateforme (durée estimée par la taille), pas dans ce que paie la clinique (24.10.2026). */
+    public function test_les_essais_echoues_comptent_dans_le_budget_deepgram(): void
     {
         config(['transcription.cout_minute_deepgram_usd' => 0.01]);
-        $this->enregistrementTranscrit(600);
-        $deuxEssais = $this->enregistrementTranscrit(300);
-        $deuxEssais->parties()->update(['tentatives' => 2]);
-        $this->enregistrementTranscrit(120)->parties()->update(['tentatives' => 3]);
-
         $consommation = app(ConsommationTranscription::class);
-        // 600 + 2 × 300 + 3 × 120 = 1560 s, soit 26 minutes
-        $this->assertSame(0.26, $consommation->depenseDeepgram());
-        // La clinique : la durée de son audio seulement, 1020 s
-        $this->assertSame(1020, $consommation->secondes($this->organisation->id));
+
+        // Une partie de 60 secondes à 32 kbit/s (240 000 octets) que Deepgram ne rend pas
+        $this->transcripteur->refus = new TranscriptionImpossible('Délai dépassé.');
+        $id = $this->demarrer()->json('data.id');
+        $this->morceau($id, 1, 0, 1, str_repeat('A', 240000 - strlen(TranscripteurFactice::ENTETE)))->assertOk();
+        $this->assertSame(StatutPartie::Erreur, PartieEnregistrement::query()->where('enregistrement_consultation_id', $id)->sole()->statut);
+        $this->assertSame(0.01, $consommation->depenseDeepgram());
+
+        // Et une autre consultation transcrite, 600 secondes
+        $this->enregistrementTranscrit(600);
+
+        // 600 + 60 secondes : 11 minutes ; la clinique, elle, ne paie que ses 600 secondes
+        $this->assertSame(0.11, $consommation->depenseDeepgram());
+        $this->assertSame(600, $consommation->secondes($this->organisation->id));
     }
 
     public function test_les_administrateurs_sont_prevenus_au_plafond_de_l_organisation_une_fois(): void
@@ -445,6 +450,8 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertCount(1, Storage::disk('prive')->allFiles('transcriptions'));
 
         EnregistrementConsultation::query()->whereKey($id)->update(['redactions' => 2]);
+        // Un brouillon déjà rédigé : il part aussi
+        EnregistrementConsultation::query()->findOrFail($id)->forceFill(['brouillon' => ['s' => 'Boiterie', 'o' => '', 'a' => '', 'p' => '', 'incertitudes' => []]])->save();
         PartieEnregistrement::query()->update(['segments' => json_encode([['voix' => 0, 'debut' => 0, 'texte' => 'Bonjour']]), 'duree_secondes' => 90]);
 
         $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
@@ -455,6 +462,7 @@ class EnregistrementConsultationTest extends TestCase
         // … mais ce qui a été payé reste compté : les plafonds ne repartent pas à zéro
         $abandonne = EnregistrementConsultation::query()->findOrFail($id);
         $this->assertSame('abandonne', $abandonne->statut->value);
+        $this->assertNull($abandonne->brouillon);
         $this->assertSame(2, $abandonne->redactions);
         $this->assertSame(90, (int) PartieEnregistrement::query()->sole()->duree_secondes);
 

@@ -82,11 +82,19 @@ final class TranscrirePartie implements ShouldQueue
             fclose($entree);
             fclose($sortie);
 
-            $resultat = $transcripteur->transcrire(
-                (string) $local,
-                $partie->format,
-                $termes->pour($partie->enregistrement),
-            );
+            try {
+                $resultat = $transcripteur->transcrire(
+                    (string) $local,
+                    $partie->format,
+                    $termes->pour($partie->enregistrement),
+                );
+            } catch (Throwable $envoiEchoue) {
+                // Envoyé puis échoué (délai, panne) : Deepgram a pu le traiter et le
+                // facturer, l'essai compte au budget de la plateforme (24.10.2026)
+                $consommation->essaiEchoue((int) @filesize((string) $local));
+
+                throw $envoiEchoue;
+            }
         } catch (TranscriptionImpossible $erreur) {
             report($erreur);
             self::echec($partie);

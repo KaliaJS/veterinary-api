@@ -269,6 +269,29 @@ class SiteWebTest extends TestCase
         $this->assertSame([], Storage::disk('prive')->allFiles('logos'));
     }
 
+    /** Le logo garde sa transparence une fois réécrit en WebP ; au-delà de 8000 pixels, il est refusé (24.10.2026). */
+    public function test_le_logo_garde_sa_transparence_et_reste_borne(): void
+    {
+        Storage::fake('prive');
+        $image = imagecreatetruecolor(400, 200);
+        imagesavealpha($image, true);
+        imagefill($image, 0, 0, (int) imagecolorallocatealpha($image, 0, 0, 0, 127));
+        imagefilledrectangle($image, 150, 50, 250, 150, (int) imagecolorallocate($image, 20, 90, 60));
+        ob_start();
+        imagepng($image);
+        $png = (string) ob_get_clean();
+
+        $this->post('/api/v1/site/logo', ['logo' => UploadedFile::fake()->createWithContent('logo.png', $png)], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])->assertOk();
+        $webp = imagecreatefromstring(Storage::disk('prive')->get(Storage::disk('prive')->allFiles('logos')[0]));
+        $this->assertNotFalse($webp);
+        // Le coin reste transparent (alpha 127), le centre opaque
+        $this->assertGreaterThan(100, (imagecolorat($webp, 5, 5) >> 24) & 0x7F);
+        $this->assertSame(0, (imagecolorat($webp, 200, 100) >> 24) & 0x7F);
+
+        $this->post('/api/v1/site/logo', ['logo' => UploadedFile::fake()->image('large.png', 8001, 10)], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])
+            ->assertUnprocessable()->assertJsonValidationErrors('logo');
+    }
+
     /** Une vraie photo d'appareil porte ses métadonnées EXIF (position, appareil) : le logo et la photo de clinique servis n'en gardent rien (24.10.2026). */
     public function test_les_metadonnees_exif_ne_sont_jamais_servies(): void
     {

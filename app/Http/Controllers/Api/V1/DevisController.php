@@ -6,12 +6,16 @@ use App\Auth\ContexteClinique;
 use App\Enums\PieceNumerotee;
 use App\Enums\StatutDevis;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\V1\Devis\ApercuDevisRequest;
 use App\Http\Requests\V1\Devis\EnregistrerDevisRequest;
 use App\Http\Requests\V1\Devis\ModifierDevisRequest;
 use App\Http\Resources\V1\DevisResource;
 use App\Models\Devis;
+use App\Models\DevisLigne;
 use App\Services\Numeroteur;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
@@ -88,6 +92,42 @@ class DevisController extends Controller
         });
 
         return new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe']));
+    }
+
+    /**
+     * Le devis en cours de saisie chiffré sans être enregistré (24.10.2026) :
+     * l'écran du formulaire montre les montants du serveur (sous-total,
+     * remise, TVA, fourchette, acompte, total de chaque ligne), les mêmes
+     * que ceux du devis enregistré.
+     */
+    public function apercu(ApercuDevisRequest $request): JsonResponse
+    {
+        $this->authorize('create', Devis::class);
+
+        $donnees = $request->validated();
+        $devis = new Devis([
+            'remise_pct' => $donnees['remise_pct'] ?? 0,
+            'alea_pct' => $donnees['alea_pct'] ?? 0,
+            'acompte_pct' => $donnees['acompte_pct'] ?? 0,
+        ]);
+        $devis->setRelation('clinique', app(ContexteClinique::class)->clinique()?->loadMissing('societe'));
+        $lignes = collect($donnees['lignes'])->map(fn (array $ligne): DevisLigne => new DevisLigne([
+            'quantite' => $ligne['quantite'] ?? 1,
+            'prix_chf' => $ligne['prix_chf'],
+        ]));
+        $devis->setRelation('lignes', new EloquentCollection($lignes->all()));
+
+        return response()->json(['data' => [
+            'lignes' => $lignes->map(fn (DevisLigne $ligne): array => ['total_chf' => round($ligne->quantite * (float) $ligne->prix_chf, 2)])->values()->all(),
+            'sous_total' => $devis->sousTotal(),
+            'montant_remise' => $devis->montantRemise(),
+            'total_ttc' => $devis->totalTtc(),
+            'montant_tva' => $devis->montantTva(),
+            'total_ht' => $devis->totalHt(),
+            'taux_tva' => $devis->tauxTva(),
+            'total_avec_alea' => $devis->totalAvecAlea(),
+            'montant_acompte' => $devis->montantAcompte(),
+        ]]);
     }
 
     public function show(Devis $devis): DevisResource

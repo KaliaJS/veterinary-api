@@ -574,10 +574,14 @@ final class AbonnementSaas
 
     private function demarrer(Organisation|User $abonne, string $formule, int $prix, string $nom, bool $annuel): Reglement
     {
-        // Une souscription restée en attente de confirmation est remplacée
-        $this->factures($abonne)->where('statut', 'a_payer')->get()
+        // Une souscription restée en attente de confirmation est remplacée ;
+        // réglée entre-temps, ou traitée par la banque, on n'en lance pas une seconde
+        $remplacees = $this->factures($abonne)->where('statut', 'a_payer')->get()
             ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'souscription')
-            ->each(fn ($f) => $this->annuler($f));
+            ->map(fn ($f) => $this->annuler($f));
+        if ($remplacees->contains(false)) {
+            throw ValidationException::withMessages(['plan' => 'Une souscription précédente vient d’être réglée ou est traitée par votre banque : rechargez la page avant de recommencer.']);
+        }
 
         $debut = CarbonImmutable::today('Europe/Zurich');
         $fin = self::echeance($debut, $debut->day, $annuel);
@@ -687,7 +691,10 @@ final class AbonnementSaas
      */
     private function fermerFauteDePaiement(Organisation|User $abonne, OrganisationFacture|FactureProprietaire $facture): ?OrganisationFacture
     {
-        $this->annuler($facture);
+        // Passée ou traitée par la banque entre-temps : rien ne se ferme
+        if (! $this->annuler($facture)) {
+            return null;
+        }
         $transcription = null;
 
         if ($abonne instanceof Organisation) {
@@ -839,9 +846,12 @@ final class AbonnementSaas
                 $facture->numero.' · '.$facture->libelle,
                 ['plateforme' => 'veterinary', 'facture' => $cle],
                 $horsSession,
-                // La même pour une même tentative dans l'heure : une réponse
-                // perdue (délai dépassé) puis renvoyée ne prélève pas deux fois
-                'facture-'.$cle.'-'.($facture->stripe_paiement_id ?? 'premier').'-'.now()->format('YmdH'),
+                // La même pour une même tentative, avec la même carte, aussi
+                // longtemps qu'aucune réponse n'est arrivée : une réponse perdue
+                // (délai dépassé) puis renvoyée, même une heure plus tard, ne
+                // prélève pas deux fois. Une réponse reçue (refus, prélèvement)
+                // ou une autre carte : une nouvelle tentative
+                'facture-'.$cle.'-'.($facture->stripe_paiement_id ?? 'premier').'-'.$abonne->stripe_moyen_paiement_id,
             );
         } catch (ErreurPaiement $e) {
             // Erreur du prestataire : traitée comme un refus (la facture ne reste pas orpheline)
@@ -868,6 +878,13 @@ final class AbonnementSaas
         DB::transaction(function () use ($facture): void {
             $ligne = $facture::query()->lockForUpdate()->find($facture->id);
             if (! $ligne || $ligne->statut === 'payee') {
+                return;
+            }
+            // Une facture annulée ne s'applique jamais, même si un prélèvement
+            // passe après coup : à rendre à la main, signalé (24.10.2026)
+            if ($ligne->statut === 'annulee') {
+                Log::critical('Prélèvement réussi sur une facture annulée : à rembourser.', ['facture' => $ligne->numero, 'prelevement' => $ligne->stripe_paiement_id]);
+
                 return;
             }
             $abonne = $this->abonneDe($ligne);
@@ -928,8 +945,29 @@ final class AbonnementSaas
     }
 
     /** Facture annulée : rien n'est dû, ses minutes de transcription et ses suggestions redeviennent à facturer. */
-    private function annuler(OrganisationFacture|FactureProprietaire $facture): void
+    /**
+     * Annule une facture restée à payer. Son prélèvement en attente de
+     * confirmation (3-D Secure ouvert dans un autre onglet) est d'abord annulé
+     * chez Stripe : il ne pourra plus passer (24.10.2026). Passé entre-temps, la
+     * facture est payée, pas annulée ; encore traité par la banque, elle reste.
+     * Vrai si la facture est annulée.
+     */
+    private function annuler(OrganisationFacture|FactureProprietaire $facture): bool
     {
+        if ($facture->stripe_paiement_id) {
+            $etat = $this->stripe->lirePrelevement($facture->stripe_paiement_id);
+            if ($etat['statut'] === 'action_requise') {
+                $etat = $this->stripe->annulerPrelevement($facture->stripe_paiement_id);
+            }
+            if ($etat['statut'] === 'reussi') {
+                $this->payer($facture);
+
+                return false;
+            }
+            if ($etat['statut'] === 'en_cours') {
+                return false;
+            }
+        }
         $facture->forceFill(['statut' => 'annulee'])->save();
         if ($facture instanceof OrganisationFacture) {
             // La vérification d'identité attend la facture suivante
@@ -939,6 +977,8 @@ final class AbonnementSaas
             FacturationTranscription::query()->where('organisation_facture_id', $facture->id)->delete();
             SuggestionDiagnostique::withoutGlobalScopes()->where('organisation_facture_id', $facture->id)->update(['organisation_facture_id' => null]);
         }
+
+        return true;
     }
 
     /**

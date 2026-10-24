@@ -37,6 +37,7 @@ return new class extends Migration
             $table->text('message')->nullable()->comment('Mot de la clinique joint à la réponse');
             // Clé étrangère posée avec la table rendez_vous (000021), créée après celle-ci
             $table->unsignedBigInteger('rendez_vous_id')->nullable()->comment('Le rendez-vous créé à l’acceptation');
+            $table->unsignedBigInteger('report_de_id')->nullable()->comment('Demande de report : le rendez-vous à déplacer (24.10.2026)');
             $table->timestamp('traitee_le')->nullable();
             $table->string('jeton', 64)->nullable()->unique()->comment('Empreinte (SHA-256) du lien de suivi d’une demande sans compte, ou du retour d’un paiement');
             $table->text('jeton_chiffre')->nullable()->comment('Le lien lui-même, chiffré, pour les e-mails suivants (23.10.2026)');

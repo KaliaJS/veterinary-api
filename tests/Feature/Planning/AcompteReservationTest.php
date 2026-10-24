@@ -297,6 +297,27 @@ class AcompteReservationTest extends TestCase
         $this->assertCount(1, array_keys($this->stripe->remboursements, $enAttente->acompte_intention_id, true));
     }
 
+    /** Refuser une demande dont l'acompte est payé le rend, sans le droit « Rembourser » : un rendu obligé, pas une décision (24.10.2026). */
+    public function test_refuser_une_demande_a_acompte_le_rend_sans_le_droit_de_rembourser(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        // Vétérinaire par défaut : planning, pas « Rembourser »
+        ['jeton' => $jetonVeto] = $this->employeAvecJeton($this->clinique);
+        $autre = $this->deposer();
+        $enAttente = DemandeRendezVous::withoutGlobalScopes()->sole();
+        RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => $this->mardi->utc(), 'ends_at' => $this->mardi->addHour()->utc(),
+        ]);
+        $this->stripe->conclure($enAttente->acompte_intention_id, 'succeeded');
+        $this->postJson('/api/v1/public/demandes/'.$autre->json('data.jeton').'/paiement')->assertOk()->assertJsonPath('data.statut', 'a_traiter');
+
+        $this->postJson("/api/v1/demandes/{$enAttente->id}/refuser", ['motif' => 'agenda'], $this->enTetes($jetonVeto))->assertOk();
+
+        $this->assertCount(1, array_keys($this->stripe->remboursements, $enAttente->acompte_intention_id, true));
+        $this->assertNotNull($enAttente->refresh()->acompte_rembourse_le);
+    }
+
     /** Rendre ou garder un acompte payé est une décision d'argent : droit « Rembourser » (24.10.2026). */
     public function test_decider_d_un_acompte_paye_demande_le_droit_de_rembourser(): void
     {
@@ -369,7 +390,9 @@ class AcompteReservationTest extends TestCase
             'statut' => 'ok',
             'debut_le' => $this->mardi->toDateString(),
             'fin_le' => $this->mardi->toDateString(),
-        ], $this->enTetes($jetonAdmin))->assertCreated()->assertJsonPath('meta.rendez_vous_annules', 0);
+        ], $this->enTetes($jetonAdmin))->assertCreated()->assertJsonPath('meta.rendez_vous_annules', 0)
+            // La réponse dit ce qui reste au planning, à reprendre à la main
+            ->assertJsonPath('meta.rendez_vous_restants', 1);
 
         $this->assertNull($demande->refresh()->acompte_rembourse_le);
         $this->assertSame('prevu', RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id)->status->value);
@@ -443,6 +466,54 @@ class AcompteReservationTest extends TestCase
         $alerte = collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonAdmin))->json('data.alertes'))->firstWhere('titre', '1 acompte rendu après la facture');
         $this->assertNotNull($alerte);
         $this->assertStringContainsString('CHF 30.00 déduits, CHF 20.00 encore encaissés', str_replace("\u{a0}", ' ', $alerte['detail']));
+    }
+
+    /** Perdu au litige après la facture qui le déduit : la même alerte, le client doit la différence. */
+    public function test_un_acompte_perdu_au_litige_apres_la_facture_alerte(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $rendezVous = RendezVous::withoutGlobalScopes()->sole();
+        $rendezVous->update(['status' => 'cours']);
+        $this->postJson("/api/v1/rendez-vous/{$rendezVous->id}/statut", ['status' => 'fini'], $this->enTetes($jetonAdmin))->assertOk();
+        $webhook = fn (string $id, string $type, array $objet) => app(WebhooksStripe::class)->traiter(['id' => $id, 'type' => $type, 'objet' => $objet, 'compte' => $demande->acompte_stripe_compte_id]);
+
+        $webhook('evt_perdu_1', 'charge.dispute.created', ['payment_intent' => $demande->acompte_intention_id]);
+        $webhook('evt_perdu_2', 'charge.dispute.closed', ['payment_intent' => $demande->acompte_intention_id, 'status' => 'lost']);
+
+        $alerte = collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonAdmin))->json('data.alertes'))->firstWhere('titre', '1 acompte rendu après la facture');
+        $this->assertNotNull($alerte);
+        $this->assertStringContainsString('CHF 0.00 encore encaissés', str_replace("\u{a0}", ' ', $alerte['detail']));
+    }
+
+    /** Rendu en partie chez Stripe avant toute facture : la facturation le sait (24.10.2026). */
+    public function test_un_acompte_rendu_en_partie_avant_la_facture_alerte(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $alertes = fn () => collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonAdmin))->assertOk()->json('data.alertes'));
+
+        app(WebhooksStripe::class)->traiter([
+            'id' => 'evt_partiel_avant', 'type' => 'charge.refunded',
+            'objet' => ['payment_intent' => $demande->acompte_intention_id, 'refunded' => false, 'amount_refunded' => 1000],
+            'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+
+        $alerte = $alertes()->firstWhere('titre', '1 acompte rendu en partie');
+        $this->assertNotNull($alerte);
+        $this->assertStringContainsString('CHF 10.00 rendus sur CHF 30.00', str_replace("\u{a0}", ' ', $alerte['detail']));
+
+        // Rendu en entier ensuite : plus « en partie »
+        app(WebhooksStripe::class)->traiter([
+            'id' => 'evt_partiel_tout', 'type' => 'charge.refunded',
+            'objet' => ['payment_intent' => $demande->acompte_intention_id, 'refunded' => true, 'amount_refunded' => 3000],
+            'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+        $this->assertNull($alertes()->firstWhere('titre', '1 acompte rendu en partie'));
     }
 
     /** Litige clos : gagné ou « warning_closed » garde l'acompte ; un événement d'un autre compte Stripe est ignoré. */

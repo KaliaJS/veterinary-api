@@ -155,6 +155,33 @@ class VaccinationsTest extends TestCase
         $this->assertSame('Leishmaniose', $patient->vaccinations()->sole()->nom);
     }
 
+    /** Corrigée par la personne qui l'a signée : la signature d'origine reste (24.10.2026). */
+    public function test_une_correction_garde_la_signature_d_origine(): void
+    {
+        $patient = $this->patient();
+        ['employe' => $signataire, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        $id = $this->postJson("/api/v1/patients/{$patient->id}/vaccinations", [
+            'nom' => 'Leishmaniose', 'echeance_le' => aujourdhui()->addYear()->toDateString(),
+        ], $this->enTetes($jeton))->assertCreated()->json('data.id');
+
+        $this->putJson("/api/v1/patients/{$patient->id}/vaccinations/{$id}", ['nom' => 'Leishmaniose', 'lot' => 'L-2', 'employe_id' => 999999], $this->enTetes($jeton))->assertOk();
+
+        $this->assertSame($signataire->id, $patient->vaccinations()->sole()->employe_id);
+    }
+
+    /** Sans signataire (ancien carnet) : l'administration seule la corrige ou la retire (24.10.2026). */
+    public function test_une_injection_sans_signataire_ne_se_corrige_que_par_l_administration(): void
+    {
+        $patient = $this->patient();
+        $vaccination = $patient->vaccinations()->create(['nom' => 'Rage', 'injectee_le' => aujourdhui()->subYear()->toDateString(), 'echeance_le' => aujourdhui()->toDateString(), 'employe_id' => null]);
+        ['jeton' => $collegue] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $admin] = $this->administrateurAvecJeton($this->clinique);
+
+        $this->putJson("/api/v1/patients/{$patient->id}/vaccinations/{$vaccination->id}", ['nom' => 'Rage', 'lot' => 'X'], $this->enTetes($collegue))->assertForbidden();
+        $this->deleteJson("/api/v1/patients/{$patient->id}/vaccinations/{$vaccination->id}", [], $this->enTetes($collegue))->assertForbidden();
+        $this->deleteJson("/api/v1/patients/{$patient->id}/vaccinations/{$vaccination->id}", [], $this->enTetes($admin))->assertNoContent();
+    }
+
     public function test_le_catalogue_se_filtre_par_espece_et_recherche(): void
     {
         $this->getJson('/api/v1/vaccins?espece=CT', $this->enTetes($this->jeton))->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.nom', 'Nobivac Rabies');

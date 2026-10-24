@@ -137,6 +137,22 @@ class DroitsFinsTest extends TestCase
         $this->assertSame(3, (int) $ligne->refresh()->quantite);
     }
 
+    /** Une ligne de stupéfiant (posée par la fin de consultation) : l'ASV n'en change ni la quantité ni ne la retire (24.10.2026). */
+    public function test_la_ligne_d_un_stupefiant_demande_le_droit_de_prescrire(): void
+    {
+        $facture = Facture::factory()->create(['clinique_id' => $this->clinique->id]);
+        // Stupéfiant sans la marque « sur ordonnance » : c'est la branche stupéfiant qui est éprouvée
+        $stupefiant = Produit::factory()->medicament()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'est_stupefiant' => true, 'est_sur_ordonnance' => false]);
+        $ligne = $facture->lignes()->create(['libelle' => $stupefiant->nom, 'quantite' => 1, 'prix_chf' => 30, 'type' => 'med', 'produit_id' => $stupefiant->id]);
+        $facture->lignes()->create(['libelle' => 'Consultation', 'quantite' => 1, 'prix_chf' => 80, 'type' => 'acte']);
+        [$asv, $veto] = [$this->enTetes($this->jeton('asv')), $this->enTetes($this->jeton())];
+
+        $this->patchJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$ligne->id}", ['quantite' => 2], $asv)->assertForbidden();
+        $this->deleteJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$ligne->id}", [], $asv)->assertForbidden();
+        $this->assertSame(1, (int) $ligne->refresh()->quantite);
+        $this->patchJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$ligne->id}", ['quantite' => 2], $veto)->assertOk();
+    }
+
     private function jeton(?string $etat = null): string
     {
         return $this->employeAvecJeton($this->clinique, [], $etat)['jeton'];

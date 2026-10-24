@@ -43,9 +43,11 @@ return new class extends Migration
             $table->index(['patient_id', 'starts_at']);
         });
 
-        // La demande en ligne acceptée pointe son rendez-vous (table créée avant celle-ci)
+        // La demande en ligne acceptée pointe son rendez-vous, une demande de
+        // report celui qu'elle déplace (table créée avant celle-ci)
         Schema::table('demandes_rendez_vous', function (Blueprint $table) {
             $table->foreign('rendez_vous_id')->references('id')->on('rendez_vous')->nullOnDelete();
+            $table->foreign('report_de_id')->references('id')->on('rendez_vous')->nullOnDelete();
         });
     }
 
@@ -53,6 +55,7 @@ return new class extends Migration
     {
         Schema::table('demandes_rendez_vous', function (Blueprint $table) {
             $table->dropForeign(['rendez_vous_id']);
+            $table->dropForeign(['report_de_id']);
         });
         Schema::dropIfExists('rendez_vous');
     }

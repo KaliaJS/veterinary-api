@@ -25,20 +25,25 @@ final class ReceptionAudio
     {
         // Borne de tout l'enregistrement par les morceaux annoncés (d'1 Mo au
         // plus), qui restent en base : l'audio transcrit est effacé, la somme
-        // des fichiers présents ne suffit pas (24.10.2026)
-        $annonces = (int) PartieEnregistrement::query()
-            ->where('enregistrement_consultation_id', $enregistrement->id)
-            ->where('numero', '!=', $numero)
-            ->sum('morceaux');
-        $permis = intdiv((int) config('transcription.octets_max_enregistrement'), (int) config('transcription.morceau_max_ko') * 1024);
-        if ($annonces + $total > $permis) {
-            throw ValidationException::withMessages(['fichier' => 'Cet enregistrement dépasse la taille permise.']);
-        }
+        // des fichiers présents ne suffit pas (24.10.2026). L'enregistrement
+        // verrouillé le temps du compte : les premiers morceaux de plusieurs
+        // parties envoyés en même temps ne passent pas chacun la borne
+        $partie = DB::transaction(function () use ($enregistrement, $numero, $total, $format): PartieEnregistrement {
+            EnregistrementConsultation::withoutGlobalScopes()->whereKey($enregistrement->id)->lockForUpdate()->first();
+            $annonces = (int) PartieEnregistrement::query()
+                ->where('enregistrement_consultation_id', $enregistrement->id)
+                ->where('numero', '!=', $numero)
+                ->sum('morceaux');
+            $permis = intdiv((int) config('transcription.octets_max_enregistrement'), (int) config('transcription.morceau_max_ko') * 1024);
+            if ($annonces + $total > $permis) {
+                throw ValidationException::withMessages(['fichier' => 'Cet enregistrement dépasse la taille permise.']);
+            }
 
-        $partie = PartieEnregistrement::query()->firstOrCreate(
-            ['enregistrement_consultation_id' => $enregistrement->id, 'numero' => $numero],
-            ['format' => $format, 'morceaux' => $total],
-        );
+            return PartieEnregistrement::query()->firstOrCreate(
+                ['enregistrement_consultation_id' => $enregistrement->id, 'numero' => $numero],
+                ['format' => $format, 'morceaux' => $total],
+            );
+        });
 
         // Partie déjà complète : un renvoi tardif ne change rien
         if ($partie->statut !== StatutPartie::Envoi) {

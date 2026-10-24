@@ -151,6 +151,26 @@ class ExamenImagerieTest extends TestCase
         $this->assertTrue($rendezVous->refresh()->starts_at->equalTo($nouveau));
     }
 
+    /** Le rendez-vous d'un autre animal ne se lie pas, et ne change jamais d'animal (24.10.2026). */
+    public function test_le_rendez_vous_d_un_autre_animal_ne_se_lie_pas(): void
+    {
+        $autre = Patient::factory()->for($this->patient->client)->create();
+        $rendezVous = $this->rendezVousImagerie();
+
+        $this->postJson('/api/v1/imagerie/examens', [
+            'patient_id' => $autre->id,
+            'modalite' => 'DX',
+            'libelle' => 'Radiographie thorax',
+            'realise_le' => now()->toISOString(),
+            'rendez_vous_id' => $rendezVous->id,
+        ], $this->jeton())->assertUnprocessable()->assertJsonValidationErrors('rendez_vous_id');
+
+        // Même un lien plus ancien et discordant : reprogrammer l'examen ne déplace pas le rendez-vous vers un autre animal
+        $examen = $this->examen(['patient_id' => $autre->id, 'rendez_vous_id' => $rendezVous->id]);
+        $this->patchJson("/api/v1/imagerie/examens/{$examen->id}", ['realise_le' => now()->setTime(16, 0)->toISOString()], $this->jeton())->assertOk();
+        $this->assertSame($this->patient->id, $rendezVous->refresh()->patient_id);
+    }
+
     public function test_un_rdv_annule_d_un_autre_type_ou_deja_lie_ne_se_lie_pas(): void
     {
         $annule = RendezVous::factory()->annule()->create([

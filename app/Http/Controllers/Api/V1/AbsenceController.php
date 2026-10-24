@@ -52,10 +52,10 @@ class AbsenceController extends Controller
             'valide_par_user_id' => $statut === StatutAbsence::Validee ? $request->user()->id : null,
         ]);
 
-        $annules = $this->mutation->annulerPourAbsence($absence, $request->user());
+        $resultat = $this->mutation->annulerPourAbsence($absence, $request->user());
 
         return (new AbsenceResource($absence))
-            ->additional(['meta' => ['rendez_vous_annules' => $annules]]);
+            ->additional(['meta' => ['rendez_vous_annules' => $resultat['annules'], 'rendez_vous_restants' => $resultat['restants']]]);
     }
 
     public function show(Absence $absence): AbsenceResource
@@ -96,10 +96,10 @@ class AbsenceController extends Controller
             'valide_par_user_id' => $request->user()->id,
         ]);
 
-        $annules = $this->mutation->annulerPourAbsence($absence, $request->user());
+        $resultat = $this->mutation->annulerPourAbsence($absence, $request->user());
 
         return (new AbsenceResource($absence))
-            ->additional(['meta' => ['rendez_vous_annules' => $annules]]);
+            ->additional(['meta' => ['rendez_vous_annules' => $resultat['annules'], 'rendez_vous_restants' => $resultat['restants']]]);
     }
 
     public function refuser(Request $request, Absence $absence): AbsenceResource

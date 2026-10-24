@@ -11,7 +11,6 @@ use App\Models\PartieEnregistrement;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 
 /**
@@ -110,22 +109,37 @@ final class ConsommationTranscription
         };
     }
 
+    /** Débit des deux enregistreurs (web et iPhone), pour estimer la durée d'un fichier par sa taille. */
+    public const int BITS_PAR_SECONDE = 32000;
+
     /**
-     * Dépense Deepgram estimée de la plateforme ce mois-ci, en dollars.
-     * Chaque essai envoyé compte (24.10.2026) : un appel qui a expiré de
-     * notre côté a pu être traité, et payé, chez Deepgram. La clinique, elle,
-     * ne paie que la durée de son audio (secondes()).
+     * Dépense Deepgram estimée de la plateforme ce mois-ci, en dollars : les
+     * secondes transcrites, plus les essais envoyés qui ont échoué (24.10.2026).
+     * Un appel qui a expiré de notre côté, ou que l'on a relancé, a pu être
+     * traité, et payé, chez Deepgram. La clinique, elle, ne paie que la durée
+     * de son audio (secondes()).
      */
     public function depenseDeepgram(): float
     {
-        $debut = CarbonImmutable::now('Europe/Zurich')->startOfMonth();
-        $secondes = (int) PartieEnregistrement::query()
-            ->where('statut', StatutPartie::Transcrite)
-            ->where('transcrite_le', '>=', $debut->utc())
-            ->where('transcrite_le', '<', $debut->addMonthNoOverflow()->utc())
-            ->sum(DB::raw('duree_secondes * (CASE WHEN tentatives > 1 THEN tentatives ELSE 1 END)'));
+        $secondes = $this->secondes() + (int) Cache::get(self::cleEssaisEchoues(), 0);
 
         return round($secondes / 60 * (float) config('transcription.cout_minute_deepgram_usd'), 2);
+    }
+
+    /** Un essai envoyé à Deepgram a échoué : sa durée, estimée d'après la taille du fichier, est comptée au budget du mois. */
+    public function essaiEchoue(int $octets): void
+    {
+        $secondes = (int) ceil(max(0, $octets) * 8 / self::BITS_PAR_SECONDE);
+        if ($secondes === 0) {
+            return;
+        }
+        Cache::add(self::cleEssaisEchoues(), 0, now()->addDays(40));
+        Cache::increment(self::cleEssaisEchoues(), $secondes);
+    }
+
+    private static function cleEssaisEchoues(): string
+    {
+        return 'deepgram:essais-echoues:'.CarbonImmutable::now('Europe/Zurich')->format('Y-m');
     }
 
     /** @return array<string, mixed> */

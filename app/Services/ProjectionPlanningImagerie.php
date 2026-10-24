@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Enums\StatutRendezVous;
 use App\Models\ExamenImagerie;
-use App\Models\Patient;
 use App\Models\User;
 
 /**
@@ -20,7 +19,11 @@ class ProjectionPlanningImagerie
 {
     public function __construct(private MutationRendezVous $mutation) {}
 
-    /** Pousse horaires et patient de l'examen vers le RDV lié. */
+    /**
+     * Pousse les horaires de l'examen vers le RDV lié. Jamais le patient
+     * (24.10.2026) : le rendez-vous reste celui de l'animal pour qui il a été
+     * pris, la requête refuse un lien vers celui d'un autre.
+     */
     public function aligner(ExamenImagerie $examen, ?User $auteur): void
     {
         $rendezVous = $examen->rendezVous;
@@ -33,11 +36,6 @@ class ProjectionPlanningImagerie
             'starts_at' => $examen->realise_le,
             'ends_at' => $examen->realise_le->copy()->addMinutes($examen->duree_minutes),
         ];
-
-        if ($examen->patient_id !== $rendezVous->patient_id) {
-            $attributs['patient_id'] = $examen->patient_id;
-            $attributs = [...$attributs, ...Patient::findOrFail($examen->patient_id)->denormalisation()];
-        }
 
         // Parité audit planning : un déplacement n'audite pas le
         // `endsAt` qui suit le début ; un pur changement de durée, si.

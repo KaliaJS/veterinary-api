@@ -74,9 +74,11 @@ class JournalFacturesTest extends TestCase
         $this->facture('2026-07-14 22:30:00', null, 20);
         // 23:30 le 13 à Zurich : le 13
         $this->facture('2026-07-13 21:30:00', null, 30);
+        // 00:30 le 14 à Zurich (encore le 13 en UTC) : le 14, compté par « du »
+        $tot = $this->facture('2026-07-13 22:30:00', null, 40);
 
         $ids = collect($this->getJson('/api/v1/facturation/factures?du=2026-07-14&au=2026-07-14', $this->enTetes($this->jeton))->assertOk()->json('data'))->pluck('id');
-        $this->assertSame([$tard->id], $ids->all());
+        $this->assertEqualsCanonicalizing([$tard->id, $tot->id], $ids->all());
     }
 
     public function test_une_facture_sert_son_hors_taxe_son_taux_et_le_total_de_ses_lignes(): void

@@ -16,6 +16,7 @@ use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\RendezVousAudit;
 use App\Models\Salle;
+use App\Services\ProjectionPlanningBloc;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -155,6 +156,18 @@ class InterventionTest extends TestCase
         // Changer d'animal en détachant le rendez-vous, ou garder le sien : accepté
         $this->patchJson("/api/v1/bloc/interventions/{$liee->id}", ['patient_id' => $autre->id, 'rendez_vous_id' => null], $this->jeton())->assertOk();
         $this->patchJson("/api/v1/bloc/interventions/{$sienne->id}", ['rendez_vous_id' => $rendezVousAutre->id, 'duree_minutes' => 45], $this->jeton())->assertOk();
+        $this->assertSame($this->patient->id, $rendezVous->refresh()->patient_id);
+    }
+
+    /** Un lien plus ancien et discordant : reprogrammer l'intervention ne fait jamais changer le rendez-vous d'animal (24.10.2026). */
+    public function test_aligner_ne_change_jamais_le_patient_du_rendez_vous(): void
+    {
+        $rendezVous = $this->rendezVousChir();
+        $autre = Patient::factory()->for($this->patient->client)->create();
+        $intervention = $this->intervention(['patient_id' => $autre->id, 'rendez_vous_id' => $rendezVous->id]);
+
+        app(ProjectionPlanningBloc::class)->aligner($intervention->refresh(), null);
+
         $this->assertSame($this->patient->id, $rendezVous->refresh()->patient_id);
     }
 

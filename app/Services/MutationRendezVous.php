@@ -139,13 +139,16 @@ class MutationRendezVous
      * sur la période, dans chacune des cliniques où il consulte (la fiche
      * et ses absences sont celles de la personne) : statut `annule`
      * audité avec motif, jamais de suppression. Un batch d'audit par
-     * rendez-vous. Retourne le nombre de rendez-vous (hors tampons)
-     * annulés.
+     * rendez-vous. Rend le nombre de rendez-vous (hors tampons) annulés, et
+     * ceux restés au planning parce que leur acompte n'a pas pu être rendu
+     * (24.10.2026), à annuler à la main.
+     *
+     * @return array{annules: int, restants: int}
      */
-    public function annulerPourAbsence(Absence $absence, ?User $auteur): int
+    public function annulerPourAbsence(Absence $absence, ?User $auteur): array
     {
         if (! $absence->estBloquante()) {
-            return 0;
+            return ['annules' => 0, 'restants' => 0];
         }
 
         $motif = 'Absence praticien : '.mb_strtolower($absence->type->libelle());
@@ -172,6 +175,7 @@ class MutationRendezVous
         });
 
         $annules = 0;
+        $restants = 0;
 
         foreach ($rendezVous as $unRendezVous) {
             // L'acompte payé en ligne est rendu en entier, d'abord (24.10.2026) ;
@@ -181,6 +185,7 @@ class MutationRendezVous
                 app(AcomptesRendezVous::class)->surAbsenceDuPraticien($unRendezVous);
             } catch (ErreurPaiement $e) {
                 report($e);
+                $restants++;
 
                 continue;
             }
@@ -196,7 +201,7 @@ class MutationRendezVous
             }
         }
 
-        return $annules;
+        return ['annules' => $annules, 'restants' => $restants];
     }
 
     /** @param array<string, array{mixed, mixed}> $changements */

@@ -9,9 +9,11 @@ use App\Models\ProduitVeterinaire;
 use App\Services\Catalogue\DonneesVaccins;
 use App\Services\Catalogue\ImportRefdata;
 use App\Services\Catalogue\ImportSwissmedic;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use PDOException;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -92,6 +94,34 @@ class ImportCatalogueTest extends TestCase
         } finally {
             $this->assertSame(CatalogueImport::ECHEC, CatalogueImport::query()->latest('id')->value('statut'));
         }
+    }
+
+    /** Une erreur SQL pendant un import : le journal la garde sans la valeur (24.10.2026). */
+    public function test_le_journal_d_un_import_en_echec_ne_garde_pas_les_valeurs_sql(): void
+    {
+        $erreurSql = fn () => throw new QueryException('mysql', 'insert into `x` values (?)', [], new PDOException("SQLSTATE[23000]: 1062 Duplicate entry 'Rabisin SECRET-VALEUR' for key 'x'"));
+
+        ProduitVeterinaire::creating($erreurSql);
+        try {
+            app(ImportSwissmedic::class)->importer($this->archiveSwissmedic());
+            $this->fail('L’import Swissmedic aurait dû échouer.');
+        } catch (QueryException) {
+        }
+        $journal = CatalogueImport::query()->latest('id')->firstOrFail();
+        $this->assertStringContainsString("Duplicate entry '***'", (string) $journal->message);
+        $this->assertStringNotContainsString('SECRET-VALEUR', (string) $journal->message);
+        ProduitVeterinaire::flushEventListeners();
+
+        app(ImportSwissmedic::class)->importer($this->archiveSwissmedic());
+        ProduitEmballage::updating($erreurSql);
+        try {
+            app(ImportRefdata::class)->importer($this->archiveRefdata());
+            $this->fail('L’import Refdata aurait dû échouer.');
+        } catch (QueryException) {
+        }
+        $journal = CatalogueImport::query()->latest('id')->firstOrFail();
+        $this->assertStringContainsString("Duplicate entry '***'", (string) $journal->message);
+        $this->assertStringNotContainsString('SECRET-VALEUR', (string) $journal->message);
     }
 
     public function test_l_import_refdata_pose_les_gtin_sur_les_emballages_connus(): void

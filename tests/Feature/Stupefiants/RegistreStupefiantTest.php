@@ -209,11 +209,13 @@ class RegistreStupefiantTest extends TestCase
             'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'quantite' => 5, 'motif' => 'Réception grossiste', 'created_at' => $quand->utc(),
         ]));
         $tard = $mouvement($jour->setTime(23, 30));
+        // 00:30 le 14 à Zurich, encore le 13 en UTC : compté par « du »
+        $tot = $mouvement($jour->setTime(0, 30));
         $mouvement($jour->addDay()->setTime(0, 30));
         $mouvement($jour->subDay()->setTime(23, 30));
 
         $ids = collect($this->getJson('/api/v1/stupefiants/registre?du=2026-07-14&au=2026-07-14', $this->enTetes($this->jeton))->assertOk()->json('data.mouvements'))->pluck('id');
-        $this->assertSame([$tard->id], $ids->all());
+        $this->assertEqualsCanonicalizing([$tard->id, $tot->id], $ids->all());
     }
 
     /** Le registre seul fait bouger le stock d'un stupéfiant (24.10.2026) : arrondi à l'unité inférieure. */

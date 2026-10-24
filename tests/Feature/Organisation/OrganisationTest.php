@@ -451,22 +451,55 @@ class OrganisationTest extends TestCase
         $this->assertSame('annule', $this->stripe->prelevements[$idPremier]['statut']);
     }
 
-    /** Une réponse perdue puis renvoyée dans l'heure garde la même clé d'idempotence ; un nouvel essai après un refus, une autre. */
+    /** Une réponse perdue puis renvoyée, même plus tard, garde la même clé ; après un refus, ou avec une autre carte, une autre. */
     public function test_la_cle_d_idempotence_suit_la_tentative(): void
     {
         $facture = $this->factureRefuseeARegler();
+        $regler = fn () => $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton));
 
         $this->stripe->panne = 'Délai dépassé.';
-        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $regler()->assertUnprocessable();
+        // Une heure et demie plus tard, toujours sans réponse : la même tentative
+        $this->travel(90)->minutes();
+        $regler()->assertUnprocessable();
         $this->stripe->panne = null;
         $this->stripe->refus = 'Fonds insuffisants sur la carte.';
-        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertUnprocessable();
-        $this->stripe->refus = null;
-        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertOk();
-
-        [$perdue, $renvoyee, $apresRefus] = array_slice($this->stripe->cles, -3);
+        $regler()->assertUnprocessable();
+        [$perdue, $renvoyee, $refusee] = array_slice($this->stripe->cles, -3);
         $this->assertSame($perdue, $renvoyee);
-        $this->assertNotSame($renvoyee, $apresRefus);
+        $this->assertSame($renvoyee, $refusee);
+
+        // Le refus a une réponse : l'essai suivant est une nouvelle tentative ; une autre carte aussi
+        $this->stripe->refus = null;
+        $this->avecCarte('4444');
+        $regler()->assertOk();
+        $this->assertNotSame($refusee, array_slice($this->stripe->cles, -1)[0]);
+    }
+
+    /** Souscrire dans un onglet, la banque demande une confirmation ; souscrire de nouveau dans un autre : la première ne pourra plus passer (24.10.2026). */
+    public function test_deux_souscriptions_en_attente_de_confirmation_ne_prelevent_qu_une_fois(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->stripe->actionRequise = true;
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $premier = $this->stripe->dernierPrelevement()['id'];
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $second = $this->stripe->dernierPrelevement()['id'];
+        $this->assertNotSame($premier, $second);
+        $this->assertSame('annule', $this->stripe->prelevements[$premier]['statut']);
+
+        // Le premier onglet confirme après coup : rien ne passe ; le second paie
+        $this->stripe->confirmer($premier);
+        $this->stripe->confirmer($second);
+        $factures = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement();
+        $this->assertSame(1, (clone $factures)->where('statut', 'a_payer')->count());
+        $aPayer = (clone $factures)->where('statut', 'a_payer')->sole();
+        $this->postJson("/api/v1/organisation/factures/{$aPayer->id}/confirmer", [], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.statut', 'payee');
+        $this->assertSame(1, (clone $factures)->where('statut', 'payee')->count());
+        $this->assertSame('annule', $this->stripe->prelevements[$premier]['statut']);
     }
 
     /** Une facture de renouvellement refusée, à régler, carte remplacée. */

@@ -102,7 +102,7 @@ class RendezVousProprietaireController extends Controller
 
         $souhait = self::souhaitDeReport($rendezVous);
         // Un report à la fois pour ce rendez-vous, et le plafond des demandes (24.10.2026)
-        if (isset($this->reportsEnCours($contexte)[$rendezVous->clinique_id.'|'.$souhait])) {
+        if (isset($this->reportsEnCours($contexte)[$rendezVous->id])) {
             throw ValidationException::withMessages(['status' => 'Le report de ce rendez-vous est déjà demandé : la clinique vous répond.']);
         }
         CliniqueProprietaireController::plafond($rendezVous->clinique, fn ($q) => $q->where('user_id', $contexte->user()->id));
@@ -117,6 +117,9 @@ class RendezVousProprietaireController extends Controller
             'owner_name' => $rendezVous->owner_name,
             'reason' => 'Report : '.($rendezVous->reason ?: 'rendez-vous'),
             'souhait' => $souhait,
+            // Le rendez-vous à déplacer, par sa clé : deux animaux à la même
+            // heure, ou un rendez-vous déplacé par la clinique, ne se confondent pas
+            'report_de_id' => $rendezVous->id,
             'mode' => ModeDemandeRendezVous::AValider,
             'duree_minutes' => max(15, (int) $rendezVous->starts_at->diffInMinutes($rendezVous->ends_at)),
         ]);
@@ -135,26 +138,26 @@ class RendezVousProprietaireController extends Controller
     }
 
     /**
-     * Les reports du compte qui attendent la clinique, en une requête :
-     * clé « clinique|souhait ».
+     * Les reports du compte qui attendent la clinique, en une requête : clé
+     * l'id du rendez-vous à déplacer.
      *
-     * @return array<string, bool>
+     * @return array<int, bool>
      */
     private function reportsEnCours(ContexteProprietaire $contexte): array
     {
         return DemandeRendezVous::withoutGlobalScopes()
             ->where('user_id', $contexte->user()->id)
-            ->where('souhait', 'like', 'Report demandé par le propriétaire (%')
+            ->whereNotNull('report_de_id')
             ->whereIn('statut', [StatutDemandeRendezVous::ATraiter, StatutDemandeRendezVous::Proposee])
-            ->get(['clinique_id', 'souhait'])
-            ->mapWithKeys(fn (DemandeRendezVous $d): array => [$d->clinique_id.'|'.$d->souhait => true])
+            ->pluck('report_de_id')
+            ->mapWithKeys(fn ($id): array => [(int) $id => true])
             ->all();
     }
 
-    /** @param  array<string, bool>  $reports */
+    /** @param  array<int, bool>  $reports */
     private function ressource(RendezVous $rendezVous, array $reports): RendezVousProprietaireResource
     {
-        return new RendezVousProprietaireResource($rendezVous, isset($reports[$rendezVous->clinique_id.'|'.self::souhaitDeReport($rendezVous)]));
+        return new RendezVousProprietaireResource($rendezVous, isset($reports[$rendezVous->id]));
     }
 
     private function mien(ContexteProprietaire $contexte, int $rendezVousId): RendezVous

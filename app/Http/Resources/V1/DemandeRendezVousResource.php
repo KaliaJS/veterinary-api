@@ -39,6 +39,8 @@ class DemandeRendezVousResource extends JsonResource
             'motif_refus' => $this->motif_refus,
             'message' => $this->message,
             'rendez_vous_id' => $this->rendez_vous_id,
+            // Demande de report : le rendez-vous à déplacer (24.10.2026)
+            'report_de_id' => $this->report_de_id,
             'rendez_vous_debut' => $this->whenLoaded('rendezVous', fn () => $this->rendezVous?->starts_at->toIso8601String()),
             // Les réponses lui sont écrites (compte ou adresse laissée) ; sinon, l'appeler
             'prevenu_par_email' => $this->adresseDuProprietaire() !== null,

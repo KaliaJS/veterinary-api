@@ -105,6 +105,22 @@ class RendezVousProprietaireTest extends TestCase
             ->assertJsonPath('data.a_venir.0.peut_reporter', false)
             ->assertJsonPath('data.a_venir.0.report_demande', true);
 
+        $this->assertSame($rdv->id, DemandeRendezVous::withoutGlobalScopes()->sole()->report_de_id);
+
+        // Un autre animal à la même heure, dans la même clinique : son report reste possible (24.10.2026)
+        $nala = Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Nala']);
+        $memeHeure = RendezVous::factory()->pourPatient($nala)->create(['clinique_id' => $rdv->clinique_id, 'starts_at' => $rdv->starts_at, 'ends_at' => $rdv->ends_at, 'reason' => 'Vaccin']);
+        $liste = collect($this->getJson('/api/v1/espace/rendez-vous', $this->enTetes($jeton))->json('data.a_venir'))->keyBy('id');
+        $this->assertTrue($liste[$memeHeure->id]['peut_reporter']);
+        $this->postJson("/api/v1/espace/rendez-vous/{$memeHeure->id}/reporter", [], $this->enTetes($jeton))->assertCreated();
+        $memeHeure->delete();
+        DemandeRendezVous::withoutGlobalScopes()->whereNull('report_de_id')->orWhere('report_de_id', '!=', $rdv->id)->delete();
+
+        // Déplacé par la clinique sans répondre : le report en cours est toujours reconnu
+        $rdv->update(['starts_at' => $rdv->starts_at->addHour(), 'ends_at' => $rdv->ends_at->addHour()]);
+        $this->getJson('/api/v1/espace/rendez-vous', $this->enTetes($jeton))->assertJsonPath('data.a_venir.0.report_demande', true);
+        $this->postJson("/api/v1/espace/rendez-vous/{$rdv->id}/reporter", [], $this->enTetes($jeton))->assertUnprocessable();
+
         // La clinique a traité la demande : un nouveau report redevient possible
         DemandeRendezVous::withoutGlobalScopes()->update(['statut' => 'refusee']);
         $this->getJson('/api/v1/espace/rendez-vous', $this->enTetes($jeton))
@@ -171,6 +187,22 @@ class RendezVousProprietaireTest extends TestCase
         // Lundi 26 à l'ouverture, 8 h à Zurich : 7 h en UTC, plus 6 h
         $this->assertSame('2026-10-26 08:00', CarbonImmutable::parse($premier)->setTimezone('Europe/Zurich')->format('Y-m-d H:i'));
         $this->assertSame('2026-10-26T07:00:00+00:00', CarbonImmutable::parse($premier)->utc()->toIso8601String());
+    }
+
+    /** Le dimanche même du passage à l'heure d'hiver, une clinique ouverte : la grille part de 8 h à Zurich, pas de 7 h (24.10.2026). */
+    public function test_le_jour_du_changement_d_heure_la_grille_reste_a_l_heure_locale(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-24 16:00', 'Europe/Zurich'));
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id, 'dimanche_ferme' => false, 'samedi_ferme' => true]);
+        LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+
+        $creneaux = $this->getJson('/api/v1/espace/cliniques', $this->enTetes($jeton))->assertOk()->json('data.0.creneaux');
+
+        // Dimanche 25 octobre, 8 h à Zurich : 7 h en UTC (heure d'hiver depuis 3 h du matin)
+        $this->assertSame('2026-10-25 08:00', CarbonImmutable::parse($creneaux[0]['debut'])->setTimezone('Europe/Zurich')->format('Y-m-d H:i'));
+        $this->assertSame('2026-10-25T07:00:00+00:00', CarbonImmutable::parse($creneaux[0]['debut'])->utc()->toIso8601String());
     }
 
     public function test_a_14h00_et_quelques_secondes_le_premier_creneau_est_14h20(): void

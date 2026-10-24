@@ -76,6 +76,17 @@ class JournauxTest extends TestCase
         }
     }
 
+    /** Une erreur SQL emballée (par une vue Blade, par exemple) passe aussi par le masque (24.10.2026). */
+    public function test_une_erreur_sql_emballee_est_masquee(): void
+    {
+        Log::spy();
+        $sql = new QueryException('mysql', 'select 1', [], new PDOException("SQLSTATE[23000]: 1062 Duplicate entry 'lea.fontaine@exemple.ch' for key 'x'"));
+        report(new RuntimeException('Rendu de la vue impossible : '.$sql->getMessage(), 0, $sql));
+
+        Log::shouldHaveReceived('error')->once()->withArgs(fn (string $journal, array $contexte): bool => ! str_contains($journal.json_encode($contexte), 'lea.fontaine')
+            && str_contains(json_encode($contexte['chaine']), "Duplicate entry '***'"));
+    }
+
     /** Une tâche en échec est gardée sans la valeur du message ni les arguments de la pile. */
     public function test_une_tache_en_echec_est_gardee_sans_les_valeurs(): void
     {

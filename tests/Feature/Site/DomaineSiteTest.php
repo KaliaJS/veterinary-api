@@ -339,6 +339,59 @@ class DomaineSiteTest extends TestCase
         $this->assertSame(DomaineSite::ACTIF, SiteWeb::withoutGlobalScopes()->where('domaine', 'www.autre-clinique.ch')->value('domaine_statut'));
     }
 
+    /** Deux domaines actifs : le premier en panne chez Cloudflare n'arrête pas la vérification du second (24.10.2026). */
+    public function test_une_panne_sur_un_domaine_n_arrete_pas_la_verification_des_autres(): void
+    {
+        config(['sites.domaines.fournisseur' => 'cloudflare']);
+        $second = 'actif';
+        Http::fake([
+            'api.cloudflare.com/client/v4/zones/zone123/custom_hostnames' => fn (Request $r) => Http::response(['success' => true, 'result' => ['id' => $r['hostname'] === 'www.ma-clinique.ch' ? 'ch-1' : 'ch-2']]),
+            'api.cloudflare.com/client/v4/zones/zone123/custom_hostnames/ch-1' => fn () => throw new ConnectionException('cURL error 28: timeout'),
+            'api.cloudflare.com/client/v4/zones/zone123/custom_hostnames/ch-2' => function () use (&$second) {
+                return Http::response(['result' => ['status' => $second, 'ssl' => ['status' => 'active']]]);
+            },
+        ]);
+        // Deux sites actifs, le premier vérifié d'abord
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertOk();
+        app(ContexteClinique::class)->oublier();
+        $autre = Clinique::factory()->create();
+        $jetonAutre = $this->administrateur($autre);
+        $this->patchJson('/api/v1/site', ['est_publie' => true], $this->enTetes($jetonAutre))->assertOk();
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.autre-clinique.ch'], $this->enTetes($jetonAutre))->assertOk();
+        SiteWeb::withoutGlobalScopes()->update(['domaine_statut' => DomaineSite::ACTIF, 'domaine_verifie_le' => now()->subHours(3), 'domaine_relie_le' => now()->subDays(90)]);
+        app(ContexteClinique::class)->oublier();
+
+        // Le second ne pointe plus vers Cloudflare : sa vérification passe malgré la panne du premier
+        $second = 'moved';
+        $this->travel(2)->days();
+        $this->artisan('sites:verifier-domaines')->assertSuccessful();
+
+        $this->assertSame(DomaineSite::ACTIF, SiteWeb::withoutGlobalScopes()->where('domaine', 'www.ma-clinique.ch')->value('domaine_statut'));
+        $this->assertNotSame(DomaineSite::ACTIF, SiteWeb::withoutGlobalScopes()->where('domaine', 'www.autre-clinique.ch')->value('domaine_statut'));
+    }
+
+    /** Trop d'appels (429) ou jeton refusé (401, 403) : comme une panne, le domaine reste tel quel. */
+    public function test_un_refus_de_cloudflare_qui_n_est_pas_le_domaine_ne_change_rien(): void
+    {
+        config(['sites.domaines.fournisseur' => 'cloudflare']);
+        $statut = 200;
+        Http::fake([
+            'api.cloudflare.com/client/v4/zones/zone123/custom_hostnames' => Http::response(['success' => true, 'result' => ['id' => 'ch-1']]),
+            'api.cloudflare.com/client/v4/zones/zone123/custom_hostnames/ch-1' => function () use (&$statut) {
+                return $statut === 200 ? Http::response(['result' => ['status' => 'active', 'ssl' => ['status' => 'active']]]) : Http::response(['success' => false], $statut);
+            },
+        ]);
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertJsonPath('data.domaine.statut', 'actif');
+        SiteWeb::withoutGlobalScopes()->update(['domaine_verifie_le' => now()->subHours(3), 'domaine_relie_le' => now()->subDays(90)]);
+        app(ContexteClinique::class)->oublier();
+
+        foreach ([429, 401, 403] as $i => $statut) {
+            $this->travel(2)->days();
+            $this->artisan('sites:verifier-domaines')->assertSuccessful();
+            $this->assertSame(DomaineSite::ACTIF, SiteWeb::withoutGlobalScopes()->value('domaine_statut'), (string) $statut);
+        }
+    }
+
     public function test_un_domaine_en_attente_plus_de_quatorze_jours_est_retire(): void
     {
         $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertJsonPath('data.domaine.statut', 'attente');

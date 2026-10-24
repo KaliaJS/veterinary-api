@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\DomainePermission;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\DossierMedical\EnregistrerVaccinationRequest;
 use App\Http\Resources\V1\VaccinationResource;
@@ -14,6 +15,7 @@ use App\Services\EtatVaccinal;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -96,6 +98,11 @@ class VaccinationController extends Controller
         $moi = app(ContexteClinique::class)->employe()?->id;
         if ($vaccination->employe_id !== null && $vaccination->employe_id !== $moi) {
             throw new AuthorizationException('Seule la personne qui a signé cette injection peut la corriger ou la retirer.');
+        }
+        // Sans signataire (injection reprise d'un ancien carnet) : l'administration
+        // seule la corrige, pas n'importe quel membre de l'équipe (24.10.2026)
+        if ($vaccination->employe_id === null && ! Gate::allows(DomainePermission::Organisation->value)) {
+            throw new AuthorizationException('Cette injection n’a pas de signataire : seule l’administration de la clinique peut la corriger ou la retirer.');
         }
     }
 

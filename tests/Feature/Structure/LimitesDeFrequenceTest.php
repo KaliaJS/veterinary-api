@@ -31,6 +31,20 @@ class LimitesDeFrequenceTest extends TestCase
             'POST api/v1/espace/rendez-vous/{rendezVous}/reporter' => 'throttle:espace-demandes',
             'PUT api/v1/espace/abonnement/carte' => 'throttle:espace-achats',
             'DELETE api/v1/espace/abonnement/carte' => 'throttle:espace-achats',
+            // Abonnements : chaque geste appelle Stripe (24.10.2026)
+            'POST api/v1/espace/abonnement/resilier' => 'throttle:espace-achats',
+            'POST api/v1/espace/abonnement/reactiver' => 'throttle:espace-achats',
+            'POST api/v1/espace/abonnement/factures/{facture}/regler' => 'throttle:espace-achats',
+            'POST api/v1/espace/abonnement/factures/{facture}/confirmer' => 'throttle:espace-achats',
+            'POST api/v1/organisation/abonnement' => 'throttle:stripe',
+            'POST api/v1/organisation/moyen-paiement/intention' => 'throttle:stripe',
+            'PUT api/v1/organisation/moyen-paiement' => 'throttle:stripe',
+            'DELETE api/v1/organisation/moyen-paiement' => 'throttle:stripe',
+            'POST api/v1/organisation/factures/{facture}/regler' => 'throttle:stripe',
+            'POST api/v1/organisation/factures/{facture}/confirmer' => 'throttle:stripe',
+            'POST api/v1/organisation/abonnement/resilier' => 'throttle:stripe',
+            'POST api/v1/organisation/abonnement/reactiver' => 'throttle:stripe',
+            'POST api/v1/organisation/packs' => 'throttle:stripe',
         ];
 
         $routes = collect(Routes::getRoutes()->getRoutes())->flatMap(fn (Route $route) => collect($route->methods())

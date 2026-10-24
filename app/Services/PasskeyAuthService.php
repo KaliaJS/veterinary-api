@@ -104,14 +104,16 @@ class PasskeyAuthService
 
     /**
      * Répartition des passkeys enregistrées : nombre par compte, longueur
-     * de l'identifiant en octets, transports tels que servis. Recalculée
-     * chaque jour ; sans passkey encore, celle du trousseau d'Apple.
+     * de l'identifiant en octets, transports tels que servis. Calculée une
+     * fois puis gardée : recalculée, elle changerait la forme des faux
+     * identifiants d'une même adresse d'un jour à l'autre, ce qu'un vrai ne
+     * fait jamais. Sans passkey encore, celle du trousseau d'Apple.
      *
      * @return array{nombres: array<int, int>, longueurs: array<int, int>, transports: array<string, int>}
      */
     private static function formeDesPasskeys(): array
     {
-        return Cache::remember('passkeys:forme', now()->addDay(), function (): array {
+        return Cache::rememberForever('passkeys:forme', function (): array {
             $forme = [
                 'nombres' => Passkey::query()->selectRaw('count(*) as n')->groupBy('user_id')->pluck('n')->map(fn ($n): int => (int) $n)->countBy()->all(),
                 'longueurs' => [],
