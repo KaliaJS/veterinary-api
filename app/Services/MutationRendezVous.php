@@ -179,6 +179,8 @@ class MutationRendezVous
                 ->orderBy('id')
                 ->get();
         });
+        // Dans l'ordre de leur heure, toutes colonnes confondues (24.10.2026)
+        $rendezVous = $rendezVous->sortBy([['starts_at', 'asc'], ['id', 'asc']])->values();
 
         $annules = 0;
         $restants = 0;

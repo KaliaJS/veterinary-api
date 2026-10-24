@@ -923,8 +923,17 @@ class AcompteReservationTest extends TestCase
         $this->clinique->update(['acompte_centimes' => 3000]);
         ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
         ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
-        $premier = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        // Le plus tard réservé d'abord : l'ordre de traitement suit l'heure, pas l'enregistrement
         $suivant = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi->addHour());
+        $premier = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        // Le premier a une demande d'annulation en attente : une décision pourrait y être notée
+        $this->postJson("/api/v1/espace/rendez-vous/{$premier->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        $ordre = [];
+        RendezVous::saving(function (RendezVous $rendezVous) use (&$ordre): void {
+            if ($rendezVous->isDirty('status') && $rendezVous->status === StatutRendezVous::Annule) {
+                $ordre[] = $rendezVous->id;
+            }
+        });
         RendezVous::saving(function (RendezVous $rendezVous) use ($premier): void {
             if ($rendezVous->id === $premier->rendez_vous_id && $rendezVous->isDirty('status') && $rendezVous->status === StatutRendezVous::Annule) {
                 throw new \RuntimeException('Base indisponible');
@@ -942,6 +951,8 @@ class AcompteReservationTest extends TestCase
         $this->assertNull($premier->acompte_rembourse_le);
         $this->assertSame('annule', RendezVous::withoutGlobalScopes()->find($suivant->rendez_vous_id)->status->value);
         $this->assertSame(3000, $suivant->refresh()->acompte_rembourse_centimes);
+        // Traités dans l'ordre de leur heure : le premier (essayé, en échec), puis le suivant
+        $this->assertSame([$premier->rendez_vous_id, $suivant->rendez_vous_id], $ordre);
     }
 
     /** Un créneau tampon dont l'annulation échoue ne compte pas parmi les rendez-vous à annuler à la main (24.10.2026). */
