@@ -30,10 +30,12 @@ use App\Services\Transcription\Transcripteur;
 use App\Services\Transcription\TranscriptionImpossible;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -335,6 +337,32 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertCount(1, $niveaux);
         // Au-dessus de la transaction du test : dans celle de l'enregistrement
         $this->assertGreaterThan(1, $niveaux[0]);
+    }
+
+    /** Le retrait de l'estimation et la durée réelle sont validés ensemble : aucune validation de transaction entre les deux (24.10.2026). */
+    public function test_l_estimation_et_la_duree_sont_dans_la_meme_transaction(): void
+    {
+        $journal = [];
+        DB::listen(function (QueryExecuted $requete) use (&$journal): void {
+            if (str_contains($requete->sql, 'update "parties_enregistrement"') && str_contains($requete->sql, '"duree_secondes"')) {
+                $journal[] = 'duree';
+            } elseif (str_contains($requete->sql, 'compteurs_mensuels') && str_contains($requete->sql, '"valeur" = "valeur" -')) {
+                $journal[] = 'retrait';
+            }
+        });
+        Event::listen(TransactionCommitted::class, function () use (&$journal): void {
+            $journal[] = 'validation';
+        });
+
+        $id = $this->demarrer()->json('data.id');
+        $this->envoyer($id, 1, 'AUDIO');
+
+        $duree = array_search('duree', $journal, true);
+        $retrait = array_search('retrait', $journal, true);
+        $this->assertIsInt($duree);
+        $this->assertIsInt($retrait);
+        $entreLesDeux = array_slice($journal, min($duree, $retrait), abs($retrait - $duree));
+        $this->assertNotContains('validation', $entreLesDeux);
     }
 
     /** Une rédaction reprise reste comptée au budget Anthropic après un vidage du cache (24.10.2026). */

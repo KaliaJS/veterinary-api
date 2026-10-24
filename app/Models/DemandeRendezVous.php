@@ -105,21 +105,34 @@ class DemandeRendezVous extends Model
         return $this->belongsTo(RendezVous::class);
     }
 
-    /** Un acompte payé, pas encore rendu : ce qu'il devient se décide (droit « Rembourser »). */
+    /**
+     * Un acompte payé dont il reste de l'argent, qu'aucune décision
+     * d'annulation n'a tranché : ce qu'il devient se décide (droit
+     * « Rembourser »). Un rendu partiel chez Stripe n'y change rien
+     * (24.10.2026) : le reste est encore en jeu.
+     */
     public function acompteEnJeu(): bool
     {
-        return $this->acompte_paye_le !== null && $this->acompte_rembourse_le === null && $this->acompte_intention_id !== null;
+        return $this->acompte_intention_id !== null
+            && $this->acompteRestantCentimes() > 0
+            && ! ($this->annulation_decision?->annule() ?? false);
+    }
+
+    /** Centimes de l'acompte payé pas encore rendus (0 sans paiement). */
+    public function acompteRestantCentimes(): int
+    {
+        if (! $this->acompte_paye_le) {
+            return 0;
+        }
+        $rendu = $this->acompte_rembourse_le ? (int) ($this->acompte_rembourse_centimes ?? $this->acompte_centimes) : 0;
+
+        return max(0, (int) $this->acompte_centimes - $rendu);
     }
 
     /** L'acompte payé, moins ce qui en a été rendu : en francs, sinon 0. */
     public function acompteRetenu(): float
     {
-        if (! $this->acompte_paye_le) {
-            return 0.0;
-        }
-        $rendu = $this->acompte_rembourse_le ? ($this->acompte_rembourse_centimes ?? $this->acompte_centimes) : 0;
-
-        return round(max(0, ($this->acompte_centimes ?? 0) - $rendu) / 100, 2);
+        return round($this->acompteRestantCentimes() / 100, 2);
     }
 
     /** Annulation demandée par le propriétaire, pas encore décidée par la clinique. */

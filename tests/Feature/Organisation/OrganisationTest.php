@@ -755,6 +755,24 @@ class OrganisationTest extends TestCase
         $this->assertCount($avant, $this->stripe->prelevements);
     }
 
+    /** Une souscription qui en remplace une autre (restée en attente de confirmation) garde les frais d'identité (24.10.2026). */
+    public function test_la_souscription_qui_remplace_garde_les_frais_d_identite(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        Organisation::query()->whereKey($this->organisationId())->update(['frais_identite_centimes' => 150]);
+        $this->stripe->actionRequise = true;
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $premier = $this->stripe->dernierPrelevement()['centimes'];
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertSame($premier, $this->stripe->dernierPrelevement()['centimes']);
+        $souscription = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->where('statut', 'a_payer')->sole();
+        $this->assertSame('150', $souscription->metadonnees['frais_identite'] ?? null);
+    }
+
     /** Un changement qui en remplace un autre garde les frais d'identité que l'annulation a rendus (24.10.2026). */
     public function test_le_changement_qui_remplace_garde_les_frais_d_identite(): void
     {

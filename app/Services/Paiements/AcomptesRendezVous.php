@@ -153,13 +153,11 @@ class AcomptesRendezVous
      */
     public function rembourser(DemandeRendezVous $demande, DecisionAnnulation $decision = DecisionAnnulation::Complet): bool
     {
-        if (! $demande->acompte_paye_le || ! $demande->acompte_intention_id) {
+        // Plus rien à rendre, ou une décision d'annulation l'a déjà tranché
+        if (! $demande->acompteEnJeu()) {
             return false;
         }
-        $deja = $demande->acompte_rembourse_le ? (int) ($demande->acompte_rembourse_centimes ?? $demande->acompte_centimes) : 0;
-        if ($deja > 0 && $demande->annulation_decision !== null) {
-            return false;
-        }
+        $deja = (int) $demande->acompte_centimes - $demande->acompteRestantCentimes();
 
         $montant = match ($decision) {
             DecisionAnnulation::Complet => (int) $demande->acompte_centimes - $deja,
@@ -296,6 +294,7 @@ class AcomptesRendezVous
                 $this->drapeau($rendezVous, false);
             }
             $demande->update(['annulation_decision' => $decision, 'annulation_traitee_le' => now()]);
+            $this->drapeauAcompte($demande);
         });
 
         $adresse = $demande->adresseDuProprietaire();
@@ -320,9 +319,10 @@ class AcomptesRendezVous
         }
         self::exigerDroitDeRembourser($demande);
         $this->rembourser($demande, $decision);
-        if ($demande->annulationEnAttente()) {
-            $demande->update(['annulation_decision' => $decision, 'annulation_traitee_le' => now()]);
-        }
+        // La décision notée même sans demande du propriétaire : elle ne se
+        // rejoue pas pour rendre davantage (24.10.2026)
+        $demande->update(['annulation_decision' => $decision, ...$demande->annulationEnAttente() ? ['annulation_traitee_le' => now()] : []]);
+        $this->drapeauAcompte($demande);
         $this->drapeau($rendezVous, false);
     }
 
@@ -373,16 +373,21 @@ class AcomptesRendezVous
     /**
      * Acompte rendu (en tout ou en partie, par l'app, chez Stripe ou perdu au
      * litige), daté du dernier rendu : les alertes comptent depuis lui
-     * (24.10.2026). Le rendez-vous perd son drapeau « acompte » : l'app n'a
-     * plus rien à rendre (acompteEnJeu), l'annuler ne demande plus le droit
-     * « Rembourser ». Ce qui reste d'un rendu partiel se déduit quand même de
-     * la facture.
+     * (24.10.2026). Rendu en entier, le rendez-vous perd son drapeau
+     * « acompte » ; rendu en partie, le reste est encore en jeu (droit
+     * « Rembourser » pour annuler), et se déduit de la facture.
      */
     private function noterRendu(DemandeRendezVous $demande, int $centimes): void
     {
         $demande->update(['acompte_rembourse_le' => now(), 'acompte_rembourse_centimes' => $centimes]);
+        $this->drapeauAcompte($demande);
+    }
+
+    /** Le rendez-vous perd son drapeau « acompte » quand plus rien n'est en jeu. */
+    private function drapeauAcompte(DemandeRendezVous $demande): void
+    {
         $rendezVous = $demande->rendez_vous_id ? RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id) : null;
-        if ($rendezVous) {
+        if ($rendezVous && ! $demande->acompteEnJeu()) {
             $rendezVous->forceFill(['flags' => collect($rendezVous->flags ?? [])->reject(fn ($d) => $d === DrapeauRendezVous::Acompte)->values()->all()])->save();
         }
     }

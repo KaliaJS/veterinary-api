@@ -703,6 +703,98 @@ class AcompteReservationTest extends TestCase
         $this->assertSame(0, DemandeRendezVous::withoutGlobalScopes()->count());
     }
 
+    /** Rendu en partie chez Stripe : le reste est encore en jeu, l'annuler demande toujours « Rembourser » ; avec le droit, le reste est rendu (24.10.2026). */
+    public function test_un_acompte_rendu_en_partie_reste_en_jeu(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonVeto] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        app(WebhooksStripe::class)->traiter([
+            'id' => 'evt_en_jeu', 'type' => 'charge.refunded',
+            'objet' => ['payment_intent' => $demande->acompte_intention_id, 'refunded' => false, 'amount_refunded' => 1000],
+            'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+
+        $this->assertContains('acompte', $this->drapeaux($demande->rendez_vous_id));
+        $this->postJson("/api/v1/rendez-vous/{$demande->rendez_vous_id}/annuler", [], $this->enTetes($jetonVeto))->assertForbidden();
+        $this->assertSame('prevu', RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id)->status->value);
+        $this->assertSame([], $this->stripe->appelsDe('rembourser'));
+
+        $this->postJson("/api/v1/rendez-vous/{$demande->rendez_vous_id}/annuler", ['acompte' => 'complet'], $this->enTetes($jetonAdmin))->assertOk();
+        $this->assertSame(2000, $this->stripe->montantsRembourses[$demande->acompte_intention_id] ?? null);
+        $this->assertSame(3000, $demande->refresh()->acompte_rembourse_centimes);
+    }
+
+    /** Annulation refusée (rendez-vous maintenu), rendu partiel chez Stripe, puis annulé par la clinique : le reste est rendu (24.10.2026). */
+    public function test_le_reste_est_rendu_a_l_annulation_apres_un_maintien(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => 'refusee'], $this->enTetes($jetonAdmin))->assertOk();
+        app(WebhooksStripe::class)->traiter([
+            'id' => 'evt_maintien', 'type' => 'charge.refunded',
+            'objet' => ['payment_intent' => $demande->acompte_intention_id, 'refunded' => false, 'amount_refunded' => 1000],
+            'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+
+        $this->postJson("/api/v1/rendez-vous/{$demande->rendez_vous_id}/annuler", ['acompte' => 'complet'], $this->enTetes($jetonAdmin))->assertOk();
+
+        $this->assertSame(2000, $this->stripe->montantsRembourses[$demande->acompte_intention_id] ?? null);
+    }
+
+    /** Une décision prise dans l'app (garder l'acompte, ou rendre moins les frais à l'annulation par la clinique) ne se rejoue jamais (24.10.2026). */
+    public function test_une_decision_d_acompte_ne_se_rejoue_pas(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $acomptes = app(AcomptesRendezVous::class);
+
+        // Gardé, à la demande du propriétaire
+        $garde = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $this->postJson("/api/v1/espace/rendez-vous/{$garde->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        $this->postJson("/api/v1/demandes/{$garde->id}/annulation", ['decision' => 'sans'], $this->enTetes($jetonAdmin))->assertOk();
+        $this->assertFalse($acomptes->rembourser($garde->refresh()));
+        $this->assertFalse($garde->acompteEnJeu());
+
+        // Rendu moins les frais, la clinique ayant annulé d'elle-même
+        $moinsLesFrais = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi->addWeek());
+        $this->postJson("/api/v1/rendez-vous/{$moinsLesFrais->rendez_vous_id}/annuler", ['acompte' => 'hors_frais'], $this->enTetes($jetonAdmin))->assertOk();
+        $rendu = $this->stripe->montantsRembourses[$moinsLesFrais->acompte_intention_id];
+        $this->assertFalse($acomptes->rembourser($moinsLesFrais->refresh()));
+        $this->assertSame($rendu, $this->stripe->montantsRembourses[$moinsLesFrais->acompte_intention_id]);
+    }
+
+    /** Une demande ouverte dont l'acompte est rendu en partie ne se supprime pas : la refuser rend le reste (24.10.2026). */
+    public function test_une_demande_dont_l_acompte_est_en_partie_rendu_ne_se_supprime_pas(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        $jeton = $this->deposer()->json('data.jeton');
+        $demande = DemandeRendezVous::withoutGlobalScopes()->sole();
+        RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id,
+            'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => $this->mardi->utc(),
+            'ends_at' => $this->mardi->addHour()->utc(),
+        ]);
+        $this->stripe->conclure($demande->acompte_intention_id, 'succeeded');
+        $this->postJson("/api/v1/public/demandes/{$jeton}/paiement")->assertOk()->assertJsonPath('data.statut', 'a_traiter');
+        app(WebhooksStripe::class)->traiter([
+            'id' => 'evt_suppression', 'type' => 'charge.refunded',
+            'objet' => ['payment_intent' => $demande->acompte_intention_id, 'refunded' => false, 'amount_refunded' => 1000],
+            'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+
+        $this->deleteJson("/api/v1/demandes/{$demande->id}", [], $this->enTetes($jetonAdmin))->assertUnprocessable()->assertJsonValidationErrors('demande');
+        $this->assertNotNull(DemandeRendezVous::withoutGlobalScopes()->find($demande->id));
+    }
+
     /** Litige clos : gagné ou « warning_closed » garde l'acompte ; un événement d'un autre compte Stripe est ignoré. */
     public function test_un_litige_d_acompte_gagne_ou_clos_sans_suite_garde_l_acompte(): void
     {

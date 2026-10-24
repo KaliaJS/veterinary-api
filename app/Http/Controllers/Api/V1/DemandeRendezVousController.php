@@ -127,8 +127,9 @@ class DemandeRendezVousController extends Controller
     {
         $this->authorize('delete', $demande);
 
-        if ($demande->acompte_intention_id !== null && $demande->acompte_rembourse_le === null
-            && ($demande->acompte_paye_le !== null || $demande->statut === StatutDemandeRendezVous::APayer)) {
+        // En jeu (même rendu en partie chez Stripe), ou en train d'être payé
+        if ($demande->acompte_intention_id !== null
+            && ($demande->acompteEnJeu() || ($demande->acompte_paye_le === null && $demande->statut === StatutDemandeRendezVous::APayer))) {
             throw ValidationException::withMessages(['demande' => 'Cette demande porte un acompte : refusez-la plutôt, l’acompte payé est rendu au propriétaire.']);
         }
 
