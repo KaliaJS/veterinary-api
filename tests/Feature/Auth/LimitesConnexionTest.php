@@ -21,14 +21,14 @@ class LimitesConnexionTest extends TestCase
     public function test_une_ip_ne_balaie_pas_des_milliers_d_adresses(): void
     {
         for ($i = 1; $i <= 30; $i++) {
-            $this->postJson('/api/v1/auth/email', ['email' => "personne{$i}@exemple.ch"])->assertOk();
+            $this->postJson('/api/v1/auth/passkey/options', ['email' => "personne{$i}@exemple.ch"])->assertOk();
         }
 
-        $this->postJson('/api/v1/auth/email', ['email' => 'personne31@exemple.ch'])->assertTooManyRequests();
+        $this->postJson('/api/v1/auth/passkey/options', ['email' => 'personne31@exemple.ch'])->assertTooManyRequests();
 
         // Une autre machine n'est pas touchée
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.9'])
-            ->postJson('/api/v1/auth/email', ['email' => 'personne31@exemple.ch'])->assertOk();
+            ->postJson('/api/v1/auth/passkey/options', ['email' => 'personne31@exemple.ch'])->assertOk();
     }
 
     public function test_une_boite_ne_recoit_pas_plus_de_trois_codes_en_quinze_minutes_quelle_que_soit_l_ip(): void

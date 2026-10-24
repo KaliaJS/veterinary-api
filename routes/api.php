@@ -15,7 +15,6 @@ use App\Http\Controllers\Api\V1\AppStoreNotificationsController;
 use App\Http\Controllers\Api\V1\Auth\ChangementCliniqueController;
 use App\Http\Controllers\Api\V1\Auth\ChoixCliniqueController;
 use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
-use App\Http\Controllers\Api\V1\Auth\EmailConnuController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyConnexionController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
@@ -155,7 +154,8 @@ use Illuminate\Support\Facades\Route;
  */
 Route::prefix('v1')->group(function (): void {
     Route::prefix('auth')->middleware('throttle:auth')->group(function (): void {
-        Route::post('email', EmailConnuController::class);
+        // Plus de « adresse connue ? » (24.10.2026) : la connexion ne dit
+        // jamais si une adresse a un compte
         Route::post('code-email/envoyer', [CodeEmailController::class, 'envoyer'])->middleware('throttle:code-email');
         Route::post('code-email/verifier', [CodeEmailController::class, 'verifier']);
         Route::post('passkey/options', [PasskeyConnexionController::class, 'options']);

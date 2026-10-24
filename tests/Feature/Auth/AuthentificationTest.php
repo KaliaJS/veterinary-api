@@ -20,17 +20,26 @@ class AuthentificationTest extends TestCase
     use EmetDesJetonsApi;
     use RefreshDatabase;
 
-    public function test_verifie_si_un_email_est_connu(): void
+    /** La connexion ne dit jamais si une adresse a un compte (24.10.2026). */
+    public function test_la_connexion_ne_dit_pas_si_une_adresse_a_un_compte(): void
     {
         User::factory()->create(['email' => 'a.meyer@deuxrives.ch']);
 
-        $this->postJson('/api/v1/auth/email', ['email' => 'a.meyer@deuxrives.ch'])
-            ->assertOk()
-            ->assertJson(['known' => true]);
+        $this->postJson('/api/v1/auth/email', ['email' => 'a.meyer@deuxrives.ch'])->assertNotFound();
 
-        $this->postJson('/api/v1/auth/email', ['email' => 'inconnu@exemple.ch'])
-            ->assertOk()
-            ->assertJson(['known' => false]);
+        // Sans passkey ou inconnue : des identifiants, stables pour une même adresse
+        $options = fn (string $email) => $this->postJson('/api/v1/auth/passkey/options', ['email' => $email])->assertOk()->json('options.allowCredentials');
+        $connue = $options('a.meyer@deuxrives.ch');
+        $inconnue = $options('inconnu@exemple.ch');
+        $this->assertNotEmpty($connue);
+        $this->assertNotEmpty($inconnue);
+        $this->assertSame($inconnue, $options('inconnu@exemple.ch'));
+        $this->assertSame(array_keys($connue[0]), array_keys($inconnue[0]));
+
+        // L'envoi d'un code répond pareil
+        Notification::fake();
+        $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'a.meyer@deuxrives.ch'])->assertStatus(202)->assertJson(['message' => 'Un code a été envoyé.']);
+        $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'inconnu@exemple.ch'])->assertStatus(202)->assertJson(['message' => 'Un code a été envoyé.']);
     }
 
     public function test_le_code_email_permet_de_se_connecter(): void

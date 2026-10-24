@@ -15,6 +15,7 @@ use Webauthn\AuthenticatorAssertionResponseValidator;
 use Webauthn\AuthenticatorSelectionCriteria;
 use Webauthn\CredentialRecord;
 use Webauthn\PublicKeyCredential;
+use Webauthn\PublicKeyCredentialDescriptor;
 use Webauthn\PublicKeyCredentialRequestOptions;
 
 /**
@@ -44,6 +45,12 @@ class PasskeyAuthService
                 ->map(fn (Passkey $passkey): mixed => $passkey->donnees->getPublicKeyCredentialDescriptor())
                 ->all()
             : [];
+        // Adresse inconnue ou sans passkey : des identifiants factices, stables
+        // pour une même adresse, plutôt qu'une liste vide qui dirait que le
+        // compte n'existe pas (24.10.2026)
+        if ($email && $allowedCredentials === []) {
+            $allowedCredentials = self::identifiantsFactices($email);
+        }
 
         $options = PublicKeyCredentialRequestOptions::create(
             challenge: random_bytes(32),
@@ -62,6 +69,21 @@ class PasskeyAuthService
             'defi_id' => $defiId,
             'options' => PasskeyJsonSerializer::toArray($options),
         ];
+    }
+
+    /** @return list<PublicKeyCredentialDescriptor> */
+    private static function identifiantsFactices(string $email): array
+    {
+        $graine = hash_hmac('sha256', 'passkey-factice|'.mb_strtolower(trim($email)), (string) config('app.key'), binary: true);
+
+        return array_map(
+            fn (int $i): PublicKeyCredentialDescriptor => PublicKeyCredentialDescriptor::create(
+                PublicKeyCredentialDescriptor::CREDENTIAL_TYPE_PUBLIC_KEY,
+                hash_hmac('sha256', $graine.'|'.$i, (string) config('app.key'), binary: true),
+                [PublicKeyCredentialDescriptor::AUTHENTICATOR_TRANSPORT_INTERNAL, PublicKeyCredentialDescriptor::AUTHENTICATOR_TRANSPORT_HYBRID],
+            ),
+            range(1, 1 + ord($graine[0]) % 2),
+        );
     }
 
     /**
