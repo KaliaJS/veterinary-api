@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\DecisionVerification as Decision;
+// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\StatutIdentite;
 use App\Enums\StatutVerificationVeterinaire;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -148,8 +149,39 @@ class User extends Authenticatable
      */
     public static function libererGlnNonVerifie(string $gln, self $preneur): void
     {
-        self::query()->where('gln', $gln)->whereKeyNot($preneur->id)->whereNull('gln_verifie_le')
-            ->update(['gln' => null, 'medreg_id' => null]);
+        // Le nom concordant dans MedReg ne suffit plus (24.10.2026) : un GLN
+        // et un nom sont publics, seule l'identité vérifiée réserve le GLN
+        self::query()->where('gln', $gln)->whereKeyNot($preneur->id)
+            ->where(fn ($requete) => self::sansIdentiteEtablie($requete))
+            ->update(['gln' => null, 'medreg_id' => null, 'gln_verifie_le' => null]);
+    }
+
+    /**
+     * Identité établie : pièce vérifiée par Stripe Identity, ou vérification
+     * faite à la main par un modérateur. Elle seule réserve un GLN.
+     */
+    public function identiteEtablie(): bool
+    {
+        return $this->identite_verifiee_le !== null || $this->verification_veterinaire === StatutVerificationVeterinaire::Verifie;
+    }
+
+    /**
+     * @param  Builder<self>  $requete
+     * @return Builder<self>
+     */
+    public static function avecIdentiteEtablie(Builder $requete): Builder
+    {
+        return $requete->where(fn ($q) => $q->whereNotNull('identite_verifiee_le')->orWhere('verification_veterinaire', StatutVerificationVeterinaire::Verifie->value));
+    }
+
+    /**
+     * @param  Builder<self>  $requete
+     * @return Builder<self>
+     */
+    public static function sansIdentiteEtablie(Builder $requete): Builder
+    {
+        return $requete->whereNull('identite_verifiee_le')
+            ->where(fn ($q) => $q->whereNull('verification_veterinaire')->orWhere('verification_veterinaire', '!=', StatutVerificationVeterinaire::Verifie->value));
     }
 
     /** Un code neuf (Réglages, Profil) : l'ancien ne retrouve plus le compte. */

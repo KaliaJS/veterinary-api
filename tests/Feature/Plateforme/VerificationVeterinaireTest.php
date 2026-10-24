@@ -169,8 +169,8 @@ class VerificationVeterinaireTest extends TestCase
         $this->getJson("/api/v1/equipe/employes/{$fiche->id}", $entetesLea)->assertJsonPath('data.verifie', true);
         $this->getJson('/api/v1/auth/moi', $entetesJim)->assertJsonPath('data.user.est_moderateur', true);
 
-        // Le badge vaut pour un GLN : en changer le retire
-        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => '7601000999993', 'specialites' => ['orthopedie']], $entetesLea)
+        // Le badge vaut pour un GLN : en changer (ici, le retirer) le retire
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => null, 'specialites' => ['orthopedie']], $entetesLea)
             ->assertOk()
             ->assertJsonPath('data.verification.statut', null);
     }

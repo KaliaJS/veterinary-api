@@ -18,12 +18,12 @@ final class VerificationVeterinaire
 
     public function verifier(string $gln, string $prenom, string $nom, ?User $compte = null): ResultatVerification
     {
-        // Seul un GLN déjà vérifié chez un autre compte bloque : un GLN
-        // seulement saisi ne réserve rien (23.10.2026, sinon n'importe qui
-        // pouvait bloquer le GLN d'un vrai vétérinaire)
+        // Seul un GLN dont le titulaire a une identité établie (Stripe Identity
+        // ou modérateur) bloque : ni une saisie, ni un nom concordant dans
+        // MedReg, qu'un imposteur recopie (23 puis 24.10.2026)
         $pris = User::query()
             ->where('gln', $gln)
-            ->whereNotNull('gln_verifie_le')
+            ->where(fn ($requete) => User::avecIdentiteEtablie($requete))
             ->when($compte, fn ($requete) => $requete->whereKeyNot($compte->id))
             ->exists();
 

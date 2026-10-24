@@ -53,7 +53,13 @@ class ProfilVeterinaireController extends Controller
                 if ($resultat->raison === 'gln_deja_utilise') {
                     throw ValidationException::withMessages(['gln' => 'Ce GLN est déjà celui d’un autre compte. Écrivez-nous si c’est le vôtre.']);
                 }
-                // Gardé dans tous les cas (un modérateur vérifie à la main) ;
+                // Inconnu de MedReg : pas un GLN de vétérinaire, refusé et pas
+                // enregistré (24.10.2026)
+                if ($resultat->raison === 'introuvable') {
+                    throw ValidationException::withMessages(['gln' => 'Ce GLN n’est celui d’aucun vétérinaire dans MedReg. Vérifiez les 13 chiffres.']);
+                }
+                // Gardé sinon (nom différent : un modérateur vérifie à la main ;
+                // MedReg indisponible : revérifié plus tard) ;
                 // « trouvé au registre » seulement si MedReg confirme le nom.
                 // Un autre compte qui l'avait saisi sans vérification le perd
                 // (23.10.2026 : saisir un GLN ne le réserve pas)

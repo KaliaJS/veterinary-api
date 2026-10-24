@@ -82,11 +82,32 @@ class ProfilVeterinaireTest extends TestCase
 
     public function test_un_gln_deja_verifie_chez_un_autre_compte_est_refuse(): void
     {
-        User::factory()->create(['gln' => self::GLN, 'gln_verifie_le' => now()]);
+        // Identité établie (Stripe Identity ou modérateur) : le GLN est réservé
+        User::factory()->create(['gln' => self::GLN, 'gln_verifie_le' => now()])->forceFill(['identite_verifiee_le' => now()])->save();
         ['jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
 
         $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('gln');
+    }
+
+    /** Un imposteur qui recopie le nom public et le GLN ne bloque pas le vrai titulaire (24.10.2026). */
+    public function test_un_gln_au_nom_concordant_sans_identite_verifiee_ne_bloque_pas(): void
+    {
+        $imposteur = User::factory()->create(['name' => 'Léa Fontaine', 'gln' => self::GLN, 'gln_verifie_le' => now()]);
+        ['user' => $lea, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jeton))->assertOk();
+        $this->assertSame(self::GLN, $lea->refresh()->gln);
+        $this->assertNull($imposteur->refresh()->gln);
+    }
+
+    public function test_un_gln_inconnu_de_medreg_n_est_pas_enregistre(): void
+    {
+        ['user' => $lea, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => '7601000999993', 'specialites' => []], $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('gln');
+        $this->assertNull($lea->refresh()->gln);
     }
 
     public function test_un_gln_seulement_saisi_par_un_autre_compte_ne_bloque_pas_son_titulaire(): void
