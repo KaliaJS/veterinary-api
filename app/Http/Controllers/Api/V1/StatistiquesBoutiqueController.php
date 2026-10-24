@@ -42,7 +42,7 @@ class StatistiquesBoutiqueController extends Controller
                 'revenu' => round($ligne->quantite * (float) $ligne->prix_chf, 2),
                 'cout' => round($ligne->quantite * (float) $ligne->produit->cout, 2),
                 'clinique_id' => $ligne->facture->clinique_id,
-                'jour' => $ligne->facture->payee_le->setTimezone(app(ContexteClinique::class)->clinique()?->fuseau_horaire ?? 'Europe/Zurich')->toDateString(),
+                'jour' => $ligne->facture->payee_le->setTimezone(app(ContexteClinique::class)->clinique()->fuseau_horaire ?? 'Europe/Zurich')->toDateString(),
             ])
             ->values();
 
