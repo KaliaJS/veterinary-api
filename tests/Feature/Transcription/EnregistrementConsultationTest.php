@@ -29,9 +29,11 @@ use App\Services\Transcription\RedactionImpossible;
 use App\Services\Transcription\Transcripteur;
 use App\Services\Transcription\TranscriptionImpossible;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -315,6 +317,24 @@ class EnregistrementConsultationTest extends TestCase
         }
 
         $this->assertSame(0.01, $consommation->depenseDeepgram());
+    }
+
+    /** L'estimation est retirée dans la transaction qui enregistre la durée réelle, pas après (24.10.2026). */
+    public function test_l_estimation_est_retiree_dans_la_transaction_de_la_duree(): void
+    {
+        $niveaux = [];
+        DB::listen(function (QueryExecuted $requete) use (&$niveaux): void {
+            if (str_contains($requete->sql, 'compteurs_mensuels') && str_contains($requete->sql, '"valeur" = "valeur" -')) {
+                $niveaux[] = DB::transactionLevel();
+            }
+        });
+
+        $id = $this->demarrer()->json('data.id');
+        $this->envoyer($id, 1, 'AUDIO');
+
+        $this->assertCount(1, $niveaux);
+        // Au-dessus de la transaction du test : dans celle de l'enregistrement
+        $this->assertGreaterThan(1, $niveaux[0]);
     }
 
     /** Une rédaction reprise reste comptée au budget Anthropic après un vidage du cache (24.10.2026). */

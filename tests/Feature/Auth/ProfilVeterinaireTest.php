@@ -153,6 +153,45 @@ class ProfilVeterinaireTest extends TestCase
         $this->assertSame(1, $envoyes());
     }
 
+    /** Une identité vérifiée pendant la recherche dans MedReg garde son GLN : revu sous verrou, refusé (24.10.2026). */
+    public function test_une_identite_verifiee_pendant_la_recherche_garde_son_gln(): void
+    {
+        Mail::fake();
+        $titulaire = User::factory()->create(['name' => 'Léa Fontaine', 'gln' => self::GLN]);
+        ['user' => $autre, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+        // Pendant l'appel à MedReg (après le premier contrôle), le titulaire fait vérifier son identité
+        Http::fake(function (Request $requete) use ($titulaire) {
+            $titulaire->forceFill(['identite_verifiee_le' => now()])->save();
+
+            return str_ends_with($requete->url(), '/person/search')
+                ? Http::response(['entries' => [['id' => 71000, 'professions' => [['profession' => ['id' => 4]]]]]])
+                : Http::response(['id' => 71000, 'gln' => self::GLN, 'name' => 'Fontaine', 'firstName' => 'Léa', 'hasPermission' => true,
+                    'professions' => [['profession' => ['id' => 4, 'textFr' => 'Vétérinaire'], 'diplomaType' => ['textFr' => 'Diplôme fédéral'], 'permissions' => []]]]);
+        });
+
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('gln');
+        $this->assertSame(self::GLN, $titulaire->refresh()->gln);
+        $this->assertNull($autre->refresh()->gln);
+        Mail::assertNothingQueued();
+    }
+
+    /** Deux comptes qui se reprennent le même GLN : cinq fois par jour au plus chacun (24.10.2026). */
+    public function test_le_va_et_vient_d_un_gln_est_borne(): void
+    {
+        Mail::fake();
+        ['jeton' => $jetonA] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+        ['jeton' => $jetonB] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+        $saisir = fn (string $jeton) => $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jeton));
+
+        foreach (range(1, 5) as $tour) {
+            $saisir($jetonA)->assertOk();
+            $saisir($jetonB)->assertOk();
+        }
+        $saisir($jetonA)->assertUnprocessable()->assertJsonValidationErrors(['gln' => 'Trop de changements de GLN aujourd’hui']);
+        Mail::assertQueued(GlnRepris::class, 9);
+    }
+
     /** Un GLN gardé par une identité établie : rien ne change, personne n'est prévenu. */
     public function test_rien_n_est_envoye_quand_le_gln_n_est_pas_repris(): void
     {

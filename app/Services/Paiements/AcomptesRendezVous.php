@@ -110,10 +110,18 @@ class AcomptesRendezVous
             try {
                 $this->sousContexte->pour($demande->clinique, fn () => app(TraitementDemande::class)->accepter($demande, $demande->debut_souhaite, null, $auteur));
             } catch (ValidationException) {
-                // L'heure a été prise pendant le paiement : la clinique propose
+                // L'heure a été prise pendant le paiement : la clinique propose.
+                // L'accusé part après l'enregistrement, et sa panne ne défait pas
+                // la confirmation du paiement (24.10.2026)
                 $adresse = $demande->adresseDuProprietaire();
                 if ($adresse) {
-                    Mail::to($adresse)->send(new DemandeRendezVousEnvoyee($demande));
+                    DB::afterCommit(function () use ($adresse, $demande): void {
+                        try {
+                            Mail::to($adresse)->send(new DemandeRendezVousEnvoyee($demande));
+                        } catch (Throwable $e) {
+                            report($e);
+                        }
+                    });
                 }
             }
         });
@@ -137,19 +145,25 @@ class AcomptesRendezVous
     }
 
     /**
-     * Rend l'acompte payé, une seule fois, selon la décision : tout, ou
-     * moins les frais du paiement (rien si les frais dépassent). Vrai si de
-     * l'argent est rendu maintenant.
+     * Rend l'acompte payé selon la décision : tout, ou moins les frais du
+     * paiement (rien si les frais dépassent), moins ce qui a déjà été rendu
+     * chez Stripe (24.10.2026 : une demande refusée après un rendu partiel
+     * rend le reste). Jamais deux fois : une décision déjà prise dans l'app
+     * ne se rejoue pas. Vrai si de l'argent est rendu maintenant.
      */
     public function rembourser(DemandeRendezVous $demande, DecisionAnnulation $decision = DecisionAnnulation::Complet): bool
     {
-        if (! $demande->acompte_paye_le || $demande->acompte_rembourse_le || ! $demande->acompte_intention_id) {
+        if (! $demande->acompte_paye_le || ! $demande->acompte_intention_id) {
+            return false;
+        }
+        $deja = $demande->acompte_rembourse_le ? (int) ($demande->acompte_rembourse_centimes ?? $demande->acompte_centimes) : 0;
+        if ($deja > 0 && $demande->annulation_decision !== null) {
             return false;
         }
 
         $montant = match ($decision) {
-            DecisionAnnulation::Complet => (int) $demande->acompte_centimes,
-            DecisionAnnulation::HorsFrais => max(0, (int) $demande->acompte_centimes - $this->fraisConnus($demande)),
+            DecisionAnnulation::Complet => (int) $demande->acompte_centimes - $deja,
+            DecisionAnnulation::HorsFrais => max(0, (int) $demande->acompte_centimes - $this->fraisConnus($demande) - $deja),
             default => 0,
         };
         if ($montant <= 0) {
@@ -158,10 +172,10 @@ class AcomptesRendezVous
 
         $this->comptes->passerellePourCompte($demande->acompte_stripe_compte_id, $demande->clinique_id)->rembourser(
             $demande->acompte_intention_id,
-            'remboursement-acompte-'.$demande->id,
+            'remboursement-acompte-'.$demande->id.($deja > 0 ? '-reste-'.$deja : ''),
             $montant < $demande->acompte_centimes ? $montant : null,
         );
-        $this->noterRendu($demande, $montant);
+        $this->noterRendu($demande, $deja + $montant);
 
         return true;
     }

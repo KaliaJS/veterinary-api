@@ -15,6 +15,7 @@ use App\Services\Inscription\VerificationVeterinaire;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -63,9 +64,24 @@ class ProfilVeterinaireController extends Controller
                 // « trouvé au registre » seulement si MedReg confirme le nom.
                 // Un autre compte qui l'avait saisi sans vérification le perd
                 // (23.10.2026 : saisir un GLN ne le réserve pas)
+                // Cinq GLN par jour et par compte (24.10.2026) : deux comptes qui
+                // se reprennent le même GLN ne s'envoient pas d'e-mails sans fin
+                if (RateLimiter::tooManyAttempts('gln-saisi:'.$compte->id, 5)) {
+                    throw ValidationException::withMessages(['gln' => 'Trop de changements de GLN aujourd’hui : réessayez demain, ou écrivez-nous si c’est le vôtre.']);
+                }
+                RateLimiter::hit('gln-saisi:'.$compte->id, 86400);
+
                 // Ensemble ou pas du tout : l'autre compte ne perd son GLN, et
                 // n'est prévenu, que si celui-ci est bien enregistré (24.10.2026)
                 DB::transaction(function () use ($gln, $compte, $resultat): void {
+                    // Revu sous verrou : une identité vérifiée entre le contrôle
+                    // ci-dessus et maintenant garde son GLN, seule (24.10.2026)
+                    $pris = User::query()->where('gln', $gln)->whereKeyNot($compte->id)
+                        ->where(fn ($requete) => User::avecIdentiteEtablie($requete))
+                        ->lockForUpdate()->exists();
+                    if ($pris) {
+                        throw ValidationException::withMessages(['gln' => 'Ce GLN est déjà celui d’un autre compte. Écrivez-nous si c’est le vôtre.']);
+                    }
                     User::libererGlnNonVerifie($gln, $compte);
                     $compte->forceFill([
                         'gln' => $gln,

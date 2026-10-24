@@ -394,6 +394,11 @@ class CliniqueProprietaireController extends Controller
             } catch (ErreurPaiement $e) {
                 $demande->delete();
                 throw ValidationException::withMessages(['paiement' => $e->getMessage()]);
+            } catch (Throwable $e) {
+                // Paiements fermés entre-temps, ou autre : pas de demande à
+                // payer orpheline (24.10.2026)
+                $demande->delete();
+                throw $e;
             }
         }
 

@@ -240,7 +240,7 @@ final class AbonnementSaas
      */
     public function souscrire(Organisation $organisation, FormuleSaas $cible): ?Reglement
     {
-        return $this->sousVerrouAbonne($organisation, fn () => $this->souscrireSousVerrou($organisation->refresh(), $cible));
+        return $this->sousVerrouAbonne($organisation, fn () => $this->souscrireSousVerrou($organisation, $cible));
     }
 
     private function souscrireSousVerrou(Organisation $organisation, FormuleSaas $cible): ?Reglement
@@ -348,7 +348,7 @@ final class AbonnementSaas
 
     public function souscrirePlus(User $user): ?Reglement
     {
-        return $this->sousVerrouAbonne($user, fn () => $this->souscrirePlusSousVerrou($user->refresh()));
+        return $this->sousVerrouAbonne($user, fn () => $this->souscrirePlusSousVerrou($user));
     }
 
     private function souscrirePlusSousVerrou(User $user): ?Reglement
@@ -498,7 +498,7 @@ final class AbonnementSaas
         // autre l'a été deux fois, à rendre à la main
         Cache::lock('encaisser:'.$type.':'.$facture->id, 120)->block(15, function () use ($facture, $intention, $intentionId): void {
             $facture->refresh();
-            if ((int) ($intention['amount'] ?? -1) !== (int) round((float) $facture->montant * 100) || ($intention['currency'] ?? 'chf') !== 'chf') {
+            if ((int) ($intention['amount'] ?? -1) !== (int) round((float) $facture->montant * 100) || ($intention['currency'] ?? null) !== 'chf') {
                 Log::warning('Prélèvement réussi d’un autre montant que sa facture : ignoré.', ['facture' => $facture->numero, 'prelevement' => $intentionId]);
 
                 return;
@@ -618,6 +618,10 @@ final class AbonnementSaas
         if ($remplacees->contains(false)) {
             throw ValidationException::withMessages(['plan' => 'Une souscription précédente vient d’être réglée ou est traitée par votre banque : rechargez la page avant de recommencer.']);
         }
+        // Relu : la facture annulée a rendu ses frais d'identité à l'organisation
+        if ($remplacees->isNotEmpty()) {
+            $abonne->refresh();
+        }
 
         $debut = CarbonImmutable::today('Europe/Zurich');
         $fin = self::echeance($debut, $debut->day, $annuel);
@@ -640,6 +644,9 @@ final class AbonnementSaas
             ->map(fn ($f) => $this->annuler($f));
         if ($remplaces->contains(false)) {
             throw ValidationException::withMessages(['plan' => 'Un changement de formule précédent vient d’être réglé ou est traité par votre banque : rechargez la page avant de recommencer.']);
+        }
+        if ($remplaces->isNotEmpty()) {
+            $organisation->refresh();
         }
 
         [$lignes, $debut, $fin, $usage] = $this->lignesMontee($organisation, $cible);
@@ -1143,6 +1150,9 @@ final class AbonnementSaas
         }
 
         try {
+            // Relu une fois le verrou pris, jamais avant
+            $abonne->refresh();
+
             return $action();
         } finally {
             $verrou->release();

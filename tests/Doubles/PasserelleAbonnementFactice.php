@@ -38,6 +38,9 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     /** @var list<string> Clés d'idempotence reçues, pannes comprises */
     public array $cles = [];
 
+    /** @var list<string> les appels dans l'ordre (prélever, annuler:id) */
+    public array $journal = [];
+
     private int $sequence = 0;
 
     public function creerClient(string $nom, ?string $email, array $metadonnees): string
@@ -81,6 +84,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     public function prelever(string $client, string $moyen, int $centimes, string $libelle, array $metadonnees, bool $horsSession, string $cleIdempotence): array
     {
         $this->cles[] = $cleIdempotence;
+        $this->journal[] = 'prelever';
         if ($this->panne) {
             throw new ErreurPaiement($this->panne, 'api_error');
         }
@@ -113,6 +117,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
 
     public function annulerPrelevement(string $id): array
     {
+        $this->journal[] = 'annuler:'.$id;
         // Comme Stripe : en attente de confirmation ou refusé, il s'annule
         if (in_array($this->prelevements[$id]['statut'] ?? null, ['action_requise', 'refuse'], true)) {
             $this->prelevements[$id]['statut'] = 'annule';

@@ -166,9 +166,12 @@ class MutationRendezVous
             $debut = CarbonImmutable::parse($absence->debut_le->toDateString(), $fuseau);
             $fin = CarbonImmutable::parse($absence->fin_le->copy()->addDay()->toDateString(), $fuseau);
 
+            // Seulement ce qui est encore à venir et prévu (24.10.2026) : un
+            // rendez-vous commencé, fini ou noté absent n'est jamais annulé
             return RendezVous::withoutGlobalScope('clinique')
                 ->where('ligne_planning_id', $ligne->id)
-                ->where('status', '!=', StatutRendezVous::Annule)
+                ->where('status', StatutRendezVous::Prevu)
+                ->where('starts_at', '>', now())
                 ->where('starts_at', '<', $fin->utc())
                 ->where('ends_at', '>', $debut->utc())
                 ->get();

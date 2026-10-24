@@ -20,8 +20,10 @@ use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserellePaiement;
 use App\Services\Abonnements\AbonnementSaas;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
@@ -654,6 +656,126 @@ class OrganisationTest extends TestCase
         $verrou->release();
     }
 
+    /** Un prélèvement inconnu de la facture, dans une autre monnaie : pas le sien (24.10.2026). */
+    public function test_un_prelevement_dans_une_autre_monnaie_ne_paie_pas_la_facture(): void
+    {
+        $this->jamaisAbonnee();
+        $this->app->instance(PasserellePaiement::class, new PasserellePaiementFactice);
+        $this->avecCarte();
+        $this->stripe->actionRequise = true;
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $prelevement = $this->stripe->dernierPrelevement();
+        $facture = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->sole();
+        $facture->forceFill(['stripe_paiement_id' => null])->save();
+
+        foreach (['eur' => 'evt_eur', null => 'evt_sans'] as $monnaie => $evt) {
+            $this->postJson('/api/v1/stripe/webhook', ['id' => $evt, 'type' => 'payment_intent.succeeded', 'data' => ['object' => array_filter([
+                'id' => $prelevement['id'], 'status' => 'succeeded', 'amount' => $prelevement['centimes'], 'currency' => $monnaie ?: null, 'metadata' => $prelevement['metadonnees'],
+            ])]], ['Stripe-Signature' => 'signature-valide'])->assertNoContent();
+            $this->assertSame('a_payer', $facture->refresh()->statut);
+        }
+    }
+
+    /** Plus : une souscription à la fois, l'utilisateur relu sous le verrou (24.10.2026). */
+    public function test_plus_relit_l_utilisateur_sous_le_verrou(): void
+    {
+        $user = User::factory()->create();
+        $this->stripe->carteConfirmee('cus_plus');
+        $user->forceFill(['stripe_client_id' => 'cus_plus', 'stripe_moyen_paiement_id' => array_key_last($this->stripe->cartes)])->save();
+        $luPlusTot = User::query()->findOrFail($user->id);
+        $saas = app(AbonnementSaas::class);
+
+        $verrou = Cache::lock('abonnement:proprietaire:'.$user->id, 120);
+        $this->assertTrue($verrou->get());
+        try {
+            $saas->souscrirePlus($luPlusTot);
+            $this->fail('Une souscription est déjà en cours.');
+        } catch (ValidationException $e) {
+            $this->assertSame(['Une souscription est déjà en cours. Patientez un instant.'], $e->errors()['plan']);
+        }
+        $verrou->release();
+
+        $saas->souscrirePlus(User::query()->findOrFail($user->id));
+        try {
+            $saas->souscrirePlus($luPlusTot);
+            $this->fail('Plus est déjà souscrit.');
+        } catch (ValidationException $e) {
+            $this->assertSame(['Plus est déjà votre offre.'], $e->errors()['formule']);
+        }
+        $this->assertCount(1, $this->stripe->prelevements);
+    }
+
+    /** L'abonné n'est relu qu'une fois le verrou pris : refusé faute de verrou, rien n'est lu (24.10.2026). */
+    public function test_l_abonne_n_est_relu_qu_une_fois_le_verrou_pris(): void
+    {
+        $this->jamaisAbonnee();
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $verrou = Cache::lock('abonnement:organisation:'.$organisation->id, 120);
+        $this->assertTrue($verrou->get());
+        $lectures = 0;
+        DB::listen(function (QueryExecuted $requete) use (&$lectures): void {
+            if (str_contains($requete->sql, 'from "organisations"')) {
+                $lectures++;
+            }
+        });
+
+        try {
+            app(AbonnementSaas::class)->souscrire($organisation, FormuleSaas::Cabinet);
+            $this->fail('Une souscription est déjà en cours.');
+        } catch (ValidationException) {
+        }
+        $this->assertSame(0, $lectures);
+        $verrou->release();
+    }
+
+    /** Le changement précédent a été réglé entre-temps (autre onglet) : le nouveau est refusé, rien n'est prélevé ; sinon il est annulé avant le nouveau (24.10.2026). */
+    public function test_un_changement_deja_regle_bloque_le_suivant(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $this->voyager('2026-10-25 10:00');
+        $this->stripe->actionRequise = true;
+
+        // Deux onglets : le premier est annulé avant que le second ne prélève
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))->assertOk();
+        $premier = $this->stripe->dernierPrelevement()['id'];
+        $this->stripe->journal = [];
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))->assertOk();
+        $this->assertSame(['annuler:'.$premier, 'prelever'], $this->stripe->journal);
+
+        // Le second confirmé à la banque, sans webhook encore : un troisième est refusé
+        $second = $this->stripe->dernierPrelevement()['id'];
+        $this->stripe->confirmer($second);
+        $avant = count($this->stripe->prelevements);
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['plan' => 'Un changement de formule précédent vient d’être réglé ou est traité par votre banque : rechargez la page avant de recommencer.']);
+        $this->assertCount($avant, $this->stripe->prelevements);
+    }
+
+    /** Un changement qui en remplace un autre garde les frais d'identité que l'annulation a rendus (24.10.2026). */
+    public function test_le_changement_qui_remplace_garde_les_frais_d_identite(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        Organisation::query()->whereKey($this->organisationId())->update(['frais_identite_centimes' => 150]);
+        $this->voyager('2026-10-25 10:00');
+        $this->stripe->actionRequise = true;
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))->assertOk();
+        $premier = $this->stripe->dernierPrelevement()['centimes'];
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertSame($premier, $this->stripe->dernierPrelevement()['centimes']);
+        $changement = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->where('statut', 'a_payer')->sole();
+        $this->assertSame('150', $changement->metadonnees['frais_identite'] ?? null);
+        $this->assertNull(Organisation::query()->findOrFail($this->organisationId())->frais_identite_centimes);
+    }
+
     /** Un prélèvement de la plateforme annoncé par le compte d'une société : ignoré (24.10.2026). */
     public function test_le_prelevement_de_la_plateforme_ne_vient_que_de_son_compte(): void
     {
@@ -711,7 +833,7 @@ class OrganisationTest extends TestCase
         // La facture n'a jamais reçu l'id : la réponse s'est perdue
         $facture->forceFill(['stripe_paiement_id' => null])->save();
         $webhook = fn (string $evt, array $objet) => $this->postJson('/api/v1/stripe/webhook', ['id' => $evt, 'type' => 'payment_intent.succeeded', 'data' => ['object' => [
-            'status' => 'succeeded', 'metadata' => $prelevement['metadonnees'], ...$objet,
+            'status' => 'succeeded', 'currency' => 'chf', 'metadata' => $prelevement['metadonnees'], ...$objet,
         ]]], ['Stripe-Signature' => 'signature-valide'])->assertNoContent();
 
         // Un autre montant : pas le sien

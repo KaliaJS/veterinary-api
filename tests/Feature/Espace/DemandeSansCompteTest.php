@@ -2,15 +2,18 @@
 
 namespace Tests\Feature\Espace;
 
+use App\Enums\MotifRefusDemande;
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
 use App\Models\HoraireOuverture;
 use App\Models\LignePlanning;
 use App\Paiements\PasserellePaiement;
 use App\Services\CodeDemandePublique;
+use App\Services\TraitementDemande;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 use Tests\Concerns\DeposeSansCompte;
@@ -197,6 +200,34 @@ class DemandeSansCompteTest extends TestCase
         $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code, 'debut_souhaite' => $this->dansTroisJours(1)]))
             ->assertUnprocessable()->assertJsonValidationErrors('code');
         $this->assertSame(1, DemandeRendezVous::withoutGlobalScopes()->count());
+    }
+
+    /** Les e-mails de décision partent après l'enregistrement : une décision défaite n'envoie rien ; une panne d'e-mail ne défait rien (24.10.2026). */
+    public function test_les_e_mails_de_decision_partent_apres_l_enregistrement(): void
+    {
+        $clinique = $this->cliniqueQuiReserve(['rdv_a_valider' => true]);
+        ['jeton' => $jeton] = $this->administrateurAvecJeton($clinique);
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $this->codeDeDemande($clinique->id, 'lea.rochat@example.ch'), 'debut_souhaite' => $this->dansTroisJours()]))->assertCreated();
+        $demande = DemandeRendezVous::withoutGlobalScopes()->sole();
+
+        // Refus défait par une erreur qui suit dans la même transaction : aucun e-mail
+        Mail::fake();
+        try {
+            DB::transaction(function () use ($demande): void {
+                app(TraitementDemande::class)->refuser($demande, MotifRefusDemande::AgendaComplet, null);
+                throw new \RuntimeException('Suite impossible');
+            });
+        } catch (\RuntimeException) {
+        }
+        Mail::assertNothingSent();
+        $this->assertSame('a_traiter', $demande->refresh()->statut->value);
+
+        // Serveur d'e-mails en panne : la proposition, puis le refus, restent enregistrés
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP indisponible'));
+        $this->postJson("/api/v1/demandes/{$demande->id}/proposer", ['creneaux' => [$this->dansTroisJours(2)]], $this->enTetes($jeton))
+            ->assertOk()->assertJsonPath('data.statut', 'proposee');
+        $this->postJson("/api/v1/demandes/{$demande->id}/refuser", ['motif' => 'agenda'], $this->enTetes($jeton))
+            ->assertOk()->assertJsonPath('data.statut', 'refusee');
     }
 
     /** Une clinique qui réserve directement, ouverte, avec une ligne au planning. */

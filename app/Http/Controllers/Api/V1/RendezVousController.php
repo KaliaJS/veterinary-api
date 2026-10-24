@@ -77,7 +77,7 @@ class RendezVousController extends Controller
         return new RendezVousResource($rendezVous);
     }
 
-    public function update(ModifierRendezVousRequest $request, RendezVous $rendezVous): RendezVousResource
+    public function update(ModifierRendezVousRequest $request, RendezVous $rendezVous, CalculateurCreneaux $calculateur): RendezVousResource
     {
         $this->authorize('update', $rendezVous);
 
@@ -105,6 +105,16 @@ class RendezVousController extends Controller
             $attributs = [...$attributs, ...Patient::findOrFail($donnees['patient_id'])->denormalisation()];
         } elseif (array_key_exists('patient_id', $donnees)) {
             $attributs['client_id'] = null;
+        }
+
+        // Déplacé sur la colonne d'un praticien absent : refusé, comme une
+        // création (24.10.2026)
+        $ligne = LignePlanning::findOrFail($attributs['ligne_planning_id'] ?? $rendezVous->ligne_planning_id);
+        $deplace = isset($donnees['starts_at']) || (isset($attributs['ligne_planning_id']) && (int) $attributs['ligne_planning_id'] !== (int) $rendezVous->ligne_planning_id);
+        if ($deplace && $calculateur->ligneEstBloquee($ligne, $debut)) {
+            throw ValidationException::withMessages([
+                'ligne_planning_id' => 'Colonne bloquée par une absence validée du praticien.',
+            ]);
         }
 
         // Parité front : un simple décalage n'audite que `startsAt`, le

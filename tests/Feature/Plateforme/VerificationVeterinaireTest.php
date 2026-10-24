@@ -96,6 +96,32 @@ class VerificationVeterinaireTest extends TestCase
         ]))->assertNoContent();
     }
 
+    /** Le parcours que décrit l'e-mail « GLN repris » : ressaisir son GLN, puis faire vérifier son identité ; ensuite personne ne le reprend (24.10.2026). */
+    public function test_le_titulaire_evince_reprend_son_gln_et_le_garde_apres_verification(): void
+    {
+        $clinique = Clinique::factory()->create();
+        ['user' => $lea, 'jeton' => $jetonLea] = $this->employeAvecJeton($clinique);
+        ['user' => $imposteur, 'jeton' => $jetonImposteur] = $this->employeAvecJeton($clinique);
+        $imposteur->update(['name' => 'Léa Fontaine']);
+        $saisir = fn (string $jeton) => $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jeton));
+        $saisir($jetonLea)->assertOk();
+        $saisir($jetonImposteur)->assertOk();
+        $this->assertNull($lea->refresh()->gln);
+
+        // L'e-mail : ressaisir son GLN dans Réglages, Profil…
+        $saisir($jetonLea)->assertOk();
+        $this->assertSame(self::GLN, $lea->refresh()->gln);
+        // … puis faire vérifier son identité
+        $identite = $this->badgePaye($jetonLea);
+        $identite->verifier('vs_1', 'Léa', 'Fontaine');
+        $this->webhookIdentite('evt_reprise', 'identity.verification_session.verified', 'vs_1');
+        $this->assertNotNull($lea->refresh()->identite_verifiee_le);
+
+        // Personne ne le reprend plus
+        $saisir($jetonImposteur)->assertUnprocessable()->assertJsonValidationErrors('gln');
+        $this->assertSame(self::GLN, $lea->refresh()->gln);
+    }
+
     public function test_un_badge_paye_au_meme_nom_que_medreg_se_donne_seul(): void
     {
         $clinique = Clinique::factory()->create();

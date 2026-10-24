@@ -17,11 +17,13 @@ use App\Models\LignePlanning;
 use App\Models\RendezVous;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
+use App\Services\Paiements\AcomptesRendezVous;
 use App\Services\Paiements\WebhooksStripe;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Testing\TestResponse;
+use Illuminate\Validation\ValidationException;
 use Tests\Concerns\DeposeSansCompte;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserellePaiementFactice;
@@ -639,6 +641,66 @@ class AcompteReservationTest extends TestCase
 
         $titres = collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonClinique))->assertOk()->json('data.alertes'))->pluck('titre')->all();
         $this->assertContains('1 acompte rendu en partie', $titres);
+    }
+
+    /** Rendu en partie chez Stripe, puis la demande refusée : le reste est rendu, une fois (24.10.2026). */
+    public function test_une_demande_refusee_apres_un_rendu_partiel_rend_le_reste(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonClinique] = $this->administrateurAvecJeton($this->clinique);
+        $jeton = $this->deposer()->json('data.jeton');
+        $demande = DemandeRendezVous::withoutGlobalScopes()->sole();
+        RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id,
+            'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => $this->mardi->utc(),
+            'ends_at' => $this->mardi->addHour()->utc(),
+        ]);
+        $this->stripe->conclure($demande->acompte_intention_id, 'succeeded');
+        $this->postJson("/api/v1/public/demandes/{$jeton}/paiement")->assertOk()->assertJsonPath('data.statut', 'a_traiter');
+        app(WebhooksStripe::class)->traiter([
+            'id' => 'evt_partiel_refus', 'type' => 'charge.refunded',
+            'objet' => ['payment_intent' => $demande->acompte_intention_id, 'refunded' => false, 'amount_refunded' => 1000],
+            'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+
+        $this->postJson("/api/v1/demandes/{$demande->id}/refuser", ['motif' => 'agenda'], $this->enTetes($jetonClinique))->assertOk();
+
+        $this->assertSame(2000, $this->stripe->montantsRembourses[$demande->acompte_intention_id] ?? null);
+        $this->assertSame(3000, $demande->refresh()->acompte_rembourse_centimes);
+        $titres = collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonClinique))->assertOk()->json('data.alertes'))->pluck('titre')->all();
+        $this->assertNotContains('1 acompte rendu en partie', $titres);
+        // Plus rien à rendre
+        $this->assertFalse(app(AcomptesRendezVous::class)->rembourser($demande->refresh()));
+    }
+
+    /** Payé pendant que l'heure était prise, serveur d'e-mails en panne : le paiement est confirmé quand même (24.10.2026). */
+    public function test_une_panne_de_l_accuse_ne_defait_pas_la_confirmation_du_paiement(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        $jeton = $this->deposer()->json('data.jeton');
+        $demande = DemandeRendezVous::withoutGlobalScopes()->sole();
+        RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id,
+            'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => $this->mardi->utc(),
+            'ends_at' => $this->mardi->addHour()->utc(),
+        ]);
+        $this->stripe->conclure($demande->acompte_intention_id, 'succeeded');
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP indisponible'));
+
+        $this->postJson("/api/v1/public/demandes/{$jeton}/paiement")->assertOk()->assertJsonPath('data.statut', 'a_traiter');
+        $this->assertNotNull($demande->refresh()->acompte_paye_le);
+    }
+
+    /** Les paiements de la clinique fermés au moment d'ouvrir l'acompte : aucune demande à payer ne reste (24.10.2026). */
+    public function test_un_acompte_qui_ne_peut_s_ouvrir_ne_laisse_pas_de_demande(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        $this->stripe->erreurs['creerIntentionEnLigne'] = ValidationException::withMessages(['paiement' => 'Les paiements en ligne de cette clinique sont fermés.']);
+
+        $this->deposer()->assertUnprocessable()->assertJsonValidationErrors('paiement');
+        $this->assertSame(0, DemandeRendezVous::withoutGlobalScopes()->count());
     }
 
     /** Litige clos : gagné ou « warning_closed » garde l'acompte ; un événement d'un autre compte Stripe est ignoré. */

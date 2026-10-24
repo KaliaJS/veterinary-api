@@ -218,6 +218,65 @@ class AbsenceTest extends TestCase
         $this->assertSame('annule', $rendezVous->refresh()->status->value);
     }
 
+    /** Une note seule ne relance rien ; une période modifiée n'annule jamais un rendez-vous fini, ni un rendez-vous passé (24.10.2026). */
+    public function test_modifier_une_absence_n_annule_que_les_rendez_vous_prevus_a_venir(): void
+    {
+        $absence = Absence::factory()->create([
+            'employe_id' => $this->ligne->employe_id,
+            'debut_le' => aujourdhui()->addDays(2),
+            'fin_le' => aujourdhui()->addDays(4),
+        ]);
+        // Un rendez-vous mis sur la colonne pendant l'absence, puis terminé
+        $fini = RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'status' => 'fini',
+            'starts_at' => aujourdhui()->addDays(3)->setTime(9, 0), 'ends_at' => aujourdhui()->addDays(3)->setTime(9, 30),
+        ]);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->patchJson("/api/v1/absences/{$absence->id}", ['note' => 'Certificat reçu'], $entetes)
+            ->assertOk()->assertJsonPath('meta.rendez_vous_annules', 0);
+        $this->assertSame('fini', $fini->refresh()->status->value);
+
+        // Avancée à hier : le rendez-vous d'hier, passé, et le fini restent
+        $hier = RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => aujourdhui()->subDay()->setTime(9, 0), 'ends_at' => aujourdhui()->subDay()->setTime(9, 30),
+        ]);
+        $demain = $this->rendezVousDemain();
+        $this->patchJson("/api/v1/absences/{$absence->id}", ['debut_le' => aujourdhui()->subDay()->toDateString()], $entetes)
+            ->assertOk()->assertJsonPath('meta.rendez_vous_annules', 1);
+        $this->assertSame('annule', $demain->refresh()->status->value);
+        $this->assertSame('prevu', $hier->refresh()->status->value);
+        $this->assertSame('fini', $fini->refresh()->status->value);
+    }
+
+    /** Un rendez-vous ne se déplace pas sur la colonne d'un praticien absent, comme il ne s'y crée pas (24.10.2026). */
+    public function test_un_rendez_vous_ne_se_deplace_pas_sur_une_absence_validee(): void
+    {
+        Absence::factory()->create([
+            'employe_id' => $this->ligne->employe_id,
+            'debut_le' => aujourdhui()->addDays(2),
+            'fin_le' => aujourdhui()->addDays(4),
+        ]);
+        $autreLigne = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id]);
+        $rendezVous = RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $autreLigne->id,
+            'starts_at' => aujourdhui()->addDays(3)->setTime(9, 0), 'ends_at' => aujourdhui()->addDays(3)->setTime(9, 30),
+        ]);
+
+        $this->patchJson("/api/v1/rendez-vous/{$rendezVous->id}", ['ligne_planning_id' => $this->ligne->id], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['ligne_planning_id' => 'Colonne bloquée par une absence validée du praticien.']);
+
+        $surLaLigne = RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => aujourdhui()->addDays(6)->setTime(9, 0), 'ends_at' => aujourdhui()->addDays(6)->setTime(9, 30),
+        ]);
+        $this->patchJson("/api/v1/rendez-vous/{$surLaLigne->id}", ['starts_at' => aujourdhui()->addDays(3)->setTime(10, 0)->toIso8601String()], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('ligne_planning_id');
+        // Une note sur un rendez-vous déjà là ne déclenche rien
+        $this->patchJson("/api/v1/rendez-vous/{$surLaLigne->id}", ['reason' => 'Contrôle'], $this->enTetes($this->jeton))->assertOk();
+    }
+
     public function test_la_liste_se_filtre_par_employe_et_statut(): void
     {
         Absence::factory()->create(['employe_id' => $this->ligne->employe_id]);
