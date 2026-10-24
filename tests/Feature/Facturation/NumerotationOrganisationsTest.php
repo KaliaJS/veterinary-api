@@ -53,7 +53,7 @@ class NumerotationOrganisationsTest extends TestCase
             $numeros[] = [$facture->json('data.numero'), $devis->json('data.numero')];
         }
 
-        $annee = now()->year;
+        $annee = aujourdhui()->year;
         $this->assertSame([["FC-{$annee}-0001", "DV-{$annee}-001"], ["FC-{$annee}-0001", "DV-{$annee}-001"]], $numeros);
         $this->assertSame(2, Facture::withoutGlobalScopes()->where('numero', "FC-{$annee}-0001")->count());
     }

@@ -73,7 +73,7 @@ class ClotureCaisseTest extends TestCase
             'nouveau_fond' => 200,
         ], $this->enTetes($this->jeton));
 
-        $annee = now()->year;
+        $annee = aujourdhui()->year;
 
         $reponse->assertCreated()
             ->assertJsonPath('data.numero', "Z-{$annee}-001")

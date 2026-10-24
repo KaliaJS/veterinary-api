@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Espace;
 
+use App\Http\Resources\V1\Espace\AnimalProprietaireResource;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\DemandeRattachement;
@@ -11,6 +12,7 @@ use App\Models\Patient;
 use App\Models\User;
 use App\Models\Vaccination;
 use App\Models\Visite;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -104,7 +106,7 @@ class AnimauxProprietaireTest extends TestCase
             'espece' => 'CH',
             'race' => 'Beagle',
             'sexe' => 'Femelle',
-            'ne_le' => aujourdhui()->subYears(3)->toDateString(),
+            'ne_le' => aujourdhui()->subYearsNoOverflow(3)->toDateString(),
             'poids_kg' => 12.4,
             'puce' => '756 098 100 234 567',
         ], $this->enTetes($jeton))
@@ -121,6 +123,24 @@ class AnimauxProprietaireTest extends TestCase
 
         // L'animal est bien listé, sans aucune fiche client.
         $this->getJson('/api/v1/espace/animaux', $this->enTetes($jeton))->assertOk()->assertJsonCount(1, 'data');
+    }
+
+    public function test_un_29_fevrier_juste_apres_minuit_a_zurich_l_age_et_le_jour_tiennent(): void
+    {
+        // 0 h 30 le 29 février à Zurich : en UTC, encore le 28
+        $this->travelTo(CarbonImmutable::parse('2028-02-28 23:30:00', 'UTC'));
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+
+        $this->postJson('/api/v1/espace/animaux', [
+            'nom' => 'Bissextile',
+            'espece' => 'CT',
+            'sexe' => 'Femelle',
+            // Né un 29 février : le jour même est accepté (aujourd'hui à Zurich)
+            'ne_le' => '2028-02-29',
+        ], $this->enTetes($jeton))->assertCreated();
+
+        $this->assertSame('3 ans', AnimalProprietaireResource::age(CarbonImmutable::parse('2025-02-28')));
+        $this->assertSame('2 ans', AnimalProprietaireResource::age(CarbonImmutable::parse('2025-03-01')));
     }
 
     public function test_l_animal_peut_aussi_etre_pose_sur_une_fiche_du_compte(): void

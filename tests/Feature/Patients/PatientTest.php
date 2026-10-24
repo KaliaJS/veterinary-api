@@ -275,7 +275,7 @@ class PatientTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.nom', 'Noisette')
             ->assertJsonPath('data.puce', '756 091 234 567 890')
-            ->assertJsonPath('data.client_depuis', now()->year)
+            ->assertJsonPath('data.client_depuis', aujourdhui()->year)
             ->assertJsonPath('data.dette', fn (mixed $dette): bool => (float) $dette === 0.0)
             ->assertJsonPath('data.alertes', []);
 

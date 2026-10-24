@@ -71,7 +71,7 @@ class OrdonnanceTest extends TestCase
     public function test_la_signature_cree_l_ordonnance_et_sort_une_unite_par_ligne(): void
     {
         $produit = $this->medicamentEnStock(9);
-        $annee = now()->year;
+        $annee = aujourdhui()->year;
 
         $reponse = $this->postJson('/api/v1/ordonnances', [
             'patient_id' => $this->patient->id,

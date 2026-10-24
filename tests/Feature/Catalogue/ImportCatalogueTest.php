@@ -190,6 +190,9 @@ class ImportCatalogueTest extends TestCase
         $zip->open($chemin, ZipArchive::CREATE | ZipArchive::OVERWRITE);
         foreach ($fichiers as $nom => $contenu) {
             $zip->addFromString($nom, $contenu);
+            // Date fixe : deux archives au même contenu sont identiques à
+            // l'octet près, même créées à cheval sur deux secondes
+            $zip->setMtimeName($nom, 1_790_000_000);
         }
         $zip->close();
 

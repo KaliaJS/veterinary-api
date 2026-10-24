@@ -55,7 +55,7 @@ class CommandeFournisseurTest extends TestCase
             'lignes' => [['produit_id' => $produit->id, 'quantite' => 12]],
         ], $this->enTetes($this->jeton));
 
-        $annee = now()->year;
+        $annee = aujourdhui()->year;
 
         $reponse->assertCreated()
             ->assertJsonPath('data.numero', "BC-{$annee}-001")

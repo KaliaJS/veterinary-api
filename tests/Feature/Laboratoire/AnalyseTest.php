@@ -80,7 +80,7 @@ class AnalyseTest extends TestCase
             'priorite' => 'urg',
         ], $this->jeton())->assertCreated();
 
-        $annee = now()->format('y');
+        $annee = aujourdhui()->format('y');
         $reponse->assertJsonPath('data.numero', "A-{$annee}-0001")
             ->assertJsonPath('data.statut', 'attente')
             ->assertJsonPath('data.priorite', 'urg')

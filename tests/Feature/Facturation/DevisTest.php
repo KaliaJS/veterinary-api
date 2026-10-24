@@ -53,7 +53,7 @@ class DevisTest extends TestCase
 
     public function test_creer_un_devis_numerote_en_brouillon_et_derive_les_totaux(): void
     {
-        $annee = now()->year;
+        $annee = aujourdhui()->year;
 
         $this->postJson('/api/v1/facturation/devis', [
             'patient_id' => $this->patient->id,
