@@ -70,9 +70,9 @@ class LimitesConnexionTest extends TestCase
         $code = $this->envoyerEtRecupererLeCode($user);
         $faux = $code === '11111111' ? '22222222' : '11111111';
 
-        // Un tiers, depuis une seule IP, épuise ses essais du jour sur cette adresse
+        // Un tiers, depuis des IP qui changent, tape de faux codes sur cette adresse
         foreach (range(1, 25) as $essai) {
-            $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.66'])
+            $this->withServerVariables(['REMOTE_ADDR' => "203.0.113.{$essai}"])
                 ->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $faux]);
         }
 
