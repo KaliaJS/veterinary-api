@@ -196,6 +196,7 @@ class DocumentsProprietaire
                         'sous_total' => round($d->sousTotal(), 2),
                         'total_ttc' => round($d->totalTtc(), 2),
                         'montant_tva' => round($d->montantTva(), 2),
+                        'total_ht' => round($d->totalHt(), 2),
                         'montant_remise' => $d->montantRemise(),
                         'montant_acompte' => $d->montantAcompte(),
                         'total_avec_alea' => $d->totalAvecAlea(),
