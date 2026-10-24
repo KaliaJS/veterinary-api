@@ -217,7 +217,8 @@ class AcompteReservationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.annulation.motif', 'Je pars en voyage')
             ->assertJsonPath('data.0.annulation.acompte', 30)
-            ->assertJsonPath('data.0.annulation.frais', 1.32);
+            ->assertJsonPath('data.0.annulation.frais', 1.32)
+            ->assertJsonPath('data.0.annulation.rendu_hors_frais', 28.68);
     }
 
     public function test_la_clinique_decide_de_rendre_tout_moins_les_frais_rien_ou_de_maintenir(): void

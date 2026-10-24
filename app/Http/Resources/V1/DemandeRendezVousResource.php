@@ -53,6 +53,10 @@ class DemandeRendezVousResource extends JsonResource
                 'traitee_le' => $this->annulation_traitee_le?->toIso8601String(),
                 'acompte' => round(($this->acompte_centimes ?? 0) / 100, 2),
                 'frais' => $this->acompte_frais_centimes !== null ? round($this->acompte_frais_centimes / 100, 2) : null,
+                // Ce que « rendre moins les frais » rendrait, servi pour que l'écran ne le calcule pas (24.10.2026)
+                'rendu_hors_frais' => $this->acompte_frais_centimes !== null
+                    ? round(max(0, ($this->acompte_centimes ?? 0) - $this->acompte_frais_centimes) / 100, 2)
+                    : null,
                 'rendu' => round(($this->acompte_rembourse_centimes ?? 0) / 100, 2),
             ] : null,
             'traitee_le' => $this->traitee_le?->toIso8601String(),
