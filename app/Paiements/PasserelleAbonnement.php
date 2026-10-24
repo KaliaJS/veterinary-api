@@ -46,4 +46,13 @@ interface PasserelleAbonnement
      * @return array{id: ?string, statut: 'reussi'|'action_requise'|'refuse'|'en_cours', client_secret: ?string, message: ?string}
      */
     public function lirePrelevement(string $id): array;
+
+    /**
+     * Annule un prélèvement qui attend la confirmation du client (24.10.2026) :
+     * avant d'en lancer un autre, pour qu'il ne confirme jamais les deux.
+     * Déjà réussi ou traité entre-temps, l'état est relu et renvoyé.
+     *
+     * @return array{id: ?string, statut: 'reussi'|'action_requise'|'refuse'|'en_cours', client_secret: ?string, message: ?string}
+     */
+    public function annulerPrelevement(string $id): array;
 }

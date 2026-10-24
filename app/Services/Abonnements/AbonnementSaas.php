@@ -22,6 +22,7 @@ use App\Services\Inscription\VerificationIdentite;
 use App\Services\Transcription\ConsommationTranscription;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -793,6 +794,43 @@ final class AbonnementSaas
         }
 
         $cle = ($facture instanceof OrganisationFacture ? 'organisation' : 'proprietaire').':'.$facture->id;
+        // Un prélèvement à la fois par facture (24.10.2026) : un double clic,
+        // ou « Régler » pendant la tentative de la nuit, n'en lance pas deux
+        $verrou = Cache::lock('encaisser:'.$cle, 120);
+        if (! $verrou->get()) {
+            throw ValidationException::withMessages(['facture' => 'Le paiement de cette facture est déjà en cours. Patientez un instant.']);
+        }
+
+        try {
+            return $this->encaisserSousVerrou($abonne, $facture->refresh(), $cle, $centimes, $horsSession);
+        } finally {
+            $verrou->release();
+        }
+    }
+
+    private function encaisserSousVerrou(Organisation|User $abonne, OrganisationFacture|FactureProprietaire $facture, string $cle, int $centimes, bool $horsSession): Reglement
+    {
+        if ($facture->statut === 'payee') {
+            return new Reglement($facture, 'reussi');
+        }
+        // La tentative précédente, relue sous le verrou : passée, traitée par la
+        // banque, ou en attente d'une confirmation, annulée avant d'en lancer
+        // une autre (le client ne confirmera jamais les deux)
+        if ($facture->stripe_paiement_id) {
+            $etat = $this->stripe->lirePrelevement($facture->stripe_paiement_id);
+            if ($etat['statut'] === 'action_requise') {
+                $etat = $this->stripe->annulerPrelevement($facture->stripe_paiement_id);
+            }
+            if ($etat['statut'] === 'reussi') {
+                $this->payer($facture);
+
+                return new Reglement($facture->refresh(), 'reussi');
+            }
+            if (in_array($etat['statut'], ['en_cours', 'action_requise'], true)) {
+                return new Reglement($facture, $etat['statut'], $etat['client_secret'], $etat['message']);
+            }
+        }
+
         try {
             $resultat = $this->stripe->prelever(
                 (string) $abonne->stripe_client_id,
@@ -801,7 +839,9 @@ final class AbonnementSaas
                 $facture->numero.' · '.$facture->libelle,
                 ['plateforme' => 'veterinary', 'facture' => $cle],
                 $horsSession,
-                'facture-'.$cle.'-'.Str::uuid(),
+                // La même pour une même tentative dans l'heure : une réponse
+                // perdue (délai dépassé) puis renvoyée ne prélève pas deux fois
+                'facture-'.$cle.'-'.($facture->stripe_paiement_id ?? 'premier').'-'.now()->format('YmdH'),
             );
         } catch (ErreurPaiement $e) {
             // Erreur du prestataire : traitée comme un refus (la facture ne reste pas orpheline)
@@ -809,7 +849,10 @@ final class AbonnementSaas
             $resultat = ['id' => null, 'statut' => 'refuse', 'client_secret' => null, 'message' => $e->getMessage()];
         }
 
-        $facture->forceFill(['stripe_paiement_id' => $resultat['id']])->save();
+        // Sans réponse du prestataire, la tentative précédente reste la référence
+        if ($resultat['id'] !== null) {
+            $facture->forceFill(['stripe_paiement_id' => $resultat['id']])->save();
+        }
         if ($resultat['statut'] === 'reussi') {
             $this->payer($facture);
         } elseif ($resultat['statut'] === 'refuse') {

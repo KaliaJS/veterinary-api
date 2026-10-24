@@ -35,6 +35,9 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     /** Le prestataire répond par une erreur (requête refusée, panne) */
     public ?string $panne = null;
 
+    /** @var list<string> Clés d'idempotence reçues, pannes comprises */
+    public array $cles = [];
+
     private int $sequence = 0;
 
     public function creerClient(string $nom, ?string $email, array $metadonnees): string
@@ -77,6 +80,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
 
     public function prelever(string $client, string $moyen, int $centimes, string $libelle, array $metadonnees, bool $horsSession, string $cleIdempotence): array
     {
+        $this->cles[] = $cleIdempotence;
         if ($this->panne) {
             throw new ErreurPaiement($this->panne, 'api_error');
         }
@@ -89,7 +93,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
         };
         $this->prelevements[$id] = [
             'id' => $id, 'client' => $client, 'moyen' => $moyen, 'centimes' => $centimes, 'libelle' => $libelle,
-            'metadonnees' => $metadonnees, 'hors_session' => $horsSession, 'statut' => $statut,
+            'metadonnees' => $metadonnees, 'hors_session' => $horsSession, 'statut' => $statut, 'cle' => $cleIdempotence,
         ];
 
         return $this->lirePrelevement($id);
@@ -101,16 +105,27 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
 
         return [
             'id' => $id,
-            'statut' => $p['statut'],
+            'statut' => $p['statut'] === 'annule' ? 'refuse' : $p['statut'],
             'client_secret' => $id.'_secret',
             'message' => $p['statut'] === 'refuse' ? ($this->refus ?? 'La carte a été refusée par la banque.') : null,
         ];
     }
 
-    /** Le client confirme le paiement auprès de sa banque (Stripe.js). */
+    public function annulerPrelevement(string $id): array
+    {
+        if (($this->prelevements[$id]['statut'] ?? null) === 'action_requise') {
+            $this->prelevements[$id]['statut'] = 'annule';
+        }
+
+        return $this->lirePrelevement($id);
+    }
+
+    /** Le client confirme le paiement auprès de sa banque (Stripe.js). Un prélèvement annulé ne se confirme plus. */
     public function confirmer(string $id): void
     {
-        $this->prelevements[$id]['statut'] = 'reussi';
+        if ($this->prelevements[$id]['statut'] !== 'annule') {
+            $this->prelevements[$id]['statut'] = 'reussi';
+        }
     }
 
     /** La banque refuse un prélèvement qu'elle traitait. */

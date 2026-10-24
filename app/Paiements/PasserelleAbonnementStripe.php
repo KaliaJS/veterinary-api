@@ -4,6 +4,7 @@ namespace App\Paiements;
 
 use Stripe\Exception\ApiErrorException;
 use Stripe\Exception\CardException;
+use Stripe\Exception\InvalidRequestException;
 use Stripe\PaymentIntent;
 use Stripe\StripeClient;
 
@@ -102,6 +103,18 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
     public function lirePrelevement(string $id): array
     {
         return $this->etat($this->appel(fn () => $this->client->paymentIntents->retrieve($id)));
+    }
+
+    public function annulerPrelevement(string $id): array
+    {
+        try {
+            return $this->etat($this->client->paymentIntents->cancel($id));
+        } catch (InvalidRequestException) {
+            // Plus annulable (réussi, en traitement, déjà annulé) : son état
+            return $this->lirePrelevement($id);
+        } catch (ApiErrorException $e) {
+            throw $this->erreur($e);
+        }
     }
 
     /** @return array{id: ?string, statut: 'reussi'|'action_requise'|'refuse'|'en_cours', client_secret: ?string, message: ?string} */

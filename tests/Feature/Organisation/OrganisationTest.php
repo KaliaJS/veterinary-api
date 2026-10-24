@@ -20,6 +20,7 @@ use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserellePaiement;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserelleAbonnementFactice;
@@ -405,6 +406,84 @@ class OrganisationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.statut', 'payee');
         $this->assertCount(2, $this->stripe->prelevements);
+    }
+
+    /** Double clic sur « Régler » : le second attend le premier, un seul prélèvement (24.10.2026). */
+    public function test_un_double_clic_sur_regler_ne_preleve_qu_une_fois(): void
+    {
+        $facture = $this->factureRefuseeARegler();
+        $avant = count($this->stripe->prelevements);
+
+        // Le premier clic tient le verrou de la facture
+        $verrou = Cache::lock('encaisser:organisation:'.$facture->id, 120);
+        $this->assertTrue($verrou->get());
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['facture' => 'Le paiement de cette facture est déjà en cours. Patientez un instant.']);
+        $this->assertCount($avant, $this->stripe->prelevements);
+        $verrou->release();
+
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.statut', 'payee');
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->assertCount($avant + 1, $this->stripe->prelevements);
+    }
+
+    /** Une confirmation bancaire laissée en suspens est annulée avant un nouvel essai : le client ne peut pas payer deux fois. */
+    public function test_regler_annule_la_confirmation_en_suspens_avant_un_nouvel_essai(): void
+    {
+        $facture = $this->factureRefuseeARegler();
+
+        $this->stripe->actionRequise = true;
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertOk();
+        $idPremier = $this->stripe->dernierPrelevement()['id'];
+        $this->assertSame('action_requise', $this->stripe->prelevements[$idPremier]['statut']);
+
+        // Fenêtre de la banque fermée, « Régler » de nouveau
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertOk();
+        $idSecond = $this->stripe->dernierPrelevement()['id'];
+        $this->assertNotSame($idPremier, $idSecond);
+        $this->assertSame('annule', $this->stripe->prelevements[$idPremier]['statut']);
+
+        // Le premier confirmé après coup ne prélève rien ; le second paie la facture
+        $this->stripe->confirmer($idPremier);
+        $this->stripe->confirmer($idSecond);
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/confirmer", [], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.statut', 'payee');
+        $this->assertSame('annule', $this->stripe->prelevements[$idPremier]['statut']);
+    }
+
+    /** Une réponse perdue puis renvoyée dans l'heure garde la même clé d'idempotence ; un nouvel essai après un refus, une autre. */
+    public function test_la_cle_d_idempotence_suit_la_tentative(): void
+    {
+        $facture = $this->factureRefuseeARegler();
+
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->stripe->panne = null;
+        $this->stripe->refus = 'Fonds insuffisants sur la carte.';
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->stripe->refus = null;
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertOk();
+
+        [$perdue, $renvoyee, $apresRefus] = array_slice($this->stripe->cles, -3);
+        $this->assertSame($perdue, $renvoyee);
+        $this->assertNotSame($renvoyee, $apresRefus);
+    }
+
+    /** Une facture de renouvellement refusée, à régler, carte remplacée. */
+    private function factureRefuseeARegler(): OrganisationFacture
+    {
+        $this->jamaisAbonnee();
+        Mail::fake();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $this->stripe->refus = 'Fonds insuffisants sur la carte.';
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->stripe->refus = null;
+        $this->avecCarte('5556');
+
+        return Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->where('statut', 'a_payer')->sole();
     }
 
     public function test_l_acces_ne_survit_pas_a_une_echeance_jamais_renouvelee(): void
