@@ -33,7 +33,7 @@ class DocumentsProprietaireTest extends TestCase
         $max = Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Max']);
 
         $ordonnance = Ordonnance::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'renouvellements' => 2, 'signee_le' => aujourdhui()->subDays(10)]);
-        $facture = Facture::factory()->create(['client_id' => $fiche->id, 'patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutFacture::Payee, 'emise_le' => now()->subDays(5)]);
+        $facture = Facture::factory()->create(['client_id' => $fiche->id, 'patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutFacture::Payee, 'emise_le' => now()->subDays(5), 'acompte' => 30]);
         FactureLigne::factory()->create(['facture_id' => $facture->id, 'libelle' => 'Consultation', 'quantite' => 1, 'prix_chf' => 85]);
         $devis = Devis::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail, 'signe_le' => null, 'motif' => 'Détartrage', 'emis_le' => aujourdhui()->subDays(2)]);
         Devis::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Papier]);
@@ -56,6 +56,9 @@ class DocumentsProprietaireTest extends TestCase
         $this->assertStringStartsWith('Facture consultation, CHF 85.00', $parType['FACTURE']['titre']);
         $this->assertStringStartsWith('PAYÉE · ', $parType['FACTURE']['sous_ligne']);
         $this->assertEquals(85, $parType['FACTURE']['pdf']['total_ttc']);
+        // L'acompte payé en ligne, déduit comme à la caisse
+        $this->assertEquals(30, $parType['FACTURE']['pdf']['acompte']);
+        $this->assertEquals(55, $parType['FACTURE']['pdf']['reste_a_payer']);
         // Chaque pièce porte l'en-tête de la clinique qui l'a établie
         $this->assertNotEmpty($parType['FACTURE']['pdf']['en_tete']['nom']);
         $this->assertNotEmpty($parType['DEVIS']['pdf']['en_tete']['nom']);

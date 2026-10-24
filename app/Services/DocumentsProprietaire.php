@@ -132,6 +132,9 @@ class DocumentsProprietaire
                         'statut' => $f->statut->value,
                         'payee_le' => $f->payee_le?->toIso8601String(),
                         'total_ttc' => round($f->totalTtc(), 2),
+                        // L'acompte payé en ligne, déduit comme sur la facture de la caisse
+                        'acompte' => (float) $f->acompte,
+                        'reste_a_payer' => $f->resteAPayer(),
                         'montant_tva' => round($f->montantTva(), 2),
                         'total_ht' => $f->totalHt(),
                         'taux_tva' => (float) $f->taux_tva,
