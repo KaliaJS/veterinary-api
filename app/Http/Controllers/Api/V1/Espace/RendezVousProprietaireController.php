@@ -49,9 +49,11 @@ class RendezVousProprietaireController extends Controller
             ->limit(self::PASSES_MAX)
             ->get();
 
+        $reports = $this->reportsEnCours($contexte);
+
         return response()->json(['data' => [
-            'a_venir' => RendezVousProprietaireResource::collection($aVenir)->resolve(),
-            'passes' => RendezVousProprietaireResource::collection($passes)->resolve(),
+            'a_venir' => $aVenir->map(fn (RendezVous $r): array => $this->ressource($r, $reports)->resolve())->all(),
+            'passes' => $passes->map(fn (RendezVous $r): array => $this->ressource($r, $reports)->resolve())->all(),
         ]]);
     }
 
@@ -73,7 +75,7 @@ class RendezVousProprietaireController extends Controller
             entreesSupplementaires: ['motifAnnulation' => [null, 'Annulé par le propriétaire depuis l’espace client']],
         );
 
-        return new RendezVousProprietaireResource($rendezVous->refresh()->load(['clinique', 'lignePlanning', 'patient', 'demandeEnLigne.clinique']));
+        return $this->ressource($rendezVous->refresh()->load(['clinique', 'lignePlanning', 'patient', 'demandeEnLigne.clinique']), $this->reportsEnCours($contexte));
     }
 
     /** Rendez-vous avec acompte : la demande d'annulation part à la clinique, qui décide. */
@@ -87,7 +89,7 @@ class RendezVousProprietaireController extends Controller
         }
         $acomptes->demanderAnnulation($rendezVous, $motif !== null ? trim($motif) : null);
 
-        return new RendezVousProprietaireResource($rendezVous->refresh()->load(['clinique', 'lignePlanning', 'patient', 'demandeEnLigne.clinique']));
+        return $this->ressource($rendezVous->refresh()->load(['clinique', 'lignePlanning', 'patient', 'demandeEnLigne.clinique']), $this->reportsEnCours($contexte));
     }
 
     public function reporter(ContexteProprietaire $contexte, int $rendezVousId): JsonResponse
@@ -98,16 +100,9 @@ class RendezVousProprietaireController extends Controller
             throw ValidationException::withMessages(['status' => 'Ce rendez-vous ne peut plus être reporté en ligne, contactez la clinique.']);
         }
 
-        $souhait = 'Report demandé par le propriétaire (rendez-vous du '
-            .$rendezVous->starts_at->setTimezone($rendezVous->clinique->fuseau_horaire ?? 'Europe/Zurich')->format('d.m.Y à H:i').')';
+        $souhait = self::souhaitDeReport($rendezVous);
         // Un report à la fois pour ce rendez-vous, et le plafond des demandes (24.10.2026)
-        $dejaDemande = DemandeRendezVous::withoutGlobalScopes()
-            ->where('clinique_id', $rendezVous->clinique_id)
-            ->where('user_id', $contexte->user()->id)
-            ->where('souhait', $souhait)
-            ->whereIn('statut', [StatutDemandeRendezVous::ATraiter, StatutDemandeRendezVous::Proposee])
-            ->exists();
-        if ($dejaDemande) {
+        if (isset($this->reportsEnCours($contexte)[$rendezVous->clinique_id.'|'.$souhait])) {
             throw ValidationException::withMessages(['status' => 'Le report de ce rendez-vous est déjà demandé : la clinique vous répond.']);
         }
         CliniqueProprietaireController::plafond($rendezVous->clinique, fn ($q) => $q->where('user_id', $contexte->user()->id));
@@ -130,6 +125,36 @@ class RendezVousProprietaireController extends Controller
             'demande_id' => $demande->id,
             'clinique' => ['id' => $rendezVous->clinique->id, 'nom' => $rendezVous->clinique->nom],
         ]], 201);
+    }
+
+    /** Le souhait d'une demande de report : il désigne le rendez-vous à déplacer */
+    private static function souhaitDeReport(RendezVous $rendezVous): string
+    {
+        return 'Report demandé par le propriétaire (rendez-vous du '
+            .$rendezVous->starts_at->setTimezone($rendezVous->clinique->fuseau_horaire ?? 'Europe/Zurich')->format('d.m.Y à H:i').')';
+    }
+
+    /**
+     * Les reports du compte qui attendent la clinique, en une requête :
+     * clé « clinique|souhait ».
+     *
+     * @return array<string, bool>
+     */
+    private function reportsEnCours(ContexteProprietaire $contexte): array
+    {
+        return DemandeRendezVous::withoutGlobalScopes()
+            ->where('user_id', $contexte->user()->id)
+            ->where('souhait', 'like', 'Report demandé par le propriétaire (%')
+            ->whereIn('statut', [StatutDemandeRendezVous::ATraiter, StatutDemandeRendezVous::Proposee])
+            ->get(['clinique_id', 'souhait'])
+            ->mapWithKeys(fn (DemandeRendezVous $d): array => [$d->clinique_id.'|'.$d->souhait => true])
+            ->all();
+    }
+
+    /** @param  array<string, bool>  $reports */
+    private function ressource(RendezVous $rendezVous, array $reports): RendezVousProprietaireResource
+    {
+        return new RendezVousProprietaireResource($rendezVous, isset($reports[$rendezVous->clinique_id.'|'.self::souhaitDeReport($rendezVous)]));
     }
 
     private function mien(ContexteProprietaire $contexte, int $rendezVousId): RendezVous

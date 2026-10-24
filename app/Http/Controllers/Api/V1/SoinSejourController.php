@@ -72,8 +72,11 @@ class SoinSejourController extends Controller
 
         if ($soin->produit_id !== null) {
             // Écart réellement appliqué : 0 = produit en rupture dans
-            // cette clinique (le soin reste fait, parité front).
-            $resource->additional(['stock' => ['sorti' => $sorti === -1, 'rupture' => $sorti === 0]]);
+            // cette clinique (le soin reste fait, parité front). Un
+            // stupéfiant ne sort que par le registre : 0 sans rupture, la
+            // dose reste à y inscrire (24.10.2026).
+            $registre = (bool) $soin->produit?->est_stupefiant;
+            $resource->additional(['stock' => ['sorti' => $sorti === -1, 'rupture' => $sorti === 0 && ! $registre, 'registre' => $registre]]);
         }
 
         return $resource;

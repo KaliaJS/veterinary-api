@@ -422,6 +422,39 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertNotSame($id, $this->demarrer()->json('data.id'));
     }
 
+    /** Abandonné pendant que le fournisseur transcrit : la durée payée compte, le texte n'est pas écrit, pas de rédaction. */
+    public function test_une_transcription_finie_apres_l_abandon_n_ecrit_pas_le_texte(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 1], $this->enTetes($this->jeton))->assertOk();
+        $this->transcripteur->pendant = fn () => $this->abandonner($id);
+
+        $this->envoyer($id, 1, 'AUDIO');
+
+        $partie = PartieEnregistrement::query()->sole();
+        $this->assertNull($partie->segments);
+        $this->assertSame(96, (int) $partie->duree_secondes);
+        $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions'));
+        $this->assertSame('abandonne', EnregistrementConsultation::query()->findOrFail($id)->statut->value);
+        $this->assertSame([], $this->redacteur->appels);
+    }
+
+    /** Abandonné pendant la rédaction : il reste abandonné, sans brouillon. */
+    public function test_une_redaction_finie_apres_l_abandon_ne_remet_pas_le_brouillon(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $this->envoyer($id, 1, 'AUDIO');
+        $this->redacteur->pendant = fn () => $this->abandonner($id);
+
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 1], $this->enTetes($this->jeton))->assertOk();
+
+        $abandonne = EnregistrementConsultation::query()->findOrFail($id);
+        $this->assertCount(1, $this->redacteur->appels);
+        $this->assertSame('abandonne', $abandonne->statut->value);
+        $this->assertNull($abandonne->brouillon);
+        $this->assertNull($abandonne->redige_le);
+    }
+
     /** 300 Mo par enregistrement, comptés aux morceaux annoncés : l'audio transcrit effacé ne remet pas à zéro. */
     public function test_l_enregistrement_ne_depasse_pas_trois_cents_mo_meme_apres_transcription(): void
     {
@@ -490,6 +523,13 @@ class EnregistrementConsultationTest extends TestCase
 
         $this->putJson('/api/v1/organisation/transcription', ['plafond' => 100, 'termes' => ['Metacam', 'metacam']], $this->enTetes($this->jeton))
             ->assertJsonValidationErrors('termes.1');
+    }
+
+    /** Ce que fait l'abandon (DELETE), joué pendant un appel au fournisseur */
+    private function abandonner(int $id): void
+    {
+        PartieEnregistrement::withoutGlobalScopes()->where('enregistrement_consultation_id', $id)->update(['segments' => null, 'fichier' => null]);
+        EnregistrementConsultation::withoutGlobalScopes()->whereKey($id)->update(['statut' => StatutEnregistrement::Abandonne->value, 'brouillon' => null]);
     }
 
     private function demarrer(): TestResponse

@@ -152,14 +152,22 @@ class EnregistrementConsultationController extends Controller
     {
         $this->authorize('create', EnregistrementConsultation::class);
 
+        $valide = ValidationException::withMessages(['enregistrement' => 'Le compte rendu de cet enregistrement est déjà validé.']);
         if ($enregistrement->statut === StatutEnregistrement::Valide) {
-            throw ValidationException::withMessages(['enregistrement' => 'Le compte rendu de cet enregistrement est déjà validé.']);
+            throw $valide;
         }
 
         Storage::disk('prive')->deleteDirectory($enregistrement->dossierAudio());
-        DB::transaction(function () use ($enregistrement): void {
-            $enregistrement->parties()->update(['segments' => null, 'fichier' => null]);
-            $enregistrement->forceFill(['statut' => StatutEnregistrement::Abandonne, 'erreur' => null, 'brouillon' => null])->save();
+        DB::transaction(function () use ($enregistrement, $valide): void {
+            // Fiche verrouillée d'abord : une transcription ou une rédaction qui
+            // se termine au même instant voit l'abandon et n'écrit pas de texte
+            $verrouille = EnregistrementConsultation::withoutGlobalScopes()->whereKey($enregistrement->id)->lockForUpdate()->firstOrFail();
+            if ($verrouille->statut === StatutEnregistrement::Valide) {
+                throw $valide;
+            }
+
+            $verrouille->parties()->update(['segments' => null, 'fichier' => null]);
+            $verrouille->forceFill(['statut' => StatutEnregistrement::Abandonne, 'erreur' => null, 'brouillon' => null])->save();
         });
 
         return response()->noContent();

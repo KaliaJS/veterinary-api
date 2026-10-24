@@ -14,11 +14,17 @@ class RedacteurFactice implements Redacteur
 
     public ?Throwable $erreur = null;
 
+    /** Joué pendant l'appel, comme un geste qui arrive pendant la rédaction */
+    public ?\Closure $pendant = null;
+
     public function rediger(array $segments, array $contexte): BrouillonSoap
     {
         $this->appels[] = ['segments' => $segments, 'contexte' => $contexte];
         if ($this->erreur) {
             throw $this->erreur;
+        }
+        if ($this->pendant) {
+            ($this->pendant)();
         }
 
         return new BrouillonSoap('Boiterie depuis 3 jours, surtout le matin.', 'Chaleur au genou droit.', '', 'Repos 10 jours.', [

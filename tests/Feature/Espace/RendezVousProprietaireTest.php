@@ -14,6 +14,7 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Concerns\DeposeSansCompte;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -24,6 +25,7 @@ use Tests\TestCase;
  */
 class RendezVousProprietaireTest extends TestCase
 {
+    use DeposeSansCompte;
     use EmetDesJetonsApi;
     use RefreshDatabase;
 
@@ -96,6 +98,18 @@ class RendezVousProprietaireTest extends TestCase
         $this->postJson("/api/v1/espace/rendez-vous/{$rdv->id}/reporter", [], $this->enTetes($jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('status');
         $this->assertSame(1, DemandeRendezVous::withoutGlobalScopes()->count());
+
+        // La liste le dit : plus de bouton « Déplacer » tant que la clinique n'a pas répondu
+        $this->getJson('/api/v1/espace/rendez-vous', $this->enTetes($jeton))
+            ->assertOk()
+            ->assertJsonPath('data.a_venir.0.peut_reporter', false)
+            ->assertJsonPath('data.a_venir.0.report_demande', true);
+
+        // La clinique a traité la demande : un nouveau report redevient possible
+        DemandeRendezVous::withoutGlobalScopes()->update(['statut' => 'refusee']);
+        $this->getJson('/api/v1/espace/rendez-vous', $this->enTetes($jeton))
+            ->assertJsonPath('data.a_venir.0.peut_reporter', true)
+            ->assertJsonPath('data.a_venir.0.report_demande', false);
     }
 
     public function test_l_annuaire_des_cliniques_porte_leurs_prochains_creneaux(): void
@@ -118,9 +132,10 @@ class RendezVousProprietaireTest extends TestCase
         $this->assertTrue(strtotime($creneaux[0]['debut']) > now()->getTimestamp());
         $this->assertTrue(strtotime($creneaux[0]['debut']) < strtotime($creneaux[1]['debut']));
         $this->assertTrue(strtotime($creneaux[1]['debut']) < strtotime($creneaux[2]['debut']));
-        // Au quart d'heure, même aujourd'hui où le trou commence à l'heure qu'il est.
+        // Sur la grille du calendrier (20 minutes depuis 8 h), même aujourd'hui où le trou commence à l'heure qu'il est.
         foreach ($creneaux as $c) {
-            $this->assertSame(0, strtotime($c['debut']) % 900);
+            $local = CarbonImmutable::parse($c['debut'])->setTimezone('Europe/Zurich');
+            $this->assertSame(0, ($local->hour * 60 + $local->minute - 8 * 60) % 20, $c['debut']);
         }
         // Étalés sur les jours : les trois créneaux tombent sur des dates différentes.
         $this->assertCount(3, array_unique(array_map(fn (array $c): string => substr($c['debut'], 0, 10), $creneaux)));
@@ -143,7 +158,7 @@ class RendezVousProprietaireTest extends TestCase
         $this->assertSame('2026-10-26T07:00:00+00:00', CarbonImmutable::parse($premier)->utc()->toIso8601String());
     }
 
-    public function test_a_14h00_et_quelques_secondes_le_premier_creneau_est_14h15(): void
+    public function test_a_14h00_et_quelques_secondes_le_premier_creneau_est_14h20(): void
     {
         // Un mardi en heures d'ouverture, quelques secondes après l'heure ronde
         $this->travelTo(CarbonImmutable::parse('next tuesday 14:00:20', 'Europe/Zurich'));
@@ -153,8 +168,55 @@ class RendezVousProprietaireTest extends TestCase
 
         $premier = $this->getJson('/api/v1/espace/cliniques', $this->enTetes($jeton))->assertOk()->json('data.0.creneaux.0.debut');
 
-        // 14:00 est passé de 20 secondes : le quart d'heure suivant, pas 14:20
-        $this->assertSame('14:15', CarbonImmutable::parse($premier)->setTimezone('Europe/Zurich')->format('H:i'));
+        // 14:00 est passé de 20 secondes : l'heure suivante de la grille
+        $this->assertSame('14:20', CarbonImmutable::parse($premier)->setTimezone('Europe/Zurich')->format('H:i'));
+    }
+
+    /**
+     * « Le plus vite possible » envoie le premier créneau de l'annuaire :
+     * la demande l'accepte, avec ou sans compte, même quand la clinique
+     * ouvre à une heure qui n'est pas ronde (24.10.2026).
+     */
+    public function test_chaque_creneau_de_l_annuaire_est_accepte_par_la_demande(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('next tuesday 14:07:30', 'Europe/Zurich'));
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['fuseau_horaire' => 'Europe/Zurich', 'rdv_sans_compte' => true, 'rdv_a_valider' => true]);
+        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id, 'ouverture' => '08:10']);
+        LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $creneaux = $this->getJson('/api/v1/espace/cliniques', $this->enTetes($jeton))->assertOk()->json('data.0.creneaux');
+        $this->assertCount(3, $creneaux);
+        // 14:07:30 sur une grille qui part de 8:10 : 14:10
+        $this->assertSame('14:10', CarbonImmutable::parse($creneaux[0]['debut'])->setTimezone('Europe/Zurich')->format('H:i'));
+
+        foreach ($creneaux as $c) {
+            ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+            $this->postJson('/api/v1/espace/demandes', [
+                'clinique_id' => $clinique->id,
+                'debut_souhaite' => $c['debut'],
+                'mode' => 'place',
+                'patient_name' => 'Max',
+                'espece' => 'CH',
+                'motif' => 'Consultation',
+            ], $this->enTetes($jeton))->assertCreated();
+        }
+
+        // Sans compte, depuis l'annuaire public : accepté, et le code est consommé une fois
+        $premier = $this->getJson('/api/v1/public/cliniques')->assertOk()->json('data.0.creneaux.0.debut');
+        $this->assertSame($creneaux[0]['debut'], $premier);
+        $this->postJson('/api/v1/public/demandes', [
+            'clinique_id' => $clinique->id,
+            'debut_souhaite' => $premier,
+            'mode' => 'place',
+            'patient_name' => 'Pacha',
+            'espece' => 'CT',
+            'motif' => 'Consultation',
+            'nom_proprietaire' => 'Léa Rochat',
+            'email' => 'lea.rochat@example.ch',
+            'telephone' => '+41 79 123 45 67',
+            'code' => $this->codeDeDemande($clinique->id, 'lea.rochat@example.ch'),
+        ])->assertCreated();
     }
 
     public function test_le_nombre_de_requetes_de_l_annuaire_ne_depend_pas_du_nombre_de_cliniques(): void

@@ -13,6 +13,7 @@ use App\Services\Transcription\TranscriptionImpossible;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
 
@@ -97,14 +98,27 @@ final class TranscrirePartie implements ShouldQueue
             }
         }
 
-        $partie->forceFill([
-            'statut' => StatutPartie::Transcrite,
-            'segments' => $resultat->segments,
-            'duree_secondes' => (int) ceil($resultat->duree),
-            'requete_fournisseur' => $resultat->requete,
-            'transcrite_le' => now(),
-            'fichier' => null,
-        ])->save();
+        // Abandonné pendant l'appel au fournisseur (24.10.2026) : la durée payée
+        // est comptée, le texte n'est pas écrit. La fiche verrouillée, un
+        // abandon au même instant attend ou est vu.
+        $abandonne = DB::transaction(function () use ($partie, $resultat): bool {
+            $statut = EnregistrementConsultation::withoutGlobalScopes()
+                ->whereKey($partie->enregistrement_consultation_id)
+                ->lockForUpdate()
+                ->value('statut');
+            $abandonne = $statut === StatutEnregistrement::Abandonne;
+
+            $partie->forceFill([
+                'statut' => StatutPartie::Transcrite,
+                'segments' => $abandonne ? null : $resultat->segments,
+                'duree_secondes' => (int) ceil($resultat->duree),
+                'requete_fournisseur' => $resultat->requete,
+                'transcrite_le' => now(),
+                'fichier' => null,
+            ])->save();
+
+            return $abandonne;
+        });
 
         // L'audio n'est pas gardé
         Storage::disk('prive')->delete($fichier);
@@ -113,7 +127,9 @@ final class TranscrirePartie implements ShouldQueue
         if ($partie->enregistrement->organisation) {
             $consommation->surveillerOrganisation($partie->enregistrement->organisation);
         }
-        RedigerCompteRendu::siPret($partie->enregistrement);
+        if (! $abandonne) {
+            RedigerCompteRendu::siPret($partie->enregistrement);
+        }
     }
 
     public function failed(?Throwable $erreur): void

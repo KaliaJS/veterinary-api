@@ -19,6 +19,7 @@ use App\Models\CliniqueEspece;
 use App\Models\CliniqueService;
 use App\Models\DemandeRendezVous;
 use App\Models\Employe;
+use App\Models\HoraireOuverture;
 use App\Models\Patient;
 use App\Models\SiteWeb;
 use App\Models\SpecialiteVeterinaire;
@@ -61,7 +62,6 @@ class CliniqueProprietaireController extends Controller
     private const int DEMANDES_OUVERTES_MAX = 5;
 
     /** Les créneaux proposés tombent au quart d'heure (horaires suisses : décalage en heures entières). */
-    private const int QUART = 900;
 
     /**
      * L'annuaire : les cliniques ouvertes avec photo, adresse complète et
@@ -95,6 +95,8 @@ class CliniqueProprietaireController extends Controller
                 // Les vétérinaires de la clinique, leur compte (badge) et leurs spécialités
                 'employes' => fn ($employes) => $employes->withoutGlobalScope('clinique')->where('acces_suspendu', false),
                 'employes.user.specialites',
+                // L'heure d'ouverture fixe la grille des créneaux proposés
+                'horaireOuverture' => fn ($horaires) => $horaires->withoutGlobalScope('clinique'),
             ])
             ->orderBy('id')
             ->get()
@@ -123,7 +125,7 @@ class CliniqueProprietaireController extends Controller
             // Sans photo, adresse complète ni position, l'annuaire ne la montre
             // pas ; demandée par son id, elle sert aux créneaux de son site
             'dans_annuaire' => $clinique->estDansLAnnuaire(),
-            'creneaux' => $this->retenir($semaines[$clinique->id]),
+            'creneaux' => $this->retenir($semaines[$clinique->id], $clinique),
             ...$this->offre($clinique),
         ])->values()->all();
     }
@@ -430,14 +432,22 @@ class CliniqueProprietaireController extends Controller
      * au pas de la durée, on retient d'abord le premier créneau de
      * chaque jour, puis on complète chronologiquement.
      *
+     * Les heures proposées sont celles de la grille du calendrier (24.10.2026) :
+     * le pas de 20 minutes compté depuis l'ouverture, que la demande exige
+     * ensuite. Avant, au quart d'heure, « le plus vite possible » était
+     * refusé.
+     *
      * @param  list<Collection<int, array{ligne_planning_id: int, debut: CarbonImmutable, fin: CarbonImmutable}>>  $semaine
      * @return list<array{debut: string}>
      */
-    private function retenir(array $semaine): array
+    private function retenir(array $semaine, Clinique $clinique): array
     {
         // En horodatages entiers : des milliers de pas par semaine, une date Carbon par pas coûterait cher.
         $pas = self::DUREE_MINUTES * 60;
         $maintenant = now()->getTimestamp();
+        $fuseau = $clinique->fuseau_horaire ?? 'Europe/Zurich';
+        $ouverture = CarbonImmutable::parse((string) (($clinique->horaireOuverture ?? new HoraireOuverture(HoraireOuverture::DEFAUTS))->ouverture));
+        $minuteOuverture = $ouverture->hour * 60 + $ouverture->minute;
         $parJour = [];
 
         foreach ($semaine as $trous) {
@@ -445,9 +455,13 @@ class CliniqueProprietaireController extends Controller
 
             foreach ($trous as $trou) {
                 $fin = $trou['fin']->getTimestamp();
-                // Au quart d'heure strictement à venir : aujourd'hui, un trou commence
-                // à l'heure qu'il est (« 17:56 », ou « 14:00 » à 14:00:20 : 14:15)
-                $premier = (int) (ceil(max($trou['debut']->getTimestamp(), $maintenant + 1) / self::QUART) * self::QUART);
+                // La première heure de la grille strictement à venir dans ce trou
+                // (« 14:00 » à 14:00:20 donne 14:20 sur une grille de 8:00)
+                $depart = CarbonImmutable::createFromTimestamp(max($trou['debut']->getTimestamp(), $maintenant + 1), $fuseau);
+                $minutes = $depart->hour * 60 + $depart->minute + ($depart->second > 0 ? 1 : 0);
+                $surGrille = $minuteOuverture + (int) ceil(max(0, $minutes - $minuteOuverture) / SemaineDisponible::PAS_MINUTES) * SemaineDisponible::PAS_MINUTES;
+                // setTime et non minuit + minutes : juste aux jours du changement d'heure
+                $premier = $depart->setTime(intdiv($surGrille, 60), $surGrille % 60)->getTimestamp();
 
                 for ($debut = $premier; $debut + $pas <= $fin; $debut += $pas) {
                     if ($debut > $maintenant) {

@@ -161,7 +161,8 @@ class SejourTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.fait', true)
             ->assertJsonPath('stock.sorti', true)
-            ->assertJsonPath('stock.rupture', false);
+            ->assertJsonPath('stock.rupture', false)
+            ->assertJsonPath('stock.registre', false);
 
         $this->assertSame(4, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->sole()->quantite);
 
@@ -182,6 +183,26 @@ class SejourTest extends TestCase
             ->assertJsonPath('data.fait', true)
             ->assertJsonPath('stock.rupture', true);
 
+        $this->assertDatabaseCount('mouvements_stock', 0);
+    }
+
+    /** Le stock d'un stupéfiant suit son registre : pas de fausse rupture, la dose est à y inscrire. */
+    public function test_un_soin_au_stupefiant_ne_dit_pas_rupture_et_renvoie_au_registre(): void
+    {
+        $sejour = $this->sejour();
+        $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'est_stupefiant' => true]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 5]);
+        $soin = $sejour->soins()->create(['jour' => aujourdhui()->toDateString(), 'prevu_a' => 600, 'acte' => 'Méthadone 0,2 mg/kg IV', 'produit_id' => $produit->id]);
+
+        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins/{$soin->id}/faire", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.fait', true)
+            ->assertJsonPath('stock.sorti', false)
+            ->assertJsonPath('stock.rupture', false)
+            ->assertJsonPath('stock.registre', true);
+
+        // Le stock ne bouge qu'à l'inscription au registre
+        $this->assertSame(5, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->sole()->quantite);
         $this->assertDatabaseCount('mouvements_stock', 0);
     }
 

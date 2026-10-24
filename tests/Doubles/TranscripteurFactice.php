@@ -9,7 +9,7 @@ use App\Services\Transcription\TranscriptionImpossible;
 /**
  * Double du fournisseur de transcription : garde ce qu'il a reçu (contenu
  * du fichier assemblé, format, mots rares) et rend des segments fixés ;
- * refus programmable (`refus`).
+ * refus programmable (`refus`), geste pendant l'appel (`pendant`).
  */
 class TranscripteurFactice implements Transcripteur
 {
@@ -22,6 +22,9 @@ class TranscripteurFactice implements Transcripteur
     public ?TranscriptionImpossible $refus = null;
 
     public float $duree = 95.2;
+
+    /** Joué pendant l'appel, comme un geste qui arrive pendant que le fournisseur travaille */
+    public ?\Closure $pendant = null;
 
     /** @var list<array{voix: int, debut: float, fin: float, texte: string}> */
     public array $segments = [
@@ -36,6 +39,9 @@ class TranscripteurFactice implements Transcripteur
         $this->appels[] = ['contenu' => str_starts_with($contenu, self::ENTETE) ? substr($contenu, strlen(self::ENTETE)) : $contenu, 'format' => $format, 'termes' => $termes];
         if ($this->refus) {
             throw $this->refus;
+        }
+        if ($this->pendant) {
+            ($this->pendant)();
         }
 
         return new Transcription($this->duree, $this->segments, 'req_'.count($this->appels));

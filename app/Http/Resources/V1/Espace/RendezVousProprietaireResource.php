@@ -12,12 +12,19 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * ni no-shows ni compte rendu — ce sont des données de la clinique.
  * `peut_annuler` / `peut_reporter` : prévu et encore à venir. Avec un
  * acompte payé, on n'annule plus soi-même : `peut_demander_annulation`,
- * la clinique décide (23.10.2026).
+ * la clinique décide (23.10.2026). `report_demande` : un report attend
+ * déjà la réponse de la clinique, on n'en redemande pas (24.10.2026).
  *
  * @mixin RendezVous
  */
 class RendezVousProprietaireResource extends JsonResource
 {
+    /** @param  RendezVous  $resource */
+    public function __construct($resource, private bool $reportDemande = false)
+    {
+        parent::__construct($resource);
+    }
+
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
@@ -38,7 +45,8 @@ class RendezVousProprietaireResource extends JsonResource
             'veterinaire' => $this->lignePlanning?->nom,
             'peut_annuler' => $aVenir && ! $acompte,
             'peut_demander_annulation' => $aVenir && $acompte && $acompte['annulation'] === null,
-            'peut_reporter' => $aVenir,
+            'peut_reporter' => $aVenir && ! $this->reportDemande,
+            'report_demande' => $aVenir && $this->reportDemande,
             // Acompte payé à la réservation, jamais rendu d'office
             'acompte' => $acompte,
         ];

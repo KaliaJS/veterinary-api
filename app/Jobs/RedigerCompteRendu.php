@@ -13,6 +13,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -116,12 +117,21 @@ final class RedigerCompteRendu implements ShouldQueue
             }
         }
 
-        $enregistrement->forceFill([
-            'brouillon' => $brouillon->toArray(),
-            'statut' => StatutEnregistrement::Pret,
-            'erreur' => null,
-            'redige_le' => now(),
-        ])->save();
+        // Seulement s'il est toujours en rédaction (24.10.2026) : abandonné
+        // pendant l'appel, il reste abandonné et sans texte
+        DB::transaction(function () use ($brouillon): void {
+            $enregistrement = EnregistrementConsultation::withoutGlobalScopes()->whereKey($this->enregistrementId)->lockForUpdate()->first();
+            if ($enregistrement?->statut !== StatutEnregistrement::Redaction) {
+                return;
+            }
+
+            $enregistrement->forceFill([
+                'brouillon' => $brouillon->toArray(),
+                'statut' => StatutEnregistrement::Pret,
+                'erreur' => null,
+                'redige_le' => now(),
+            ])->save();
+        });
     }
 
     public function failed(?Throwable $erreur): void
