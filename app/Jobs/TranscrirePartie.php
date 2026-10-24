@@ -51,6 +51,21 @@ final class TranscrirePartie implements ShouldQueue
         return [(new WithoutOverlapping('transcription-partie:'.$this->partieId))->releaseAfter(60)->expireAfter($this->timeout + 100)];
     }
 
+    /** L'enregistrement relu en base est abandonné : l'audio de la partie est effacé. */
+    private function abandonne(PartieEnregistrement $partie): bool
+    {
+        $statut = EnregistrementConsultation::withoutGlobalScopes()->whereKey($partie->enregistrement_consultation_id)->value('statut');
+        if ($statut !== StatutEnregistrement::Abandonne->value && $statut !== StatutEnregistrement::Abandonne) {
+            return false;
+        }
+        if ($partie->fichier) {
+            Storage::disk('prive')->delete($partie->fichier);
+        }
+        $partie->forceFill(['fichier' => null])->save();
+
+        return true;
+    }
+
     public function handle(Transcripteur $transcripteur, TermesTranscription $termes, ConsommationTranscription $consommation): void
     {
         $partie = PartieEnregistrement::query()->with('enregistrement.organisation', 'enregistrement.rendezVous')->find($this->partieId);
@@ -64,6 +79,12 @@ final class TranscrirePartie implements ShouldQueue
         if ($organisation && $consommation->refus($organisation)) {
             self::echec($partie, 'plafond');
 
+            return;
+        }
+
+        // Abandonné depuis le chargement : arrêt silencieux, avant même de lire
+        // l'audio (effacé par l'abandon) ; relu encore juste avant l'envoi
+        if ($this->abandonne($partie)) {
             return;
         }
 
@@ -84,11 +105,7 @@ final class TranscrirePartie implements ShouldQueue
 
             // Abandonné entre-temps (relu juste avant l'envoi, pas celui chargé
             // plus haut) : jamais d'appel payant pour un texte qui ne sera pas écrit
-            $statut = EnregistrementConsultation::withoutGlobalScopes()->whereKey($partie->enregistrement_consultation_id)->value('statut');
-            if ($statut === StatutEnregistrement::Abandonne->value || $statut === StatutEnregistrement::Abandonne) {
-                Storage::disk('prive')->delete($fichier);
-                $partie->forceFill(['fichier' => null])->save();
-
+            if ($this->abandonne($partie)) {
                 return;
             }
 

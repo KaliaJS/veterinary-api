@@ -704,6 +704,28 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertNull(PartieEnregistrement::query()->sole()->fichier);
     }
 
+    /** Abandonné après le chargement de la tâche, l'audio déjà effacé : arrêt silencieux, la partie ne passe pas en erreur (24.10.2026). */
+    public function test_un_abandon_avant_la_lecture_de_l_audio_s_arrete_sans_erreur(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $fait = false;
+        // Pendant le contrôle du plafond, l'abandon passe et efface l'audio
+        DB::listen(function (QueryExecuted $requete) use (&$fait, $id): void {
+            if (! $fait && str_contains($requete->sql, 'sum("parties_enregistrement"."duree_secondes")')) {
+                $fait = true;
+                EnregistrementConsultation::withoutGlobalScopes()->whereKey($id)->update(['statut' => StatutEnregistrement::Abandonne->value]);
+                Storage::disk('prive')->deleteDirectory('transcriptions/'.$id);
+            }
+        });
+
+        $this->envoyer($id, 1, 'AUDIO');
+
+        $this->assertTrue($fait);
+        $partie = PartieEnregistrement::query()->sole();
+        $this->assertNotSame(StatutPartie::Erreur, $partie->statut);
+        $this->assertSame([], $this->transcripteur->appels);
+    }
+
     /** Une partie complète d'un enregistrement abandonné n'est jamais envoyée au fournisseur (24.10.2026). */
     public function test_une_partie_d_un_enregistrement_abandonne_n_est_pas_transcrite(): void
     {

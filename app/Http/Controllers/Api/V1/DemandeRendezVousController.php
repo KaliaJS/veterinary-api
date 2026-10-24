@@ -128,9 +128,11 @@ class DemandeRendezVousController extends Controller
         $this->authorize('delete', $demande);
 
         // De l'argent payé et pas rendu (en jeu, ou gardé par une décision :
-        // la trace en reste, un litige la retrouve), ou en train d'être payé
+        // la trace en reste, un litige la retrouve), contesté à la banque,
+        // ou en train d'être payé
         if ($demande->acompte_intention_id !== null
-            && ($demande->acompteRestantCentimes() > 0 || ($demande->acompte_paye_le === null && $demande->statut === StatutDemandeRendezVous::APayer))) {
+            && ($demande->acompteRestantCentimes() > 0 || $demande->acompte_litige !== null
+                || ($demande->acompte_paye_le === null && $demande->statut === StatutDemandeRendezVous::APayer))) {
             throw ValidationException::withMessages(['demande' => 'Cette demande porte un acompte : refusez-la plutôt, l’acompte payé est rendu au propriétaire.']);
         }
 

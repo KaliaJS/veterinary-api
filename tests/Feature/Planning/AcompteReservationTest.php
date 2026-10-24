@@ -889,6 +889,44 @@ class AcompteReservationTest extends TestCase
         $this->assertSame('refusee', $demande->refresh()->annulation_decision->value);
     }
 
+    /** Absence du praticien : le rendu et l'annulation ensemble ; si l'annulation échoue, aucune décision n'est notée (24.10.2026). */
+    public function test_une_absence_qui_echoue_ne_note_pas_de_decision(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        RendezVous::saving(function (RendezVous $rendezVous): void {
+            if ($rendezVous->isDirty('status') && $rendezVous->status === StatutRendezVous::Annule) {
+                throw new \RuntimeException('Base indisponible');
+            }
+        });
+
+        $this->postJson('/api/v1/absences', [
+            'employe_id' => $this->ligne->employe_id, 'type' => 'maladie', 'statut' => 'ok',
+            'debut_le' => $this->mardi->toDateString(), 'fin_le' => $this->mardi->toDateString(),
+        ], $this->enTetes($jetonAdmin))->assertServerError();
+
+        $this->assertNull($demande->refresh()->annulation_decision);
+        $this->assertSame('prevu', RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id)->status->value);
+    }
+
+    /** Un acompte contesté à la banque, même perdu, laisse sa trace : la demande ne se supprime pas (24.10.2026). */
+    public function test_une_demande_a_l_acompte_conteste_ne_se_supprime_pas(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $webhook = fn (string $id, string $type, array $objet) => app(WebhooksStripe::class)->traiter(['id' => $id, 'type' => $type, 'objet' => ['payment_intent' => $demande->acompte_intention_id, ...$objet], 'compte' => $demande->acompte_stripe_compte_id]);
+        $webhook('evt_trace_1', 'charge.dispute.created', []);
+        $webhook('evt_trace_2', 'charge.dispute.closed', ['status' => 'lost']);
+        $this->assertSame(0, $demande->refresh()->acompteRestantCentimes());
+
+        $this->deleteJson("/api/v1/demandes/{$demande->id}", [], $this->enTetes($jetonAdmin))->assertUnprocessable()->assertJsonValidationErrors('demande');
+    }
+
     /** Litige clos : gagné ou « warning_closed » garde l'acompte ; un événement d'un autre compte Stripe est ignoré. */
     public function test_un_litige_d_acompte_gagne_ou_clos_sans_suite_garde_l_acompte(): void
     {

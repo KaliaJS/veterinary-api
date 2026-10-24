@@ -184,20 +184,24 @@ class MutationRendezVous
             // L'acompte payé en ligne est rendu en entier, d'abord (24.10.2026) ;
             // si le prestataire refuse, le rendez-vous reste au planning, à
             // annuler à la main (l'annulation réessaie le rendu)
+            // Rendu et annulation ensemble ou pas du tout (24.10.2026) : une
+            // décision d'acompte n'est jamais notée pour un rendez-vous resté prévu
             try {
-                app(AcomptesRendezVous::class)->surAbsenceDuPraticien($unRendezVous);
+                DB::transaction(function () use ($unRendezVous, $auteur, $motif): void {
+                    app(AcomptesRendezVous::class)->surAbsenceDuPraticien($unRendezVous);
+                    $this->appliquer(
+                        $unRendezVous,
+                        ['status' => StatutRendezVous::Annule],
+                        $auteur,
+                        entreesSupplementaires: ['motifAnnulation' => [null, $motif]],
+                    );
+                });
             } catch (ErreurPaiement $e) {
                 report($e);
                 $restants++;
 
                 continue;
             }
-            $this->appliquer(
-                $unRendezVous,
-                ['status' => StatutRendezVous::Annule],
-                $auteur,
-                entreesSupplementaires: ['motifAnnulation' => [null, $motif]],
-            );
 
             if (! $unRendezVous->estTampon()) {
                 $annules++;
