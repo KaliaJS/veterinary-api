@@ -104,6 +104,10 @@ class PhotoCliniqueTest extends TestCase
         $this->post("/api/v1/organisation/cliniques/{$this->clinique->id}/photo", ['photo' => UploadedFile::fake()->create('plan.pdf', 20, 'application/pdf')], $this->entetesJson())
             ->assertUnprocessable()
             ->assertJsonValidationErrors('photo');
+        // Au-delà de 8000 pixels de côté : refusée avant tout décodage
+        $this->post("/api/v1/organisation/cliniques/{$this->clinique->id}/photo", ['photo' => UploadedFile::fake()->image('immense.jpg', 8001, 10)], $this->entetesJson())
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('photo');
     }
 
     public function test_sans_le_droit_organisation_la_photo_reste_fermee(): void

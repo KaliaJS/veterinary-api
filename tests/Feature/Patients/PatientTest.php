@@ -125,6 +125,10 @@ class PatientTest extends TestCase
         $this->assertNotNull($url);
         $this->assertStringContainsString('/photos-animaux/', $url);
         Storage::disk('prive')->assertExists($rex->fresh()->photo_chemin);
+        // Réécrite en WebP par GD : rien du fichier déposé (EXIF, appareil, lieu) ne reste
+        $this->assertStringEndsWith('.webp', $rex->fresh()->photo_chemin);
+        $this->assertSame('RIFF', substr(Storage::disk('prive')->get($rex->fresh()->photo_chemin), 0, 4));
+        $this->assertStringNotContainsString('Exif', Storage::disk('prive')->get($rex->fresh()->photo_chemin));
 
         $this->get($url)->assertOk()->assertHeader('Cache-Control', 'immutable, max-age=31536000, public');
         $this->post("/api/v1/patients/{$rex->id}/photo", ['photo' => UploadedFile::fake()->create('rex.svg', 10, 'image/svg+xml')], $this->enTetes($this->jeton))

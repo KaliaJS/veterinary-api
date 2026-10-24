@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Auth\EmetteurJetons;
 use App\Models\Clinique;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +39,32 @@ class JetonsRevoquesTest extends TestCase
         $this->postJson("/api/v1/equipe/employes/{$employe->id}/suspendre", [], $this->enTetes($this->jetonAdministrateur))->assertOk();
 
         $this->assertSame(0, $user->tokens()->count());
+    }
+
+    public function test_un_licenciement_qui_coupe_l_acces_supprime_les_jetons(): void
+    {
+        ['employe' => $employe, 'user' => $user] = $this->employeAvecJeton($this->clinique);
+
+        $this->postJson("/api/v1/equipe/employes/{$employe->id}/licencier", [
+            'fin_contrat_le' => aujourdhui()->addMonth()->toDateString(),
+            'revoquer_acces' => true,
+        ], $this->enTetes($this->jetonAdministrateur))->assertOk();
+
+        $this->assertSame(0, $user->tokens()->count());
+    }
+
+    /** Retiré d'une clinique : ses jetons de cette clinique disparaissent, ceux de l'autre restent. */
+    public function test_le_retrait_d_une_clinique_supprime_seulement_ses_jetons(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        ['employe' => $employe, 'user' => $user] = $this->employeAvecJeton($this->clinique);
+        $employe->cliniques()->syncWithoutDetaching([$soeur->id]);
+        app(EmetteurJetons::class)->emettre($user, $soeur->id);
+        $this->assertSame(2, $user->tokens()->count());
+
+        $this->putJson("/api/v1/equipe/employes/{$employe->id}/cliniques", ['cliniques' => [$this->clinique->id]], $this->enTetes($this->jetonAdministrateur))->assertOk();
+
+        $this->assertSame([$this->clinique->id], $user->tokens()->pluck('clinique_id')->all());
     }
 
     public function test_une_fin_de_contrat_passee_ferme_l_acces_et_la_nuit_suspend_et_revoque(): void
