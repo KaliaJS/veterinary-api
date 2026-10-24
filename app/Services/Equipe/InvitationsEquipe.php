@@ -7,6 +7,7 @@ use App\Models\Employe;
 use App\Models\InvitationEmploye;
 use App\Models\Organisation;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -47,6 +48,8 @@ class InvitationsEquipe
             throw ValidationException::withMessages(['cliniques' => 'Choisissez au moins une clinique.']);
         }
 
+        // Avant d'annuler l'invitation en cours : un envoi refusé ne la perd pas
+        $this->verifierQuota($email);
         InvitationEmploye::query()->where('organisation_id', $organisation->id)->where('email', $email)->enAttente()->update(['annulee_le' => now()]);
 
         $invitation = new InvitationEmploye([
@@ -62,9 +65,35 @@ class InvitationsEquipe
         return $invitation;
     }
 
-    /** Nouveau lien, nouveau délai : l'ancien lien cesse de marcher. */
+    /** Par adresse : [envois au plus, sur tant de secondes] */
+    private const array QUOTAS = ['invitation:' => [3, 15 * 60], 'invitation-jour:' => [10, 24 * 3600]];
+
+    /** @throws ValidationException */
+    private function verifierQuota(string $email): void
+    {
+        foreach (self::QUOTAS as $prefixe => [$maximum]) {
+            if (RateLimiter::tooManyAttempts($prefixe.$email, $maximum)) {
+                throw ValidationException::withMessages(['email' => 'Trop d’invitations envoyées à cette adresse : réessayez plus tard.']);
+            }
+        }
+    }
+
+    /**
+     * Nouveau lien, nouveau délai : l'ancien lien cesse de marcher. Par
+     * adresse, toutes organisations confondues, comme les codes : 3 en
+     * 15 minutes, 10 par jour (24.10.2026). Une boîte n'est pas
+     * bombardée d'invitations au nom d'une organisation trompeuse.
+     *
+     * @throws ValidationException
+     */
     public function envoyer(InvitationEmploye $invitation): void
     {
+        $email = Str::lower($invitation->email);
+        $this->verifierQuota($email);
+        foreach (self::QUOTAS as $prefixe => [, $secondes]) {
+            RateLimiter::hit($prefixe.$email, $secondes);
+        }
+
         $jeton = $invitation->nouveauJeton();
         Mail::to($invitation->email)->send(new InvitationEquipe($invitation->load('organisation', 'invitant'), $jeton));
     }

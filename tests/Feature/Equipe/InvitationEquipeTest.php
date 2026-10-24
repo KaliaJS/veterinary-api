@@ -127,6 +127,23 @@ class InvitationEquipeTest extends TestCase
         $this->assertNotNull(InvitationEmploye::find($id)->annulee_le);
     }
 
+    /** Par adresse : trois envois en quinze minutes, puis refus ; l'invitation en cours reste valable. */
+    public function test_une_adresse_ne_recoit_pas_d_invitations_en_boucle(): void
+    {
+        $inviter = fn () => $this->postJson('/api/v1/equipe/invitations', $this->invitation(), $this->enTetes($this->jeton));
+        $id = $inviter()->assertCreated()->json('data.id');
+        $this->postJson("/api/v1/equipe/invitations/{$id}/renvoyer", [], $this->enTetes($this->jeton))->assertOk();
+        $this->postJson("/api/v1/equipe/invitations/{$id}/renvoyer", [], $this->enTetes($this->jeton))->assertOk();
+        $this->postJson("/api/v1/equipe/invitations/{$id}/renvoyer", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('email');
+        $inviter()->assertUnprocessable()->assertJsonValidationErrors('email');
+        Mail::assertSentCount(3);
+        $this->assertNull(InvitationEmploye::query()->findOrFail($id)->annulee_le);
+
+        $this->travel(16)->minutes();
+        $this->postJson("/api/v1/equipe/invitations/{$id}/renvoyer", [], $this->enTetes($this->jeton))->assertOk();
+    }
+
     public function test_une_personne_deja_dans_l_equipe_ne_s_invite_pas(): void
     {
         $compte = User::factory()->create(['email' => 'deja@example.ch']);
