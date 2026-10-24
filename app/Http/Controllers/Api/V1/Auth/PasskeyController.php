@@ -37,6 +37,7 @@ class PasskeyController extends Controller
         $credentialRecord = $enregistrement->validate(
             $request->credentialJson(),
             $request->string('defi_id')->toString(),
+            $request->user(),
         );
 
         return new PasskeyResource($passkeys->save(

@@ -98,7 +98,7 @@ class CodeEmail
             ]);
         }
 
-        $user = User::where('email', $email)->first() ?? $this->comptes->creer($email, emailVerifie: true);
+        $user = User::where('email', $email)->first() ?? $this->comptes->creer($email);
 
         // Un modérateur de la plateforme qui a une passkey ne se connecte
         // qu'avec elle (23.10.2026) : son compte voit toutes les cliniques
@@ -109,10 +109,11 @@ class CodeEmail
         }
 
         // Un code reçu et saisi prouve l'adresse, y compris pour un compte
-        // inscrit par passkey qui ne l'avait pas encore prouvée. Ce qui a été
-        // posé sur ce compte avant la preuve (passkeys, sessions) peut venir
-        // de quelqu'un d'autre qui a pris l'adresse d'avance : effacé
-        // (23.10.2026). Le titulaire de l'adresse ajoute ensuite sa passkey.
+        // qui ne l'avait pas encore prouvée (ouvert par une clinique, ou
+        // inscrit par passkey avant le 24.10.2026). Ce qui a été posé sur ce
+        // compte avant la preuve (passkeys, sessions) peut venir de quelqu'un
+        // d'autre qui a pris l'adresse d'avance : effacé (23.10.2026). Le
+        // titulaire de l'adresse ajoute ensuite sa passkey.
         // Prouvée depuis la session du compte (espace, Réglages), c'est son
         // titulaire qui la prouve : rien n'est effacé.
         if ($user->email_verified_at === null) {

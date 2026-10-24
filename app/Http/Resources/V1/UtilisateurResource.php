@@ -26,6 +26,8 @@ class UtilisateurResource extends JsonResource
             'code_employe' => User::formaterCodeEmploye($this->codeEmploye()),
             // Ouvre l'espace Plateforme (vérifications)
             'est_moderateur' => (bool) $this->est_moderateur,
+            // Sans passkey, le front en propose une après une connexion par code
+            'a_une_passkey' => $this->passkeys()->exists(),
         ];
     }
 }

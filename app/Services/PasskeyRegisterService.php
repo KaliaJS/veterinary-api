@@ -38,49 +38,13 @@ use Webauthn\PublicKeyCredentialUserEntity;
  */
 class PasskeyRegisterService
 {
-    /** @return array{defi_id: string, options: array<array-key, mixed>} */
-    public function generateOptions(User $user): array
-    {
-        return $this->options(
-            PublicKeyCredentialUserEntity::create(
-                name: $user->email,
-                id: $this->userHandle($user),
-                displayName: $user->name,
-            ),
-            $user->passkeys
-                ->map(fn ($passkey): mixed => $passkey->donnees->getPublicKeyCredentialDescriptor())
-                ->all(),
-        );
-    }
-
     /**
-     * Inscription publique : le compte n'existe pas encore, l'entité
-     * utilisateur est construite depuis l'e-mail (handle dérivé de
-     * l'e-mail — les passkeys enrôlées ensuite, compte créé, portent
-     * le handle dérivé de l'id ; les deux sont opaques et l'API
-     * retrouve la passkey par son credential_id, jamais par le handle).
-     * L'e-mail reste dans les options en cache : validate() le
-     * confronte à celui de la requête d'inscription.
+     * Toujours pour un compte existant et connecté : un compte naît du code
+     * e-mail, qui prouve l'adresse, jamais d'une passkey (24.10.2026).
      *
      * @return array{defi_id: string, options: array<array-key, mixed>}
      */
-    public function generateOptionsPourInscription(string $email): array
-    {
-        return $this->options(
-            PublicKeyCredentialUserEntity::create(
-                name: $email,
-                id: hash_hmac('sha256', 'passkey-inscription|'.mb_strtolower($email), (string) config('app.key'), binary: true),
-                displayName: $email,
-            ),
-            [],
-        );
-    }
-
-    /**
-     * @param  list<mixed>  $exclusions
-     * @return array{defi_id: string, options: array<array-key, mixed>}
-     */
-    private function options(PublicKeyCredentialUserEntity $utilisateur, array $exclusions): array
+    public function generateOptions(User $user): array
     {
         $defiId = (string) Str::ulid();
 
@@ -89,7 +53,11 @@ class PasskeyRegisterService
                 name: config('passkey.rp_name'),
                 id: config('passkey.rp_id'),
             ),
-            user: $utilisateur,
+            user: PublicKeyCredentialUserEntity::create(
+                name: $user->email,
+                id: $this->userHandle($user),
+                displayName: $user->name,
+            ),
             challenge: random_bytes(32),
             pubKeyCredParams: [
                 PublicKeyCredentialParameters::createPk(Algorithms::COSE_ALGORITHM_ES256),
@@ -100,7 +68,9 @@ class PasskeyRegisterService
                 userVerification: AuthenticatorSelectionCriteria::USER_VERIFICATION_REQUIREMENT_REQUIRED,
                 residentKey: AuthenticatorSelectionCriteria::RESIDENT_KEY_REQUIREMENT_PREFERRED,
             ),
-            excludeCredentials: $exclusions,
+            excludeCredentials: $user->passkeys
+                ->map(fn ($passkey): mixed => $passkey->donnees->getPublicKeyCredentialDescriptor())
+                ->all(),
         );
 
         Cache::put(
@@ -116,11 +86,11 @@ class PasskeyRegisterService
     }
 
     /**
-     * @param  string|null  $emailAttendu  Inscription : l'e-mail des options doit être celui de la requête.
+     * Le défi n'est valable que pour le compte qui l'a demandé.
      *
      * @throws ValidationException
      */
-    public function validate(string $credentialJson, string $defiId, ?string $emailAttendu = null): CredentialRecord
+    public function validate(string $credentialJson, string $defiId, User $user): CredentialRecord
     {
         // Le défi d'abord (consommé — à usage unique) : un défi
         // expiré se signale comme tel, quel que soit le credential.
@@ -134,9 +104,9 @@ class PasskeyRegisterService
 
         $options = PasskeyJsonSerializer::deserialize($optionsJson, PublicKeyCredentialCreationOptions::class);
 
-        if ($emailAttendu !== null && mb_strtolower($options->user->name) !== mb_strtolower($emailAttendu)) {
+        if (! hash_equals($this->userHandle($user), $options->user->id)) {
             throw ValidationException::withMessages([
-                'defi_id' => 'Défi émis pour une autre adresse, recommencez l’inscription.',
+                'defi_id' => 'Défi émis pour un autre compte, recommencez l’enrôlement.',
             ]);
         }
 

@@ -16,7 +16,6 @@ use App\Http\Controllers\Api\V1\Auth\ChangementCliniqueController;
 use App\Http\Controllers\Api\V1\Auth\ChoixCliniqueController;
 use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
 use App\Http\Controllers\Api\V1\Auth\EmailConnuController;
-use App\Http\Controllers\Api\V1\Auth\InscriptionPasskeyController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyConnexionController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
@@ -163,11 +162,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('passkey/verifier', [PasskeyConnexionController::class, 'verifier']);
         // Compte multi-clinique : le jeton de choix et la clinique choisie
         Route::post('choix-clinique', ChoixCliniqueController::class);
-
-        // Inscription publique (e-mail inconnu) : compte sans clinique,
-        // créé avec sa première passkey.
-        Route::post('inscription/passkey/options', [InscriptionPasskeyController::class, 'options']);
-        Route::post('inscription/passkey', [InscriptionPasskeyController::class, 'inscrire']);
+        // Pas d'inscription par passkey (24.10.2026) : un compte naît du
+        // code e-mail, qui prouve l'adresse ; la passkey s'ajoute ensuite,
+        // connecté (`passkeys/options`, `passkeys`).
     });
 
     // La session elle-même : ouverte aussi aux jetons sans clinique

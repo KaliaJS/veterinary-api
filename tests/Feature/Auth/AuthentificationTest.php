@@ -93,6 +93,8 @@ class AuthentificationTest extends TestCase
             ->assertJsonStructure(['data' => ['token', 'expire_le', 'user' => ['id', 'mail', 'first', 'last']]])
             ->assertJsonPath('data.user.mail', 'nouveau@exemple.ch')
             ->assertJsonPath('data.user.first', 'nouveau')
+            // Sans passkey : le front en propose une dans la foulée
+            ->assertJsonPath('data.user.a_une_passkey', false)
             ->assertJsonPath('data.employe', null)
             ->assertJsonPath('data.clinique', null)
             ->assertJsonPath('data.cliniques', [])
