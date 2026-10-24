@@ -531,6 +531,25 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertNotSame($id, $this->demarrer()->json('data.id'));
     }
 
+    /** Abandonné après sa transcription : les secondes payées restent dans la consommation de la période et dans le budget (24.10.2026). */
+    public function test_l_abandon_garde_les_secondes_payees_dans_la_consommation(): void
+    {
+        config(['transcription.cout_minute_deepgram_usd' => 0.01]);
+        $consommation = app(ConsommationTranscription::class);
+        $id = $this->demarrer()->json('data.id');
+        $this->envoyer($id, 1, 'AUDIO');
+        $this->assertSame(96, $consommation->secondesDeLaPeriode($this->organisation));
+        $minutes = $this->getJson('/api/v1/transcription', $this->enTetes($this->jeton))->assertOk()->json('data.minutes_periode');
+        $this->assertSame(2, $minutes);
+
+        $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
+
+        $this->assertSame('abandonne', EnregistrementConsultation::query()->findOrFail($id)->statut->value);
+        $this->assertSame(96, $consommation->secondesDeLaPeriode($this->organisation));
+        $this->assertSame(0.02, $consommation->depenseDeepgram());
+        $this->assertSame($minutes, $this->getJson('/api/v1/transcription', $this->enTetes($this->jeton))->assertOk()->json('data.minutes_periode'));
+    }
+
     /** Abandonné pendant que le fournisseur transcrit : la durée payée compte, le texte n'est pas écrit, pas de rédaction. */
     public function test_une_transcription_finie_apres_l_abandon_n_ecrit_pas_le_texte(): void
     {
