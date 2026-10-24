@@ -21,12 +21,12 @@ class LimitesEspaceTest extends TestCase
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();
 
         for ($i = 0; $i < 5; $i++) {
-            $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '75609800000000'.$i, 'nom' => 'Rex'], $this->enTetes($jeton))
+            $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '75609800000000'.$i, 'nom_proprietaire' => 'Pérez'], $this->enTetes($jeton))
                 ->assertStatus(422)
-                ->assertJsonValidationErrors(['puce' => 'Aucun animal ne correspond à ce numéro de puce et à ce nom. Vérifiez-les, ou appelez la clinique qui le suit.']);
+                ->assertJsonValidationErrors(['puce' => 'Aucun animal ne correspond à ce numéro de puce et à ce nom de famille. Vérifiez-les, ou appelez la clinique qui le suit.']);
         }
 
-        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756098000000009', 'nom' => 'Rex'], $this->enTetes($jeton))
+        $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756098000000009', 'nom_proprietaire' => 'Pérez'], $this->enTetes($jeton))
             ->assertTooManyRequests();
     }
 

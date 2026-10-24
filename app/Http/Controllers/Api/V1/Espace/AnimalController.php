@@ -139,21 +139,21 @@ class AnimalController extends Controller
     public function reclamer(ReclamerAnimalRequest $request, ContexteProprietaire $contexte): JsonResponse
     {
         $puce = NumeroPuce::formater($request->validated()['puce']);
-        $nom = self::sansAccents($request->validated()['nom']);
+        $nom = self::sansAccents($request->validated()['nom_proprietaire']);
         $user = $contexte->user();
 
-        $animal = Patient::withoutGlobalScopes()->with('organisation')
+        $animal = Patient::withoutGlobalScopes()->with(['organisation', 'client' => fn ($requete) => $requete->withoutGlobalScopes()])
             ->where('puce', $puce)
             ->whereNotNull('organisation_id')
             ->orderBy('id')
             ->get()
-            ->first(fn (Patient $p): bool => self::sansAccents($p->nom) === $nom);
+            ->first(fn (Patient $p): bool => $p->client !== null && self::sansAccents((string) $p->client->nom) === $nom);
 
         if ($animal?->proprietaire_id === $user->id) {
             throw ValidationException::withMessages(['puce' => 'Cet animal est déjà dans votre espace.']);
         }
         if ($animal === null || $animal->proprietaire_id !== null) {
-            throw ValidationException::withMessages(['puce' => 'Aucun animal ne correspond à ce numéro de puce et à ce nom. Vérifiez-les, ou appelez la clinique qui le suit.']);
+            throw ValidationException::withMessages(['puce' => 'Aucun animal ne correspond à ce numéro de puce et à ce nom de famille. Vérifiez-les, ou appelez la clinique qui le suit.']);
         }
 
         $demande = DemandeRattachement::withoutGlobalScopes()
