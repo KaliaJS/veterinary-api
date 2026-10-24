@@ -100,15 +100,17 @@ class BoutiqueProprietaireController extends Controller
             if (! $clinique) {
                 return null;
             }
-            // Le total de chaque ligne servi aussi : l'écran n'en calcule aucun (24.10.2026)
-            $lignes = collect($panier['lignes'])->map(function (array $ligne) use ($produits, $clinique): array {
+            // Le total de chaque ligne servi aussi : l'écran n'en calcule aucun ;
+            // un article retiré de la vitrine ou d'une autre organisation n'est
+            // pas chiffré, l'écran le dit indisponible (24.10.2026)
+            $lignes = collect($panier['lignes'])->map(function (array $ligne) use ($produits, $clinique): ?array {
                 $produit = $produits[(int) $ligne['produit_id']] ?? null;
-                $total = $produit && $produit->organisation_id === $clinique->societe->organisation_id
-                    ? round((int) $ligne['quantite'] * $produit->prixEffectif(), 2)
-                    : 0.0;
+                if (! $produit || $produit->organisation_id !== $clinique->societe->organisation_id) {
+                    return null;
+                }
 
-                return ['produit_id' => (int) $ligne['produit_id'], 'quantite' => (int) $ligne['quantite'], 'total' => $total];
-            });
+                return ['produit_id' => (int) $ligne['produit_id'], 'quantite' => (int) $ligne['quantite'], 'total' => round((int) $ligne['quantite'] * $produit->prixEffectif(), 2)];
+            })->filter()->values();
             $ttc = round((float) $lignes->sum('total'), 2);
             $taux = $clinique->societe->tauxTva();
             $tva = $taux > 0 ? round($ttc - $ttc / (1 + $taux / 100), 2) : 0.0;

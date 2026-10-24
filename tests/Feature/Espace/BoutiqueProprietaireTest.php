@@ -122,10 +122,12 @@ class BoutiqueProprietaireTest extends TestCase
             ->assertJsonPath('data.montant_tva', 6.74)
             ->assertJsonPath('data.taux_tva', null);
 
-        // Un article d'une autre organisation ne compte pas dans le panier de cette clinique
+        // Un article d'une autre organisation, ou retiré de la vitrine, ne compte
+        // pas et n'est pas chiffré : l'écran le dit indisponible
+        $collier->update(['est_boutique' => false]);
         $this->postJson('/api/v1/public/boutique/apercu', ['commandes' => [
-            ['clinique_id' => $horsTva->id, 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 1]]],
-        ]])->assertJsonPath('data.total_ttc', 0);
+            ['clinique_id' => $horsTva->id, 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 1], ['produit_id' => $collier->id, 'quantite' => 1]]],
+        ]])->assertJsonPath('data.total_ttc', 0)->assertJsonCount(0, 'data.cliniques.0.lignes');
     }
 
     public function test_un_article_hors_vitrine_ou_sur_ordonnance_ne_se_commande_pas(): void
