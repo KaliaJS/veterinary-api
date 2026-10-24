@@ -2,12 +2,14 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Mail\GlnRepris;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -90,15 +92,33 @@ class ProfilVeterinaireTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('gln');
     }
 
-    /** Un imposteur qui recopie le nom public et le GLN ne bloque pas le vrai titulaire (24.10.2026). */
+    /** Un imposteur qui recopie le nom public et le GLN ne bloque pas le vrai titulaire (24.10.2026) ; le compte qui perd le GLN est prévenu. */
     public function test_un_gln_au_nom_concordant_sans_identite_verifiee_ne_bloque_pas(): void
     {
+        Mail::fake();
+        config(['plateforme.verification_email' => 'verification@plateforme.test']);
         $imposteur = User::factory()->create(['name' => 'Léa Fontaine', 'gln' => self::GLN, 'gln_verifie_le' => now()]);
         ['user' => $lea, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
 
         $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jeton))->assertOk();
         $this->assertSame(self::GLN, $lea->refresh()->gln);
         $this->assertNull($imposteur->refresh()->gln);
+
+        // Celui qui perd le GLN le sait (copie à la vérification de la plateforme), celui qui le prend ne reçoit rien
+        Mail::assertQueued(GlnRepris::class, fn (GlnRepris $mail) => $mail->hasTo($imposteur->email) && $mail->hasBcc('verification@plateforme.test') && $mail->gln === self::GLN);
+        Mail::assertNotQueued(GlnRepris::class, fn (GlnRepris $mail) => $mail->hasTo($lea->email));
+        $this->assertStringNotContainsString($lea->email, (new GlnRepris(self::GLN))->render());
+    }
+
+    /** Un GLN gardé par une identité établie : rien ne change, personne n'est prévenu. */
+    public function test_rien_n_est_envoye_quand_le_gln_n_est_pas_repris(): void
+    {
+        Mail::fake();
+        User::factory()->create(['gln' => self::GLN, 'gln_verifie_le' => now()])->forceFill(['identite_verifiee_le' => now()])->save();
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jeton))->assertUnprocessable();
+        Mail::assertNothingQueued();
     }
 
     public function test_un_gln_inconnu_de_medreg_n_est_pas_enregistre(): void

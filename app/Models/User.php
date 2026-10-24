@@ -6,6 +6,7 @@ use App\Enums\DecisionVerification as Decision;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\StatutIdentite;
 use App\Enums\StatutVerificationVeterinaire;
+use App\Mail\GlnRepris;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -16,6 +17,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 
@@ -145,15 +147,30 @@ class User extends Authenticatable
 
     /**
      * Un GLN saisi sans vérification ailleurs ne réserve rien : il est
-     * retiré de l'autre compte quand quelqu'un le prend (23.10.2026).
+     * retiré de l'autre compte quand quelqu'un le prend (23.10.2026). Ce
+     * compte est prévenu par e-mail, après l'enregistrement (24.10.2026, décidé
+     * avec Jim) : si c'est le vrai titulaire, il fait vérifier son identité.
      */
     public static function libererGlnNonVerifie(string $gln, self $preneur): void
     {
         // Le nom concordant dans MedReg ne suffit plus (24.10.2026) : un GLN
         // et un nom sont publics, seule l'identité vérifiée réserve le GLN
-        self::query()->where('gln', $gln)->whereKeyNot($preneur->id)
+        $perdants = self::query()->where('gln', $gln)->whereKeyNot($preneur->id)
             ->where(fn ($requete) => self::sansIdentiteEtablie($requete))
-            ->update(['gln' => null, 'medreg_id' => null, 'gln_verifie_le' => null]);
+            ->get(['id', 'email']);
+        if ($perdants->isEmpty()) {
+            return;
+        }
+
+        self::query()->whereKey($perdants->modelKeys())->update(['gln' => null, 'medreg_id' => null, 'gln_verifie_le' => null]);
+        $verification = config('plateforme.verification_email');
+        foreach ($perdants as $perdant) {
+            $envoi = Mail::to($perdant->email);
+            if ($verification) {
+                $envoi->bcc($verification);
+            }
+            $envoi->queue((new GlnRepris($gln))->afterCommit());
+        }
     }
 
     /**
