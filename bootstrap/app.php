@@ -8,6 +8,7 @@ use App\Http\Middleware\ExigerOrganisationOuverte;
 use App\Http\Middleware\ExigerServiceClinique;
 use App\Http\Middleware\ForcerReponseJson;
 use App\Paiements\ErreurPaiement;
+use App\Support\MasquageSql;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -57,6 +58,10 @@ return Application::configure(basePath: dirname(__DIR__))
             ? response()->json(['message' => 'Un paramètre de la requête n’a pas la bonne forme.'], 422)
             : null);
         $exceptions->dontReportWhen(fn (Throwable $e) => $e instanceof ErrorException && str_contains($e->getMessage(), 'Array to string conversion') && request()->is('api/*'));
+
+        // Une erreur SQL va au journal sans la valeur que répète le message
+        // du pilote MySQL, ni les arguments de la pile (24.10.2026)
+        $exceptions->report(MasquageSql::rapporteur());
 
         // Refus du prestataire de paiement non rattrapé : un 422 avec son
         // message traduit, jamais un 500 (il reste noté au journal)

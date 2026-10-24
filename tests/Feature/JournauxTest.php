@@ -3,11 +3,14 @@
 namespace Tests\Feature;
 
 use App\Services\Transcription\TranscripteurDeepgram;
+use App\Support\MasquageSql;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use PDOException;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -29,6 +32,20 @@ class JournauxTest extends TestCase
             $this->assertStringNotContainsString('lea.fontaine@exemple.ch', $e->getMessage());
             $this->assertStringNotContainsString('Bouledogue', $e->getMessage());
         }
+    }
+
+    /** MySQL répète la valeur fautive dans son message : elle ne va jamais au journal. */
+    public function test_le_message_du_pilote_mysql_est_masque_au_journal(): void
+    {
+        $message = "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'lea.fontaine@exemple.ch' for key 'users_email_unique' (Connection: mysql, SQL: insert into `users` (`email`) values (?))";
+        $masque = MasquageSql::message($message);
+        $this->assertStringNotContainsString('lea.fontaine@exemple.ch', $masque);
+        $this->assertStringContainsString("Duplicate entry '***' for key 'users_email_unique'", $masque);
+        $this->assertStringNotContainsString('7601000999993', MasquageSql::message("1366 Incorrect integer value: '7601000999993' for column 'gln' at row 1"));
+
+        Log::spy();
+        MasquageSql::journaliser(new QueryException('mysql', 'insert into `users` (`email`) values (?)', ['lea.fontaine@exemple.ch'], new PDOException($message), maskBindings: true));
+        Log::shouldHaveReceived('error')->withArgs(fn (string $journal, array $contexte): bool => ! str_contains($journal.json_encode($contexte), 'lea.fontaine@exemple.ch'));
     }
 
     public function test_deepgram_injoignable_sans_l_adresse_ni_les_mots_rares(): void
