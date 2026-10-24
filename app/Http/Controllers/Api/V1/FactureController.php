@@ -46,7 +46,8 @@ class FactureController extends Controller
             ->when($request->integer('clinique_id'), fn (Builder $requete, int $clinique) => $requete->where('clinique_id', $clinique))
             // Jours du calendrier de la clinique (24.10.2026), pas de minuit UTC
             ->when($request->date('du'), fn (Builder $requete, $du) => $requete->where('emise_le', '>=', minuitLocal($du)))
-            ->when($request->date('au'), fn (Builder $requete, $au) => $requete->where('emise_le', '<', minuitLocal($au)))
+            // « au » compris, comme le registre : jusqu'à minuit le soir de ce jour, heure de la clinique
+            ->when($request->date('au'), fn (Builder $requete, $au) => $requete->where('emise_le', '<', minuitLocal($au)->addDay()))
             ->when($request->boolean('a_cloturer'), fn (Builder $requete) => $requete
                 ->where('statut', StatutFacture::Payee)
                 ->whereNull('cloture_caisse_id')

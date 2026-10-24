@@ -65,6 +65,20 @@ class JournalFacturesTest extends TestCase
             ->assertJsonPath('data.encaissements.total_ht', 300);
     }
 
+    /** Les filtres « du » et « au » de la liste suivent le jour de la clinique, « au » compris (24.10.2026). */
+    public function test_la_liste_se_filtre_au_jour_de_la_clinique(): void
+    {
+        // 23:30 le 14 à Zurich (21:30 UTC en été) : le 14
+        $tard = $this->facture('2026-07-14 21:30:00', null, 10);
+        // 00:30 le 15 à Zurich (encore le 14 en UTC) : le 15
+        $this->facture('2026-07-14 22:30:00', null, 20);
+        // 23:30 le 13 à Zurich : le 13
+        $this->facture('2026-07-13 21:30:00', null, 30);
+
+        $ids = collect($this->getJson('/api/v1/facturation/factures?du=2026-07-14&au=2026-07-14', $this->enTetes($this->jeton))->assertOk()->json('data'))->pluck('id');
+        $this->assertSame([$tard->id], $ids->all());
+    }
+
     public function test_une_facture_sert_son_hors_taxe_son_taux_et_le_total_de_ses_lignes(): void
     {
         $facture = Facture::factory()->create(['clinique_id' => $this->clinique->id]);

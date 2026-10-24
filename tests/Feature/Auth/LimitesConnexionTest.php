@@ -2,11 +2,14 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\Clinique;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
+use Database\Factories\PasskeyFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
 /**
@@ -16,6 +19,7 @@ use Tests\TestCase;
  */
 class LimitesConnexionTest extends TestCase
 {
+    use EmetDesJetonsApi;
     use RefreshDatabase;
 
     public function test_une_ip_ne_balaie_pas_des_milliers_d_adresses(): void
@@ -200,6 +204,21 @@ class LimitesConnexionTest extends TestCase
 
         $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $jim->email, 'code' => $code])
             ->assertUnprocessable()->assertJsonValidationErrors('code');
+    }
+
+    /** Décision de Jim (24.10.2026) : un administrateur de clinique qui a une passkey garde la connexion par code. */
+    public function test_un_administrateur_qui_a_une_passkey_se_connecte_aussi_par_code(): void
+    {
+        Notification::fake();
+        ['user' => $administrateur] = $this->administrateurAvecJeton(Clinique::factory()->create());
+        PasskeyFactory::new()->create(['user_id' => $administrateur->id]);
+
+        $code = $this->envoyerEtRecupererLeCode($administrateur);
+
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $administrateur->email, 'code' => $code])
+            ->assertOk()
+            ->assertJsonPath('data.user.mail', $administrateur->email);
+        $this->assertSame(1, $administrateur->passkeys()->count());
     }
 
     private function envoyerEtRecupererLeCode(User $user): string

@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Auth\RolesParDefaut;
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
+use App\Jobs\RedigerCompteRendu;
 use App\Jobs\TranscrirePartie;
 use App\Mail\AlerteTranscription;
 use App\Mail\PlafondTranscriptionOrganisation;
@@ -19,6 +20,7 @@ use App\Models\PartieEnregistrement;
 use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\Role;
+use App\Services\BudgetAnthropic;
 use App\Services\Transcription\ConsommationTranscription;
 use App\Services\Transcription\Redacteur;
 use App\Services\Transcription\RedactionImpossible;
@@ -218,6 +220,27 @@ class EnregistrementConsultationTest extends TestCase
         $this->putJson("/api/v1/rendez-vous/{$this->rendezVous->id}/compte-rendu", ['s' => 'Relu.', 'enregistrement_id' => $id], $this->enTetes($this->jeton))->assertSuccessful();
 
         $this->demarrer()->assertUnprocessable()->assertJsonPath('errors.transcription.0', 'La transcription est momentanément indisponible. Réessayez plus tard.');
+    }
+
+    /** Une rédaction reprise après une panne compte une fois de plus dans le budget Anthropic, la première non (24.10.2026). */
+    public function test_une_redaction_reprise_compte_dans_le_budget_anthropic(): void
+    {
+        config(['services.anthropic.cout_redaction_usd' => 0.05, 'services.anthropic.cout_suggestion_usd' => 0]);
+        $budget = app(BudgetAnthropic::class);
+        $rediger = function (int $essai) use ($budget): float {
+            $avant = $budget->depense();
+            $enregistrement = $this->enregistrementTranscrit(60);
+            $enregistrement->parties()->sole()->update(['segments' => [['voix' => 0, 'debut' => 0, 'texte' => 'Bonjour']]]);
+            $enregistrement->forceFill(['statut' => StatutEnregistrement::Redaction])->save();
+            $tache = (new RedigerCompteRendu($enregistrement->id))->withFakeQueueInteractions();
+            $tache->job->attempts = $essai;
+            $tache->handle($this->redacteur);
+
+            return round($budget->depense() - $avant, 2);
+        };
+
+        $this->assertSame(0.0, $rediger(1));
+        $this->assertSame(0.05, $rediger(2));
     }
 
     /** Les nouveaux essais chez Deepgram comptent dans le budget de la plateforme, pas dans ce que paie la clinique (24.10.2026). */

@@ -112,6 +112,21 @@ class RendezVousProprietaireTest extends TestCase
             ->assertJsonPath('data.a_venir.0.report_demande', false);
     }
 
+    /** Un report compte dans le plafond des demandes ouvertes chez la clinique (24.10.2026). */
+    public function test_un_report_compte_dans_le_plafond_des_demandes(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $fiche = Client::factory()->create(['user_id' => $user->id]);
+        $max = Patient::factory()->create(['client_id' => $fiche->id]);
+        $rdv = RendezVous::factory()->pourPatient($max)->create(['starts_at' => now()->addDays(3), 'ends_at' => now()->addDays(3)->addMinutes(20)]);
+        // Cinq demandes déjà ouvertes chez cette clinique
+        DemandeRendezVous::factory()->count(5)->create(['clinique_id' => $rdv->clinique_id, 'user_id' => $user->id, 'statut' => 'a_traiter']);
+
+        $this->postJson("/api/v1/espace/rendez-vous/{$rdv->id}/reporter", [], $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('clinique_id');
+        $this->assertSame(5, DemandeRendezVous::withoutGlobalScopes()->count());
+    }
+
     public function test_l_annuaire_des_cliniques_porte_leurs_prochains_creneaux(): void
     {
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();

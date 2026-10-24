@@ -269,6 +269,41 @@ class SiteWebTest extends TestCase
         $this->assertSame([], Storage::disk('prive')->allFiles('logos'));
     }
 
+    /** Une vraie photo d'appareil porte ses métadonnées EXIF (position, appareil) : le logo et la photo de clinique servis n'en gardent rien (24.10.2026). */
+    public function test_les_metadonnees_exif_ne_sont_jamais_servies(): void
+    {
+        Storage::fake('prive');
+        $marque = 'GPS 46.5197N 6.6323E SECRET-APPAREIL';
+        $avecExif = UploadedFile::fake()->createWithContent('photo.jpg', self::jpegAvecExif($marque));
+        $this->assertStringContainsString($marque, (string) file_get_contents($avecExif->getRealPath()));
+
+        $this->post('/api/v1/site/logo', ['logo' => $avecExif], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])->assertOk();
+        $this->post("/api/v1/organisation/cliniques/{$this->clinique->id}/photo", ['photo' => UploadedFile::fake()->createWithContent('photo.jpg', self::jpegAvecExif($marque))], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])->assertOk();
+
+        $fichiers = Storage::disk('prive')->allFiles();
+        $this->assertNotEmpty($fichiers);
+        foreach ($fichiers as $fichier) {
+            $this->assertStringNotContainsString('SECRET-APPAREIL', Storage::disk('prive')->get($fichier), $fichier);
+            $this->assertStringNotContainsString('Exif', Storage::disk('prive')->get($fichier), $fichier);
+        }
+    }
+
+    /** Un JPEG avec un segment APP1 « Exif » (TIFF minimal suivi d'un texte), comme en écrit un appareil photo. */
+    private static function jpegAvecExif(string $texte): string
+    {
+        $image = imagecreatetruecolor(320, 200);
+        imagefilledrectangle($image, 0, 0, 319, 199, (int) imagecolorallocate($image, 40, 120, 90));
+        ob_start();
+        imagejpeg($image, null, 90);
+        $jpeg = (string) ob_get_clean();
+
+        $tiff = "MM\x00\x2A\x00\x00\x00\x08\x00\x00\x00\x00\x00\x00".$texte;
+        $app1 = "Exif\x00\x00".$tiff;
+        $segment = "\xFF\xE1".pack('n', strlen($app1) + 2).$app1;
+
+        return substr($jpeg, 0, 2).$segment.substr($jpeg, 2);
+    }
+
     public function test_un_logo_svg_est_refuse_et_un_veterinaire_ne_peut_pas_televerser(): void
     {
         Storage::fake('prive');
@@ -282,6 +317,18 @@ class SiteWebTest extends TestCase
 
         $this->post('/api/v1/site/logo', ['logo' => UploadedFile::fake()->image('logo.png')], $this->enTetes($jeton) + ['Accept' => 'application/json'])
             ->assertForbidden();
+    }
+
+    /** Le dernier jour du contrat compte encore, et s'arrête à minuit à Zurich, pas en UTC (24.10.2026). */
+    public function test_la_fin_de_contrat_se_compte_au_jour_de_la_clinique(): void
+    {
+        $employe = Employe::factory()->dans($this->clinique)->create(['fin_contrat_le' => '2026-11-14']);
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-14 23:30', 'Europe/Zurich'));
+        $this->assertTrue($employe->refresh()->estPresentable());
+        // 00:30 le 15 à Zurich, encore le 14 en UTC : le contrat est fini
+        $this->travelTo(CarbonImmutable::parse('2026-11-15 00:30', 'Europe/Zurich'));
+        $this->assertFalse($employe->refresh()->estPresentable());
     }
 
     public function test_l_equipe_vient_des_employes_et_le_site_ne_fait_que_masquer(): void

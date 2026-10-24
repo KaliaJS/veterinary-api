@@ -4,8 +4,10 @@ namespace Tests\Feature\Espace;
 
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
+use App\Services\CodeDemandePublique;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\Concerns\DeposeSansCompte;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -95,6 +97,30 @@ class DemandeSansCompteTest extends TestCase
         $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code]))
             ->assertUnprocessable()->assertJsonValidationErrors('code');
         $this->assertSame(1, DemandeRendezVous::withoutGlobalScopes()->count());
+    }
+
+    /** Deux envois au même instant : celui qui consomme le code en second est refusé, aucune seconde demande (24.10.2026). */
+    public function test_deux_envois_simultanes_ne_font_qu_une_demande(): void
+    {
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['rdv_sans_compte' => true, 'rdv_a_valider' => true]);
+        $code = $this->codeDeDemande($clinique->id, 'lea.rochat@example.ch');
+
+        // L'autre envoi a vérifié le même code et l'a consommé juste avant
+        $hache = Cache::get('demande-publique:code:'.$clinique->id.':'.hash('sha256', 'lea.rochat@example.ch'));
+        $this->assertIsString($hache);
+        Cache::add('demande-publique:utilise:'.hash('sha256', $hache), true, now()->addMinutes(10));
+
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code]))
+            ->assertUnprocessable()->assertJsonValidationErrors(['code' => 'Ce code a déjà servi : demandez-en un nouveau.']);
+        $this->assertSame(0, DemandeRendezVous::withoutGlobalScopes()->count());
+
+        // Et le service lui-même : un seul consommateur l'emporte
+        $codes = app(CodeDemandePublique::class);
+        $code = $this->codeDeDemande($clinique->id, 'paul@example.ch');
+        $codes->verifier('paul@example.ch', $clinique, $code);
+        $codes->verifier('paul@example.ch', $clinique, $code);
+        $this->assertTrue($codes->consommer('paul@example.ch', $clinique));
+        $this->assertFalse($codes->consommer('paul@example.ch', $clinique));
     }
 
     public function test_sans_compte_il_faut_de_quoi_repondre(): void

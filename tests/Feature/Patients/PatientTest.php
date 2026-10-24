@@ -9,6 +9,7 @@ use App\Models\Pesee;
 use App\Models\RendezVous;
 use App\Models\Vaccination;
 use App\Models\Visite;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -333,6 +334,20 @@ class PatientTest extends TestCase
             ->assertJsonPath('data.nom', 'Rebaptisé')
             ->assertJsonPath('data.est_sterilise', true)
             ->assertJsonPath('data.dette', fn (mixed $dette): bool => (float) $dette === 40.0);
+    }
+
+    /** Juste après minuit à l'heure de la clinique, la date du jour n'est pas « dans le futur » (24.10.2026) : ni en UTC, ni à Zurich. */
+    public function test_le_deces_du_jour_s_enregistre_juste_apres_minuit(): void
+    {
+        // Une clinique loin de Zurich : il y est déjà le 15 quand Zurich est encore le 14
+        $this->clinique->update(['fuseau_horaire' => 'Pacific/Kiritimati']);
+        $this->travelTo(CarbonImmutable::parse('2026-11-15 00:30', 'Pacific/Kiritimati'));
+        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        $patient = Patient::factory()->for($this->client)->create();
+
+        $this->patchJson("/api/v1/patients/{$patient->id}", ['decede_le' => '2026-11-15'], $this->enTetes($jeton))->assertOk();
+        $this->assertSame('2026-11-15', $patient->refresh()->decede_le->toDateString());
+        $this->patchJson("/api/v1/patients/{$patient->id}", ['decede_le' => '2026-11-16'], $this->enTetes($jeton))->assertUnprocessable();
     }
 
     public function test_aucune_route_de_suppression_de_patient(): void

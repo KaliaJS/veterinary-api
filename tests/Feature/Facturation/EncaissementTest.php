@@ -268,6 +268,23 @@ class EncaissementTest extends TestCase
         ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors(['facture' => 'Cette facture est déjà payée.']);
     }
 
+    /** Qui a encaissé : servi par la liste et par la facture, pour la Z (24.10.2026). */
+    public function test_la_facture_dit_qui_l_a_encaissee(): void
+    {
+        $facture = $this->factureDue();
+        ['user' => $caissier, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        $caissier->forceFill(['name' => 'Léa Caisse'])->save();
+
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/encaisser", ['moyen_paiement' => 'cash'], $this->enTetes($jeton))->assertOk();
+
+        $this->getJson("/api/v1/facturation/factures/{$facture->id}", $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.encaissee_par.id', $caissier->id)
+            ->assertJsonPath('data.encaissee_par.nom', 'Léa Caisse');
+        $liste = collect($this->getJson('/api/v1/facturation/factures', $this->enTetes($this->jeton))->assertOk()->json('data'));
+        $this->assertSame('Léa Caisse', $liste->firstWhere('id', $facture->id)['encaissee_par']['nom'] ?? null);
+    }
+
     public function test_un_encaissement_parti_d_une_facture_perimee_ne_double_ni_le_paiement_ni_le_stock(): void
     {
         $facture = $this->factureDue();

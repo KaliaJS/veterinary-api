@@ -10,6 +10,7 @@ use App\Models\CommandeBoutiqueLigne;
 use App\Models\Facture;
 use App\Models\Produit;
 use App\Models\Stock;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -277,6 +278,29 @@ class BoutiqueTest extends TestCase
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('promo_pct');
+    }
+
+    /** Les 7 jours commencent à minuit à Zurich, pas en UTC (24.10.2026). */
+    public function test_les_7_jours_commencent_a_minuit_a_l_heure_de_la_clinique(): void
+    {
+        $this->clinique->update(['fuseau_horaire' => 'Europe/Zurich']);
+        $this->travelTo(CarbonImmutable::parse('2026-11-14 12:00', 'Europe/Zurich'));
+        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        $produit = $this->produitEnRayon(10, ['prix' => 30, 'cout' => 12]);
+        $vente = function (string $quand, int $quantite) use ($produit): void {
+            $facture = Facture::factory()->payee()->create(['clinique_id' => $this->clinique->id, 'payee_le' => CarbonImmutable::parse($quand, 'Europe/Zurich')->utc()]);
+            $facture->lignes()->create(['produit_id' => $produit->id, 'libelle' => $produit->nom, 'quantite' => $quantite, 'prix_chf' => 30, 'type' => 'med']);
+        };
+        // Le premier jour de la période, juste après minuit (encore la veille en UTC)
+        $vente('2026-11-08 00:30', 1);
+        // La veille au soir : hors période
+        $vente('2026-11-07 23:30', 4);
+
+        $this->getJson('/api/v1/boutique/statistiques', $this->enTetes($jeton))
+            ->assertOk()
+            ->assertJsonCount(1, 'data.ventes')
+            ->assertJsonPath('data.ventes.0.quantite', 1)
+            ->assertJsonPath('data.ventes.0.jour', '2026-11-08');
     }
 
     public function test_les_chiffres_7_jours_derivent_des_factures_payees(): void

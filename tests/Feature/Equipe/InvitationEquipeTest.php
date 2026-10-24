@@ -144,6 +144,33 @@ class InvitationEquipeTest extends TestCase
         $this->postJson("/api/v1/equipe/invitations/{$id}/renvoyer", [], $this->enTetes($this->jeton))->assertOk();
     }
 
+    /** Et dix par jour : espacés d'un quart d'heure, le onzième envoi de la journée est refusé (24.10.2026). */
+    public function test_une_adresse_ne_recoit_pas_plus_de_dix_invitations_par_jour(): void
+    {
+        $id = $this->postJson('/api/v1/equipe/invitations', $this->invitation(), $this->enTetes($this->jeton))->assertCreated()->json('data.id');
+        $renvoyer = fn () => $this->postJson("/api/v1/equipe/invitations/{$id}/renvoyer", [], $this->enTetes($this->jeton));
+
+        // 1 + 2, puis 3, 3 et 1 : dix envois
+        foreach ([2, 3, 3, 1] as $i => $nombre) {
+            if ($i > 0) {
+                $this->travel(16)->minutes();
+            }
+            foreach (range(1, $nombre) as $envoi) {
+                $renvoyer()->assertOk();
+            }
+        }
+        Mail::assertSentCount(10);
+
+        $this->travel(16)->minutes();
+        $renvoyer()->assertUnprocessable()->assertJsonValidationErrors('email');
+        Mail::assertSentCount(10);
+
+        // Le lendemain (session neuve), de nouveau
+        $this->travel(1)->days();
+        ['jeton' => $neuf] = $this->administrateurAvecJeton($this->clinique);
+        $this->postJson("/api/v1/equipe/invitations/{$id}/renvoyer", [], $this->enTetes($neuf))->assertOk();
+    }
+
     public function test_une_personne_deja_dans_l_equipe_ne_s_invite_pas(): void
     {
         $compte = User::factory()->create(['email' => 'deja@example.ch']);
