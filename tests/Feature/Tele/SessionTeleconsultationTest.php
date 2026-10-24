@@ -203,6 +203,16 @@ class SessionTeleconsultationTest extends TestCase
             ->assertJsonValidationErrors(['terminee_le' => 'Cette session est déjà terminée.']);
     }
 
+    /** Jamais commencée : ni terminée ni facturée à la main ; non venue ou annulée, oui (24.10.2026). */
+    public function test_une_teleconsultation_jamais_commencee_ne_se_termine_pas_a_la_main(): void
+    {
+        $rendezVous = $this->rendezVousTele(['starts_at' => now()->subHour(), 'ends_at' => now()->subMinutes(30)]);
+
+        $this->postJson("/api/v1/rendez-vous/{$rendezVous->id}/statut", ['status' => 'fini'], $this->jeton())
+            ->assertUnprocessable()->assertJsonValidationErrors('status');
+        $this->assertSame(0, Facture::withoutGlobalScopes()->count());
+    }
+
     public function test_aucune_route_de_suppression_de_session(): void
     {
         $session = SessionTeleconsultation::factory()->create([

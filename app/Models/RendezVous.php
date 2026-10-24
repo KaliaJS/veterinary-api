@@ -101,6 +101,9 @@ class RendezVous extends Model
             ExamenImagerie::withoutGlobalScopes()->where('rendez_vous_id', $this->id)->whereNull('signe_le')->exists() => 'Ce rendez-vous se termine par la signature du compte rendu d’imagerie.',
             Intervention::withoutGlobalScopes()->where('rendez_vous_id', $this->id)->where('statut', '!=', StatutIntervention::Fini)->exists() => 'Ce rendez-vous se termine avec l’intervention, au bloc.',
             SessionTeleconsultation::withoutGlobalScopes()->where('rendez_vous_id', $this->id)->whereNull('terminee_le')->exists() => 'Ce rendez-vous se termine à la fin de la téléconsultation.',
+            // Jamais commencée (24.10.2026) : ni terminée ni facturée à la main
+            $this->type === TypeRendezVous::Teleconsultation
+                && SessionTeleconsultation::withoutGlobalScopes()->where('rendez_vous_id', $this->id)->doesntExist() => 'Cette téléconsultation n’a pas eu lieu : marquez-la non venue, ou annulez-la.',
             default => null,
         };
     }
