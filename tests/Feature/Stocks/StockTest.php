@@ -234,6 +234,28 @@ class StockTest extends TestCase
         $this->assertDatabaseMissing('lots', ['id' => $lot->id]);
     }
 
+    /** Un lot entamé par des doses inscrites au registre se détruit pour ce qu'il en reste. */
+    public function test_un_lot_de_stupefiant_entame_se_detruit_pour_ce_qu_il_en_reste(): void
+    {
+        $produit = $this->produitAvecStock(10, ['est_stupefiant' => true]);
+        MouvementStupefiant::factory()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $produit->id, 'quantite' => 10]);
+        // Trois doses administrées : le registre en compte 7, le lot dit toujours 10
+        MouvementStupefiant::factory()->sortie()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $produit->id, 'quantite' => -3]);
+        $lot = Lot::factory()->perime()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 10]);
+
+        $this->postJson("/api/v1/stocks/lots/{$lot->id}/ecarter", [], $this->enTetes($this->jeton))->assertNoContent();
+
+        $this->assertSame('-7.00', MouvementStupefiant::withoutGlobalScopes()->where('motif', 'like', 'Destruction%')->sole()->quantite);
+        $this->assertSame(0, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->where('clinique_id', $this->clinique->id)->sole()->quantite);
+        $this->assertDatabaseMissing('lots', ['id' => $lot->id]);
+
+        // Plus rien au registre : le lot part sans inscription
+        $vide = Lot::factory()->perime()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 2]);
+        $this->postJson("/api/v1/stocks/lots/{$vide->id}/ecarter", [], $this->enTetes($this->jeton))->assertNoContent();
+        $this->assertSame(1, MouvementStupefiant::withoutGlobalScopes()->where('motif', 'like', 'Destruction%')->count());
+        $this->assertDatabaseMissing('lots', ['id' => $vide->id]);
+    }
+
     public function test_les_lots_sont_listes_du_plus_urgent_au_plus_lointain(): void
     {
         $produit = $this->produitAvecStock(10);

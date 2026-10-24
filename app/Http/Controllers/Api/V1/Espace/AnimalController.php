@@ -210,7 +210,11 @@ class AnimalController extends Controller
                 'espece_libelle' => $animal->espece->libelle(),
                 'race' => $animal->race,
             ],
-            'organisation' => $animal->organisation ? ['id' => $animal->organisation->id, 'nom' => $animal->organisation->nom] : null,
+            // Qui suit l'animal ne se dit qu'une fois la demande acceptée par la
+            // clinique (24.10.2026) : une puce et un nom ne révèlent pas l'organisation
+            'organisation' => $demande->statut === StatutDemandeRattachement::Acceptee && $animal->organisation
+                ? ['id' => $animal->organisation->id, 'nom' => $animal->organisation->nom]
+                : null,
         ];
     }
 }

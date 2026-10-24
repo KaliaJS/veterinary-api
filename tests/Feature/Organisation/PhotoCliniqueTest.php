@@ -93,6 +93,24 @@ class PhotoCliniqueTest extends TestCase
         }
     }
 
+    /** Une photo très étroite, ou très large, ne fait pas d'erreur : jamais 0 pixel sur le petit côté, aperçu borné aussi. */
+    public function test_une_photo_tres_etroite_ou_tres_large_passe(): void
+    {
+        foreach ([[8, 8000], [8000, 8]] as [$l, $h]) {
+            $photo = $this->post("/api/v1/organisation/cliniques/{$this->clinique->id}/photo", ['photo' => UploadedFile::fake()->image('bande.png', $l, $h)], $this->entetesJson())
+                ->assertOk()->json('data.photo');
+
+            $chemin = $this->clinique->refresh()->photo_chemin;
+            foreach (PhotosCliniques::LARGEURS as $largeur) {
+                [$vl, $vh] = getimagesizefromstring(Storage::disk('prive')->get(PhotosCliniques::version($chemin, $largeur)));
+                $this->assertGreaterThanOrEqual(1, min($vl, $vh));
+                $this->assertLessThanOrEqual($largeur, max($vl, $vh));
+            }
+            [$al, $ah] = getimagesizefromstring(base64_decode(substr($photo['apercu'], strlen('data:image/webp;base64,'))));
+            $this->assertLessThanOrEqual(PhotosCliniques::APERCU_LARGEUR, max($al, $ah));
+        }
+    }
+
     public function test_l_ecran_organisation_dit_ce_qui_manque_pour_paraitre_dans_l_annuaire(): void
     {
         $this->clinique->update(['rue' => 'Rue du Lac 1', 'npa' => '1000', 'ville' => 'Lausanne', 'latitude' => null, 'longitude' => null]);

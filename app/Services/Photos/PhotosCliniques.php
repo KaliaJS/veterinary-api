@@ -46,8 +46,9 @@ final class PhotosCliniques
             Storage::disk(self::DISQUE)->put(self::version($chemin, $largeur), ImageReencodee::webp($version, self::QUALITE));
         }
 
-        $petite = imagescale($image, self::APERCU_LARGEUR);
-        $apercu = 'data:image/webp;base64,'.base64_encode(ImageReencodee::webp($petite ?: $image, self::APERCU_QUALITE));
+        // L'aperçu borné sur son plus grand côté aussi : une photo très haute n'en fait pas un ruban illisible
+        $petite = ImageReencodee::reduire($image, self::APERCU_LARGEUR);
+        $apercu = 'data:image/webp;base64,'.base64_encode(ImageReencodee::webp($petite, self::APERCU_QUALITE));
 
         return ['chemin' => $chemin, 'apercu' => $apercu];
     }

@@ -114,13 +114,32 @@ class DemandeSansCompteTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['code' => 'Ce code a déjà servi : demandez-en un nouveau.']);
         $this->assertSame(0, DemandeRendezVous::withoutGlobalScopes()->count());
 
-        // Et le service lui-même : un seul consommateur l'emporte
+        // Et le service lui-même : un seul envoi réserve le code ; libéré, il resservira
         $codes = app(CodeDemandePublique::class);
         $code = $this->codeDeDemande($clinique->id, 'paul@example.ch');
         $codes->verifier('paul@example.ch', $clinique, $code);
         $codes->verifier('paul@example.ch', $clinique, $code);
-        $this->assertTrue($codes->consommer('paul@example.ch', $clinique));
-        $this->assertFalse($codes->consommer('paul@example.ch', $clinique));
+        $marque = $codes->reserver('paul@example.ch', $clinique);
+        $this->assertNotNull($marque);
+        $this->assertNull($codes->reserver('paul@example.ch', $clinique));
+        $codes->liberer($marque);
+        $this->assertNotNull($codes->reserver('paul@example.ch', $clinique));
+    }
+
+    /** L'heure choisie est refusée (prise entre-temps, hors grille) : le même code sert pour une autre heure (24.10.2026). */
+    public function test_une_heure_refusee_ne_brule_pas_le_code(): void
+    {
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['rdv_sans_compte' => true, 'rdv_a_valider' => true]);
+        $code = $this->codeDeDemande($clinique->id, 'lea.rochat@example.ch');
+        $horsGrille = CarbonImmutable::now('Europe/Zurich')->next(CarbonImmutable::TUESDAY)->setTime(10, 5)->toIso8601String();
+
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code, 'debut_souhaite' => $horsGrille]))
+            ->assertUnprocessable()->assertJsonValidationErrors('debut_souhaite');
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code]))->assertCreated();
+        // Puis il a servi : plus une seconde fois
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code]))
+            ->assertUnprocessable()->assertJsonValidationErrors('code');
+        $this->assertSame(1, DemandeRendezVous::withoutGlobalScopes()->count());
     }
 
     public function test_sans_compte_il_faut_de_quoi_repondre(): void

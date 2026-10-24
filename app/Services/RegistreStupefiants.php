@@ -20,13 +20,7 @@ class RegistreStupefiants
 
     public function inscrire(Produit $produit, float $quantite, string $motif, int $cliniqueId, ?User $auteur): MouvementStupefiant
     {
-        // Une inscription à la fois par substance : le solde lu reste vrai
-        Produit::query()->whereKey($produit->id)->lockForUpdate()->first();
-
-        $solde = (float) MouvementStupefiant::withoutGlobalScopes()
-            ->where('clinique_id', $cliniqueId)
-            ->where('produit_id', $produit->id)
-            ->sum('quantite');
+        $solde = $this->soldeVerrouille($produit, $cliniqueId);
         if ($quantite < 0 && $solde + $quantite < -0.001) {
             throw ValidationException::withMessages([
                 'quantite' => 'Le registre n’en compte que '.number_format(max(0, $solde), 2, '.', '’').' : une sortie ne dépasse jamais le solde.',
@@ -48,5 +42,29 @@ class RegistreStupefiants
         $this->stock->alignerSurLeRegistre($produit, $mouvement, $auteur);
 
         return $mouvement;
+    }
+
+    /**
+     * Destruction d'un lot périmé (24.10.2026) : un lot ne baisse pas quand
+     * une dose est inscrite au registre, sa quantité peut dépasser ce que le
+     * registre compte encore. Est détruit le moins des deux ; rien s'il ne
+     * reste rien (null).
+     */
+    public function detruire(Produit $produit, float $auPlus, string $motif, int $cliniqueId, ?User $auteur): ?MouvementStupefiant
+    {
+        $quantite = round(min($auPlus, max(0.0, $this->soldeVerrouille($produit, $cliniqueId))), 2);
+
+        return $quantite > 0 ? $this->inscrire($produit, -$quantite, $motif, $cliniqueId, $auteur) : null;
+    }
+
+    /** Le solde de la substance, la substance verrouillée : une inscription à la fois, le solde lu reste vrai. */
+    private function soldeVerrouille(Produit $produit, int $cliniqueId): float
+    {
+        Produit::query()->whereKey($produit->id)->lockForUpdate()->first();
+
+        return (float) MouvementStupefiant::withoutGlobalScopes()
+            ->where('clinique_id', $cliniqueId)
+            ->where('produit_id', $produit->id)
+            ->sum('quantite');
     }
 }

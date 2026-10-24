@@ -45,7 +45,9 @@ class LotController extends Controller
             // des stupéfiants : la destruction y est inscrite, le stock suit (24.10.2026)
             if ($lot->produit->est_stupefiant) {
                 Gate::authorize(DomainePermission::Stupefiants->value);
-                app(RegistreStupefiants::class)->inscrire($lot->produit, -(float) $lot->quantite, 'Destruction : lot '.$lot->numero_lot.' périmé', $lot->clinique_id, $request->user());
+                // Ce que le registre compte encore, au plus le lot : un lot entamé
+                // par les doses inscrites se détruit pour ce qu'il en reste
+                app(RegistreStupefiants::class)->detruire($lot->produit, (float) $lot->quantite, 'Destruction : lot '.$lot->numero_lot.' périmé', $lot->clinique_id, $request->user());
             } else {
                 $stock->appliquer(
                     $lot->produit,

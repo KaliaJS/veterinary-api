@@ -52,17 +52,29 @@ class CodeDemandePublique
 
     /**
      * Usage unique, même pour deux envois simultanés du même code : seul le
-     * premier le prend (ajout atomique au cache), 24.10.2026.
+     * premier le prend (ajout atomique au cache), 24.10.2026. Rend la marque
+     * à libérer si la demande échoue ensuite (heure prise entre-temps), null
+     * si un autre envoi l'a déjà pris.
      */
-    public function consommer(string $email, Clinique $clinique): bool
+    public function reserver(string $email, Clinique $clinique): ?string
     {
         $hache = Cache::get($this->cle($email, $clinique));
-        $premier = is_string($hache)
-            && Cache::add('demande-publique:utilise:'.hash('sha256', $hache), true, now()->addMinutes(self::VALIDITE_MINUTES));
+        $marque = is_string($hache) ? 'demande-publique:utilise:'.hash('sha256', $hache) : null;
+
+        return $marque !== null && Cache::add($marque, true, now()->addMinutes(self::VALIDITE_MINUTES)) ? $marque : null;
+    }
+
+    /** La demande n'a pas abouti : le code resservira (une autre heure, sans nouvel e-mail). */
+    public function liberer(string $marque): void
+    {
+        Cache::forget($marque);
+    }
+
+    /** La demande est déposée : le code disparaît et le compteur d'essais repart. */
+    public function consommer(string $email, Clinique $clinique): void
+    {
         Cache::forget($this->cle($email, $clinique));
         RateLimiter::clear($this->limiteur($email, $clinique));
-
-        return $premier;
     }
 
     private function cle(string $email, Clinique $clinique): string

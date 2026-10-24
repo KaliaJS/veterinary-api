@@ -44,9 +44,10 @@ final class ImageReencodee
             return $image;
         }
 
+        // Jamais 0 pixel sur le petit côté (une image de 8 × 8000) : imagescale lèverait une erreur
         return $largeur >= $hauteur
-            ? (imagescale($image, $cote) ?: $image)
-            : (imagescale($image, (int) round($largeur * $cote / $hauteur), $cote) ?: $image);
+            ? (imagescale($image, $cote, max(1, (int) round($hauteur * $cote / $largeur))) ?: $image)
+            : (imagescale($image, max(1, (int) round($largeur * $cote / $hauteur)), $cote) ?: $image);
     }
 
     public static function webp(GdImage $image, int $qualite = self::QUALITE): string

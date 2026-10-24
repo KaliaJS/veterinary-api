@@ -42,6 +42,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Prendre rendez-vous : annuaire de toutes les cliniques (carte du
@@ -259,23 +260,32 @@ class CliniqueProprietaireController extends Controller
         $clinique = Clinique::withoutGlobalScopes()->ouvertes()->findOrFail((int) $donnees['clinique_id']);
         $email = mb_strtolower(trim($donnees['email']));
 
-        // Vérifié et consommé d'un coup : deux envois du même code ne font
-        // jamais deux demandes (24.10.2026) ; un refus ensuite demande un code neuf
+        // Vérifié et réservé d'un coup : deux envois du même code ne font jamais
+        // deux demandes (24.10.2026). Un refus ensuite (heure prise entre-temps,
+        // plafond) rend le code : on choisit une autre heure sans nouvel e-mail
         $codes->verifier($email, $clinique, $donnees['code']);
-        if (! $codes->consommer($email, $clinique)) {
+        $marque = $codes->reserver($email, $clinique);
+        if ($marque === null) {
             throw ValidationException::withMessages(['code' => 'Ce code a déjà servi : demandez-en un nouveau.']);
         }
-        $this->plafond($clinique, fn ($q) => $q->whereNull('user_id')->where('email', $email));
 
-        $reponse = $this->enregistrer($clinique, $donnees, $sousContexte, [
-            'patient_name' => trim($donnees['patient_name']),
-            'species' => $donnees['espece'],
-            'owner_name' => trim($donnees['nom_proprietaire']),
-            'email' => mb_strtolower(trim($donnees['email'])),
-            'telephone' => trim($donnees['telephone']),
-            // Le lien de ses e-mails, pour suivre la demande sans compte
-            'jeton' => Str::random(48),
-        ]);
+        try {
+            $this->plafond($clinique, fn ($q) => $q->whereNull('user_id')->where('email', $email));
+            $reponse = $this->enregistrer($clinique, $donnees, $sousContexte, [
+                'patient_name' => trim($donnees['patient_name']),
+                'species' => $donnees['espece'],
+                'owner_name' => trim($donnees['nom_proprietaire']),
+                'email' => mb_strtolower(trim($donnees['email'])),
+                'telephone' => trim($donnees['telephone']),
+                // Le lien de ses e-mails, pour suivre la demande sans compte
+                'jeton' => Str::random(48),
+            ]);
+        } catch (Throwable $e) {
+            $codes->liberer($marque);
+
+            throw $e;
+        }
+        $codes->consommer($email, $clinique);
 
         return $reponse;
     }
@@ -283,7 +293,8 @@ class CliniqueProprietaireController extends Controller
     /** Le dernier jour que montre le calendrier : dans un mois. */
     private static function limiteDuCalendrier(Clinique $clinique): CarbonImmutable
     {
-        return CarbonImmutable::today($clinique->fuseau_horaire ?? 'Europe/Zurich')->addMonth();
+        // Sans déborder : le 31 octobre, jusqu'au 30 novembre, pas au 1er décembre
+        return CarbonImmutable::today($clinique->fuseau_horaire ?? 'Europe/Zurich')->addMonthNoOverflow();
     }
 
     /**
