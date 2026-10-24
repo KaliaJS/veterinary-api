@@ -292,6 +292,25 @@ class InscriptionCliniqueTest extends TestCase
         $this->getJson('/api/v1/auth/moi', $entetes)->assertJsonPath('data.organisation.fermeture', 'abonnement_requis');
     }
 
+    /** Une clinique inscrite par un modérateur ne se valide pas par le lien de l'e-mail, qui n'identifie personne. */
+    public function test_le_lien_ne_valide_pas_la_clinique_d_un_moderateur(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $user->forceFill(['est_moderateur' => true])->save();
+        $this->postJson('/api/v1/inscription-clinique', $this->inscription(['prenom' => 'Paul', 'nom' => 'Martin']), $this->enTetes($jeton))->assertCreated();
+        $organisation = Organisation::query()->where('inscrite_par', $user->id)->firstOrFail();
+
+        $mail = null;
+        Mail::assertSent(VerificationCliniqueAFaire::class, function (VerificationCliniqueAFaire $envoye) use (&$mail): bool {
+            $mail = $envoye;
+
+            return true;
+        });
+
+        $this->post($mail->lienValider)->assertForbidden();
+        $this->assertSame('en_attente', $organisation->refresh()->verification->value);
+    }
+
     public function test_un_lien_de_verification_altere_ne_sert_a_rien(): void
     {
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
