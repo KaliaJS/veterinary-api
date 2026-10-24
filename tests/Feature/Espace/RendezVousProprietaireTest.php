@@ -5,6 +5,7 @@ namespace Tests\Feature\Espace;
 use App\Enums\StatutRendezVous;
 use App\Models\Client;
 use App\Models\Clinique;
+use App\Models\HoraireOuverture;
 use App\Models\LignePlanning;
 use App\Models\Patient;
 use App\Models\RendezVous;
@@ -117,6 +118,23 @@ class RendezVousProprietaireTest extends TestCase
         }
         // Étalés sur les jours : les trois créneaux tombent sur des dates différentes.
         $this->assertCount(3, array_unique(array_map(fn (array $c): string => substr($c['debut'], 0, 10), $creneaux)));
+    }
+
+    public function test_apres_le_changement_d_heure_le_premier_creneau_reste_a_8h00_a_zurich(): void
+    {
+        // Samedi 24 octobre 2026 à 16 h : fermé, dimanche aussi ; la nuit
+        // de dimanche, Zurich repasse à l'heure d'hiver (UTC+1)
+        $this->travelTo(CarbonImmutable::parse('2026-10-24 16:00', 'Europe/Zurich'));
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id]);
+        LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+
+        $premier = $this->getJson('/api/v1/espace/cliniques', $this->enTetes($jeton))->assertOk()->json('data.0.creneaux.0.debut');
+
+        // Lundi 26 à l'ouverture, 8 h à Zurich : 7 h en UTC, plus 6 h
+        $this->assertSame('2026-10-26 08:00', CarbonImmutable::parse($premier)->setTimezone('Europe/Zurich')->format('Y-m-d H:i'));
+        $this->assertSame('2026-10-26T07:00:00+00:00', CarbonImmutable::parse($premier)->utc()->toIso8601String());
     }
 
     public function test_a_14h00_et_quelques_secondes_le_premier_creneau_est_14h15(): void
