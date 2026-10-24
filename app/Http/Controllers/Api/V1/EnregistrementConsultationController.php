@@ -157,7 +157,6 @@ class EnregistrementConsultationController extends Controller
             throw $valide;
         }
 
-        Storage::disk('prive')->deleteDirectory($enregistrement->dossierAudio());
         DB::transaction(function () use ($enregistrement, $valide): void {
             // Fiche verrouillée d'abord : une transcription ou une rédaction qui
             // se termine au même instant voit l'abandon et n'écrit pas de texte
@@ -169,6 +168,9 @@ class EnregistrementConsultationController extends Controller
             $verrouille->parties()->update(['segments' => null, 'fichier' => null]);
             $verrouille->forceFill(['statut' => StatutEnregistrement::Abandonne, 'erreur' => null, 'brouillon' => null])->save();
         });
+        // Effacé après : une partie assemblée sous le verrou juste avant
+        // l'abandon part avec le reste, rien ne survit à la purge (24.10.2026)
+        Storage::disk('prive')->deleteDirectory($enregistrement->dossierAudio());
 
         return response()->noContent();
     }

@@ -21,6 +21,7 @@ use App\Services\Paiements\AcomptesRendezVous;
 use App\Services\Paiements\WebhooksStripe;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
@@ -793,6 +794,33 @@ class AcompteReservationTest extends TestCase
 
         $this->deleteJson("/api/v1/demandes/{$demande->id}", [], $this->enTetes($jetonAdmin))->assertUnprocessable()->assertJsonValidationErrors('demande');
         $this->assertNotNull(DemandeRendezVous::withoutGlobalScopes()->find($demande->id));
+    }
+
+    /** L'accusé du paiement (heure prise pendant le paiement) part après l'enregistrement : une confirmation défaite n'envoie rien (24.10.2026). */
+    public function test_l_accuse_du_paiement_part_apres_l_enregistrement(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        $jeton = $this->deposer()->json('data.jeton');
+        $demande = DemandeRendezVous::withoutGlobalScopes()->sole();
+        RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id,
+            'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => $this->mardi->utc(),
+            'ends_at' => $this->mardi->addHour()->utc(),
+        ]);
+        $this->stripe->conclure($demande->acompte_intention_id, 'succeeded');
+        Mail::fake();
+
+        try {
+            DB::transaction(function () use ($jeton): void {
+                $this->postJson("/api/v1/public/demandes/{$jeton}/paiement")->assertOk();
+                throw new \RuntimeException('Suite impossible');
+            });
+        } catch (\RuntimeException) {
+        }
+
+        Mail::assertNothingOutgoing();
+        $this->assertNull($demande->refresh()->acompte_paye_le);
     }
 
     /** Litige clos : gagné ou « warning_closed » garde l'acompte ; un événement d'un autre compte Stripe est ignoré. */

@@ -277,6 +277,57 @@ class AbsenceTest extends TestCase
         $this->patchJson("/api/v1/rendez-vous/{$surLaLigne->id}", ['reason' => 'Contrôle'], $this->enTetes($this->jeton))->assertOk();
     }
 
+    /** Une note seule ne relance rien, même un rendez-vous prévu mis depuis ; un type changé relance ; en cours, en salle ou noté absent ne s'annule jamais (24.10.2026). */
+    public function test_seuls_la_periode_et_le_type_relancent_et_seulement_les_prevus(): void
+    {
+        $absence = Absence::factory()->create([
+            'employe_id' => $this->ligne->employe_id,
+            'type' => 'conge',
+            'debut_le' => aujourdhui()->addDays(2),
+            'fin_le' => aujourdhui()->addDays(4),
+        ]);
+        $creer = fn (string $statut, int $heure) => RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'status' => $statut,
+            'starts_at' => aujourdhui()->addDays(3)->setTime($heure, 0), 'ends_at' => aujourdhui()->addDays(3)->setTime($heure, 30),
+        ]);
+        $prevu = $creer('prevu', 8);
+        $enCours = $creer('cours', 9);
+        $enSalle = $creer('salle', 10);
+        $absent = $creer('noshow', 11);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->patchJson("/api/v1/absences/{$absence->id}", ['note' => 'Certificat reçu'], $entetes)->assertOk()->assertJsonPath('meta.rendez_vous_annules', 0);
+        $this->assertSame('prevu', $prevu->refresh()->status->value);
+
+        $this->patchJson("/api/v1/absences/{$absence->id}", ['type' => 'maladie'], $entetes)->assertOk()->assertJsonPath('meta.rendez_vous_annules', 1);
+        $this->assertSame('annule', $prevu->refresh()->status->value);
+        $this->assertSame('cours', $enCours->refresh()->status->value);
+        $this->assertSame('salle', $enSalle->refresh()->status->value);
+        $this->assertSame('noshow', $absent->refresh()->status->value);
+    }
+
+    /** Glissé sur la grille vers la colonne d'un praticien absent : refusé ; changer le motif d'un rendez-vous de cette colonne reste possible (24.10.2026). */
+    public function test_le_glisser_de_la_grille_respecte_les_absences(): void
+    {
+        $autreLigne = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id]);
+        $rendezVous = RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $autreLigne->id,
+            'starts_at' => aujourdhui()->addDays(3)->setTime(9, 0), 'ends_at' => aujourdhui()->addDays(3)->setTime(9, 30),
+        ]);
+        $dejaLa = RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => aujourdhui()->addDays(3)->setTime(11, 0), 'ends_at' => aujourdhui()->addDays(3)->setTime(11, 30),
+        ]);
+        Absence::factory()->create(['employe_id' => $this->ligne->employe_id, 'debut_le' => aujourdhui()->addDays(2), 'fin_le' => aujourdhui()->addDays(4)]);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->postJson("/api/v1/rendez-vous/{$rendezVous->id}/deplacer", ['ligne_planning_id' => $this->ligne->id, 'starts_at' => aujourdhui()->addDays(3)->setTime(9, 0)->toIso8601String()], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors(['ligne_planning_id' => 'Colonne bloquée par une absence validée du praticien.']);
+        $this->assertSame($autreLigne->id, $rendezVous->refresh()->ligne_planning_id);
+
+        $this->patchJson("/api/v1/rendez-vous/{$dejaLa->id}", ['reason' => 'Contrôle'], $entetes)->assertOk();
+    }
+
     public function test_la_liste_se_filtre_par_employe_et_statut(): void
     {
         Absence::factory()->create(['employe_id' => $this->ligne->employe_id]);

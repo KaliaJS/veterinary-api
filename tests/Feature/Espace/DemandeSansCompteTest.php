@@ -219,7 +219,7 @@ class DemandeSansCompteTest extends TestCase
             });
         } catch (\RuntimeException) {
         }
-        Mail::assertNothingSent();
+        Mail::assertNothingOutgoing();
         $this->assertSame('a_traiter', $demande->refresh()->statut->value);
 
         // Serveur d'e-mails en panne : la proposition, puis le refus, restent enregistrés
@@ -228,6 +228,31 @@ class DemandeSansCompteTest extends TestCase
             ->assertOk()->assertJsonPath('data.statut', 'proposee');
         $this->postJson("/api/v1/demandes/{$demande->id}/refuser", ['motif' => 'agenda'], $this->enTetes($jeton))
             ->assertOk()->assertJsonPath('data.statut', 'refusee');
+    }
+
+    /** Proposée ou acceptée (placée), puis défaite par une erreur dans la même transaction : aucun e-mail (24.10.2026). */
+    public function test_une_proposition_ou_une_acceptation_defaite_n_envoie_rien(): void
+    {
+        $clinique = $this->cliniqueQuiReserve(['rdv_a_valider' => true]);
+        ['jeton' => $jeton] = $this->administrateurAvecJeton($clinique);
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $this->codeDeDemande($clinique->id, 'lea.rochat@example.ch'), 'debut_souhaite' => $this->dansTroisJours()]))->assertCreated();
+        $demande = DemandeRendezVous::withoutGlobalScopes()->sole();
+        Mail::fake();
+        $defaire = function (callable $geste): void {
+            try {
+                DB::transaction(function () use ($geste): void {
+                    $geste();
+                    throw new \RuntimeException('Suite impossible');
+                });
+            } catch (\RuntimeException) {
+            }
+        };
+
+        $defaire(fn () => $this->postJson("/api/v1/demandes/{$demande->id}/proposer", ['creneaux' => [$this->dansTroisJours(2)]], $this->enTetes($jeton))->assertOk());
+        $defaire(fn () => $this->postJson("/api/v1/demandes/{$demande->id}/placer", ['starts_at' => $this->dansTroisJours()], $this->enTetes($jeton))->assertSuccessful());
+
+        Mail::assertNothingOutgoing();
+        $this->assertSame('a_traiter', $demande->refresh()->statut->value);
     }
 
     /** Une clinique qui réserve directement, ouverte, avec une ligne au planning. */

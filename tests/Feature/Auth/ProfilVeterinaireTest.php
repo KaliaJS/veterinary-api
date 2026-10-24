@@ -192,6 +192,22 @@ class ProfilVeterinaireTest extends TestCase
         Mail::assertQueued(GlnRepris::class, 9);
     }
 
+    /** Un changement de GLN refusé ne retire pas le badge de vétérinaire vérifié (24.10.2026). */
+    public function test_un_changement_de_gln_refuse_garde_le_badge(): void
+    {
+        Mail::fake();
+        ['user' => $lea, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+        $lea->forceFill(['gln' => self::GLN, 'verification_veterinaire' => 'verifie', 'verification_veterinaire_le' => now()])->save();
+        // Un autre compte garde ce GLN par son identité vérifiée
+        User::factory()->create(['gln' => '7601000000002'])->forceFill(['identite_verifiee_le' => now()])->save();
+
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => '7601000000002', 'specialites' => []], $this->enTetes($jeton))->assertUnprocessable();
+
+        $lea->refresh();
+        $this->assertSame(self::GLN, $lea->gln);
+        $this->assertSame('verifie', $lea->verification_veterinaire->value);
+    }
+
     /** Un GLN gardé par une identité établie : rien ne change, personne n'est prévenu. */
     public function test_rien_n_est_envoye_quand_le_gln_n_est_pas_repris(): void
     {

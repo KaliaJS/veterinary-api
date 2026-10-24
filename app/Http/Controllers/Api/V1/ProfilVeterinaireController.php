@@ -43,12 +43,18 @@ class ProfilVeterinaireController extends Controller
         $registre = null;
 
         if ($gln !== $compte->gln) {
-            // Le badge vaut pour un GLN : en changer, c'est à revérifier
-            if ($compte->verification_veterinaire !== null) {
-                $compte->consignerVerification(DecisionVerification::Retire, null, 'GLN modifié par le vétérinaire');
-            }
+            // Le badge vaut pour un GLN : en changer, c'est à revérifier. Retiré
+            // une fois le changement enregistré, jamais sur un refus (24.10.2026)
+            $retirerBadge = function () use ($compte): void {
+                if ($compte->verification_veterinaire !== null) {
+                    $compte->consignerVerification(DecisionVerification::Retire, null, 'GLN modifié par le vétérinaire');
+                }
+            };
             if ($gln === null) {
-                $compte->forceFill(['gln' => null, 'medreg_id' => null, 'gln_verifie_le' => null])->save();
+                DB::transaction(function () use ($compte, $retirerBadge): void {
+                    $compte->forceFill(['gln' => null, 'medreg_id' => null, 'gln_verifie_le' => null])->save();
+                    $retirerBadge();
+                });
             } else {
                 $resultat = $this->verification->verifier($gln, $compte->prenom(), $compte->nomFamille(), $compte);
                 if ($resultat->raison === 'gln_deja_utilise') {
@@ -73,7 +79,7 @@ class ProfilVeterinaireController extends Controller
 
                 // Ensemble ou pas du tout : l'autre compte ne perd son GLN, et
                 // n'est prévenu, que si celui-ci est bien enregistré (24.10.2026)
-                DB::transaction(function () use ($gln, $compte, $resultat): void {
+                DB::transaction(function () use ($gln, $compte, $resultat, $retirerBadge): void {
                     // Revu sous verrou : une identité vérifiée entre le contrôle
                     // ci-dessus et maintenant garde son GLN, seule (24.10.2026)
                     $pris = User::query()->where('gln', $gln)->whereKeyNot($compte->id)
@@ -88,6 +94,7 @@ class ProfilVeterinaireController extends Controller
                         'medreg_id' => $resultat->fiche?->id,
                         'gln_verifie_le' => $resultat->raison === null ? now() : null,
                     ])->save();
+                    $retirerBadge();
                 });
                 $registre = $resultat->raison ?? 'trouve';
             }

@@ -67,8 +67,10 @@ final class TranscrirePartie implements ShouldQueue
             return;
         }
 
-        // Abandonné : jamais d'appel payant pour un texte qui ne sera pas écrit
-        if ($partie->enregistrement->statut === StatutEnregistrement::Abandonne) {
+        // Abandonné (relu, pas celui chargé plus haut) : jamais d'appel payant
+        // pour un texte qui ne sera pas écrit
+        $statut = EnregistrementConsultation::withoutGlobalScopes()->whereKey($partie->enregistrement_consultation_id)->value('statut');
+        if ($statut === StatutEnregistrement::Abandonne->value || $statut === StatutEnregistrement::Abandonne) {
             Storage::disk('prive')->delete($partie->fichier);
             $partie->forceFill(['fichier' => null])->save();
 

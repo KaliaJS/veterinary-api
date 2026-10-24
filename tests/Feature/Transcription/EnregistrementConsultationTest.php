@@ -643,6 +643,48 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions'));
     }
 
+    /** Abandonné entre l'écriture du dernier morceau et son assemblage : rien n'est assemblé ni transcrit, le morceau est effacé (24.10.2026). */
+    public function test_un_morceau_ecrit_pendant_l_abandon_n_est_pas_assemble(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        Queue::fake();
+        $fait = false;
+        // La première transaction de la réception validée, l'abandon passe
+        Event::listen(TransactionCommitted::class, function () use (&$fait, $id): void {
+            if (! $fait) {
+                $fait = true;
+                EnregistrementConsultation::withoutGlobalScopes()->whereKey($id)->update(['statut' => StatutEnregistrement::Abandonne->value]);
+            }
+        });
+
+        $fiche = EnregistrementConsultation::withoutGlobalScopes()->findOrFail($id);
+        app(ReceptionAudio::class)->morceau($fiche, 1, 0, 1, 'audio/mp4', UploadedFile::fake()->createWithContent('0', TranscripteurFactice::ENTETE.'AUDIO'));
+
+        $this->assertTrue($fait);
+        $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions'));
+        $this->assertSame(StatutPartie::Envoi, PartieEnregistrement::query()->sole()->statut);
+        Queue::assertNotPushed(TranscrirePartie::class);
+    }
+
+    /** Une partie assemblée sous le verrou juste avant l'abandon part avec le reste : aucun audio ne survit (24.10.2026). */
+    public function test_l_abandon_efface_aussi_l_audio_assemble_juste_avant(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $fait = false;
+        // Pendant que l'abandon prend son verrou, une partie finit de s'assembler
+        DB::listen(function (QueryExecuted $requete) use (&$fait, $id): void {
+            if (! $fait && DB::transactionLevel() > 1 && str_contains($requete->sql, 'from "enregistrements_consultation"')) {
+                $fait = true;
+                Storage::disk('prive')->put('transcriptions/'.$id.'/1.audio', 'AUDIO');
+            }
+        });
+
+        $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
+
+        $this->assertTrue($fait);
+        $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions'));
+    }
+
     /** Une partie complète d'un enregistrement abandonné n'est jamais envoyée au fournisseur (24.10.2026). */
     public function test_une_partie_d_un_enregistrement_abandonne_n_est_pas_transcrite(): void
     {
