@@ -11,7 +11,7 @@ class TeleverserLogoRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'logo' => ['required', 'file', 'image', 'mimes:png,jpg,jpeg,webp', 'max:2048'],
+            'logo' => ['required', 'file', 'image', 'mimes:png,jpg,jpeg,webp', 'max:2048', 'dimensions:max_width=8000,max_height=8000'],
         ];
     }
 

@@ -247,12 +247,16 @@ class SiteWebTest extends TestCase
     {
         Storage::fake('prive');
 
-        $url = $this->post('/api/v1/site/logo', ['logo' => UploadedFile::fake()->image('logo.png', 256, 256)], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])
+        $url = $this->post('/api/v1/site/logo', ['logo' => UploadedFile::fake()->image('logo.png', 2000, 1000)], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])
             ->assertOk()
             ->json('data.logo_url');
 
         $this->assertNotNull($url);
-        $this->get($url)->assertOk()->assertHeader('Content-Type', 'image/png');
+        // Réécrit en WebP, borné à 800 pixels : sans les métadonnées du fichier déposé
+        $this->get($url)->assertOk()->assertHeader('Content-Type', 'image/webp');
+        $chemin = Storage::disk('prive')->allFiles('logos')[0];
+        $this->assertStringEndsWith('.webp', $chemin);
+        $this->assertSame([800, 400], array_slice(getimagesizefromstring(Storage::disk('prive')->get($chemin)) ?: [], 0, 2));
 
         // Le site n'est pas publié : le logo est servi quand même, et l'annuaire l'expose.
         $this->getJson('/api/v1/public/cliniques')->assertJsonPath('data.0.logo_url', $url);

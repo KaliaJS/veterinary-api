@@ -58,6 +58,31 @@ final class ImageReencodee
     }
 
     /**
+     * Un logo réécrit (24.10.2026) : comme une photo, sans ses métadonnées
+     * et borné à `$cote` pixels, mais sa transparence gardée.
+     */
+    public static function logo(UploadedFile $fichier, string $dossier, int $cote): string
+    {
+        $source = self::lire($fichier);
+        $largeur = imagesx($source);
+        $hauteur = imagesy($source);
+        $echelle = min(1, $cote / max($largeur, $hauteur));
+        $l = max(1, (int) round($largeur * $echelle));
+        $h = max(1, (int) round($hauteur * $echelle));
+
+        $logo = imagecreatetruecolor($l, $h);
+        imagealphablending($logo, false);
+        imagesavealpha($logo, true);
+        imagefill($logo, 0, 0, (int) imagecolorallocatealpha($logo, 0, 0, 0, 127));
+        imagecopyresampled($logo, $source, 0, 0, 0, 0, $l, $h, $largeur, $hauteur);
+
+        $chemin = trim($dossier, '/').'/'.Str::random(40).'.webp';
+        Storage::disk('prive')->put($chemin, self::webp($logo, 90));
+
+        return $chemin;
+    }
+
+    /**
      * Range la photo réécrite dans `$dossier` du disque privé ; rend son
      * chemin. Le nom du fichier (sans dossier) sert à la retrouver.
      */
