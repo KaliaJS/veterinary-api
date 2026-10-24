@@ -342,6 +342,33 @@ class AbsenceTest extends TestCase
         $this->assertSame('annule', $apres->refresh()->status->value);
     }
 
+    /** Un praticien sur deux colonnes : ses rendez-vous sont annulés dans l'ordre de leur heure, toutes colonnes confondues (24.10.2026). */
+    public function test_une_absence_traite_les_rendez_vous_de_toutes_les_colonnes_dans_l_ordre(): void
+    {
+        $seconde = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id, 'employe_id' => $this->ligne->employe_id]);
+        $tard = RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => aujourdhui()->addDays(2)->setTime(11, 0), 'ends_at' => aujourdhui()->addDays(2)->setTime(11, 30),
+        ]);
+        $tot = RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $seconde->id,
+            'starts_at' => aujourdhui()->addDays(2)->setTime(10, 0), 'ends_at' => aujourdhui()->addDays(2)->setTime(10, 30),
+        ]);
+        $ordre = [];
+        RendezVous::saving(function (RendezVous $rendezVous) use (&$ordre): void {
+            if ($rendezVous->isDirty('status') && $rendezVous->status === StatutRendezVous::Annule) {
+                $ordre[] = $rendezVous->id;
+            }
+        });
+
+        $this->postJson('/api/v1/absences', [
+            'employe_id' => $this->ligne->employe_id, 'type' => 'maladie', 'statut' => 'ok',
+            'debut_le' => aujourdhui()->addDays(2)->toDateString(), 'fin_le' => aujourdhui()->addDays(2)->toDateString(),
+        ], $this->enTetes($this->jeton))->assertCreated()->assertJsonPath('meta.rendez_vous_annules', 2);
+
+        $this->assertSame([$tot->id, $tard->id], $ordre);
+    }
+
     public function test_la_liste_se_filtre_par_employe_et_statut(): void
     {
         Absence::factory()->create(['employe_id' => $this->ligne->employe_id]);
