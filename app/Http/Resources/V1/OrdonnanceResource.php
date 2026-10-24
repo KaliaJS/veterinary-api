@@ -31,6 +31,8 @@ class OrdonnanceResource extends JsonResource
             'statut' => $this->statut,
             'note' => $this->note,
             'ordonnance_precedente_id' => $this->ordonnance_precedente_id,
+            // En-tête de la clinique qui l'a établie (imprimée depuis une clinique sœur), 24.10.2026
+            'en_tete' => $this->whenLoaded('clinique', fn (): array => $this->clinique->enTeteDocument()),
             'lignes' => $this->whenLoaded(
                 'lignes',
                 fn () => $this->lignes->map(fn (OrdonnanceLigne $ligne): array => [

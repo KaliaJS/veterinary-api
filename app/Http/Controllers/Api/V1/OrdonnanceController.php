@@ -42,7 +42,7 @@ class OrdonnanceController extends Controller
         $this->authorize('viewAny', Ordonnance::class);
 
         $ordonnances = Ordonnance::query()
-            ->with(['lignes.produit', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
+            ->with(['lignes.produit', 'clinique.societe', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
             ->when($request->enum('statut', StatutOrdonnance::class), fn (Builder $requete, StatutOrdonnance $statut) => $requete->where('statut', $statut))
             ->when($request->integer('patient_id'), fn (Builder $requete, int $patient) => $requete->where('patient_id', $patient))
             ->when($request->filled('q'), function (Builder $requete) use ($request): void {
@@ -99,7 +99,7 @@ class OrdonnanceController extends Controller
             return $ordonnance;
         });
 
-        return new OrdonnanceResource($ordonnance->load(['lignes.produit', 'employe', 'patient']));
+        return new OrdonnanceResource($ordonnance->load(['lignes.produit', 'employe', 'patient', 'clinique.societe']));
     }
 
     public function show(Ordonnance $ordonnance): OrdonnanceResource
@@ -108,6 +108,7 @@ class OrdonnanceController extends Controller
 
         return new OrdonnanceResource($ordonnance->load([
             'lignes.produit',
+            'clinique.societe',
             'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
             'patient.client',
         ]));

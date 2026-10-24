@@ -68,6 +68,22 @@ class OrdonnanceTest extends TestCase
             ->quantite;
     }
 
+    /** Imprimée depuis une clinique sœur : l'en-tête est celui de la clinique qui l'a établie. */
+    public function test_l_ordonnance_porte_l_en_tete_de_sa_clinique(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id, 'nom' => 'Clinique du Lac', 'raison_sociale' => null]);
+        $ordonnance = Ordonnance::factory()->create([
+            'organisation_id' => $this->clinique->societe->organisation_id,
+            'clinique_id' => $soeur->id,
+            'patient_id' => $this->patient->id,
+        ]);
+
+        $this->getJson("/api/v1/ordonnances/{$ordonnance->id}", $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('data.en_tete.nom', 'Clinique du Lac');
+        $this->getJson('/api/v1/ordonnances?patient_id='.$this->patient->id, $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('data.0.en_tete.nom', 'Clinique du Lac');
+    }
+
     public function test_la_signature_cree_l_ordonnance_et_sort_une_unite_par_ligne(): void
     {
         $produit = $this->medicamentEnStock(9);
