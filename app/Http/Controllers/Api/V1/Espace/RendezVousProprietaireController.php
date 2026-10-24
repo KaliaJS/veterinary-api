@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Espace;
 
 use App\Auth\ContexteProprietaire;
 use App\Enums\ModeDemandeRendezVous;
+use App\Enums\StatutDemandeRendezVous;
 use App\Enums\StatutRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\Espace\RendezVousProprietaireResource;
@@ -97,6 +98,20 @@ class RendezVousProprietaireController extends Controller
             throw ValidationException::withMessages(['status' => 'Ce rendez-vous ne peut plus être reporté en ligne, contactez la clinique.']);
         }
 
+        $souhait = 'Report demandé par le propriétaire (rendez-vous du '
+            .$rendezVous->starts_at->setTimezone($rendezVous->clinique->fuseau_horaire ?? 'Europe/Zurich')->format('d.m.Y à H:i').')';
+        // Un report à la fois pour ce rendez-vous, et le plafond des demandes (24.10.2026)
+        $dejaDemande = DemandeRendezVous::withoutGlobalScopes()
+            ->where('clinique_id', $rendezVous->clinique_id)
+            ->where('user_id', $contexte->user()->id)
+            ->where('souhait', $souhait)
+            ->whereIn('statut', [StatutDemandeRendezVous::ATraiter, StatutDemandeRendezVous::Proposee])
+            ->exists();
+        if ($dejaDemande) {
+            throw ValidationException::withMessages(['status' => 'Le report de ce rendez-vous est déjà demandé : la clinique vous répond.']);
+        }
+        CliniqueProprietaireController::plafond($rendezVous->clinique, fn ($q) => $q->where('user_id', $contexte->user()->id));
+
         $demande = DemandeRendezVous::withoutGlobalScopes()->create([
             'clinique_id' => $rendezVous->clinique_id,
             'patient_id' => $rendezVous->patient_id,
@@ -106,8 +121,7 @@ class RendezVousProprietaireController extends Controller
             'species' => $rendezVous->species,
             'owner_name' => $rendezVous->owner_name,
             'reason' => 'Report : '.($rendezVous->reason ?: 'rendez-vous'),
-            'souhait' => 'Report demandé par le propriétaire (rendez-vous du '
-                .$rendezVous->starts_at->setTimezone($rendezVous->clinique->fuseau_horaire ?? 'Europe/Zurich')->format('d.m.Y à H:i').')',
+            'souhait' => $souhait,
             'mode' => ModeDemandeRendezVous::AValider,
             'duree_minutes' => max(15, (int) $rendezVous->starts_at->diffInMinutes($rendezVous->ends_at)),
         ]);

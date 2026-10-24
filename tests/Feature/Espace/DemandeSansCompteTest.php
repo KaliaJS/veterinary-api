@@ -3,6 +3,7 @@
 namespace Tests\Feature\Espace;
 
 use App\Models\Clinique;
+use App\Models\DemandeRendezVous;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\DeposeSansCompte;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -80,6 +81,18 @@ class DemandeSansCompteTest extends TestCase
             ->assertJsonPath('data.0.telephone', '+41 79 123 45 67')
             ->assertJsonPath('data.0.urgence', true)
             ->assertJsonPath('data.0.symptomes', 'Boite depuis hier');
+    }
+
+    /** Un code ne sert qu'une fois, même renvoyé aussitôt (deux onglets, double clic). */
+    public function test_un_code_ne_fait_qu_une_demande(): void
+    {
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['rdv_sans_compte' => true, 'rdv_a_valider' => true]);
+        $code = $this->codeDeDemande($clinique->id, 'lea.rochat@example.ch');
+
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code]))->assertCreated();
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code]))
+            ->assertUnprocessable()->assertJsonValidationErrors('code');
+        $this->assertSame(1, DemandeRendezVous::withoutGlobalScopes()->count());
     }
 
     public function test_sans_compte_il_faut_de_quoi_repondre(): void

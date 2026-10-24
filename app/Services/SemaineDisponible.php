@@ -23,6 +23,33 @@ class SemaineDisponible
     public function __construct(private CalculateurCreneaux $calculateur) {}
 
     /**
+     * L'heure est-elle l'une de celles que montre le calendrier (24.10.2026) :
+     * sur le pas de la grille compté depuis l'ouverture, hors pause, entre
+     * aujourd'hui et la limite ? Une heure à côté de la grille prendrait deux
+     * créneaux à la fois.
+     */
+    public function estUneHeureProposee(Clinique $fiche, CarbonImmutable $debut, CarbonImmutable $limite): bool
+    {
+        $fuseau = $fiche->fuseau_horaire ?? 'Europe/Zurich';
+        $local = $debut->setTimezone($fuseau);
+        $jour = $local->startOfDay();
+        if ($local->second !== 0 || $jour->lessThan(CarbonImmutable::today($fuseau)) || $jour->greaterThan($limite)) {
+            return false;
+        }
+
+        $horaires = HoraireOuverture::withoutGlobalScope('clinique')->where('clinique_id', $fiche->id)->first()
+            ?? new HoraireOuverture(HoraireOuverture::DEFAUTS);
+        $bornes = $this->calculateur->bornesDuJour($horaires, $jour);
+        $minute = $local->hour * 60 + $local->minute;
+
+        return ! $bornes['fermee']
+            && $minute >= $bornes['ouverture']
+            && $minute + self::PAS_MINUTES <= $bornes['fermeture']
+            && ($minute - $bornes['ouverture']) % self::PAS_MINUTES === 0
+            && ! ($bornes['pause'] && $minute < $bornes['pause'][1] && $minute + self::PAS_MINUTES > $bornes['pause'][0]);
+    }
+
+    /**
      * @return array{semaine: string, precedente: ?string, suivante: ?string, duree_minutes: int, jours: list<array<string, mixed>>}
      */
     public function pour(Clinique $fiche, ?string $semaine, CarbonImmutable $limite, int $dureeMinutes = self::PAS_MINUTES): array

@@ -257,7 +257,12 @@ class CliniqueProprietaireController extends Controller
         $clinique = Clinique::withoutGlobalScopes()->ouvertes()->findOrFail((int) $donnees['clinique_id']);
         $email = mb_strtolower(trim($donnees['email']));
 
+        // Vérifié et consommé d'un coup : deux envois du même code ne font
+        // jamais deux demandes (24.10.2026) ; un refus ensuite demande un code neuf
         $codes->verifier($email, $clinique, $donnees['code']);
+        if (! $codes->consommer($email, $clinique)) {
+            throw ValidationException::withMessages(['code' => 'Ce code a déjà servi : demandez-en un nouveau.']);
+        }
         $this->plafond($clinique, fn ($q) => $q->whereNull('user_id')->where('email', $email));
 
         $reponse = $this->enregistrer($clinique, $donnees, $sousContexte, [
@@ -269,18 +274,24 @@ class CliniqueProprietaireController extends Controller
             // Le lien de ses e-mails, pour suivre la demande sans compte
             'jeton' => Str::random(48),
         ]);
-        $codes->consommer($email, $clinique);
 
         return $reponse;
+    }
+
+    /** Le dernier jour que montre le calendrier : dans un mois. */
+    private static function limiteDuCalendrier(Clinique $clinique): CarbonImmutable
+    {
+        return CarbonImmutable::today($clinique->fuseau_horaire ?? 'Europe/Zurich')->addMonth();
     }
 
     /**
      * Pas plus de DEMANDES_OUVERTES_MAX demandes ou rendez-vous à venir
      * par personne et par clinique : un script ne remplit pas un agenda.
+     * Les reports demandés comptent aussi (24.10.2026).
      *
      * @param  callable(Builder<DemandeRendezVous>): mixed  $qui
      */
-    private function plafond(Clinique $clinique, callable $qui): void
+    public static function plafond(Clinique $clinique, callable $qui): void
     {
         $ouvertes = DemandeRendezVous::withoutGlobalScopes()
             ->where('clinique_id', $clinique->id)
@@ -307,6 +318,10 @@ class CliniqueProprietaireController extends Controller
     private function enregistrer(Clinique $clinique, array $donnees, SousContexteClinique $sousContexte, array $qui, ?User $auteur = null): JsonResponse
     {
         $debut = CarbonImmutable::parse($donnees['debut_souhaite'])->setTimezone($clinique->fuseau_horaire ?? 'Europe/Zurich');
+        // Une heure du calendrier, et pas au-delà du mois qu'il montre
+        if (! app(SemaineDisponible::class)->estUneHeureProposee($clinique, $debut, self::limiteDuCalendrier($clinique))) {
+            throw ValidationException::withMessages(['debut_souhaite' => 'Choisissez une heure proposée par le calendrier.']);
+        }
         $urgence = (bool) ($donnees['urgence'] ?? false);
         // Par défaut, l'heure libre est réservée aussitôt ; une urgence attend
         // la clinique (sauf si elle ne veut pas les valider), et la clinique
@@ -403,7 +418,7 @@ class CliniqueProprietaireController extends Controller
         $fiche = Clinique::withoutGlobalScopes()->ouvertes()->findOrFail($clinique);
         $request->validate(['semaine' => ['nullable', 'date_format:Y-m-d']]);
 
-        $limite = CarbonImmutable::today($fiche->fuseau_horaire ?? 'Europe/Zurich')->addMonth();
+        $limite = self::limiteDuCalendrier($fiche);
 
         return response()->json(['data' => $semaines->pour($fiche, $request->query('semaine'), $limite, self::DUREE_MINUTES)]);
     }

@@ -69,7 +69,8 @@ class DemandesProtegeesTest extends TestCase
     {
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();
 
-        foreach ([$this->mardi->addDays(40), $this->mardi->setTime(10, 7)] as $heure) {
+        // Au-delà du mois du calendrier, à côté de la minute ronde, ou entre deux heures de la grille (10:05 sur 10:00, 10:20)
+        foreach ([$this->mardi->addDays(40), $this->mardi->setTime(10, 7), $this->mardi->setTime(10, 5), $this->mardi->setTime(12, 40)] as $heure) {
             $this->postJson('/api/v1/espace/demandes', $this->demande(['debut_souhaite' => $heure->toIso8601String()]), $this->enTetes($jeton))
                 ->assertUnprocessable()->assertJsonValidationErrors('debut_souhaite');
         }
@@ -80,7 +81,7 @@ class DemandesProtegeesTest extends TestCase
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();
 
         for ($i = 0; $i < 5; $i++) {
-            $this->postJson('/api/v1/espace/demandes', $this->demande(['debut_souhaite' => $this->mardi->addMinutes(30 * $i)->toIso8601String()]), $this->enTetes($jeton))
+            $this->postJson('/api/v1/espace/demandes', $this->demande(['debut_souhaite' => $this->mardi->addMinutes(20 * $i)->toIso8601String()]), $this->enTetes($jeton))
                 ->assertCreated();
         }
 

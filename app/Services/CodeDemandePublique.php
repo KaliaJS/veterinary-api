@@ -50,10 +50,19 @@ class CodeDemandePublique
         }
     }
 
-    public function consommer(string $email, Clinique $clinique): void
+    /**
+     * Usage unique, même pour deux envois simultanés du même code : seul le
+     * premier le prend (ajout atomique au cache), 24.10.2026.
+     */
+    public function consommer(string $email, Clinique $clinique): bool
     {
+        $hache = Cache::get($this->cle($email, $clinique));
+        $premier = is_string($hache)
+            && Cache::add('demande-publique:utilise:'.hash('sha256', $hache), true, now()->addMinutes(self::VALIDITE_MINUTES));
         Cache::forget($this->cle($email, $clinique));
         RateLimiter::clear($this->limiteur($email, $clinique));
+
+        return $premier;
     }
 
     private function cle(string $email, Clinique $clinique): string

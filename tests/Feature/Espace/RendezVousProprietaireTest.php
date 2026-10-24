@@ -5,6 +5,7 @@ namespace Tests\Feature\Espace;
 use App\Enums\StatutRendezVous;
 use App\Models\Client;
 use App\Models\Clinique;
+use App\Models\DemandeRendezVous;
 use App\Models\HoraireOuverture;
 use App\Models\LignePlanning;
 use App\Models\Patient;
@@ -90,6 +91,11 @@ class RendezVousProprietaireTest extends TestCase
             'mode' => 'valider',
             'duree_minutes' => 30,
         ]);
+
+        // Un seul report à la fois pour ce rendez-vous : un script ne remplit pas la file
+        $this->postJson("/api/v1/espace/rendez-vous/{$rdv->id}/reporter", [], $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('status');
+        $this->assertSame(1, DemandeRendezVous::withoutGlobalScopes()->count());
     }
 
     public function test_l_annuaire_des_cliniques_porte_leurs_prochains_creneaux(): void
@@ -188,7 +194,8 @@ class RendezVousProprietaireTest extends TestCase
         $clinique = Clinique::factory()->create(['rdv_a_valider' => true]);
         $fiche = Client::factory()->create(['user_id' => $user->id, 'organisation_id' => $clinique->societe->organisation_id]);
         $max = Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Max']);
-        $debut = now()->addDays(2)->setTime(14, 30);
+        // Une heure de la grille du calendrier (20 minutes depuis 8 h), un jour ouvert
+        $debut = CarbonImmutable::now('Europe/Zurich')->next(CarbonImmutable::TUESDAY)->setTime(14, 20);
 
         $this->postJson('/api/v1/espace/demandes', [
             'clinique_id' => $clinique->id,
@@ -233,7 +240,7 @@ class RendezVousProprietaireTest extends TestCase
         $clinique = Clinique::factory()->create(['rdv_a_valider' => true]);
         $demande = [
             'clinique_id' => $clinique->id,
-            'debut_souhaite' => now()->addDay()->setTime(9, 0)->toIso8601String(),
+            'debut_souhaite' => CarbonImmutable::now('Europe/Zurich')->next(CarbonImmutable::TUESDAY)->setTime(9, 0)->toIso8601String(),
             'mode' => 'place',
             'patient_name' => 'Nala',
             'espece' => 'CH',
