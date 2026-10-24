@@ -276,6 +276,8 @@ class DomaineSiteTest extends TestCase
     {
         $this->pointe = true;
         $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertJsonPath('data.domaine.statut', 'actif');
+        // Relié depuis des mois
+        SiteWeb::withoutGlobalScopes()->update(['domaine_relie_le' => now()->subDays(90)]);
 
         // Le DNS change : une heure après, toujours servi (panne passagère ?)
         $this->pointe = false;
@@ -287,6 +289,14 @@ class DomaineSiteTest extends TestCase
         $this->travel(1)->days();
         $this->artisan('sites:verifier-domaines')->assertSuccessful();
         $this->getJson('/api/v1/public/domaines/www.ma-clinique.ch')->assertNotFound();
+
+        // Relié depuis des mois : il a 14 jours pour revenir, pas zéro
+        $this->travel(10)->days();
+        $this->artisan('sites:verifier-domaines')->assertSuccessful();
+        $this->assertSame('www.ma-clinique.ch', SiteWeb::withoutGlobalScopes()->firstOrFail()->domaine);
+        $this->pointe = true;
+        $this->artisan('sites:verifier-domaines')->assertSuccessful();
+        $this->getJson('/api/v1/public/domaines/www.ma-clinique.ch')->assertOk();
     }
 
     public function test_un_domaine_en_attente_plus_de_quatorze_jours_est_retire(): void

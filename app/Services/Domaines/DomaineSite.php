@@ -104,6 +104,9 @@ class DomaineSite
             'domaine_statut' => $tient ? self::ACTIF : ($etat['erreur'] ? self::ERREUR : self::ATTENTE),
             'domaine_erreur' => $erreur,
             'domaine_verifie_le' => $tient ? $site->domaine_verifie_le : null,
+            // Un domaine qui était actif repart pour 14 jours d'attente à
+            // compter d'aujourd'hui, pas de sa connexion (24.10.2026)
+            ...(! $tient && $site->domaine_statut === self::ACTIF ? ['domaine_relie_le' => now()] : []),
         ]);
         if (! $tient) {
             $this->oublierCacheCors();
