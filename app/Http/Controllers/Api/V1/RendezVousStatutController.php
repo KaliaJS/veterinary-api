@@ -14,6 +14,7 @@ use App\Services\CreationFacture;
 use App\Services\MutationRendezVous;
 use App\Services\Paiements\AcomptesRendezVous;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
@@ -100,16 +101,20 @@ class RendezVousStatutController extends Controller
         // Réservé en ligne avec un acompte : la clinique choisit ce qu'elle
         // rend (tout par défaut). Rendu d'abord : si le prestataire refuse,
         // rien n'est annulé et l'on peut réessayer (le rendu n'est jamais fait deux fois)
-        app(AcomptesRendezVous::class)->surAnnulationDeLaClinique(
-            $rendezVous,
-            DecisionAnnulation::tryFrom((string) $request->validated('acompte')) ?? DecisionAnnulation::Complet,
-        );
-        $this->mutation->appliquer(
-            $rendezVous,
-            ['status' => StatutRendezVous::Annule],
-            $request->user(),
-            entreesSupplementaires: $motif === '' ? [] : ['motifAnnulation' => [null, $motif]],
-        );
+        // L'un et l'autre, ou rien (24.10.2026) : une décision d'acompte n'est
+        // jamais notée pour un rendez-vous resté prévu
+        DB::transaction(function () use ($rendezVous, $request, $motif): void {
+            app(AcomptesRendezVous::class)->surAnnulationDeLaClinique(
+                $rendezVous,
+                DecisionAnnulation::tryFrom((string) $request->validated('acompte')) ?? DecisionAnnulation::Complet,
+            );
+            $this->mutation->appliquer(
+                $rendezVous,
+                ['status' => StatutRendezVous::Annule],
+                $request->user(),
+                entreesSupplementaires: $motif === '' ? [] : ['motifAnnulation' => [null, $motif]],
+            );
+        });
 
         return new RendezVousResource($rendezVous);
     }

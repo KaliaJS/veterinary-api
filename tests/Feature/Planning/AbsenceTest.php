@@ -328,6 +328,20 @@ class AbsenceTest extends TestCase
         $this->patchJson("/api/v1/rendez-vous/{$dejaLa->id}", ['reason' => 'Contrôle'], $entetes)->assertOk();
     }
 
+    /** Prolongée (fin repoussée), une absence validée annule les rendez-vous prévus des nouveaux jours (24.10.2026). */
+    public function test_une_absence_prolongee_vide_les_nouveaux_jours(): void
+    {
+        $absence = Absence::factory()->create(['employe_id' => $this->ligne->employe_id, 'debut_le' => aujourdhui()->addDays(2), 'fin_le' => aujourdhui()->addDays(3)]);
+        $apres = RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => aujourdhui()->addDays(5)->setTime(9, 0), 'ends_at' => aujourdhui()->addDays(5)->setTime(9, 30),
+        ]);
+
+        $this->patchJson("/api/v1/absences/{$absence->id}", ['fin_le' => aujourdhui()->addDays(6)->toDateString()], $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('meta.rendez_vous_annules', 1);
+        $this->assertSame('annule', $apres->refresh()->status->value);
+    }
+
     public function test_la_liste_se_filtre_par_employe_et_statut(): void
     {
         Absence::factory()->create(['employe_id' => $this->ligne->employe_id]);

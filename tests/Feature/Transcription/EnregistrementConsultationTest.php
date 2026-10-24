@@ -685,6 +685,25 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions'));
     }
 
+    /** Abandonné pendant que la tâche prépare l'envoi : le statut relu juste avant l'appel l'arrête, rien n'est envoyé (24.10.2026). */
+    public function test_un_abandon_pendant_la_preparation_arrete_l_envoi(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $fait = false;
+        DB::listen(function (QueryExecuted $requete) use (&$fait, $id): void {
+            if (! $fait && str_contains($requete->sql, 'update "parties_enregistrement" set "tentatives"')) {
+                $fait = true;
+                EnregistrementConsultation::withoutGlobalScopes()->whereKey($id)->update(['statut' => StatutEnregistrement::Abandonne->value]);
+            }
+        });
+
+        $this->envoyer($id, 1, 'AUDIO');
+
+        $this->assertTrue($fait);
+        $this->assertSame([], $this->transcripteur->appels);
+        $this->assertNull(PartieEnregistrement::query()->sole()->fichier);
+    }
+
     /** Une partie complète d'un enregistrement abandonné n'est jamais envoyée au fournisseur (24.10.2026). */
     public function test_une_partie_d_un_enregistrement_abandonne_n_est_pas_transcrite(): void
     {

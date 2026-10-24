@@ -297,9 +297,15 @@ class AcomptesRendezVous
             $this->drapeauAcompte($demande);
         });
 
+        // La décision est enregistrée : un e-mail qui ne part pas (panne du
+        // serveur d'e-mails) ne la fait pas échouer (24.10.2026)
         $adresse = $demande->adresseDuProprietaire();
         if ($adresse) {
-            Mail::to($adresse)->send(new AnnulationRendezVousDecidee($demande->refresh()->load('clinique'), $rendezVous?->starts_at));
+            try {
+                Mail::to($adresse)->send(new AnnulationRendezVousDecidee($demande->refresh()->load('clinique'), $rendezVous?->starts_at));
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
 
         return $demande;
@@ -319,9 +325,11 @@ class AcomptesRendezVous
         }
         self::exigerDroitDeRembourser($demande);
         $this->rembourser($demande, $decision);
-        // La décision notée même sans demande du propriétaire : elle ne se
-        // rejoue pas pour rendre davantage (24.10.2026)
-        $demande->update(['annulation_decision' => $decision, ...$demande->annulationEnAttente() ? ['annulation_traitee_le' => now()] : []]);
+        // La décision notée même sans demande du propriétaire, pour un acompte
+        // payé seulement : elle ne se rejoue pas pour rendre davantage (24.10.2026)
+        if ($demande->acompte_paye_le !== null) {
+            $demande->update(['annulation_decision' => $decision, ...$demande->annulationEnAttente() ? ['annulation_traitee_le' => now()] : []]);
+        }
         $this->drapeauAcompte($demande);
         $this->drapeau($rendezVous, false);
     }

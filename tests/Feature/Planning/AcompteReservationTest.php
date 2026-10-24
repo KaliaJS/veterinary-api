@@ -3,6 +3,7 @@
 namespace Tests\Feature\Planning;
 
 use App\Enums\DomainePermission;
+use App\Enums\StatutRendezVous;
 use App\Mail\AcompteConteste;
 use App\Mail\AnnulationRendezVousDecidee;
 use App\Mail\DemandeRendezVousAcceptee;
@@ -821,6 +822,71 @@ class AcompteReservationTest extends TestCase
 
         Mail::assertNothingOutgoing();
         $this->assertNull($demande->refresh()->acompte_paye_le);
+    }
+
+    /** Un acompte gardé par décision (« sans ») laisse sa trace : la demande ne se supprime pas (24.10.2026). */
+    public function test_une_demande_a_l_acompte_garde_ne_se_supprime_pas(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => 'sans'], $this->enTetes($jetonAdmin))->assertOk();
+
+        $this->deleteJson("/api/v1/demandes/{$demande->id}", [], $this->enTetes($jetonAdmin))->assertUnprocessable()->assertJsonValidationErrors('demande');
+        $this->assertNotNull(DemandeRendezVous::withoutGlobalScopes()->find($demande->id));
+    }
+
+    /** Annulation par la clinique qui échoue en route : aucune décision d'acompte notée, l'acompte reste en jeu (24.10.2026). */
+    public function test_une_annulation_qui_echoue_ne_note_pas_de_decision(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        RendezVous::saving(function (RendezVous $rendezVous): void {
+            if ($rendezVous->isDirty('status') && $rendezVous->status === StatutRendezVous::Annule) {
+                throw new \RuntimeException('Base indisponible');
+            }
+        });
+
+        $this->postJson("/api/v1/rendez-vous/{$demande->rendez_vous_id}/annuler", ['acompte' => 'sans'], $this->enTetes($jetonAdmin))->assertServerError();
+
+        $demande->refresh();
+        $this->assertNull($demande->annulation_decision);
+        $this->assertTrue($demande->acompteEnJeu());
+        $this->assertContains('acompte', $this->drapeaux($demande->rendez_vous_id));
+    }
+
+    /** Une demande en ligne sans acompte, annulée par la clinique : aucune décision d'acompte notée (24.10.2026). */
+    public function test_sans_acompte_aucune_decision_n_est_notee(): void
+    {
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $this->postJson('/api/v1/espace/demandes', [
+            'clinique_id' => $this->clinique->id, 'patient_name' => 'Louison', 'espece' => 'CH', 'motif' => 'Vaccin annuel',
+            'mode' => 'place', 'debut_souhaite' => $this->mardi->toIso8601String(),
+        ], $this->enTetes($jetonProprietaire))->assertCreated()->assertJsonPath('data.statut', 'acceptee');
+        $demande = DemandeRendezVous::withoutGlobalScopes()->sole();
+
+        $this->postJson("/api/v1/rendez-vous/{$demande->rendez_vous_id}/annuler", [], $this->enTetes($jetonAdmin))->assertOk();
+
+        $this->assertNull($demande->refresh()->annulation_decision);
+    }
+
+    /** La décision sur une demande d'annulation est enregistrée même si l'e-mail au propriétaire ne part pas (24.10.2026). */
+    public function test_une_panne_d_e_mail_ne_fait_pas_echouer_la_decision(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP indisponible'));
+
+        $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => 'refusee'], $this->enTetes($jetonAdmin))->assertOk();
+        $this->assertSame('refusee', $demande->refresh()->annulation_decision->value);
     }
 
     /** Litige clos : gagné ou « warning_closed » garde l'acompte ; un événement d'un autre compte Stripe est ignoré. */

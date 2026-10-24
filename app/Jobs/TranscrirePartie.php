@@ -67,16 +67,6 @@ final class TranscrirePartie implements ShouldQueue
             return;
         }
 
-        // Abandonné (relu, pas celui chargé plus haut) : jamais d'appel payant
-        // pour un texte qui ne sera pas écrit
-        $statut = EnregistrementConsultation::withoutGlobalScopes()->whereKey($partie->enregistrement_consultation_id)->value('statut');
-        if ($statut === StatutEnregistrement::Abandonne->value || $statut === StatutEnregistrement::Abandonne) {
-            Storage::disk('prive')->delete($partie->fichier);
-            $partie->forceFill(['fichier' => null])->save();
-
-            return;
-        }
-
         $partie->increment('tentatives');
         $fichier = $partie->fichier;
 
@@ -91,6 +81,16 @@ final class TranscrirePartie implements ShouldQueue
             stream_copy_to_stream($entree, $sortie);
             fclose($entree);
             fclose($sortie);
+
+            // Abandonné entre-temps (relu juste avant l'envoi, pas celui chargé
+            // plus haut) : jamais d'appel payant pour un texte qui ne sera pas écrit
+            $statut = EnregistrementConsultation::withoutGlobalScopes()->whereKey($partie->enregistrement_consultation_id)->value('statut');
+            if ($statut === StatutEnregistrement::Abandonne->value || $statut === StatutEnregistrement::Abandonne) {
+                Storage::disk('prive')->delete($fichier);
+                $partie->forceFill(['fichier' => null])->save();
+
+                return;
+            }
 
             // Compté au budget de la plateforme avant l'envoi (24.10.2026) : un
             // essai sans réponse (délai, panne, worker arrêté) a pu être traité,

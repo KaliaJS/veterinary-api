@@ -208,6 +208,18 @@ class ProfilVeterinaireTest extends TestCase
         $this->assertSame('verifie', $lea->verification_veterinaire->value);
     }
 
+    /** Un GLN inconnu de MedReg, refusé, ne retire pas non plus le badge (24.10.2026). */
+    public function test_un_gln_inconnu_refuse_garde_le_badge(): void
+    {
+        ['user' => $lea, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+        $lea->forceFill(['gln' => self::GLN, 'verification_veterinaire' => 'verifie', 'verification_veterinaire_le' => now()])->save();
+
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => '7601000000019', 'specialites' => []], $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('gln');
+
+        $this->assertSame('verifie', $lea->refresh()->verification_veterinaire->value);
+    }
+
     /** Un GLN gardé par une identité établie : rien ne change, personne n'est prévenu. */
     public function test_rien_n_est_envoye_quand_le_gln_n_est_pas_repris(): void
     {
