@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * La réponse d'une clinique à une demande de rendez-vous en ligne, et
@@ -175,12 +176,24 @@ class TraitementDemande
         }
     }
 
+    /**
+     * L'e-mail au propriétaire part une fois la décision enregistrée, et ne
+     * la défait pas (24.10.2026) : une panne du serveur d'e-mails pendant une
+     * réservation directe annulait le rendez-vous et consommait le code.
+     */
     private function ecrire(DemandeRendezVous $demande, Mailable $mail): void
     {
         $adresse = $demande->adresseDuProprietaire();
-
-        if ($adresse) {
-            Mail::to($adresse)->send($mail);
+        if (! $adresse) {
+            return;
         }
+
+        DB::afterCommit(function () use ($adresse, $mail): void {
+            try {
+                Mail::to($adresse)->send($mail);
+            } catch (Throwable $e) {
+                report($e);
+            }
+        });
     }
 }

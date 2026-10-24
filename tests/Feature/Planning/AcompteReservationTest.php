@@ -594,6 +594,53 @@ class AcompteReservationTest extends TestCase
         $this->assertNotContains('1 acompte rendu en partie', $alertes());
     }
 
+    /** Annulation refusée, rendez-vous maintenu, puis rendu en partie chez Stripe : l'alerte part (24.10.2026). */
+    public function test_un_rendu_partiel_apres_une_annulation_refusee_alerte(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonClinique] = $this->administrateurAvecJeton($this->clinique);
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => 'refusee'], $this->enTetes($jetonClinique))->assertOk();
+
+        app(WebhooksStripe::class)->traiter([
+            'id' => 'evt_refusee_partiel', 'type' => 'charge.refunded',
+            'objet' => ['payment_intent' => $demande->acompte_intention_id, 'refunded' => false, 'amount_refunded' => 1000],
+            'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+
+        $titres = collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonClinique))->assertOk()->json('data.alertes'))->pluck('titre')->all();
+        $this->assertContains('1 acompte rendu en partie', $titres);
+    }
+
+    /** Payée pendant que l'heure était prise (pas encore de rendez-vous), rendue en partie chez Stripe : l'alerte part aussi (24.10.2026). */
+    public function test_un_rendu_partiel_d_une_demande_payee_sans_rendez_vous_alerte(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonClinique] = $this->administrateurAvecJeton($this->clinique);
+        $jeton = $this->deposer()->json('data.jeton');
+        $demande = DemandeRendezVous::withoutGlobalScopes()->sole();
+        RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id,
+            'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => $this->mardi->utc(),
+            'ends_at' => $this->mardi->addHour()->utc(),
+        ]);
+        $this->stripe->conclure($demande->acompte_intention_id, 'succeeded');
+        $this->postJson("/api/v1/public/demandes/{$jeton}/paiement")->assertOk()->assertJsonPath('data.statut', 'a_traiter');
+        $this->assertNull($demande->refresh()->rendez_vous_id);
+
+        app(WebhooksStripe::class)->traiter([
+            'id' => 'evt_sans_rdv_partiel', 'type' => 'charge.refunded',
+            'objet' => ['payment_intent' => $demande->acompte_intention_id, 'refunded' => false, 'amount_refunded' => 1000],
+            'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+
+        $titres = collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonClinique))->assertOk()->json('data.alertes'))->pluck('titre')->all();
+        $this->assertContains('1 acompte rendu en partie', $titres);
+    }
+
     /** Litige clos : gagné ou « warning_closed » garde l'acompte ; un événement d'un autre compte Stripe est ignoré. */
     public function test_un_litige_d_acompte_gagne_ou_clos_sans_suite_garde_l_acompte(): void
     {

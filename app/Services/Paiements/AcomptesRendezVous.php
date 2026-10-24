@@ -359,8 +359,10 @@ class AcomptesRendezVous
     /**
      * Acompte rendu (en tout ou en partie, par l'app, chez Stripe ou perdu au
      * litige), daté du dernier rendu : les alertes comptent depuis lui
-     * (24.10.2026). Le rendez-vous perd son drapeau « acompte » : il n'y a plus
-     * d'argent en jeu, l'annuler ne demande plus le droit « Rembourser ».
+     * (24.10.2026). Le rendez-vous perd son drapeau « acompte » : l'app n'a
+     * plus rien à rendre (acompteEnJeu), l'annuler ne demande plus le droit
+     * « Rembourser ». Ce qui reste d'un rendu partiel se déduit quand même de
+     * la facture.
      */
     private function noterRendu(DemandeRendezVous $demande, int $centimes): void
     {

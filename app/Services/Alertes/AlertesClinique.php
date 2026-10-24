@@ -140,10 +140,11 @@ class AlertesClinique
             ->where('acompte_rembourse_le', '>=', now()->subDays(30))
             ->where('acompte_rembourse_centimes', '>', 0)
             ->whereColumn('acompte_rembourse_centimes', '<', 'acompte_centimes')
-            // Un rendez-vous qui aura sa facture : pas un « rendre moins les
-            // frais » décidé dans l'app pour un rendez-vous annulé (24.10.2026)
-            ->whereNull('annulation_decision')
-            ->whereHas('rendezVous', fn ($requete) => $requete->where('status', '!=', StatutRendezVous::Annule->value))
+            // Un rendez-vous qui aura sa facture (ou une demande payée qui attend
+            // encore le sien) : pas un « rendre moins les frais » décidé dans
+            // l'app pour un rendez-vous annulé (24.10.2026)
+            ->where(fn ($requete) => $requete->whereNull('rendez_vous_id')
+                ->orWhereHas('rendezVous', fn ($rdv) => $rdv->where('status', '!=', StatutRendezVous::Annule->value)))
             ->whereDoesntHave('rendezVous.facture')
             ->orderByDesc('acompte_rembourse_le')
             ->get();

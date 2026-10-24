@@ -18,11 +18,13 @@ use App\Models\Societe;
 use App\Models\User;
 use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserellePaiement;
+use App\Services\Abonnements\AbonnementSaas;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\ValidationException;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserelleAbonnementFactice;
 use Tests\Doubles\PasserellePaiementFactice;
@@ -592,6 +594,108 @@ class OrganisationTest extends TestCase
         $verrou->release();
         $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
         $this->assertCount(1, $this->stripe->prelevements);
+    }
+
+    /** Deux requêtes : la seconde, qui avait lu l'organisation avant la souscription de la première, la relit sous le verrou (24.10.2026). */
+    public function test_une_souscription_relit_l_organisation_sous_le_verrou(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $luePlusTot = Organisation::query()->findOrFail($this->organisationId());
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+
+        try {
+            app(AbonnementSaas::class)->souscrire($luePlusTot, FormuleSaas::Cabinet);
+            $this->fail('La seconde souscription aurait dû être refusée.');
+        } catch (ValidationException $e) {
+            $this->assertSame(['C’est déjà votre formule.'], $e->errors()['plan']);
+        }
+        $this->assertCount(1, $this->stripe->prelevements);
+    }
+
+    /** Changement de formule dans deux onglets, la banque demande une confirmation : le premier ne pourra plus passer (24.10.2026). */
+    public function test_deux_changements_de_formule_en_attente_ne_prelevent_qu_une_fois(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $this->voyager('2026-10-25 10:00');
+        $this->stripe->actionRequise = true;
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))->assertOk();
+        $premier = $this->stripe->dernierPrelevement()['id'];
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))->assertOk();
+        $second = $this->stripe->dernierPrelevement()['id'];
+
+        $this->assertNotSame($premier, $second);
+        $this->assertSame('annule', $this->stripe->prelevements[$premier]['statut']);
+        $changements = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->where('statut', 'a_payer')->get()
+            ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'changement');
+        $this->assertCount(1, $changements);
+    }
+
+    /** Un changement de formule pendant qu'une autre requête tient le verrou de l'abonné : refusé, rien de prélevé (24.10.2026). */
+    public function test_un_changement_de_formule_attend_la_souscription_en_cours(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $avant = count($this->stripe->prelevements);
+
+        $verrou = Cache::lock('abonnement:organisation:'.$this->organisationId(), 120);
+        $this->assertTrue($verrou->get());
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['plan' => 'Une souscription est déjà en cours. Patientez un instant.']);
+        $this->assertCount($avant, $this->stripe->prelevements);
+        $verrou->release();
+    }
+
+    /** Un prélèvement de la plateforme annoncé par le compte d'une société : ignoré (24.10.2026). */
+    public function test_le_prelevement_de_la_plateforme_ne_vient_que_de_son_compte(): void
+    {
+        $this->jamaisAbonnee();
+        $this->app->instance(PasserellePaiement::class, new PasserellePaiementFactice);
+        $this->avecCarte();
+        $this->stripe->actionRequise = true;
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $prelevement = $this->stripe->dernierPrelevement();
+        $evenement = fn (string $id, array $plus) => ['id' => $id, 'type' => 'payment_intent.succeeded', 'data' => ['object' => [
+            'id' => $prelevement['id'], 'status' => 'succeeded', 'amount' => $prelevement['centimes'], 'currency' => 'chf', 'metadata' => $prelevement['metadonnees'],
+        ]], ...$plus];
+
+        $this->postJson('/api/v1/stripe/webhook', $evenement('evt_societe', ['account' => 'acct_societe']), ['Stripe-Signature' => 'signature-valide'])->assertNoContent();
+        $facture = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->sole();
+        $this->assertSame('a_payer', $facture->statut);
+
+        $this->postJson('/api/v1/stripe/webhook', $evenement('evt_plateforme', []), ['Stripe-Signature' => 'signature-valide'])->assertNoContent();
+        $this->assertSame('payee', $facture->refresh()->statut);
+    }
+
+    /** L'essai de la nuit et « Régler » portent la même clé : une réponse perdue la nuit n'est pas prélevée deux fois (24.10.2026). */
+    public function test_l_essai_de_la_nuit_et_regler_partagent_la_cle(): void
+    {
+        $this->jamaisAbonnee();
+        Mail::fake();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+
+        // La nuit du renouvellement, la réponse de Stripe se perd
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $nuit = array_slice($this->stripe->cles, -1)[0];
+
+        // Le matin, « Régler » avec la même carte
+        $this->stripe->panne = null;
+        $facture = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->where('statut', 'a_payer')->sole();
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertOk();
+        $this->assertSame($nuit, array_slice($this->stripe->cles, -1)[0]);
+        $this->assertFalse($this->stripe->dernierPrelevement()['hors_session']);
     }
 
     /** Réponse perdue (délai dépassé), prélèvement passé quand même : le webhook le reconnaît à sa facture et à son montant (24.10.2026). */

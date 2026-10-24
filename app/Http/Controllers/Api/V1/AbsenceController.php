@@ -71,7 +71,12 @@ class AbsenceController extends Controller
 
         $absence->update($request->validated());
 
-        return new AbsenceResource($absence);
+        // Une absence validée prolongée ou avancée vide aussi les nouveaux
+        // jours (24.10.2026) : les rendez-vous déjà annulés ne bougent plus
+        $resultat = $this->mutation->annulerPourAbsence($absence, $request->user());
+
+        return (new AbsenceResource($absence))
+            ->additional(['meta' => ['rendez_vous_annules' => $resultat['annules'], 'rendez_vous_restants' => $resultat['restants']]]);
     }
 
     public function destroy(Absence $absence): Response

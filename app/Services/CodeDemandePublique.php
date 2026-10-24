@@ -67,11 +67,12 @@ class CodeDemandePublique
     /**
      * La demande a été refusée par une règle : le code resservira (une autre
      * heure, sans nouvel e-mail), et ce bon code ne compte pas comme un essai.
+     * Les faux codes tapés avant, eux, restent comptés (24.10.2026).
      */
     public function liberer(string $email, Clinique $clinique, string $marque): void
     {
         Cache::forget($marque);
-        RateLimiter::clear($this->limiteur($email, $clinique));
+        RateLimiter::decrement($this->limiteur($email, $clinique));
     }
 
     /** La demande est déposée : le code disparaît et le compteur d'essais repart. */

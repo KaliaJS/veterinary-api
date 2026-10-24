@@ -91,7 +91,6 @@ final class TranscrirePartie implements ShouldQueue
                 $partie->format,
                 $termes->pour($partie->enregistrement),
             );
-            $consommation->essaiAbouti($essai);
         } catch (TranscriptionImpossible $erreur) {
             report($erreur);
             self::echec($partie);
@@ -106,7 +105,7 @@ final class TranscrirePartie implements ShouldQueue
         // Abandonné pendant l'appel au fournisseur (24.10.2026) : la durée payée
         // est comptée, le texte n'est pas écrit. La fiche verrouillée, un
         // abandon au même instant attend ou est vu.
-        $abandonne = DB::transaction(function () use ($partie, $resultat): bool {
+        $abandonne = DB::transaction(function () use ($partie, $resultat, $consommation, $essai): bool {
             $statut = EnregistrementConsultation::withoutGlobalScopes()
                 ->whereKey($partie->enregistrement_consultation_id)
                 ->lockForUpdate()
@@ -121,6 +120,9 @@ final class TranscrirePartie implements ShouldQueue
                 'transcrite_le' => now(),
                 'fichier' => null,
             ])->save();
+            // L'estimation retirée avec l'enregistrement de la durée réelle,
+            // pas avant : l'appel payé est toujours compté une fois (24.10.2026)
+            $consommation->essaiAbouti($essai);
 
             return $abandonne;
         });

@@ -4,13 +4,18 @@ namespace Tests\Feature\Espace;
 
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
+use App\Models\HoraireOuverture;
+use App\Models\LignePlanning;
+use App\Paiements\PasserellePaiement;
 use App\Services\CodeDemandePublique;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\ValidationException;
 use Tests\Concerns\DeposeSansCompte;
 use Tests\Concerns\EmetDesJetonsApi;
+use Tests\Doubles\PasserellePaiementFactice;
 use Tests\TestCase;
 
 /**
@@ -154,6 +159,83 @@ class DemandeSansCompteTest extends TestCase
         $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code]))
             ->assertUnprocessable()->assertJsonValidationErrors('code');
         $this->assertSame(1, DemandeRendezVous::withoutGlobalScopes()->count());
+    }
+
+    /** Une heure refusée rend son essai au bon code, pas ceux des faux codes tapés avant (24.10.2026). */
+    public function test_une_heure_refusee_n_efface_pas_les_faux_codes_tapes_avant(): void
+    {
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['rdv_sans_compte' => true, 'rdv_a_valider' => true]);
+        $codes = app(CodeDemandePublique::class);
+        $code = $this->codeDeDemande($clinique->id, 'paul@example.ch');
+        $faux = fn () => rescue(fn () => $codes->verifier('paul@example.ch', $clinique, '000000'), report: false);
+
+        foreach (range(1, 4) as $essai) {
+            $faux();
+        }
+        // Le bon code, puis l'heure refusée : cet essai-là seul ne compte pas
+        $codes->verifier('paul@example.ch', $clinique, $code);
+        $codes->liberer('paul@example.ch', $clinique, (string) $codes->reserver('paul@example.ch', $clinique));
+        // Un cinquième faux code : le code est effacé
+        $faux();
+
+        $this->expectException(ValidationException::class);
+        $codes->verifier('paul@example.ch', $clinique, $code);
+    }
+
+    /** Réservation directe (sans validation) et serveur d'e-mails en panne : le rendez-vous est pris, le code ne resservira pas (24.10.2026). */
+    public function test_une_panne_de_la_confirmation_ne_defait_pas_la_reservation_directe(): void
+    {
+        $clinique = $this->cliniqueQuiReserve([]);
+        $code = $this->codeDeDemande($clinique->id, 'lea.rochat@example.ch');
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP indisponible'));
+
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code, 'debut_souhaite' => $this->dansTroisJours()]))->assertCreated();
+        $demande = DemandeRendezVous::withoutGlobalScopes()->sole();
+        $this->assertSame('acceptee', $demande->statut->value);
+        $this->assertNotNull($demande->rendez_vous_id);
+
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code, 'debut_souhaite' => $this->dansTroisJours(1)]))
+            ->assertUnprocessable()->assertJsonValidationErrors('code');
+        $this->assertSame(1, DemandeRendezVous::withoutGlobalScopes()->count());
+    }
+
+    /** Une clinique qui réserve directement, ouverte, avec une ligne au planning. */
+    private function cliniqueQuiReserve(array $attributs): Clinique
+    {
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['rdv_sans_compte' => true, 'rdv_a_valider' => false, 'fuseau_horaire' => 'Europe/Zurich', ...$attributs]);
+        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id]);
+        LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+
+        return $clinique;
+    }
+
+    /** Un mardi au moins trois jours plus tard, à 10 h (plus une heure par `$decalage`). */
+    private function dansTroisJours(int $decalage = 0): string
+    {
+        return CarbonImmutable::now('Europe/Zurich')->addDays(2)->next(CarbonImmutable::TUESDAY)->setTime(10 + $decalage, 0)->toIso8601String();
+    }
+
+    /** Une autre erreur après l'enregistrement (prestataire de paiement) : la demande a pu être faite, le code ne resservira pas (24.10.2026). */
+    public function test_une_erreur_imprevue_consomme_le_code(): void
+    {
+        $clinique = $this->cliniqueQuiReserve(['acompte_centimes' => 3000]);
+        $stripe = new PasserellePaiementFactice;
+        $stripe->erreurs['creerIntentionEnLigne'] = new \RuntimeException('Réponse illisible du prestataire');
+        $this->app->instance(PasserellePaiement::class, $stripe);
+        $code = $this->codeDeDemande($clinique->id, 'lea.rochat@example.ch');
+
+        $this->withoutExceptionHandling();
+        try {
+            $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code, 'debut_souhaite' => $this->dansTroisJours()]));
+            $this->fail('L’erreur du prestataire aurait dû remonter.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('Réponse illisible du prestataire', $e->getMessage());
+        }
+        $this->withExceptionHandling();
+
+        unset($stripe->erreurs['creerIntentionEnLigne']);
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code, 'debut_souhaite' => $this->dansTroisJours(1)]))
+            ->assertUnprocessable()->assertJsonValidationErrors('code');
     }
 
     /** Un bon code et une heure refusée : l'essai ne compte pas parmi les cinq. */

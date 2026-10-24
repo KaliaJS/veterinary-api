@@ -110,6 +110,49 @@ class ProfilVeterinaireTest extends TestCase
         $this->assertStringNotContainsString($lea->email, (new GlnRepris(self::GLN))->render());
     }
 
+    /** Ce que dit l'e-mail marche : le titulaire évincé ressaisit son GLN dans son profil et le récupère, l'autre compte est prévenu à son tour (24.10.2026). */
+    public function test_le_titulaire_evince_recupere_son_gln_comme_le_dit_l_e_mail(): void
+    {
+        Mail::fake();
+        ['user' => $titulaire, 'jeton' => $jetonTitulaire] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+        $titulaire->forceFill(['gln' => self::GLN])->save();
+        ['user' => $imposteur, 'jeton' => $jetonImposteur] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jetonImposteur))->assertOk();
+        $this->assertNull($titulaire->refresh()->gln);
+        Mail::assertQueued(GlnRepris::class, fn (GlnRepris $mail) => $mail->hasTo($titulaire->email)
+            && str_contains(str_replace("\u{a0}", ' ', $mail->render()), 'saisissez-le de nouveau dans Réglages, Profil'));
+
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jetonTitulaire))->assertOk();
+        $this->assertSame(self::GLN, $titulaire->refresh()->gln);
+        $this->assertNull($imposteur->refresh()->gln);
+        Mail::assertQueued(GlnRepris::class, fn (GlnRepris $mail) => $mail->hasTo($imposteur->email));
+    }
+
+    /** Le nouveau GLN ne s'enregistre pas : l'autre compte le garde et n'est pas prévenu (e-mail parti après la transaction seulement, 24.10.2026). */
+    public function test_le_gln_repris_n_est_annonce_que_s_il_est_enregistre(): void
+    {
+        config(['mail.default' => 'array', 'queue.default' => 'sync']);
+        $envoyes = fn () => Mail::mailer('array')->getSymfonyTransport()->messages()->count();
+        $ancien = User::factory()->create(['gln' => self::GLN]);
+        ['user' => $lea, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Léa Fontaine']);
+        $panne = true;
+        User::saving(function (User $user) use ($lea, &$panne): void {
+            if ($panne && $user->is($lea) && $user->gln === self::GLN) {
+                throw new \RuntimeException('Enregistrement impossible');
+            }
+        });
+
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jeton))->assertServerError();
+        $this->assertSame(self::GLN, $ancien->refresh()->gln);
+        $this->assertSame(0, $envoyes());
+
+        $panne = false;
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $this->enTetes($jeton))->assertOk();
+        $this->assertNull($ancien->refresh()->gln);
+        $this->assertSame(1, $envoyes());
+    }
+
     /** Un GLN gardé par une identité établie : rien ne change, personne n'est prévenu. */
     public function test_rien_n_est_envoye_quand_le_gln_n_est_pas_repris(): void
     {

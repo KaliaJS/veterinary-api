@@ -92,9 +92,12 @@ class WebhooksStripe
             return;
         }
 
-        // Prélèvement de la plateforme (abonnement, pack, objet de la planète)
+        // Prélèvement de la plateforme (abonnement, pack, objet de la planète) :
+        // seulement depuis le compte de la plateforme, jamais celui d'une société
         if (($intention['metadata']['plateforme'] ?? null) === 'veterinary') {
-            $this->abonnements->surPrelevement($intention);
+            if ($compte === null) {
+                $this->abonnements->surPrelevement($intention);
+            }
 
             return;
         }

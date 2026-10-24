@@ -108,7 +108,10 @@ class BoutiqueProprietaireTest extends TestCase
         // Hors connexion aussi : la vitrine est publique
         $this->postJson('/api/v1/public/boutique/apercu', $panier)
             ->assertOk()
-            // 2 × 45.00 = 90.00 TTC, dont 6.74 de TVA à 8.1 %
+            // 2 × 45.00 = 90.00 TTC, dont 6.74 de TVA à 8.1 % ; chaque ligne a son total
+            ->assertJsonPath('data.cliniques.0.lignes.0.produit_id', $croquettes->id)
+            ->assertJsonPath('data.cliniques.0.lignes.0.total', 90)
+            ->assertJsonPath('data.cliniques.1.lignes.0.total', 15)
             ->assertJsonPath('data.cliniques.0.total_ttc', 90)
             ->assertJsonPath('data.cliniques.0.montant_tva', 6.74)
             ->assertJsonPath('data.cliniques.0.total_ht', 83.26)

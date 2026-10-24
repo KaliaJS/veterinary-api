@@ -200,6 +200,24 @@ class AbsenceTest extends TestCase
             ->assertJsonValidationErrors('fin_le');
     }
 
+    /** Une absence validée avancée à demain annule les rendez-vous de demain, et le dit (24.10.2026). */
+    public function test_une_absence_validee_modifiee_vide_les_nouveaux_jours(): void
+    {
+        $rendezVous = $this->rendezVousDemain();
+        $absence = Absence::factory()->create([
+            'employe_id' => $this->ligne->employe_id,
+            'debut_le' => aujourdhui()->addDays(5),
+            'fin_le' => aujourdhui()->addDays(6),
+        ]);
+        $this->assertSame('ok', $absence->statut->value);
+
+        $this->patchJson("/api/v1/absences/{$absence->id}", ['debut_le' => aujourdhui()->addDay()->toDateString()], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('meta.rendez_vous_annules', 1)
+            ->assertJsonPath('meta.rendez_vous_restants', 0);
+        $this->assertSame('annule', $rendezVous->refresh()->status->value);
+    }
+
     public function test_la_liste_se_filtre_par_employe_et_statut(): void
     {
         Absence::factory()->create(['employe_id' => $this->ligne->employe_id]);

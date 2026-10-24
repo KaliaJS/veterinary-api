@@ -93,7 +93,19 @@ class SejourController extends Controller
             throw ValidationException::withMessages(['sejour' => 'Un séjour sorti ne se modifie plus.']);
         }
 
-        $sejour->update($request->validated());
+        $donnees = $request->validated();
+        DB::transaction(function () use ($sejour, $donnees): void {
+            // Changement de box sous le même verrou que l'admission, revérifié
+            // (24.10.2026) : un transfert et une admission au même instant ne
+            // mettent pas deux séjours dans le même box
+            if (array_key_exists('box', $donnees) && (int) $donnees['box'] !== (int) $sejour->box) {
+                Clinique::withoutGlobalScopes()->whereKey(app(ContexteClinique::class)->cliniqueId())->lockForUpdate()->first();
+                if (Sejour::query()->enCours()->where('box', $donnees['box'])->whereKeyNot($sejour->id)->exists()) {
+                    throw ValidationException::withMessages(['box' => 'Ce box est occupé par un séjour en cours.']);
+                }
+            }
+            $sejour->update($donnees);
+        });
 
         return new SejourResource($sejour->load($this->relations()));
     }

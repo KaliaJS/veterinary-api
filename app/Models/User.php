@@ -154,15 +154,20 @@ class User extends Authenticatable
     public static function libererGlnNonVerifie(string $gln, self $preneur): void
     {
         // Le nom concordant dans MedReg ne suffit plus (24.10.2026) : un GLN
-        // et un nom sont publics, seule l'identité vérifiée réserve le GLN
-        $perdants = self::query()->where('gln', $gln)->whereKeyNot($preneur->id)
-            ->where(fn ($requete) => self::sansIdentiteEtablie($requete))
-            ->get(['id', 'email']);
-        if ($perdants->isEmpty()) {
-            return;
-        }
+        // et un nom sont publics, seule l'identité vérifiée réserve le GLN.
+        // Lus sous verrou : une identité vérifiée entre la lecture et la mise
+        // à jour garde son GLN
+        $perdants = DB::transaction(function () use ($gln, $preneur) {
+            $perdants = self::query()->where('gln', $gln)->whereKeyNot($preneur->id)
+                ->where(fn ($requete) => self::sansIdentiteEtablie($requete))
+                ->lockForUpdate()
+                ->get(['id', 'email']);
+            if ($perdants->isNotEmpty()) {
+                self::query()->whereKey($perdants->modelKeys())->update(['gln' => null, 'medreg_id' => null, 'gln_verifie_le' => null]);
+            }
 
-        self::query()->whereKey($perdants->modelKeys())->update(['gln' => null, 'medreg_id' => null, 'gln_verifie_le' => null]);
+            return $perdants;
+        });
         $verification = config('plateforme.verification_email');
         foreach ($perdants as $perdant) {
             $envoi = Mail::to($perdant->email);

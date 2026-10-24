@@ -240,6 +240,11 @@ final class AbonnementSaas
      */
     public function souscrire(Organisation $organisation, FormuleSaas $cible): ?Reglement
     {
+        return $this->sousVerrouAbonne($organisation, fn () => $this->souscrireSousVerrou($organisation->refresh(), $cible));
+    }
+
+    private function souscrireSousVerrou(Organisation $organisation, FormuleSaas $cible): ?Reglement
+    {
         // Rien n'est encaissé avant que la clinique soit vérifiée (MedReg ou à la main)
         if ($organisation->verification !== VerificationOrganisation::Verifiee) {
             throw ValidationException::withMessages(['plan' => 'Votre clinique doit d’abord être vérifiée.']);
@@ -342,6 +347,11 @@ final class AbonnementSaas
     /* ————— Plus des propriétaires ————— */
 
     public function souscrirePlus(User $user): ?Reglement
+    {
+        return $this->sousVerrouAbonne($user, fn () => $this->souscrirePlusSousVerrou($user->refresh()));
+    }
+
+    private function souscrirePlusSousVerrou(User $user): ?Reglement
     {
         if ($this->enCours($user)) {
             if (! $user->resilie_le) {
@@ -488,7 +498,7 @@ final class AbonnementSaas
         // autre l'a été deux fois, à rendre à la main
         Cache::lock('encaisser:'.$type.':'.$facture->id, 120)->block(15, function () use ($facture, $intention, $intentionId): void {
             $facture->refresh();
-            if ((int) ($intention['amount'] ?? -1) !== (int) round((float) $facture->montant * 100)) {
+            if ((int) ($intention['amount'] ?? -1) !== (int) round((float) $facture->montant * 100) || ($intention['currency'] ?? 'chf') !== 'chf') {
                 Log::warning('Prélèvement réussi d’un autre montant que sa facture : ignoré.', ['facture' => $facture->numero, 'prelevement' => $intentionId]);
 
                 return;
@@ -600,11 +610,6 @@ final class AbonnementSaas
 
     private function demarrer(Organisation|User $abonne, string $formule, int $prix, string $nom, bool $annuel): Reglement
     {
-        return $this->sousVerrouAbonne($abonne, fn () => $this->demarrerSousVerrou($abonne, $formule, $prix, $nom, $annuel));
-    }
-
-    private function demarrerSousVerrou(Organisation|User $abonne, string $formule, int $prix, string $nom, bool $annuel): Reglement
-    {
         // Une souscription restée en attente de confirmation est remplacée ;
         // réglée entre-temps, ou traitée par la banque, on n'en lance pas une seconde
         $remplacees = $this->factures($abonne)->where('statut', 'a_payer')->get()
@@ -627,11 +632,16 @@ final class AbonnementSaas
     /** Formule plus chère : nouveau cycle aujourd'hui, crédit du temps non utilisé. */
     private function monter(Organisation $organisation, FormuleSaas $cible): Reglement
     {
-        return $this->sousVerrouAbonne($organisation, fn () => $this->monterSousVerrou($organisation, $cible));
-    }
+        // Un changement resté en attente de confirmation (autre onglet) est
+        // remplacé ; réglé entre-temps, ou traité par la banque, on n'en lance
+        // pas un second (24.10.2026)
+        $remplaces = $this->factures($organisation)->where('statut', 'a_payer')->get()
+            ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'changement')
+            ->map(fn ($f) => $this->annuler($f));
+        if ($remplaces->contains(false)) {
+            throw ValidationException::withMessages(['plan' => 'Un changement de formule précédent vient d’être réglé ou est traité par votre banque : rechargez la page avant de recommencer.']);
+        }
 
-    private function monterSousVerrou(Organisation $organisation, FormuleSaas $cible): Reglement
-    {
         [$lignes, $debut, $fin, $usage] = $this->lignesMontee($organisation, $cible);
         $facture = $this->creerFacture($organisation, $lignes, [
             'type' => 'abonnement', 'action' => 'changement', 'formule' => $cible->value,
@@ -1120,11 +1130,12 @@ final class AbonnementSaas
     /**
      * Une souscription ou un changement de formule à la fois par abonné
      * (24.10.2026) : deux onglets, ou un double clic, ne créent pas deux
-     * factures prélevées chacune.
+     * factures prélevées chacune. L'abonné est relu sous le verrou : les
+     * contrôles portent sur l'état laissé par la requête précédente.
      *
-     * @param  callable(): Reglement  $action
+     * @param  callable(): ?Reglement  $action
      */
-    private function sousVerrouAbonne(Organisation|User $abonne, callable $action): Reglement
+    private function sousVerrouAbonne(Organisation|User $abonne, callable $action): ?Reglement
     {
         $verrou = Cache::lock('abonnement:'.($abonne instanceof Organisation ? 'organisation' : 'proprietaire').':'.$abonne->id, 120);
         if (! $verrou->get()) {

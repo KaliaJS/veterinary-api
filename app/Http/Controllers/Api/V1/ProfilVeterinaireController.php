@@ -63,12 +63,16 @@ class ProfilVeterinaireController extends Controller
                 // « trouvé au registre » seulement si MedReg confirme le nom.
                 // Un autre compte qui l'avait saisi sans vérification le perd
                 // (23.10.2026 : saisir un GLN ne le réserve pas)
-                User::libererGlnNonVerifie($gln, $compte);
-                $compte->forceFill([
-                    'gln' => $gln,
-                    'medreg_id' => $resultat->fiche?->id,
-                    'gln_verifie_le' => $resultat->raison === null ? now() : null,
-                ])->save();
+                // Ensemble ou pas du tout : l'autre compte ne perd son GLN, et
+                // n'est prévenu, que si celui-ci est bien enregistré (24.10.2026)
+                DB::transaction(function () use ($gln, $compte, $resultat): void {
+                    User::libererGlnNonVerifie($gln, $compte);
+                    $compte->forceFill([
+                        'gln' => $gln,
+                        'medreg_id' => $resultat->fiche?->id,
+                        'gln_verifie_le' => $resultat->raison === null ? now() : null,
+                    ])->save();
+                });
                 $registre = $resultat->raison ?? 'trouve';
             }
         }

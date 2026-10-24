@@ -100,17 +100,20 @@ class BoutiqueProprietaireController extends Controller
             if (! $clinique) {
                 return null;
             }
-            $ttc = round((float) collect($panier['lignes'])->sum(function (array $ligne) use ($produits, $clinique): float {
+            // Le total de chaque ligne servi aussi : l'écran n'en calcule aucun (24.10.2026)
+            $lignes = collect($panier['lignes'])->map(function (array $ligne) use ($produits, $clinique): array {
                 $produit = $produits[(int) $ligne['produit_id']] ?? null;
-
-                return $produit && $produit->organisation_id === $clinique->societe->organisation_id
-                    ? (int) $ligne['quantite'] * $produit->prixEffectif()
+                $total = $produit && $produit->organisation_id === $clinique->societe->organisation_id
+                    ? round((int) $ligne['quantite'] * $produit->prixEffectif(), 2)
                     : 0.0;
-            }), 2);
+
+                return ['produit_id' => (int) $ligne['produit_id'], 'quantite' => (int) $ligne['quantite'], 'total' => $total];
+            });
+            $ttc = round((float) $lignes->sum('total'), 2);
             $taux = $clinique->societe->tauxTva();
             $tva = $taux > 0 ? round($ttc - $ttc / (1 + $taux / 100), 2) : 0.0;
 
-            return ['clinique_id' => $clinique->id, 'total_ttc' => $ttc, 'montant_tva' => $tva, 'total_ht' => round($ttc - $tva, 2), 'taux_tva' => $taux];
+            return ['clinique_id' => $clinique->id, 'lignes' => $lignes->all(), 'total_ttc' => $ttc, 'montant_tva' => $tva, 'total_ht' => round($ttc - $tva, 2), 'taux_tva' => $taux];
         })->filter()->values();
 
         return response()->json(['data' => [

@@ -140,6 +140,26 @@ class SejourTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['box' => 'occupé']);
     }
 
+    /** Un transfert de box pendant qu'une admission prend ce box : revu sous verrou, refusé (24.10.2026). */
+    public function test_un_transfert_concurrent_vers_un_box_pris_est_refuse(): void
+    {
+        $sejour = $this->sejour(['box' => 2]);
+        $autre = Patient::factory()->for(Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]))->create();
+        $fait = false;
+        // Juste après la prise du verrou sur la clinique, l'admission au box 6 arrive
+        DB::listen(function (QueryExecuted $requete) use (&$fait, $autre): void {
+            if (! $fait && DB::transactionLevel() > 1 && str_contains($requete->sql, 'from "cliniques"')) {
+                $fait = true;
+                Sejour::factory()->create(['clinique_id' => $this->clinique->id, 'patient_id' => $autre->id, 'box' => 6]);
+            }
+        });
+
+        $this->patchJson("/api/v1/hospitalisation/sejours/{$sejour->id}", ['box' => 6], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['box' => 'occupé']);
+        $this->assertTrue($fait);
+        $this->assertSame(2, $sejour->refresh()->box);
+    }
+
     public function test_un_box_sorti_se_reoccupe(): void
     {
         $this->sejour(['box' => 4, 'sorti_le' => now()]);

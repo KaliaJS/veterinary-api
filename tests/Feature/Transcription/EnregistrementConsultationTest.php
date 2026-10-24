@@ -291,6 +291,27 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertSame(0.03, $consommation->depenseDeepgram());
     }
 
+    /** Transcrite, mais la durée ne s'enregistre pas : l'estimation reste comptée, l'appel payé n'est pas perdu (24.10.2026). */
+    public function test_un_essai_abouti_mais_pas_enregistre_reste_compte(): void
+    {
+        config(['transcription.cout_minute_deepgram_usd' => 0.01]);
+        $consommation = app(ConsommationTranscription::class);
+        PartieEnregistrement::saving(function (PartieEnregistrement $partie): void {
+            if ($partie->statut === StatutPartie::Transcrite) {
+                throw new \RuntimeException('Base indisponible');
+            }
+        });
+
+        $id = $this->demarrer()->json('data.id');
+        $this->withoutExceptionHandling();
+        try {
+            $this->morceau($id, 1, 0, 1, str_repeat('A', 240000 - strlen(TranscripteurFactice::ENTETE)));
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertSame(0.01, $consommation->depenseDeepgram());
+    }
+
     /** Une rédaction reprise reste comptée au budget Anthropic après un vidage du cache (24.10.2026). */
     public function test_les_reprises_anthropic_survivent_au_cache(): void
     {
