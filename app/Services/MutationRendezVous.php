@@ -175,6 +175,8 @@ class MutationRendezVous
                 ->where('starts_at', '>', now())
                 ->where('starts_at', '<', $fin->utc())
                 ->where('ends_at', '>', $debut->utc())
+                ->orderBy('starts_at')
+                ->orderBy('id')
                 ->get();
         });
 

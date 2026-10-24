@@ -937,8 +937,32 @@ class AcompteReservationTest extends TestCase
         ], $this->enTetes($jetonAdmin))->assertCreated()->assertJsonPath('meta.rendez_vous_annules', 1)->assertJsonPath('meta.rendez_vous_restants', 1);
 
         $this->assertSame('prevu', RendezVous::withoutGlobalScopes()->find($premier->rendez_vous_id)->status->value);
+        $premier->refresh();
+        $this->assertNull($premier->annulation_decision);
+        $this->assertNull($premier->acompte_rembourse_le);
         $this->assertSame('annule', RendezVous::withoutGlobalScopes()->find($suivant->rendez_vous_id)->status->value);
         $this->assertSame(3000, $suivant->refresh()->acompte_rembourse_centimes);
+    }
+
+    /** Un créneau tampon dont l'annulation échoue ne compte pas parmi les rendez-vous à annuler à la main (24.10.2026). */
+    public function test_un_tampon_en_echec_ne_compte_pas_dans_les_restants(): void
+    {
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        $tampon = RendezVous::factory()->tampon()->create([
+            'clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => $this->mardi->utc(), 'ends_at' => $this->mardi->addMinutes(30)->utc(),
+        ]);
+        RendezVous::saving(function (RendezVous $rendezVous) use ($tampon): void {
+            if ($rendezVous->id === $tampon->id && $rendezVous->isDirty('status')) {
+                throw new \RuntimeException('Base indisponible');
+            }
+        });
+
+        $this->postJson('/api/v1/absences', [
+            'employe_id' => $this->ligne->employe_id, 'type' => 'maladie', 'statut' => 'ok',
+            'debut_le' => $this->mardi->toDateString(), 'fin_le' => $this->mardi->toDateString(),
+        ], $this->enTetes($jetonAdmin))->assertCreated()->assertJsonPath('meta.rendez_vous_restants', 0);
+        $this->assertSame('prevu', $tampon->refresh()->status->value);
     }
 
     /** Un acompte contesté à la banque (litige ouvert, gagné ou perdu) laisse sa trace : la demande ne se supprime pas (24.10.2026). */

@@ -36,6 +36,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -752,6 +753,7 @@ class EnregistrementConsultationTest extends TestCase
     /** Abandonné entre le dernier contrôle et la lecture de l'audio (effacé) : arrêt silencieux, la partie ne passe pas en erreur (24.10.2026). */
     public function test_un_abandon_pendant_la_lecture_de_l_audio_s_arrete_sans_erreur(): void
     {
+        Exceptions::fake();
         $id = $this->demarrer()->json('data.id');
         $fait = false;
         DB::listen(function (QueryExecuted $requete) use (&$fait, $id): void {
@@ -767,6 +769,8 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertTrue($fait);
         $this->assertNotSame(StatutPartie::Erreur, PartieEnregistrement::query()->sole()->statut);
         $this->assertSame([], $this->transcripteur->appels);
+        // Rien n'est signalé : un abandon n'est pas une erreur
+        Exceptions::assertNothingReported();
     }
 
     /** Une partie complète d'un enregistrement abandonné n'est jamais envoyée au fournisseur (24.10.2026). */
