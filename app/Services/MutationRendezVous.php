@@ -140,8 +140,9 @@ class MutationRendezVous
      * et ses absences sont celles de la personne) : statut `annule`
      * audité avec motif, jamais de suppression. Un batch d'audit par
      * rendez-vous. Rend le nombre de rendez-vous (hors tampons) annulés, et
-     * ceux restés au planning parce que leur acompte n'a pas pu être rendu
-     * (24.10.2026), à annuler à la main.
+     * ceux restés au planning, à annuler à la main, parce que leur acompte
+     * n'a pas pu être rendu ou qu'une erreur a empêché leur annulation
+     * (24.10.2026).
      *
      * @return array{annules: int, restants: int}
      */
@@ -201,7 +202,9 @@ class MutationRendezVous
                 // reste au planning, compté à annuler à la main ; les suivants
                 // sont traités et l'absence est enregistrée (24.10.2026)
                 report($e);
-                $restants++;
+                if (! $unRendezVous->estTampon()) {
+                    $restants++;
+                }
 
                 continue;
             }

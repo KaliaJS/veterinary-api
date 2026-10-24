@@ -917,6 +917,30 @@ class AcompteReservationTest extends TestCase
         $this->assertSame('prevu', RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id)->status->value);
     }
 
+    /** Absence sur deux rendez-vous : le premier échoue et reste à annuler à la main, le suivant est annulé et son acompte rendu (24.10.2026). */
+    public function test_une_absence_continue_apres_un_rendez_vous_en_echec(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        $premier = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $suivant = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi->addHour());
+        RendezVous::saving(function (RendezVous $rendezVous) use ($premier): void {
+            if ($rendezVous->id === $premier->rendez_vous_id && $rendezVous->isDirty('status') && $rendezVous->status === StatutRendezVous::Annule) {
+                throw new \RuntimeException('Base indisponible');
+            }
+        });
+
+        $this->postJson('/api/v1/absences', [
+            'employe_id' => $this->ligne->employe_id, 'type' => 'maladie', 'statut' => 'ok',
+            'debut_le' => $this->mardi->toDateString(), 'fin_le' => $this->mardi->toDateString(),
+        ], $this->enTetes($jetonAdmin))->assertCreated()->assertJsonPath('meta.rendez_vous_annules', 1)->assertJsonPath('meta.rendez_vous_restants', 1);
+
+        $this->assertSame('prevu', RendezVous::withoutGlobalScopes()->find($premier->rendez_vous_id)->status->value);
+        $this->assertSame('annule', RendezVous::withoutGlobalScopes()->find($suivant->rendez_vous_id)->status->value);
+        $this->assertSame(3000, $suivant->refresh()->acompte_rembourse_centimes);
+    }
+
     /** Un acompte contesté à la banque (litige ouvert, gagné ou perdu) laisse sa trace : la demande ne se supprime pas (24.10.2026). */
     public function test_une_demande_a_l_acompte_conteste_ne_se_supprime_pas(): void
     {

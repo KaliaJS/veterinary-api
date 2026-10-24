@@ -122,6 +122,10 @@ final class TranscrirePartie implements ShouldQueue
                 $termes->pour($partie->enregistrement),
             );
         } catch (TranscriptionImpossible $erreur) {
+            // Abandonné pendant la lecture (audio effacé) : arrêt silencieux
+            if ($this->abandonne($partie)) {
+                return;
+            }
             report($erreur);
             self::echec($partie);
 
