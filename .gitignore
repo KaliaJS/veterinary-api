@@ -30,3 +30,5 @@ CLAUDE.md
 AGENTS.md
 .mcp.json
 boost.json
+# Base SQLite créée par erreur à la racine (la base locale est MySQL)
+/veterinary
