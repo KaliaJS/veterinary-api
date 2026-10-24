@@ -23,6 +23,18 @@ final class ReceptionAudio
 {
     public function morceau(EnregistrementConsultation $enregistrement, int $numero, int $index, int $total, string $format, UploadedFile $fichier): PartieEnregistrement
     {
+        // Borne de tout l'enregistrement par les morceaux annoncés (d'1 Mo au
+        // plus), qui restent en base : l'audio transcrit est effacé, la somme
+        // des fichiers présents ne suffit pas (24.10.2026)
+        $annonces = (int) PartieEnregistrement::query()
+            ->where('enregistrement_consultation_id', $enregistrement->id)
+            ->where('numero', '!=', $numero)
+            ->sum('morceaux');
+        $permis = intdiv((int) config('transcription.octets_max_enregistrement'), (int) config('transcription.morceau_max_ko') * 1024);
+        if ($annonces + $total > $permis) {
+            throw ValidationException::withMessages(['fichier' => 'Cet enregistrement dépasse la taille permise.']);
+        }
+
         $partie = PartieEnregistrement::query()->firstOrCreate(
             ['enregistrement_consultation_id' => $enregistrement->id, 'numero' => $numero],
             ['format' => $format, 'morceaux' => $total],
@@ -36,14 +48,10 @@ final class ReceptionAudio
             throw ValidationException::withMessages(['morceau' => 'Ce morceau ne correspond pas à la partie annoncée.']);
         }
 
-        // Le premier morceau commence comme un fichier audio du format annoncé (23.10.2026)
-        if ($index === 0 && ! self::estAudio((string) file_get_contents($fichier->getRealPath(), false, null, 0, 16), $format)) {
+        // Le premier morceau commence comme un fichier audio du format de la
+        // partie (23.10.2026), celui de son premier envoi, pas de celui-ci
+        if ($index === 0 && ! self::estAudio((string) file_get_contents($fichier->getRealPath(), false, null, 0, 16), $partie->format)) {
             throw ValidationException::withMessages(['fichier' => 'Ce fichier n’est pas un enregistrement audio.']);
-        }
-
-        // Borne de tout l'enregistrement (23.10.2026) : au-delà, plus rien n'est reçu
-        if ($this->octets($enregistrement) + (int) $fichier->getSize() > (int) config('transcription.octets_max_enregistrement')) {
-            throw ValidationException::withMessages(['fichier' => 'Cet enregistrement dépasse la taille permise.']);
         }
 
         $fichier->storeAs($partie->dossierMorceaux(), self::nom($index), 'prive');
@@ -84,14 +92,6 @@ final class ReceptionAudio
             ->sort()
             ->values()
             ->all();
-    }
-
-    /** Octets déjà reçus pour l'enregistrement (morceaux et parties assemblées). */
-    private function octets(EnregistrementConsultation $enregistrement): int
-    {
-        $disque = Storage::disk('prive');
-
-        return array_sum(array_map(fn (string $chemin): int => $disque->size($chemin), $disque->allFiles($enregistrement->dossierAudio())));
     }
 
     /**

@@ -11,6 +11,7 @@ use App\Models\Organisation;
 use App\Models\PartieEnregistrement;
 use App\Models\RendezVous;
 use App\Models\SuggestionDiagnostique;
+use App\Services\BudgetAnthropic;
 use App\Services\Diagnostic\ConsommationDiagnostic;
 use App\Services\Diagnostic\Suggesteur;
 use App\Services\Diagnostic\SuggestionImpossible;
@@ -65,6 +66,9 @@ final class SuggererDiagnostic implements ShouldQueue
         $segments = $suggestion->avec_transcription ? self::segments($rendezVous) : [];
 
         try {
+            if ($this->attempts() > 1) {
+                BudgetAnthropic::nouvelEssai('suggestion');
+            }
             $resultat = $suggesteur->suggerer(
                 $suggestion->soap,
                 self::signalement($rendezVous),

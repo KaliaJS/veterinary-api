@@ -104,6 +104,9 @@ final class RedigerCompteRendu implements ShouldQueue
             ]);
         } else {
             try {
+                if ($this->attempts() > 1) {
+                    BudgetAnthropic::nouvelEssai('redaction');
+                }
                 $brouillon = $redacteur->rediger($segments, self::contexte($enregistrement));
             } catch (RedactionImpossible $erreur) {
                 report($erreur);

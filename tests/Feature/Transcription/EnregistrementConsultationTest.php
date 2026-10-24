@@ -285,9 +285,11 @@ class EnregistrementConsultationTest extends TestCase
         // Le premier morceau doit être de l'audio du format annoncé
         $this->morceauBrut($id, 1, 0, 2, '<?php echo 1;')->assertUnprocessable()->assertJsonValidationErrors('fichier');
 
-        config(['transcription.octets_max_enregistrement' => strlen(TranscripteurFactice::ENTETE) + 4]);
+        // Deux morceaux d'1 Mo au plus permis : une partie qui en annonce trois est refusée
+        config(['transcription.octets_max_enregistrement' => 2 * 1024 * 1024]);
+        $this->morceau($id, 1, 0, 3, 'AAA')->assertUnprocessable()->assertJsonValidationErrors('fichier');
         $this->morceau($id, 1, 0, 2, 'AAA')->assertOk();
-        $this->morceau($id, 1, 1, 2, 'BBB')->assertUnprocessable()->assertJsonValidationErrors('fichier');
+        $this->morceau($id, 2, 0, 1, 'BBB')->assertUnprocessable()->assertJsonValidationErrors('fichier');
     }
 
     public function test_les_redactions_sont_bornees_puis_la_relance_refusee(): void
@@ -402,10 +404,47 @@ class EnregistrementConsultationTest extends TestCase
         $this->morceau($id, 1, 0, 2, 'AA')->assertOk();
         $this->assertCount(1, Storage::disk('prive')->allFiles('transcriptions'));
 
+        EnregistrementConsultation::query()->whereKey($id)->update(['redactions' => 2]);
+        PartieEnregistrement::query()->update(['segments' => json_encode([['voix' => 0, 'debut' => 0, 'texte' => 'Bonjour']]), 'duree_secondes' => 90]);
+
         $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
 
+        // Audio et texte effacés…
         $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions'));
-        $this->assertSame(0, PartieEnregistrement::query()->count());
+        $this->assertNull(PartieEnregistrement::query()->sole()->segments);
+        // … mais ce qui a été payé reste compté : les plafonds ne repartent pas à zéro
+        $abandonne = EnregistrementConsultation::query()->findOrFail($id);
+        $this->assertSame('abandonne', $abandonne->statut->value);
+        $this->assertSame(2, $abandonne->redactions);
+        $this->assertSame(90, (int) PartieEnregistrement::query()->sole()->duree_secondes);
+
+        // Un nouvel enregistrement repart d'une fiche neuve
+        $this->assertNotSame($id, $this->demarrer()->json('data.id'));
+    }
+
+    /** 300 Mo par enregistrement, comptés aux morceaux annoncés : l'audio transcrit effacé ne remet pas à zéro. */
+    public function test_l_enregistrement_ne_depasse_pas_trois_cents_mo_meme_apres_transcription(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $this->morceau($id, 1, 0, 200, 'AA')->assertOk();
+        // La partie 1 transcrite, son audio effacé : la partie 2 compte quand même avec elle
+        Storage::disk('prive')->deleteDirectory(EnregistrementConsultation::query()->findOrFail($id)->dossierAudio());
+
+        $this->morceau($id, 2, 0, 101, 'AA')->assertUnprocessable()->assertJsonValidationErrors('fichier');
+        $this->morceau($id, 2, 0, 100, 'AA')->assertOk();
+    }
+
+    /** L'en-tête du premier morceau se compare au format de la partie, pas à celui du dernier envoi. */
+    public function test_l_entete_suit_le_format_de_la_partie(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $this->morceauBrut($id, 1, 1, 2, 'BB')->assertOk();
+
+        $this->post("/api/v1/enregistrements/{$id}/parties/1", [
+            'morceau' => 0, 'morceaux' => 2, 'format' => 'audio/wav',
+            'fichier' => UploadedFile::fake()->createWithContent('morceau', 'RIFF'.str_repeat("\0", 4).'WAVEfmt '),
+        ], [...$this->enTetes($this->jeton), 'Accept' => 'application/json'])
+            ->assertUnprocessable()->assertJsonValidationErrors('fichier');
     }
 
     public function test_une_autre_organisation_ne_voit_ni_ne_complete_l_enregistrement(): void

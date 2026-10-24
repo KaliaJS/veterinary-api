@@ -17,6 +17,7 @@ use App\Services\Transcription\ConsommationTranscription;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
@@ -141,7 +142,12 @@ class EnregistrementConsultationController extends Controller
         return new EnregistrementConsultationResource($enregistrement->refresh()->load('parties'));
     }
 
-    /** Abandon (propriétaire qui se ravise, essai) : audio et texte effacés. Un compte rendu validé reste. */
+    /**
+     * Abandon (propriétaire qui se ravise, essai) : audio et texte effacés.
+     * Un compte rendu validé reste. La fiche reste aussi, vide (24.10.2026) :
+     * effacée, elle emporterait les secondes transcrites et les rédactions,
+     * et les plafonds repartiraient à zéro.
+     */
     public function supprimer(EnregistrementConsultation $enregistrement): Response
     {
         $this->authorize('create', EnregistrementConsultation::class);
@@ -151,7 +157,10 @@ class EnregistrementConsultationController extends Controller
         }
 
         Storage::disk('prive')->deleteDirectory($enregistrement->dossierAudio());
-        $enregistrement->delete();
+        DB::transaction(function () use ($enregistrement): void {
+            $enregistrement->parties()->update(['segments' => null, 'fichier' => null]);
+            $enregistrement->forceFill(['statut' => StatutEnregistrement::Abandonne, 'erreur' => null, 'brouillon' => null])->save();
+        });
 
         return response()->noContent();
     }
@@ -160,6 +169,8 @@ class EnregistrementConsultationController extends Controller
     {
         return EnregistrementConsultation::query()
             ->where('rendez_vous_id', $rendezVous->id)
+            // Un abandonné ne se reprend pas : le suivant repart d'une fiche neuve
+            ->where('statut', '!=', StatutEnregistrement::Abandonne->value)
             ->latest('id')
             ->with('parties')
             ->first();

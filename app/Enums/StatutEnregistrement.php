@@ -16,4 +16,7 @@ enum StatutEnregistrement: string
     case Pret = 'pret';
     case Valide = 'valide';
     case Erreur = 'erreur';
+    // Abandonné (24.10.2026) : audio et texte effacés, la fiche reste pour
+    // compter ce qui a été payé (secondes transcrites, rédactions)
+    case Abandonne = 'abandonne';
 }
