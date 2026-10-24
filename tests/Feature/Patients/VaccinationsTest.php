@@ -182,6 +182,20 @@ class VaccinationsTest extends TestCase
         $this->deleteJson("/api/v1/patients/{$patient->id}/vaccinations/{$vaccination->id}", [], $this->enTetes($admin))->assertNoContent();
     }
 
+    /** Corrigée par l'administration, une injection sans signataire le reste : la correction ne la signe pas à sa place (24.10.2026). */
+    public function test_l_administration_corrige_une_injection_sans_la_signer(): void
+    {
+        $patient = $this->patient();
+        $vaccination = $patient->vaccinations()->create(['nom' => 'Rage', 'injectee_le' => aujourdhui()->subYear()->toDateString(), 'echeance_le' => aujourdhui()->toDateString(), 'employe_id' => null]);
+        ['jeton' => $admin] = $this->administrateurAvecJeton($this->clinique);
+
+        $this->putJson("/api/v1/patients/{$patient->id}/vaccinations/{$vaccination->id}", ['nom' => 'Rage', 'lot' => 'R-7'], $this->enTetes($admin))->assertOk();
+
+        $vaccination->refresh();
+        $this->assertSame('R-7', $vaccination->lot);
+        $this->assertNull($vaccination->employe_id);
+    }
+
     public function test_le_catalogue_se_filtre_par_espece_et_recherche(): void
     {
         $this->getJson('/api/v1/vaccins?espece=CT', $this->enTetes($this->jeton))->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.nom', 'Nobivac Rabies');

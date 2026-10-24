@@ -16,7 +16,9 @@ use App\Models\Role;
 use App\Models\Sejour;
 use App\Models\Stock;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -107,6 +109,35 @@ class SejourTest extends TestCase
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['patient_id' => 'déjà hospitalisé']);
+    }
+
+    /**
+     * Une autre admission validée entre la vérification du formulaire et
+     * l'enregistrement : revérifiée sous verrou, la seconde est refusée,
+     * pour le patient comme pour le box (24.10.2026). Le verrou lui-même ne
+     * se prouve pas avec SQLite ; la revérification, si.
+     */
+    public function test_une_admission_concurrente_est_revue_sous_verrou(): void
+    {
+        $autre = Patient::factory()->for(Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]))->create();
+        $admettre = function (Patient $patient, int $box, array $concurrent) {
+            $fait = false;
+            // Juste après la prise du verrou sur le patient, l'autre admission
+            // arrive (dans la même transaction ici : annulée avec elle)
+            DB::listen(function (QueryExecuted $requete) use (&$fait, $concurrent): void {
+                if (! $fait && DB::transactionLevel() > 1 && str_contains($requete->sql, 'from "patients"')) {
+                    $fait = true;
+                    $this->sejour($concurrent);
+                }
+            });
+
+            return $this->postJson('/api/v1/hospitalisation/sejours', ['patient_id' => $patient->id, 'box' => $box, 'motif' => 'Surveillance'], $this->enTetes($this->jeton));
+        };
+
+        $admettre($this->patient, 3, ['box' => 2])->assertUnprocessable()->assertJsonValidationErrors(['patient_id' => 'déjà hospitalisé']);
+
+        $admettre($autre, 5, ['box' => 5, 'patient_id' => Patient::factory()->for(Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]))->create()->id])
+            ->assertUnprocessable()->assertJsonValidationErrors(['box' => 'occupé']);
     }
 
     public function test_un_box_sorti_se_reoccupe(): void
