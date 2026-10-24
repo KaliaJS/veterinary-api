@@ -105,13 +105,13 @@ class DemandeRendezVous extends Model
         return $this->belongsTo(RendezVous::class);
     }
 
-    /** Acompte payé et pas remboursé : en francs, sinon 0. */
     /** Un acompte payé, pas encore rendu : ce qu'il devient se décide (droit « Rembourser »). */
     public function acompteEnJeu(): bool
     {
         return $this->acompte_paye_le !== null && $this->acompte_rembourse_le === null && $this->acompte_intention_id !== null;
     }
 
+    /** L'acompte payé, moins ce qui en a été rendu : en francs, sinon 0. */
     public function acompteRetenu(): float
     {
         if (! $this->acompte_paye_le) {

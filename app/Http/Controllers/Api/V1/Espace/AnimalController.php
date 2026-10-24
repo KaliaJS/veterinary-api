@@ -130,11 +130,11 @@ class AnimalController extends Controller
 
     /**
      * « Déjà connu d'une clinique ? » : l'animal est cherché par sa puce ET
-     * son nom (23.10.2026 : le nom est le second facteur, une puce seule ne
-     * révèle plus rien) parmi les fiches des cliniques ; une demande en
-     * attente est créée, que la clinique accepte ou refuse. Une même
-     * réponse pour une puce inconnue, un nom qui ne correspond pas ou un
-     * animal déjà rattaché ailleurs.
+     * le nom de famille de son propriétaire, celui de la fiche client
+     * (24.10.2026 : le second facteur que demandait l'audit ; une puce seule
+     * ne révèle rien) ; une demande en attente est créée, que la clinique
+     * accepte ou refuse. Une même réponse pour une puce inconnue, un nom qui
+     * ne correspond pas ou un animal déjà rattaché ailleurs.
      */
     public function reclamer(ReclamerAnimalRequest $request, ContexteProprietaire $contexte): JsonResponse
     {

@@ -319,6 +319,26 @@ class AcomptesRendezVous
     }
 
     /**
+     * Annulé par la clinique pour l'absence du praticien (24.10.2026) : tout
+     * l'acompte est rendu. Le propriétaire n'y est pour rien : c'est un rendu
+     * obligé, comme pour une demande refusée, pas une décision ; il ne
+     * demande pas le droit « Rembourser ».
+     */
+    public function surAbsenceDuPraticien(RendezVous $rendezVous): void
+    {
+        $demande = $rendezVous->demandeEnLigne()->first();
+
+        if (! $demande) {
+            return;
+        }
+        $this->rembourser($demande, DecisionAnnulation::Complet);
+        if ($demande->annulationEnAttente()) {
+            $demande->update(['annulation_decision' => DecisionAnnulation::Complet, 'annulation_traitee_le' => now()]);
+        }
+        $this->drapeau($rendezVous, false);
+    }
+
+    /**
      * Rendre tout, une partie ou rien d'un acompte payé est une décision
      * d'argent (24.10.2026) : elle demande le droit « Rembourser », pas le
      * seul planning. Le rendu obligé (demande refusée, paiement arrivé

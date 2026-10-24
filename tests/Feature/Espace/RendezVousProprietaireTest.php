@@ -296,6 +296,27 @@ class RendezVousProprietaireTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('patient_id');
     }
 
+    /** « Un mois » : le jour du mois suivant est proposé, le lendemain non (avant, +32 jours passaient la requête). */
+    public function test_le_calendrier_s_arrete_au_meme_jour_du_mois_suivant(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 09:00', 'Europe/Zurich'));
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich', 'rdv_a_valider' => true]);
+        $demande = fn (string $jour) => $this->postJson('/api/v1/espace/demandes', [
+            'clinique_id' => $clinique->id,
+            'debut_souhaite' => CarbonImmutable::parse($jour.' 10:00', 'Europe/Zurich')->toIso8601String(),
+            'mode' => 'place',
+            'patient_name' => 'Max',
+            'espece' => 'CH',
+            'motif' => 'Consultation',
+        ], $this->enTetes($jeton));
+
+        // Jeudi 3 décembre : le dernier jour du mois montré
+        $demande('2026-12-03')->assertCreated();
+        // Vendredi 4 décembre : au-delà, même à moins de 32 jours
+        $demande('2026-12-04')->assertUnprocessable()->assertJsonValidationErrors(['debut_souhaite' => 'Choisissez une heure proposée par le calendrier.']);
+    }
+
     public function test_une_urgence_dit_ce_que_voit_le_proprietaire(): void
     {
         ['jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Anna Meyer']);

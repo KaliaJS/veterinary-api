@@ -23,7 +23,8 @@ class CompteClientRevocationTest extends TestCase
     {
         $clinique = Clinique::factory()->create();
         ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
-        $user = User::factory()->create();
+        // Ouvert par la clinique, jamais utilisé par son titulaire (adresse pas prouvée)
+        $user = User::factory()->unverified()->create();
         $client = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'user_id' => $user->id]);
 
         $this->deleteJson("/api/v1/clients/{$client->id}/compte", [], $this->enTetes($jeton))->assertNoContent();

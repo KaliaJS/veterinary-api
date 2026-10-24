@@ -67,6 +67,8 @@ final class VerificationIdentite
             'sur_facture' => $organisation !== null,
             'avant_le' => $organisation?->identite_avant_le?->toDateString(),
             'prix_centimes' => self::PRIX_BADGE_CENTIMES,
+            // Ce qui part sur la facture de la clinique, servi pour que l'écran ne l'écrive pas
+            'frais_centimes' => self::FRAIS_CENTIMES,
         ];
     }
 

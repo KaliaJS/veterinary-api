@@ -19,6 +19,7 @@ use App\Models\PartieEnregistrement;
 use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\Role;
+use App\Services\Transcription\ConsommationTranscription;
 use App\Services\Transcription\Redacteur;
 use App\Services\Transcription\RedactionImpossible;
 use App\Services\Transcription\Transcripteur;
@@ -217,6 +218,22 @@ class EnregistrementConsultationTest extends TestCase
         $this->putJson("/api/v1/rendez-vous/{$this->rendezVous->id}/compte-rendu", ['s' => 'Relu.', 'enregistrement_id' => $id], $this->enTetes($this->jeton))->assertSuccessful();
 
         $this->demarrer()->assertUnprocessable()->assertJsonPath('errors.transcription.0', 'La transcription est momentanément indisponible. Réessayez plus tard.');
+    }
+
+    /** Les nouveaux essais chez Deepgram comptent dans le budget de la plateforme, pas dans ce que paie la clinique (24.10.2026). */
+    public function test_les_nouveaux_essais_comptent_dans_le_budget_deepgram(): void
+    {
+        config(['transcription.cout_minute_deepgram_usd' => 0.01]);
+        $this->enregistrementTranscrit(600);
+        $deuxEssais = $this->enregistrementTranscrit(300);
+        $deuxEssais->parties()->update(['tentatives' => 2]);
+        $this->enregistrementTranscrit(120)->parties()->update(['tentatives' => 3]);
+
+        $consommation = app(ConsommationTranscription::class);
+        // 600 + 2 × 300 + 3 × 120 = 1560 s, soit 26 minutes
+        $this->assertSame(0.26, $consommation->depenseDeepgram());
+        // La clinique : la durée de son audio seulement, 1020 s
+        $this->assertSame(1020, $consommation->secondes($this->organisation->id));
     }
 
     public function test_les_administrateurs_sont_prevenus_au_plafond_de_l_organisation_une_fois(): void

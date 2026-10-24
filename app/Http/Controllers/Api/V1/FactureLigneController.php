@@ -150,7 +150,13 @@ class FactureLigneController extends Controller
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
 
-        $ligne = $facture->lignes()->findOrFail($id);
+        $ligne = $facture->lignes()->with('produit')->findOrFail($id);
+
+        // Un médicament sur ordonnance (ou stupéfiant) se prescrit : sa quantité
+        // ne se change ni ne se retire sans le droit de prescrire (24.10.2026)
+        if ($ligne->produit?->est_sur_ordonnance || $ligne->produit?->est_stupefiant) {
+            Gate::authorize(DomainePermission::Prescrire->value);
+        }
 
         if ($ligne->type === TypeLigneFacture::Medicament && $facture->stock_sorti) {
             throw ValidationException::withMessages([

@@ -2,15 +2,18 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\DomainePermission;
 use App\Enums\MotifAjustementStock;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\LotResource;
 use App\Models\Lot;
 use App\Services\GestionnaireStock;
+use App\Services\RegistreStupefiants;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Lots de péremption de la clinique du jeton, du plus urgent au plus
@@ -38,14 +41,21 @@ class LotController extends Controller
         $this->authorize('delete', $lot);
 
         DB::transaction(function () use ($request, $lot, $stock): void {
-            $stock->appliquer(
-                $lot->produit,
-                -$lot->quantite,
-                'Péremption : lot '.$lot->numero_lot.' écarté',
-                $request->user(),
-                MotifAjustementStock::Peremption,
-                $lot,
-            );
+            // Un stupéfiant périmé se détruit par le registre, avec le droit
+            // des stupéfiants : la destruction y est inscrite, le stock suit (24.10.2026)
+            if ($lot->produit->est_stupefiant) {
+                Gate::authorize(DomainePermission::Stupefiants->value);
+                app(RegistreStupefiants::class)->inscrire($lot->produit, -(float) $lot->quantite, 'Destruction : lot '.$lot->numero_lot.' périmé', $lot->clinique_id, $request->user());
+            } else {
+                $stock->appliquer(
+                    $lot->produit,
+                    -$lot->quantite,
+                    'Péremption : lot '.$lot->numero_lot.' écarté',
+                    $request->user(),
+                    MotifAjustementStock::Peremption,
+                    $lot,
+                );
+            }
 
             $lot->delete();
         });

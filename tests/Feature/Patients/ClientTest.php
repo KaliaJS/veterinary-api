@@ -193,16 +193,29 @@ class ClientTest extends TestCase
             ->assertJsonValidationErrors('client');
     }
 
-    public function test_un_email_deja_pris_ou_absent_est_refuse(): void
+    /** Une adresse qui a déjà un compte : la fiche s'y rattache, la clinique ne voit pas la différence (24.10.2026). */
+    public function test_une_adresse_qui_a_deja_un_compte_y_rattache_la_fiche_sans_le_dire(): void
     {
-        User::factory()->create(['email' => 'pris@exemple.ch']);
+        $existant = User::factory()->create(['email' => 'pris@exemple.ch', 'email_verified_at' => now()]);
+        $neuve = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
 
-        $this->postJson("/api/v1/clients/{$this->client->id}/compte", [
-            'email' => 'pris@exemple.ch',
-        ], $this->enTetes($this->jeton))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('email');
+        $avecCompte = $this->postJson("/api/v1/clients/{$this->client->id}/compte", ['email' => 'Pris@Exemple.ch'], $this->enTetes($this->jeton))
+            ->assertOk()->json('data');
+        $sansCompte = $this->postJson("/api/v1/clients/{$neuve->id}/compte", ['email' => 'libre@exemple.ch'], $this->enTetes($this->jeton))
+            ->assertOk()->json('data');
 
+        $this->assertSame($existant->id, $this->client->fresh()->user_id);
+        $this->assertSame(array_keys($avecCompte), array_keys($sansCompte));
+        $this->assertTrue($avecCompte['a_un_compte']);
+        $this->assertSame(1, User::query()->where('email', 'pris@exemple.ch')->count());
+
+        // Révoquée, la fiche se détache ; le compte, prouvé par son titulaire, reste
+        $this->deleteJson("/api/v1/clients/{$this->client->id}/compte", [], $this->enTetes($this->jeton))->assertNoContent();
+        $this->assertModelExists($existant);
+    }
+
+    public function test_une_fiche_sans_email_est_refusee(): void
+    {
         $sansEmail = Client::factory()->create([
             'organisation_id' => $this->clinique->societe->organisation_id,
             'email' => null,

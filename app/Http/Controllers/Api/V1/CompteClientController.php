@@ -38,13 +38,12 @@ class CompteClientController extends Controller
             ]);
         }
 
-        if (User::where('email', $email)->exists()) {
-            throw ValidationException::withMessages([
-                'email' => 'Un compte existe déjà avec cet e-mail.',
-            ]);
-        }
-
-        $user = User::create([
+        // Un compte existe déjà à cette adresse : la fiche s'y rattache
+        // (24.10.2026). La réponse est la même qu'à la création : la clinique
+        // ne peut pas tester quelles adresses ont un compte. Le titulaire y
+        // retrouve cette clinique, comme les autres.
+        $email = mb_strtolower(trim($email));
+        $user = User::query()->where('email', $email)->first() ?? User::create([
             'name' => trim($client->prenom.' '.$client->nom),
             'email' => $email,
             'password' => Str::password(40),
@@ -95,9 +94,11 @@ class CompteClientController extends Controller
             }
         }
 
-        // Abonné (Stripe ou App Store), modérateur, identité payée ou GLN :
-        // un compte qui vit par lui-même, pas seulement par cette fiche (24.10.2026)
-        return $user->stripe_client_id !== null
+        // Abonné (Stripe ou App Store), modérateur, identité payée, GLN, ou
+        // adresse prouvée par son titulaire : un compte qui vit par lui-même,
+        // pas seulement par cette fiche (24.10.2026)
+        return $user->email_verified_at !== null
+            || $user->stripe_client_id !== null
             || $user->apple_abonnement_id !== null
             || $user->est_moderateur
             || $user->identite_payee_le !== null

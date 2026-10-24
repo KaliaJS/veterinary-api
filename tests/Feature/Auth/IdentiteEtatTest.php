@@ -42,6 +42,7 @@ class IdentiteEtatTest extends TestCase
                 'sur_facture' => false,
                 'avant_le' => null,
                 'prix_centimes' => 200,
+                'frais_centimes' => 150,
             ]]);
     }
 

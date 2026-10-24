@@ -127,6 +127,14 @@ class DroitsFinsTest extends TestCase
         $this->postJson("/api/v1/facturation/factures/{$facture->id}/lignes", ['produit_id' => $surOrdonnance->id], $veto)->assertOk();
         $this->postJson("/api/v1/facturation/factures/{$facture->id}/lignes", ['produit_id' => $stupefiant->id], $veto)
             ->assertUnprocessable()->assertJsonValidationErrors('produit_id');
+
+        // La ligne prescrite : l'ASV n'en change ni la quantité ni ne la retire (24.10.2026)
+        $ligne = $facture->lignes()->where('produit_id', $surOrdonnance->id)->firstOrFail();
+        $this->patchJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$ligne->id}", ['quantite' => 3], $asv)->assertForbidden();
+        $this->deleteJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$ligne->id}", [], $asv)->assertForbidden();
+        $this->assertSame(1, (int) $ligne->refresh()->quantite);
+        $this->patchJson("/api/v1/facturation/factures/{$facture->id}/lignes/{$ligne->id}", ['quantite' => 3], $veto)->assertOk();
+        $this->assertSame(3, (int) $ligne->refresh()->quantite);
     }
 
     private function jeton(?string $etat = null): string

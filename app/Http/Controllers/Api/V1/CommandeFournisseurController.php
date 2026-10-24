@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\DomainePermission;
 use App\Enums\PieceNumerotee;
 use App\Enums\StatutCommandeFournisseur;
 use App\Http\Controllers\Controller;
@@ -14,10 +15,12 @@ use App\Models\Lot;
 use App\Models\Produit;
 use App\Services\GestionnaireStock;
 use App\Services\Numeroteur;
+use App\Services\RegistreStupefiants;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -176,14 +179,21 @@ class CommandeFournisseurController extends Controller
             ]);
 
             foreach ($commande->lignes()->with('produit')->get() as $ligne) {
-                $this->stock->entrer(
-                    $ligne->produit,
-                    $ligne->quantite,
-                    'Réception '.$commande->numero,
-                    $request->user(),
-                    $commande,
-                    cliniqueId: $commande->clinique_id,
-                );
+                // Un stupéfiant entre par le registre, signé par qui réceptionne,
+                // avec le droit des stupéfiants ; le stock le suit (24.10.2026)
+                if ($ligne->produit->est_stupefiant) {
+                    Gate::authorize(DomainePermission::Stupefiants->value);
+                    app(RegistreStupefiants::class)->inscrire($ligne->produit, (float) $ligne->quantite, 'Réception '.$commande->numero, $commande->clinique_id, $request->user());
+                } else {
+                    $this->stock->entrer(
+                        $ligne->produit,
+                        $ligne->quantite,
+                        'Réception '.$commande->numero,
+                        $request->user(),
+                        $commande,
+                        cliniqueId: $commande->clinique_id,
+                    );
+                }
 
                 if ($ligne->produit->peremption_le !== null) {
                     // Lot de la clinique de livraison, qui peut être

@@ -6,7 +6,6 @@ use App\Auth\ContexteProprietaire;
 use App\Enums\Espece;
 use App\Enums\ServiceClinique;
 use App\Models\Clinique;
-use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -40,22 +39,16 @@ class DeposerDemandeRendezVousRequest extends FormRequest
 
     /** @return array<string, mixed> */
     /**
-     * L'heure souhaitée : à venir, dans le mois que montre le calendrier,
-     * à la minute ronde (jamais 10:07 : la grille avance de 5 en 5).
+     * L'heure souhaitée : une date à venir. Qu'elle soit une heure du
+     * calendrier (grille de 20 minutes depuis l'ouverture, hors pause, dans
+     * le mois qu'il montre) se contrôle au dépôt, avec les horaires de la
+     * clinique (SemaineDisponible::estUneHeureProposee).
      *
      * @return list<mixed>
      */
     protected static function reglesDebut(): array
     {
-        return [
-            'required', 'date', 'after:now', 'before:+32 days',
-            function (string $attribute, mixed $value, Closure $fail): void {
-                $debut = strtotime((string) $value);
-                if ($debut !== false && ($debut % 300) !== 0) {
-                    $fail('Choisissez une heure proposée par le calendrier.');
-                }
-            },
-        ];
+        return ['required', 'date', 'after:now'];
     }
 
     protected static function reglesUrgence(): array

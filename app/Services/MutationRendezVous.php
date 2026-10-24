@@ -10,6 +10,8 @@ use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\Salle;
 use App\Models\User;
+use App\Paiements\ErreurPaiement;
+use App\Services\Paiements\AcomptesRendezVous;
 use BackedEnum;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -172,6 +174,16 @@ class MutationRendezVous
         $annules = 0;
 
         foreach ($rendezVous as $unRendezVous) {
+            // L'acompte payé en ligne est rendu en entier, d'abord (24.10.2026) ;
+            // si le prestataire refuse, le rendez-vous reste au planning, à
+            // annuler à la main (l'annulation réessaie le rendu)
+            try {
+                app(AcomptesRendezVous::class)->surAbsenceDuPraticien($unRendezVous);
+            } catch (ErreurPaiement $e) {
+                report($e);
+
+                continue;
+            }
             $this->appliquer(
                 $unRendezVous,
                 ['status' => StatutRendezVous::Annule],

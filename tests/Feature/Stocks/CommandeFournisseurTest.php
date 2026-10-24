@@ -8,6 +8,7 @@ use App\Models\CommandeFournisseur;
 use App\Models\CommandeFournisseurLigne;
 use App\Models\Lot;
 use App\Models\MouvementStock;
+use App\Models\MouvementStupefiant;
 use App\Models\Produit;
 use App\Models\Stock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -114,6 +115,31 @@ class CommandeFournisseurTest extends TestCase
             'clinique_id' => $this->clinique->id,
             'quantite' => 10,
         ]);
+    }
+
+    /** Un stupéfiant reçu entre par le registre, signé par qui réceptionne, avec son droit (24.10.2026). */
+    public function test_un_stupefiant_recu_s_inscrit_au_registre(): void
+    {
+        $produit = $this->produit(['est_stupefiant' => true, 'peremption_le' => now()->addYear()->startOfMonth()]);
+        $commande = CommandeFournisseur::factory()->envoyee()->create(['clinique_id' => $this->clinique->id]);
+        CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $commande->id, 'produit_id' => $produit->id, 'quantite' => 10]);
+
+        // Sans le droit des stupéfiants : rien n'entre, la commande reste envoyée
+        ['jeton' => $jetonAsv] = $this->employeAvecJeton($this->clinique, [], 'asv');
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->enTetes($jetonAsv))->assertForbidden();
+        $this->assertSame(StatutCommandeFournisseur::Envoyee, $commande->refresh()->statut);
+        $this->assertSame(0, MouvementStupefiant::withoutGlobalScopes()->count());
+
+        ['employe' => $veto, 'jeton' => $jetonVeto] = $this->employeAvecJeton($this->clinique);
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->enTetes($jetonVeto))->assertOk();
+
+        $inscription = MouvementStupefiant::withoutGlobalScopes()->sole();
+        $this->assertSame('10.00', $inscription->quantite);
+        $this->assertSame('Réception '.$commande->numero, $inscription->motif);
+        $this->assertSame($veto->id, $inscription->employe_id);
+        $this->assertNull($inscription->patient_id);
+        $this->assertSame(10, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->where('clinique_id', $this->clinique->id)->sole()->quantite);
+        $this->assertDatabaseHas('lots', ['produit_id' => $produit->id, 'quantite' => 10]);
     }
 
     public function test_un_article_sans_peremption_ne_cree_pas_de_lot_a_la_reception(): void

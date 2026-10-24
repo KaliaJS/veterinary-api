@@ -6,6 +6,7 @@ use App\Enums\MotifAjustementStock;
 use App\Models\Clinique;
 use App\Models\Lot;
 use App\Models\MouvementStock;
+use App\Models\MouvementStupefiant;
 use App\Models\Produit;
 use App\Models\Stock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -210,6 +211,27 @@ class StockTest extends TestCase
             'quantite' => -4,
             'motif' => MotifAjustementStock::Peremption->value,
         ]);
+    }
+
+    /** Un lot de stupéfiant périmé se détruit par le registre : destruction inscrite, sans patient, avec le droit (24.10.2026). */
+    public function test_ecarter_un_lot_de_stupefiant_inscrit_la_destruction_au_registre(): void
+    {
+        $produit = $this->produitAvecStock(6, ['est_stupefiant' => true]);
+        MouvementStupefiant::factory()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $produit->id, 'quantite' => 6]);
+        $lot = Lot::factory()->perime()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 4]);
+
+        ['jeton' => $jetonAsv] = $this->employeAvecJeton($this->clinique, [], 'asv');
+        $this->postJson("/api/v1/stocks/lots/{$lot->id}/ecarter", [], $this->enTetes($jetonAsv))->assertForbidden();
+        $this->assertDatabaseHas('lots', ['id' => $lot->id]);
+
+        $this->postJson("/api/v1/stocks/lots/{$lot->id}/ecarter", [], $this->enTetes($this->jeton))->assertNoContent();
+
+        $destruction = MouvementStupefiant::withoutGlobalScopes()->where('quantite', '<', 0)->sole();
+        $this->assertSame('-4.00', $destruction->quantite);
+        $this->assertSame('Destruction : lot '.$lot->numero_lot.' périmé', $destruction->motif);
+        $this->assertNull($destruction->patient_id);
+        $this->assertSame(2, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->where('clinique_id', $this->clinique->id)->sole()->quantite);
+        $this->assertDatabaseMissing('lots', ['id' => $lot->id]);
     }
 
     public function test_les_lots_sont_listes_du_plus_urgent_au_plus_lointain(): void

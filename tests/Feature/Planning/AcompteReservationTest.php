@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Planning;
 
+use App\Enums\DomainePermission;
 use App\Mail\AcompteConteste;
 use App\Mail\AnnulationRendezVousDecidee;
 use App\Mail\DemandeRendezVousAcceptee;
@@ -9,6 +10,7 @@ use App\Mail\DemandeRendezVousEnvoyee;
 use App\Mail\DemandeRendezVousRefusee;
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
+use App\Models\DerogationPermission;
 use App\Models\Facture;
 use App\Models\HoraireOuverture;
 use App\Models\LignePlanning;
@@ -320,6 +322,56 @@ class AcompteReservationTest extends TestCase
             'ends_at' => $this->mardi->addDays(2)->addMinutes(20)->utc(),
         ]);
         $this->postJson("/api/v1/rendez-vous/{$sansAcompte->id}/annuler", [], $this->enTetes($jetonVeto))->assertOk();
+    }
+
+    /** L'absence du praticien annule le rendez-vous : l'acompte est rendu en entier, sans le droit « Rembourser » (24.10.2026). */
+    public function test_une_absence_rend_l_acompte_des_rendez_vous_qu_elle_annule(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $autre = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi->addHour());
+
+        // Qui gère l'équipe, sans le droit de rembourser
+        ['employe' => $rh, 'jeton' => $jetonRh] = $this->administrateurAvecJeton($this->clinique);
+        DerogationPermission::create(['employe_id' => $rh->id, 'domaine' => DomainePermission::Rembourser, 'est_accordee' => false]);
+
+        $this->postJson('/api/v1/absences', [
+            'employe_id' => $this->ligne->employe_id,
+            'type' => 'maladie',
+            'statut' => 'ok',
+            'debut_le' => $this->mardi->toDateString(),
+            'fin_le' => $this->mardi->toDateString(),
+        ], $this->enTetes($jetonRh))->assertCreated()->assertJsonPath('meta.rendez_vous_annules', 2);
+
+        foreach ([$demande, $autre] as $d) {
+            $d->refresh();
+            $this->assertSame(3000, $d->acompte_rembourse_centimes);
+            $this->assertSame('annule', RendezVous::withoutGlobalScopes()->find($d->rendez_vous_id)->status->value);
+        }
+        $this->assertCount(2, $this->stripe->rendus);
+        $this->assertSame([3000, 3000], array_column($this->stripe->rendus, 'centimes'));
+    }
+
+    /** Le prestataire refuse le rendu : le rendez-vous n'est pas annulé, l'acompte n'est pas perdu. */
+    public function test_une_absence_n_annule_pas_un_rendez_vous_dont_l_acompte_ne_peut_etre_rendu(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+
+        $this->stripe->erreurs['rembourser'] = new ErreurPaiement(ErreurPaiement::GENERIQUE, 'api_error');
+        $this->postJson('/api/v1/absences', [
+            'employe_id' => $this->ligne->employe_id,
+            'type' => 'maladie',
+            'statut' => 'ok',
+            'debut_le' => $this->mardi->toDateString(),
+            'fin_le' => $this->mardi->toDateString(),
+        ], $this->enTetes($jetonAdmin))->assertCreated()->assertJsonPath('meta.rendez_vous_annules', 0);
+
+        $this->assertNull($demande->refresh()->acompte_rembourse_le);
+        $this->assertSame('prevu', RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id)->status->value);
     }
 
     /** Rendu depuis Stripe (composant des paiements) : l'app le sait, et ne le rend pas une seconde fois. */
