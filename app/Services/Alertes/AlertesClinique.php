@@ -90,7 +90,14 @@ class AlertesClinique
             );
         }
 
-        $rembourses = $paiements(StatutPaiement::Rembourse);
+        // Rendus en entier, ou en partie (le paiement reste réussi)
+        $rembourses = $paiements(StatutPaiement::Rembourse)->concat(Paiement::withoutGlobalScopes()
+            ->with(['facture' => fn ($requete) => $requete->withoutGlobalScopes()])
+            ->where('clinique_id', $clinique->id)
+            ->where('statut', StatutPaiement::Reussi)
+            ->where('erreur', 'like', 'Remboursé en partie%')
+            ->where('updated_at', '>=', now()->subDays(30))
+            ->get());
         if ($rembourses->isNotEmpty()) {
             $alertes[] = $this->alerte(
                 TypeAlerte::Paiement,

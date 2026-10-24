@@ -160,6 +160,23 @@ class AcomptesRendezVous
         return true;
     }
 
+    /**
+     * Acompte remboursé depuis Stripe (composant des paiements) : noté
+     * comme un rendu de l'app, seulement si l'événement vient du compte
+     * qui l'a reçu (24.10.2026).
+     */
+    public function surRemboursementChezStripe(?string $intentionId, ?string $compte, int $centimes): void
+    {
+        $demande = $intentionId ? DemandeRendezVous::withoutGlobalScopes()->where('acompte_intention_id', $intentionId)->first() : null;
+        if (! $demande || $centimes <= 0 || ($compte !== null && $demande->acompte_stripe_compte_id !== null && $demande->acompte_stripe_compte_id !== $compte)) {
+            return;
+        }
+        $demande->update([
+            'acompte_rembourse_le' => $demande->acompte_rembourse_le ?? now(),
+            'acompte_rembourse_centimes' => max($centimes, (int) $demande->acompte_rembourse_centimes),
+        ]);
+    }
+
     /** Frais du paiement, lus chez le prestataire s'ils ne l'ont pas encore été. */
     public function fraisConnus(DemandeRendezVous $demande): int
     {

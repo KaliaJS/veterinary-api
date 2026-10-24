@@ -14,6 +14,7 @@ use App\Models\LignePlanning;
 use App\Models\RendezVous;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
+use App\Services\Paiements\WebhooksStripe;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
@@ -318,6 +319,26 @@ class AcompteReservationTest extends TestCase
             'ends_at' => $this->mardi->addDays(2)->addMinutes(20)->utc(),
         ]);
         $this->postJson("/api/v1/rendez-vous/{$sansAcompte->id}/annuler", [], $this->enTetes($jetonVeto))->assertOk();
+    }
+
+    /** Rendu depuis Stripe (composant des paiements) : l'app le sait, et ne le rend pas une seconde fois. */
+    public function test_un_acompte_rendu_chez_stripe_est_note(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+
+        app(WebhooksStripe::class)->traiter([
+            'id' => 'evt_acompte_rendu',
+            'type' => 'charge.refunded',
+            'objet' => ['payment_intent' => $demande->acompte_intention_id, 'refunded' => true, 'amount_refunded' => 3000],
+            'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+
+        $demande->refresh();
+        $this->assertNotNull($demande->acompte_rembourse_le);
+        $this->assertSame(3000, $demande->acompte_rembourse_centimes);
+        $this->assertFalse($demande->acompteEnJeu());
     }
 
     public function test_un_acompte_que_stripe_refuse_de_rendre_ne_perd_rien_on_reessaie(): void

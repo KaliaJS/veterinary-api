@@ -151,6 +151,8 @@ class WebhooksStripe
     {
         $paiement = $this->paiementDuCompte($charge['payment_intent'] ?? null, $compte);
         if (! $paiement) {
+            $this->acomptes->surRemboursementChezStripe($charge['payment_intent'] ?? null, $compte, (int) ($charge['amount_refunded'] ?? 0));
+
             return;
         }
 
@@ -180,7 +182,8 @@ class WebhooksStripe
             return;
         }
 
-        $paiement->update(($litige['status'] ?? null) === 'won'
+        // Gagné, ou simple demande d'information close sans retrait d'argent
+        $paiement->update(in_array($litige['status'] ?? null, ['won', 'warning_closed'], true)
             ? ['statut' => StatutPaiement::Reussi, 'erreur' => null]
             : ['statut' => StatutPaiement::Rembourse, 'erreur' => 'Litige perdu : le montant a été rendu au titulaire de la carte.']);
     }

@@ -264,6 +264,8 @@ class PaiementStripeTest extends TestCase
         // Rendu en partie : noté, le paiement reste réussi ; en entier : remboursé
         $this->webhook($this->evenement('evt_r1', 'charge.refunded', ['payment_intent' => $rendu->stripe_payment_intent_id, 'refunded' => false, 'amount_refunded' => 2000]))->assertNoContent();
         $this->assertSame(['reussi', 'Remboursé en partie : CHF 20.00.'], [$rendu->refresh()->statut->value, $rendu->erreur]);
+        // … et la facturation le voit
+        $this->assertSame(['1 paiement remboursé'], collect($this->getJson('/api/v1/alertes', $this->enTetes($this->jeton))->json('data.alertes'))->where('type', 'paiement')->pluck('titre')->values()->all());
         $this->webhook($this->evenement('evt_r2', 'charge.refunded', ['payment_intent' => $rendu->stripe_payment_intent_id, 'refunded' => true, 'amount_refunded' => 12000]))->assertNoContent();
         $this->assertSame('rembourse', $rendu->refresh()->statut->value);
         // La facture reste payée, et payée par Stripe
@@ -287,11 +289,18 @@ class PaiementStripeTest extends TestCase
         $this->webhook($this->evenement('evt_l4', 'charge.dispute.closed', ['payment_intent' => $conteste->stripe_payment_intent_id, 'status' => 'lost']))->assertNoContent();
         $this->assertSame('rembourse', $conteste->refresh()->statut->value);
 
+        // Une demande d'information de la banque, close sans retrait : réussi
+        $demandeInfo = Paiement::query()->findOrFail($this->payerParTerminal($this->factureDue(40)));
+        $this->webhook($this->evenement('evt_ok_3', 'payment_intent.succeeded', ['id' => $demandeInfo->stripe_payment_intent_id, 'status' => 'succeeded']))->assertNoContent();
+        $this->webhook($this->evenement('evt_l5', 'charge.dispute.created', ['payment_intent' => $demandeInfo->stripe_payment_intent_id]))->assertNoContent();
+        $this->webhook($this->evenement('evt_l6', 'charge.dispute.closed', ['payment_intent' => $demandeInfo->stripe_payment_intent_id, 'status' => 'warning_closed']))->assertNoContent();
+        $this->assertSame('reussi', $demandeInfo->refresh()->statut->value);
+
         // Les factures restent comptées comme payées par Stripe
         $this->getJson('/api/v1/facturation/factures', $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonPath('data.0.paye_par_stripe', true)
-            ->assertJsonPath('data.1.paye_par_stripe', true);
+            ->assertJsonPath('data.1.paye_par_stripe', true)
+            ->assertJsonPath('data.2.paye_par_stripe', true);
     }
 
     public function test_les_alertes_de_paiement_restent_a_la_facturation(): void
