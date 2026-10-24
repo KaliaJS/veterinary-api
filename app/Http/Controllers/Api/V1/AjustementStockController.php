@@ -23,6 +23,13 @@ class AjustementStockController extends Controller
     {
         $this->authorize('update', $produit);
 
+        // Le stock d'un stupéfiant suit son registre (24.10.2026)
+        if ($produit->est_stupefiant) {
+            throw ValidationException::withMessages([
+                'quantite' => 'Le stock d’un stupéfiant suit son registre : inscrivez-y la réception ou la sortie (Outils, Registre des stupéfiants).',
+            ]);
+        }
+
         $motif = MotifAjustementStock::from($request->validated('motif'));
 
         $reel = $stock->appliquer(

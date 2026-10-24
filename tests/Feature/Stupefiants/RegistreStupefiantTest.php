@@ -7,6 +7,8 @@ use App\Models\Employe;
 use App\Models\MouvementStupefiant;
 use App\Models\Patient;
 use App\Models\Produit;
+use App\Models\Stock;
+use App\Services\GestionnaireStock;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -212,5 +214,26 @@ class RegistreStupefiantTest extends TestCase
 
         $ids = collect($this->getJson('/api/v1/stupefiants/registre?du=2026-07-14&au=2026-07-14', $this->enTetes($this->jeton))->assertOk()->json('data.mouvements'))->pluck('id');
         $this->assertSame([$tard->id], $ids->all());
+    }
+
+    /** Le registre seul fait bouger le stock d'un stupéfiant (24.10.2026) : arrondi à l'unité inférieure. */
+    public function test_le_registre_fait_bouger_le_stock_et_rien_d_autre(): void
+    {
+        $entetes = $this->enTetes($this->jeton);
+        $stock = fn (): int => (int) Stock::withoutGlobalScopes()->where('produit_id', $this->substance->id)->where('clinique_id', $this->clinique->id)->value('quantite');
+
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $this->substance->id, 'quantite' => 10], $entetes)->assertCreated();
+        $this->assertSame(10, $stock());
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $this->substance->id, 'patient_id' => $this->patient->id, 'quantite' => -1.2], $entetes)->assertCreated();
+        $this->assertSame(8, $stock());
+
+        // Une facture, une ordonnance, un soin : rien ne sort sans le registre
+        $this->assertSame(0, app(GestionnaireStock::class)->sortir($this->substance, 3, 'Ordonnance', cliniqueId: $this->clinique->id));
+        $this->assertSame(8, $stock());
+
+        // Corriger à la main : refusé, c'est le registre qui le fait
+        $this->postJson("/api/v1/stocks/produits/{$this->substance->id}/ajuster", ['quantite' => -2, 'motif' => 'recep'], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('quantite');
+        $this->assertSame(8, $stock());
     }
 }

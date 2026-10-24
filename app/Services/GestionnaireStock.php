@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Enums\MotifAjustementStock;
 use App\Models\Clinique;
 use App\Models\MouvementStock;
+use App\Models\MouvementStupefiant;
 use App\Models\Produit;
 use App\Models\Stock;
 use App\Models\User;
@@ -44,6 +45,13 @@ class GestionnaireStock
         ?Model $source = null,
         ?int $cliniqueId = null,
     ): int {
+        // Un stupéfiant ne bouge que par son registre (24.10.2026, décision de
+        // Jim) : facture, ordonnance, soin, vente ou commande n'y touchent pas,
+        // le registre et le stock ne divergent jamais
+        if ($produit->est_stupefiant && ! $source instanceof MouvementStupefiant) {
+            return 0;
+        }
+
         $cliniqueId = $this->cliniqueCible($cliniqueId);
 
         return DB::transaction(function () use ($produit, $ecart, $libelle, $auteur, $motif, $source, $cliniqueId): int {
@@ -123,6 +131,27 @@ class GestionnaireStock
         return $estSoeur
             ? $cliniqueId
             : throw new AuthorizationException('Écriture de stock hors de l’organisation du jeton.');
+    }
+
+    /**
+     * Le stock d'un stupéfiant aligné sur le solde de son registre (arrondi
+     * à l'unité entière inférieure : le registre compte au dixième de ml).
+     */
+    public function alignerSurLeRegistre(Produit $produit, MouvementStupefiant $mouvement, ?User $auteur = null): void
+    {
+        $solde = (float) MouvementStupefiant::withoutGlobalScopes()
+            ->where('clinique_id', $mouvement->clinique_id)
+            ->where('produit_id', $produit->id)
+            ->sum('quantite');
+        $actuel = (int) Stock::query()->withoutGlobalScope('clinique')
+            ->where('produit_id', $produit->id)
+            ->where('clinique_id', $mouvement->clinique_id)
+            ->value('quantite');
+        $ecart = (int) floor($solde + 0.000001) - $actuel;
+
+        if ($ecart !== 0) {
+            $this->appliquer($produit, $ecart, 'Registre des stupéfiants : '.$mouvement->motif, $auteur, source: $mouvement, cliniqueId: $mouvement->clinique_id);
+        }
     }
 
     /**

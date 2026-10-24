@@ -8,6 +8,7 @@ use App\Http\Requests\V1\Stupefiants\EnregistrerMouvementStupefiantRequest;
 use App\Http\Resources\V1\MouvementStupefiantResource;
 use App\Models\MouvementStupefiant;
 use App\Models\Produit;
+use App\Services\GestionnaireStock;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
@@ -45,9 +46,9 @@ class MouvementStupefiantController extends Controller
         $donnees = $request->validated();
         $quantite = (float) $donnees['quantite'];
 
-        $mouvement = DB::transaction(function () use ($donnees, $quantite): MouvementStupefiant {
+        $mouvement = DB::transaction(function () use ($donnees, $quantite, $request): MouvementStupefiant {
             // Une inscription à la fois par substance : le solde lu reste vrai
-            Produit::query()->whereKey($donnees['produit_id'])->lockForUpdate()->first();
+            $produit = Produit::query()->whereKey($donnees['produit_id'])->lockForUpdate()->firstOrFail();
 
             $solde = (float) MouvementStupefiant::query()->where('produit_id', $donnees['produit_id'])->sum('quantite');
             if ($quantite < 0 && $solde + $quantite < -0.001) {
@@ -59,7 +60,7 @@ class MouvementStupefiantController extends Controller
             // Parité front (tools.js) : pas de patient sur une réception,
             // motif par défaut selon le sens du mouvement. Le signataire
             // est toujours la personne connectée (23.10.2026).
-            return MouvementStupefiant::create([
+            $mouvement = MouvementStupefiant::create([
                 'produit_id' => $donnees['produit_id'],
                 'patient_id' => $quantite < 0 ? $donnees['patient_id'] : null,
                 'employe_id' => app(ContexteClinique::class)->employe()?->id,
@@ -69,6 +70,11 @@ class MouvementStupefiantController extends Controller
                     : $donnees['motif'],
                 'created_at' => now(),
             ]);
+
+            // Le registre seul fait bouger le stock d'un stupéfiant (24.10.2026)
+            app(GestionnaireStock::class)->alignerSurLeRegistre($produit, $mouvement, $request->user());
+
+            return $mouvement;
         });
 
         return new MouvementStupefiantResource($mouvement->load(['produit', 'patient', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
