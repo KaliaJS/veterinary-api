@@ -8,6 +8,7 @@ use App\Enums\PieceNumerotee;
 use App\Enums\ServiceClinique;
 use App\Enums\StatutCommandeBoutique;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\V1\Espace\ApercuPanierRequest;
 use App\Http\Requests\V1\Espace\PasserCommandesRequest;
 use App\Models\Clinique;
 use App\Models\CommandeBoutique;
@@ -77,6 +78,49 @@ class BoutiqueProprietaireController extends Controller
                 })->values()->all(),
             ];
         })->all()]);
+    }
+
+    /**
+     * Le panier chiffré par le serveur (24.10.2026) : par clinique, le
+     * total, la TVA au taux de sa société (rien si elle n'y est pas
+     * assujettie) et le hors taxes ; l'écran les affiche sans calcul. Les
+     * prix sont ceux du moment (promotion comprise) ; le stock se contrôle
+     * à la commande.
+     */
+    public function apercu(ApercuPanierRequest $request): JsonResponse
+    {
+        $paniers = collect($request->validated('commandes'));
+        $cliniques = Clinique::withoutGlobalScopes()->ouvertes()->avecService(ServiceClinique::Boutique)->with('societe')
+            ->whereIn('id', $paniers->pluck('clinique_id'))->get()->keyBy('id');
+        $produits = Produit::withoutGlobalScopes()->where('est_boutique', true)
+            ->whereIn('id', $paniers->flatMap(fn (array $p) => array_column($p['lignes'], 'produit_id')))->get()->keyBy('id');
+
+        $parClinique = $paniers->map(function (array $panier) use ($cliniques, $produits): ?array {
+            $clinique = $cliniques[(int) $panier['clinique_id']] ?? null;
+            if (! $clinique) {
+                return null;
+            }
+            $ttc = round((float) collect($panier['lignes'])->sum(function (array $ligne) use ($produits, $clinique): float {
+                $produit = $produits[(int) $ligne['produit_id']] ?? null;
+
+                return $produit && $produit->organisation_id === $clinique->societe->organisation_id
+                    ? (int) $ligne['quantite'] * $produit->prixEffectif()
+                    : 0.0;
+            }), 2);
+            $taux = $clinique->societe->tauxTva();
+            $tva = $taux > 0 ? round($ttc - $ttc / (1 + $taux / 100), 2) : 0.0;
+
+            return ['clinique_id' => $clinique->id, 'total_ttc' => $ttc, 'montant_tva' => $tva, 'total_ht' => round($ttc - $tva, 2), 'taux_tva' => $taux];
+        })->filter()->values();
+
+        return response()->json(['data' => [
+            'cliniques' => $parClinique->all(),
+            'total_ttc' => round((float) $parClinique->sum('total_ttc'), 2),
+            'montant_tva' => round((float) $parClinique->sum('montant_tva'), 2),
+            'total_ht' => round((float) $parClinique->sum('total_ht'), 2),
+            // Un seul taux affiché quand toutes les cliniques ont le même
+            'taux_tva' => $parClinique->pluck('taux_tva')->unique()->count() === 1 ? $parClinique->first()['taux_tva'] : null,
+        ]]);
     }
 
     public function commandes(ContexteProprietaire $contexte): JsonResponse
