@@ -33,7 +33,7 @@ class AccesEmployeController extends Controller
     {
         $fiche = EquipeEmployeController::employeDeLOrganisation($employe);
 
-        $this->authorize('update', $fiche);
+        $this->authorize('rendreAcces', $fiche);
 
         $organisation = app(ContexteClinique::class)->clinique()->societe->organisation;
 

@@ -97,6 +97,28 @@ class EmployePolicy
         return Response::allow();
     }
 
+    /**
+     * Rétablir l'accès ou annuler un licenciement : jamais pour soi-même,
+     * jamais pour quelqu'un qui a des droits qu'on n'a pas (24.10.2026).
+     */
+    public function rendreAcces(User $user, Employe $employe): Response
+    {
+        $base = $this->update($user, $employe);
+        if ($base->denied()) {
+            return $base;
+        }
+
+        if ($this->garde->estSoiMeme($employe)) {
+            return Response::deny('Vous ne pouvez pas rétablir votre propre accès ni annuler votre propre licenciement.');
+        }
+
+        if (! $this->garde->couvreEmploye($employe)) {
+            return Response::deny('Cette personne a des droits que vous n’avez pas : seul un administrateur peut lui rendre son accès.');
+        }
+
+        return Response::allow();
+    }
+
     /** Suspendre ou licencier : jamais soi-même, jamais le dernier administrateur. */
     public function retirerAcces(User $user, Employe $employe): Response
     {

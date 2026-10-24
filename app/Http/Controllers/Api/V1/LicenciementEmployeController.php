@@ -45,7 +45,7 @@ class LicenciementEmployeController extends Controller
     {
         $fiche = EquipeEmployeController::employeDeLOrganisation($employe);
 
-        $this->authorize('update', $fiche);
+        $this->authorize('rendreAcces', $fiche);
 
         if (! $fiche->estLicencie()) {
             throw ValidationException::withMessages(['licenciement' => 'Aucun licenciement notifié pour cette fiche.']);

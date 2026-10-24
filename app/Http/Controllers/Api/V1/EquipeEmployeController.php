@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Auth\GardeEquipe;
+use App\Enums\DomainePermission;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Equipe\EmbaucherEmployeRequest;
 use App\Http\Requests\V1\Equipe\ModifierEmployeRequest;
@@ -12,9 +14,11 @@ use App\Models\Employe;
 use App\Models\Role;
 use App\Services\Equipe\Embauche;
 use App\Services\Equipe\InvitationsEquipe;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Fiches RH : une par personne dans l'organisation, avec les cliniques
@@ -74,6 +78,14 @@ class EquipeEmployeController extends Controller
     {
         $fiche = $this->employeDeLOrganisation($employe);
         $this->authorize('update', $fiche);
+
+        // Son propre contrat (salaire, taux, congés…) : réglé par quelqu'un
+        // d'autre, sauf par un administrateur, qui tient l'organisation (24.10.2026)
+        $contrat = ['taux', 'contrat', 'contrat_statut', 'salaire_mensuel', 'conges_droit', 'conges_pris'];
+        if (app(GardeEquipe::class)->estSoiMeme($fiche) && ! Gate::allows(DomainePermission::Organisation->value)
+            && array_intersect($contrat, array_keys($request->validated())) !== []) {
+            throw new AuthorizationException('Votre contrat se règle par une autre personne qui a le droit RH.');
+        }
 
         // Changer de rôle : jamais le sien, jamais plus large que le sien
         if ($request->has('role_id') && $request->validated('role_id') !== $fiche->role_id) {

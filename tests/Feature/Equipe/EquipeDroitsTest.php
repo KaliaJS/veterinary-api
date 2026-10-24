@@ -92,6 +92,43 @@ class EquipeDroitsTest extends TestCase
             ->assertOk()->assertJsonPath('data.salaire_mensuel', 8200);
     }
 
+    /** Licencié avec une fin de contrat à venir : il ne compte plus comme administrateur qui reste. */
+    public function test_un_administrateur_licencie_ne_garde_pas_l_organisation(): void
+    {
+        ['employe' => $a, 'jeton' => $jetonA] = $this->administrateurAvecJeton($this->clinique);
+        ['employe' => $b, 'jeton' => $jetonB] = $this->administrateurAvecJeton($this->clinique);
+
+        $this->postJson("/api/v1/equipe/employes/{$b->id}/licencier", ['fin_contrat_le' => aujourdhui()->addMonth()->toDateString()], $this->enTetes($jetonA))->assertOk();
+        // B, sur le départ, ne licencie pas A : il ne resterait personne
+        $this->postJson("/api/v1/equipe/employes/{$a->id}/licencier", ['fin_contrat_le' => aujourdhui()->toDateString()], $this->enTetes($jetonB))->assertForbidden();
+        $this->postJson("/api/v1/equipe/employes/{$a->id}/suspendre", [], $this->enTetes($jetonB))->assertForbidden();
+        $this->assertNull($a->refresh()->licenciement_notifie_le);
+    }
+
+    /** Ni rétablir son accès, ni annuler son licenciement, ni régler son contrat sans être administrateur. */
+    public function test_personne_ne_se_rend_son_acces_ni_ne_regle_son_contrat(): void
+    {
+        $responsable = Role::withoutGlobalScopes()->create([
+            'organisation_id' => $this->clinique->societe->organisation_id,
+            'nom' => 'Responsable RH',
+            'domaines' => array_values(array_filter(DomainePermission::cases(), fn ($d) => $d !== DomainePermission::Organisation)),
+        ]);
+        ['employe' => $rh, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique, ['role_id' => $responsable->id, 'salaire_mensuel' => 5000]);
+        $rh->update(['licenciement_notifie_le' => aujourdhui(), 'fin_contrat_le' => aujourdhui()->addMonth()]);
+
+        $this->postJson("/api/v1/equipe/employes/{$rh->id}/annuler-licenciement", [], $this->enTetes($jeton))->assertForbidden();
+        $this->postJson("/api/v1/equipe/employes/{$rh->id}/retablir", [], $this->enTetes($jeton))->assertForbidden();
+        $this->patchJson("/api/v1/equipe/employes/{$rh->id}", ['salaire_mensuel' => 9000], $this->enTetes($jeton))->assertForbidden();
+        $this->patchJson("/api/v1/equipe/employes/{$rh->id}", ['tel' => '079 111 11 11'], $this->enTetes($jeton))->assertOk();
+        $this->assertNotNull($rh->refresh()->licenciement_notifie_le);
+        $this->assertEquals(5000, $rh->salaire_mensuel);
+
+        // Ni rendre l'accès à quelqu'un qui a plus de droits que soi
+        ['employe' => $administrateur] = $this->administrateurAvecJeton($this->clinique);
+        $administrateur->update(['acces_suspendu' => true]);
+        $this->postJson("/api/v1/equipe/employes/{$administrateur->id}/retablir", [], $this->enTetes($jeton))->assertForbidden();
+    }
+
     private function role(string $nom): Role
     {
         return Role::withoutGlobalScopes()

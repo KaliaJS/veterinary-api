@@ -56,9 +56,11 @@ class GardeEquipe
 
     /**
      * Cette personne est le dernier administrateur actif de son
-     * organisation (non suspendu, contrat en cours) : la suspendre, la
-     * licencier ou lui retirer le droit `organisation` laisserait
-     * l'organisation sans personne pour la gérer.
+     * organisation : la suspendre, la licencier ou lui retirer le droit
+     * `organisation` laisserait l'organisation sans personne pour la
+     * gérer. Ne comptent que ceux qui restent : ni suspendus, ni
+     * licenciés (même avant leur fin de contrat), contrat en cours
+     * (24.10.2026).
      */
     public function estDernierAdministrateur(Employe $employe): bool
     {
@@ -70,6 +72,7 @@ class GardeEquipe
             ->where('organisation_id', $employe->organisation_id)
             ->whereKeyNot($employe->id)
             ->where('acces_suspendu', false)
+            ->whereNull('licenciement_notifie_le')
             ->where(fn ($q) => $q->whereNull('fin_contrat_le')->orWhereDate('fin_contrat_le', '>=', aujourdhui()))
             ->with('role', 'derogations')
             ->get()
