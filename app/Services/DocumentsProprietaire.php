@@ -172,7 +172,10 @@ class DocumentsProprietaire
                     'titre' => 'Devis '.mb_strtolower($d->motif ?? $d->numero).', '.chf($d->totalTtc()).' ('.$d->patient->nom.')',
                     'sous_ligne' => match ($effectif) {
                         StatutDevis::Envoye->value => 'EN ATTENTE DE VOTRE SIGNATURE',
-                        StatutDevis::Accepte->value => 'SIGNÉ ÉLECTRONIQUEMENT'.($d->signe_le ? ' · '.mb_strtoupper(self::dateLongue($d->signe_le)) : ''),
+                        // Signé par le client dans son espace, ou accepté par l'équipe
+                        // pour lui (au téléphone, au comptoir) : jamais confondus (24.10.2026)
+                        StatutDevis::Accepte->value => (str_starts_with((string) $d->signe_par, 'Signature électronique') ? 'SIGNÉ ÉLECTRONIQUEMENT' : 'ACCEPTÉ, ENREGISTRÉ PAR LA CLINIQUE')
+                            .($d->signe_le ? ' · '.mb_strtoupper(self::dateLongue($d->signe_le)) : ''),
                         StatutDevis::Refuse->value => 'REFUSÉ',
                         default => 'EXPIRÉ',
                     },

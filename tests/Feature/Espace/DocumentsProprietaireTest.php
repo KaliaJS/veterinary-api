@@ -131,4 +131,19 @@ class DocumentsProprietaireTest extends TestCase
         $this->postJson("/api/v1/espace/ordonnances/{$epuisee->id}/renouvellement", [], $this->enTetes($jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('renouvellements');
     }
+
+    /** Accepté par l'équipe pour le client : jamais présenté comme sa signature électronique. */
+    public function test_un_devis_accepte_par_l_equipe_ne_se_dit_pas_signe_electroniquement(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $fiche = Client::factory()->create(['user_id' => $user->id]);
+        $max = Patient::factory()->create(['client_id' => $fiche->id, 'nom' => 'Max']);
+        $commun = ['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Accepte, 'canal' => CanalDevis::Portail, 'signe_le' => now()];
+        $parEquipe = Devis::factory()->create([...$commun, 'signe_par' => 'Accord du propriétaire enregistré par Dr Meyer']);
+        $parClient = Devis::factory()->create([...$commun, 'signe_par' => 'Signature électronique de Léa, espace client']);
+
+        $devis = collect($this->getJson('/api/v1/espace/documents', $this->enTetes($jeton))->assertOk()->json('data'))->where('type', 'DEVIS')->keyBy('id');
+        $this->assertStringStartsWith('ACCEPTÉ, ENREGISTRÉ PAR LA CLINIQUE', $devis[$parEquipe->id]['sous_ligne']);
+        $this->assertStringStartsWith('SIGNÉ ÉLECTRONIQUEMENT', $devis[$parClient->id]['sous_ligne']);
+    }
 }
