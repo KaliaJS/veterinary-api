@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Planning;
 
+use App\Mail\AcompteConteste;
 use App\Mail\AnnulationRendezVousDecidee;
 use App\Mail\DemandeRendezVousAcceptee;
 use App\Mail\DemandeRendezVousEnvoyee;
@@ -338,6 +339,31 @@ class AcompteReservationTest extends TestCase
         $demande->refresh();
         $this->assertNotNull($demande->acompte_rembourse_le);
         $this->assertSame(3000, $demande->acompte_rembourse_centimes);
+        $this->assertFalse($demande->acompteEnJeu());
+    }
+
+    /** Contesté à la banque : la facturation le sait tout de suite ; perdu, l'argent est retourné. */
+    public function test_un_acompte_conteste_alerte_la_facturation(): void
+    {
+        Mail::fake();
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $webhook = fn (string $id, string $type, array $objet) => app(WebhooksStripe::class)->traiter([
+            'id' => $id, 'type' => $type, 'objet' => $objet, 'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+
+        $webhook('evt_acompte_l1', 'charge.dispute.created', ['payment_intent' => $demande->acompte_intention_id, 'evidence_details' => ['due_by' => now()->addDays(7)->timestamp]]);
+        $this->assertSame('ouvert', $demande->refresh()->acompte_litige);
+        Mail::assertSent(AcompteConteste::class, fn (AcompteConteste $mail) => $mail->demande->is($demande) && $mail->echeance !== null);
+        $alertes = collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonAdmin))->assertOk()->json('data.alertes'))->where('type', 'paiement');
+        $this->assertContains('1 acompte contesté', $alertes->pluck('titre')->all());
+
+        $webhook('evt_acompte_l2', 'charge.dispute.closed', ['payment_intent' => $demande->acompte_intention_id, 'status' => 'lost']);
+        $demande->refresh();
+        $this->assertSame('perdu', $demande->acompte_litige);
+        $this->assertNotNull($demande->acompte_rembourse_le);
         $this->assertFalse($demande->acompteEnJeu());
     }
 

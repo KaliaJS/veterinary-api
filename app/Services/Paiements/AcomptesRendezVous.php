@@ -8,19 +8,24 @@ use App\Enums\DomainePermission;
 use App\Enums\DrapeauRendezVous;
 use App\Enums\StatutDemandeRendezVous;
 use App\Enums\StatutRendezVous;
+use App\Enums\TypeAlerte;
+use App\Mail\AcompteConteste;
 use App\Mail\AnnulationRendezVousDecidee;
 use App\Mail\DemandeRendezVousEnvoyee;
 use App\Models\DemandeRendezVous;
 use App\Models\RendezVous;
 use App\Models\User;
 use App\Paiements\ErreurPaiement;
+use App\Services\Alertes\DestinatairesAlertes;
 use App\Services\MutationRendezVous;
 use App\Services\TraitementDemande;
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Acompte d'une réservation en ligne (contre les rendez-vous non
@@ -41,6 +46,7 @@ class AcomptesRendezVous
     public function __construct(
         private ComptesPaiement $comptes,
         private SousContexteClinique $sousContexte,
+        private DestinatairesAlertes $destinataires,
     ) {}
 
     /**
@@ -175,6 +181,49 @@ class AcomptesRendezVous
             'acompte_rembourse_le' => $demande->acompte_rembourse_le ?? now(),
             'acompte_rembourse_centimes' => max($centimes, (int) $demande->acompte_rembourse_centimes),
         ]);
+    }
+
+    /**
+     * Acompte contesté auprès de la banque (24.10.2026) : ouvert, la
+     * facturation est prévenue tout de suite (alerte et e-mail) ; clos,
+     * gagné, ou perdu (l'argent est retourné au titulaire de la carte).
+     */
+    public function surLitige(?string $intentionId, ?string $compte, bool $ouvert, ?string $statut, mixed $echeance): void
+    {
+        $demande = $intentionId ? DemandeRendezVous::withoutGlobalScopes()->where('acompte_intention_id', $intentionId)->first() : null;
+        if (! $demande || ($compte !== null && $demande->acompte_stripe_compte_id !== null && $demande->acompte_stripe_compte_id !== $compte)) {
+            return;
+        }
+
+        if (! $ouvert) {
+            $gagne = in_array($statut, ['won', 'warning_closed'], true);
+            $demande->update([
+                'acompte_litige' => $gagne ? 'gagne' : 'perdu',
+                ...$gagne ? [] : [
+                    'acompte_rembourse_le' => $demande->acompte_rembourse_le ?? now(),
+                    'acompte_rembourse_centimes' => $demande->acompte_centimes,
+                ],
+            ]);
+
+            return;
+        }
+
+        $demande->update([
+            'acompte_litige' => 'ouvert',
+            'acompte_litige_echeance' => is_numeric($echeance) ? CarbonImmutable::createFromTimestamp((int) $echeance) : null,
+        ]);
+        $demande->load('clinique');
+        $destinataires = $demande->clinique ? $this->destinataires->pour($demande->clinique, TypeAlerte::Paiement, DomainePermission::Facturation) : [];
+        if ($destinataires === []) {
+            return;
+        }
+        $date = $demande->acompte_litige_echeance?->setTimezone($demande->clinique->fuseau_horaire ?: 'Europe/Zurich')->format('d.m.Y à H:i');
+        try {
+            Mail::to($destinataires)->send(new AcompteConteste($demande, $date));
+        } catch (Throwable $e) {
+            // L'alerte reste dans l'app : un e-mail qui échoue ne fait pas échouer l'événement
+            report($e);
+        }
     }
 
     /** Frais du paiement, lus chez le prestataire s'ils ne l'ont pas encore été. */

@@ -172,6 +172,9 @@ class WebhooksStripe
     {
         $paiement = $this->paiementDuCompte($litige['payment_intent'] ?? null, $compte);
         if (! $paiement) {
+            // Un acompte payé en ligne, peut-être
+            $this->acomptes->surLitige($litige['payment_intent'] ?? null, $compte, $ouvert, $litige['status'] ?? null, $litige['evidence_details']['due_by'] ?? null);
+
             return;
         }
 

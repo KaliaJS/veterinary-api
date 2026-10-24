@@ -48,6 +48,8 @@ return new class extends Migration
             $table->timestamp('acompte_rembourse_le')->nullable();
             $table->unsignedInteger('acompte_frais_centimes')->nullable()->comment('Frais du paiement retenus par le prestataire');
             $table->unsignedInteger('acompte_rembourse_centimes')->nullable()->comment('Montant rendu (tout, ou moins les frais)');
+            $table->string('acompte_litige', 10)->nullable()->comment('Contesté à la banque : ouvert, gagne, perdu (24.10.2026)');
+            $table->timestamp('acompte_litige_echeance')->nullable()->comment('Date limite pour répondre à la banque');
             $table->timestamp('annulation_demandee_le')->nullable()->comment('Le propriétaire demande l’annulation d’un rendez-vous avec acompte');
             $table->string('annulation_motif', 500)->nullable();
             $table->string('annulation_decision', 12)->nullable()->comment('complet | hors_frais | sans | refusee');

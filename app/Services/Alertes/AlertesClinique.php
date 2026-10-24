@@ -5,6 +5,7 @@ namespace App\Services\Alertes;
 use App\Enums\StatutPaiement;
 use App\Enums\TypeAlerte;
 use App\Models\Clinique;
+use App\Models\DemandeRendezVous;
 use App\Models\Lot;
 use App\Models\Organisation;
 use App\Models\Paiement;
@@ -86,6 +87,23 @@ class AlertesClinique
                 'urgent',
                 $this->compte($aRendre->count(), 'paiement à rembourser', 'paiements à rembourser'),
                 $this->noms($aRendre->map(fn (Paiement $p) => $this->paiement($p))).'. Reçu en trop, et le remboursement automatique a échoué : remboursez-le depuis Réglages, Paiements.',
+                'reglages:paiements',
+            );
+        }
+
+        // Acomptes payés en ligne et contestés à la banque (24.10.2026)
+        $acomptes = DemandeRendezVous::withoutGlobalScopes()
+            ->where('clinique_id', $clinique->id)
+            ->where('acompte_litige', 'ouvert')
+            ->orderByDesc('updated_at')
+            ->get();
+        if ($acomptes->isNotEmpty()) {
+            $alertes[] = $this->alerte(
+                TypeAlerte::Paiement,
+                'acomptes-contestes:'.$this->empreinte($acomptes->map(fn (DemandeRendezVous $d) => (string) $d->id)),
+                'urgent',
+                $this->compte($acomptes->count(), 'acompte contesté', 'acomptes contestés'),
+                $this->noms($acomptes->map(fn (DemandeRendezVous $d) => 'acompte de '.$d->patient_name.' ('.$this->chf((int) $d->acompte_centimes).')')).'. Répondez depuis Réglages, Paiements, avant l’échéance de la banque.',
                 'reglages:paiements',
             );
         }

@@ -156,25 +156,28 @@ class User extends Authenticatable
     public function nouveauCodeEmploye(): string
     {
         do {
-            $code = collect(range(1, 6))->map(fn (): string => self::ALPHABET_CODE[random_int(0, strlen(self::ALPHABET_CODE) - 1)])->implode('');
+            $code = collect(range(1, self::LONGUEUR_CODE))->map(fn (): string => self::ALPHABET_CODE[random_int(0, strlen(self::ALPHABET_CODE) - 1)])->implode('');
         } while (self::query()->where('code_employe', $code)->exists());
         $this->forceFill(['code_employe' => $code])->save();
 
         return $code;
     }
 
-    /** Le code tel qu'on le lit et le dicte : « K7F-3QZ ». */
+    /** Huit caractères depuis le 24.10.2026 (six avant) : trop long pour se deviner */
+    public const int LONGUEUR_CODE = 8;
+
+    /** Le code tel qu'on le lit et le dicte : « K7F3-QZ8M ». */
     public static function formaterCodeEmploye(string $code): string
     {
-        return substr($code, 0, 3).'-'.substr($code, 3);
+        return substr($code, 0, 4).'-'.substr($code, 4);
     }
 
-    /** Code saisi (« k7f 3qz », « K7F-3QZ ») ramené à sa forme stockée, ou null. */
+    /** Code saisi (« k7f3 qz8m », « K7F3-QZ8M ») ramené à sa forme stockée, ou null. */
     public static function normaliserCodeEmploye(string $saisi): ?string
     {
         $code = strtoupper((string) preg_replace('/[^A-Za-z0-9]/', '', $saisi));
 
-        return strlen($code) === 6 ? $code : null;
+        return strlen($code) === self::LONGUEUR_CODE ? $code : null;
     }
 
     /** @return HasMany<Passkey, $this> */

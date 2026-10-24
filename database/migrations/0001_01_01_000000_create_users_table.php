@@ -32,7 +32,7 @@ return new class extends Migration
             $table->text('presentation')->nullable()->comment('Fiche publique d’un vétérinaire : quelques lignes sur lui');
             $table->json('langues')->nullable()->comment('Fiche publique d’un vétérinaire : langues parlées (fr, de, it, en…)');
             $table->timestamp('annuaire_accord_le')->nullable()->comment('Accord du vétérinaire pour paraître nommément dans l’annuaire de Veterinary (nLPD), sinon jamais nommé');
-            $table->char('code_employe', 6)->nullable()->unique()->comment('Code court que la personne donne pour être embauchée (« K7F3QZ », affiché « K7F-3QZ »)');
+            $table->char('code_employe', 8)->nullable()->unique()->comment('Code que la personne donne pour être embauchée (« K7F3QZ8M », affiché « K7F3-QZ8M »)');
             $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
             $table->rememberToken();

@@ -139,7 +139,7 @@ class EmployeRhTest extends TestCase
     {
         $premier = $this->getJson('/api/v1/auth/moi', $this->enTetes($this->jeton))->json('data.user.code_employe');
 
-        $this->assertMatchesRegularExpression('/^[A-HJKMNP-Z2-9]{3}-[A-HJKMNP-Z2-9]{3}$/', $premier);
+        $this->assertMatchesRegularExpression('/^[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}$/', $premier);
         $this->assertSame($premier, $this->getJson('/api/v1/auth/moi', $this->enTetes($this->jeton))->json('data.user.code_employe'));
     }
 

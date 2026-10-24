@@ -36,7 +36,7 @@ class DemandeRendezVous extends Model
         'duree_minutes', 'statut', 'creneaux_proposes', 'motif_refus', 'message',
         'rendez_vous_id', 'traitee_le', 'jeton', 'acompte_centimes',
         'acompte_intention_id', 'acompte_stripe_compte_id', 'acompte_paye_le', 'acompte_rembourse_le',
-        'acompte_frais_centimes', 'acompte_rembourse_centimes', 'annulation_demandee_le',
+        'acompte_frais_centimes', 'acompte_rembourse_centimes', 'acompte_litige', 'acompte_litige_echeance', 'annulation_demandee_le',
         'annulation_motif', 'annulation_decision', 'annulation_traitee_le',
     ];
 
@@ -68,6 +68,7 @@ class DemandeRendezVous extends Model
             'acompte_rembourse_le' => 'immutable_datetime',
             'acompte_frais_centimes' => 'integer',
             'acompte_rembourse_centimes' => 'integer',
+            'acompte_litige_echeance' => 'immutable_datetime',
             'annulation_demandee_le' => 'immutable_datetime',
             'annulation_decision' => DecisionAnnulation::class,
             'annulation_traitee_le' => 'immutable_datetime',
