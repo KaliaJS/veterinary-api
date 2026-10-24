@@ -141,6 +141,20 @@ class VaccinationsTest extends TestCase
         $this->assertSame(0, $patient->vaccinations()->count());
     }
 
+    /** Signée par qui l'a faite : un collègue ne la réécrit ni ne l'efface sous son nom. */
+    public function test_seule_la_personne_qui_a_signe_l_injection_la_corrige(): void
+    {
+        $patient = $this->patient();
+        $id = $this->postJson("/api/v1/patients/{$patient->id}/vaccinations", [
+            'nom' => 'Leishmaniose', 'echeance_le' => aujourdhui()->addYear()->toDateString(),
+        ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
+        ['jeton' => $collegue] = $this->employeAvecJeton($this->clinique);
+
+        $this->putJson("/api/v1/patients/{$patient->id}/vaccinations/{$id}", ['nom' => 'Rage', 'lot' => 'X1'], $this->enTetes($collegue))->assertForbidden();
+        $this->deleteJson("/api/v1/patients/{$patient->id}/vaccinations/{$id}", [], $this->enTetes($collegue))->assertForbidden();
+        $this->assertSame('Leishmaniose', $patient->vaccinations()->sole()->nom);
+    }
+
     public function test_le_catalogue_se_filtre_par_espece_et_recherche(): void
     {
         $this->getJson('/api/v1/vaccins?espece=CT', $this->enTetes($this->jeton))->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.nom', 'Nobivac Rabies');

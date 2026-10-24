@@ -171,7 +171,7 @@ class PaiementsSurLeCompteDeLaSocieteTest extends TestCase
     public function test_l_acompte_s_ouvre_se_confirme_et_se_rend_sur_le_compte_qui_l_a_recu(): void
     {
         ['jeton' => $jeton, 'demande' => $demande] = $this->deposerAvecAcompte();
-        ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $jetonClinique] = $this->administrateurAvecJeton($this->clinique);
 
         $ouverture = $this->stripe->appelsDe('creerIntentionEnLigne');
         $this->assertSame([[

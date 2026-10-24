@@ -85,6 +85,12 @@ class FactureController extends Controller
         }
 
         $produits = Produit::query()->whereIn('id', array_filter(array_column($donnees['lignes'], 'produit_id')))->get()->keyBy('id');
+        // Sans consultation ni prescription : comme au comptoir (24.10.2026)
+        foreach ($donnees['lignes'] as $i => $ligne) {
+            if ($refus = $produits->get($ligne['produit_id'] ?? 0)?->refusVenteLibre()) {
+                throw ValidationException::withMessages(["lignes.$i.produit_id" => $refus]);
+            }
+        }
         $lignes = array_map(function (array $ligne) use ($produits): array {
             $produit = isset($ligne['produit_id']) ? $produits->get($ligne['produit_id']) : null;
 

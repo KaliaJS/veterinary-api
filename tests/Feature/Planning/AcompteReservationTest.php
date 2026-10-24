@@ -219,7 +219,7 @@ class AcompteReservationTest extends TestCase
     public function test_la_clinique_decide_de_rendre_tout_moins_les_frais_rien_ou_de_maintenir(): void
     {
         ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
-        ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $jetonClinique] = $this->administrateurAvecJeton($this->clinique);
         $this->clinique->update(['acompte_centimes' => 3000]);
 
         $attendus = ['complet' => 3000, 'hors_frais' => 2868, 'sans' => null, 'refusee' => null];
@@ -254,7 +254,7 @@ class AcompteReservationTest extends TestCase
     public function test_la_clinique_qui_annule_choisit_ce_qu_elle_rend_et_qui_refuse_rend_tout(): void
     {
         $this->clinique->update(['acompte_centimes' => 3000]);
-        ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $jetonClinique] = $this->administrateurAvecJeton($this->clinique);
 
         // Réservé puis annulé par la clinique
         $jeton = $this->deposer()->json('data.jeton');
@@ -264,7 +264,7 @@ class AcompteReservationTest extends TestCase
         $this->postJson("/api/v1/rendez-vous/{$demande->refresh()->rendez_vous_id}/annuler", [], $this->enTetes($jetonClinique))->assertOk();
         // Annuler une seconde fois ne rend rien de plus : l'acompte est rendu une seule fois
         $this->postJson("/api/v1/rendez-vous/{$demande->rendez_vous_id}/annuler", [], $this->enTetes($jetonClinique))->assertUnprocessable();
-        $this->assertCount(1, array_keys($this->stripe->remboursements, $demande->acompte_intention_id, true));
+        $this->assertCount(1, array_filter($this->stripe->appelsDe('rembourser'), fn (array $appel) => $appel['objet'] === $demande->acompte_intention_id));
 
         // Elle peut aussi garder l'acompte (le client a appelé pour annuler)
         $garde = $this->deposer(['debut_souhaite' => $this->mardi->addHours(2)->toIso8601String()]);
@@ -292,10 +292,38 @@ class AcompteReservationTest extends TestCase
         $this->assertCount(1, array_keys($this->stripe->remboursements, $enAttente->acompte_intention_id, true));
     }
 
+    /** Rendre ou garder un acompte payé est une décision d'argent : droit « Rembourser » (24.10.2026). */
+    public function test_decider_d_un_acompte_paye_demande_le_droit_de_rembourser(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        // Vétérinaire par défaut : planning, pas « Rembourser »
+        ['jeton' => $jetonVeto] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $this->postJson("/api/v1/rendez-vous/{$demande->rendez_vous_id}/annuler", ['acompte' => 'sans'], $this->enTetes($jetonVeto))->assertForbidden();
+        $this->assertSame('prevu', RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id)->status->value);
+
+        $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => 'complet'], $this->enTetes($jetonVeto))->assertForbidden();
+        // Maintenir le rendez-vous ne touche pas à l'argent
+        $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => 'refusee'], $this->enTetes($jetonVeto))->assertOk();
+        $this->assertSame([], $this->stripe->appelsDe('rembourser'));
+
+        // Un rendez-vous sans acompte s'annule avec le seul planning
+        $sansAcompte = RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id,
+            'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => $this->mardi->addDays(2)->utc(),
+            'ends_at' => $this->mardi->addDays(2)->addMinutes(20)->utc(),
+        ]);
+        $this->postJson("/api/v1/rendez-vous/{$sansAcompte->id}/annuler", [], $this->enTetes($jetonVeto))->assertOk();
+    }
+
     public function test_un_acompte_que_stripe_refuse_de_rendre_ne_perd_rien_on_reessaie(): void
     {
         $this->clinique->update(['acompte_centimes' => 3000]);
-        ['jeton' => $jetonClinique] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $jetonClinique] = $this->administrateurAvecJeton($this->clinique);
         $entetes = $this->enTetes($jetonClinique);
 
         // Annulation par la clinique : le rendu échoue, rien n'est annulé

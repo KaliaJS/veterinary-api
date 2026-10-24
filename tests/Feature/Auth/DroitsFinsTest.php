@@ -7,10 +7,12 @@ use App\Models\Analyse;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\ExamenImagerie;
+use App\Models\Facture;
 use App\Models\Patient;
 use App\Models\Prestation;
 use App\Models\Produit;
 use App\Models\RendezVous;
+use App\Models\Stock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -105,6 +107,26 @@ class DroitsFinsTest extends TestCase
             ->assertForbidden();
         $this->postJson("/api/v1/rendez-vous/{$rendezVous->id}/fin-de-consultation", ['prestations' => [$consultation->id]], $this->enTetes($this->jeton('asv')))
             ->assertOk();
+    }
+
+    /** À la caisse : une ordonnance (pharmacie ou produit sur ordonnance) se prescrit avec le droit ; un stupéfiant n'y passe pas. */
+    public function test_l_asv_ne_prescrit_pas_depuis_la_caisse(): void
+    {
+        $organisation = $this->clinique->societe->organisation_id;
+        $facture = Facture::factory()->create(['clinique_id' => $this->clinique->id]);
+        $surOrdonnance = Produit::factory()->medicament()->create(['organisation_id' => $organisation, 'est_sur_ordonnance' => true]);
+        $stupefiant = Produit::factory()->medicament()->create(['organisation_id' => $organisation, 'est_stupefiant' => true]);
+        foreach ([$surOrdonnance, $stupefiant] as $produit) {
+            Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 5]);
+        }
+        [$asv, $veto] = [$this->enTetes($this->jeton('asv')), $this->enTetes($this->jeton())];
+
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/prescriptions", ['produit_id' => $surOrdonnance->id], $asv)->assertForbidden();
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/lignes", ['produit_id' => $surOrdonnance->id], $asv)->assertForbidden();
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/prescriptions", ['produit_id' => $surOrdonnance->id], $veto)->assertOk();
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/lignes", ['produit_id' => $surOrdonnance->id], $veto)->assertOk();
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/lignes", ['produit_id' => $stupefiant->id], $veto)
+            ->assertUnprocessable()->assertJsonValidationErrors('produit_id');
     }
 
     private function jeton(?string $etat = null): string

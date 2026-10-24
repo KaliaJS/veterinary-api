@@ -105,6 +105,12 @@ class DemandeRendezVous extends Model
     }
 
     /** Acompte payé et pas remboursé : en francs, sinon 0. */
+    /** Un acompte payé, pas encore rendu : ce qu'il devient se décide (droit « Rembourser »). */
+    public function acompteEnJeu(): bool
+    {
+        return $this->acompte_paye_le !== null && $this->acompte_rembourse_le === null && $this->acompte_intention_id !== null;
+    }
+
     public function acompteRetenu(): float
     {
         if (! $this->acompte_paye_le) {

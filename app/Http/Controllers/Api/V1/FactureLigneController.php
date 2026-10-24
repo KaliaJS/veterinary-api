@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\DomainePermission;
 use App\Enums\ModePrescription;
 use App\Enums\TypeLigneFacture;
 use App\Http\Controllers\Api\V1\Concerns\GesteDeCaisse;
@@ -16,6 +17,7 @@ use App\Models\Prestation;
 use App\Models\Produit;
 use App\Models\Stock;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -57,6 +59,14 @@ class FactureLigneController extends Controller
             }
 
             $produit = Produit::findOrFail($donnees['produit_id']);
+            // Un stupéfiant ne se délivre pas depuis la caisse ; un produit sur
+            // ordonnance y est prescrit, avec le droit de prescrire (24.10.2026)
+            if ($produit->est_stupefiant) {
+                throw ValidationException::withMessages(['produit_id' => $produit->refusVenteLibre()]);
+            }
+            if ($produit->est_sur_ordonnance) {
+                Gate::authorize(DomainePermission::Prescrire->value);
+            }
 
             $quantiteLocale = (int) Stock::query()
                 ->where('produit_id', $produit->id)

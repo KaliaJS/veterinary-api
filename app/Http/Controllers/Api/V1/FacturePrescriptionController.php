@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\DomainePermission;
 use App\Enums\ModePrescription;
 use App\Http\Controllers\Api\V1\Concerns\GesteDeCaisse;
 use App\Http\Controllers\Controller;
@@ -9,6 +10,7 @@ use App\Http\Requests\V1\Facturation\AjouterPrescriptionFactureRequest;
 use App\Http\Resources\V1\FactureResource;
 use App\Models\Facture;
 use App\Models\Produit;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Prescription « à retirer en pharmacie » jointe à la facture — le
@@ -21,6 +23,8 @@ class FacturePrescriptionController extends Controller
     public function store(AjouterPrescriptionFactureRequest $request, Facture $facture): FactureResource
     {
         $this->authorize('update', $facture);
+        // Une ordonnance pour la pharmacie est une prescription (24.10.2026)
+        Gate::authorize(DomainePermission::Prescrire->value);
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
 

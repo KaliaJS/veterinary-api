@@ -294,6 +294,7 @@ class EncaissementTest extends TestCase
     public function test_une_facture_manuelle_prend_le_prix_du_produit_et_sort_le_stock_a_l_encaissement(): void
     {
         $produit = $this->medicamentEnStock(5, 24.9);
+        $produit->update(['est_sur_ordonnance' => false]);
 
         $facture = $this->postJson('/api/v1/facturation/factures', [
             'patient_name' => 'Rex',
@@ -312,6 +313,25 @@ class EncaissementTest extends TestCase
 
         $this->postJson("/api/v1/facturation/factures/{$facture['id']}/encaisser", ['moyen_paiement' => 'cash'], $this->enTetes($this->jeton))->assertOk();
         $this->assertSame(4, $this->stockDe($produit));
+    }
+
+    /** Sans consultation ni prescription, comme au comptoir : ni produit sur ordonnance ni stupéfiant. */
+    public function test_une_facture_manuelle_refuse_ordonnance_et_stupefiant(): void
+    {
+        $surOrdonnance = $this->medicamentEnStock(5);
+        $surOrdonnance->update(['est_sur_ordonnance' => true]);
+        $stupefiant = $this->medicamentEnStock(5);
+        $stupefiant->update(['est_stupefiant' => true]);
+
+        foreach ([$surOrdonnance, $stupefiant] as $produit) {
+            $this->postJson('/api/v1/facturation/factures', [
+                'owner_name' => 'Comptoir',
+                'lignes' => [['libelle' => $produit->nom, 'prix_chf' => 1, 'type' => 'med', 'produit_id' => $produit->id]],
+            ], $this->enTetes($this->jeton))
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('lignes.0.produit_id');
+        }
+        $this->assertSame(0, Facture::withoutGlobalScopes()->count());
     }
 
     public function test_payer_plus_tard_sort_le_stock_et_laisse_la_facture_due(): void

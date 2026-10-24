@@ -11,6 +11,7 @@ use App\Models\ProduitEmballage;
 use App\Models\ProduitVeterinaire;
 use App\Models\Vaccination;
 use App\Services\EtatVaccinal;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -63,6 +64,7 @@ class VaccinationController extends Controller
     {
         $this->authorize('update', $patient);
         abort_unless($vaccination->patient_id === $patient->id, 404);
+        $this->signataireSeul($vaccination);
 
         $donnees = $request->validated();
         $produit = $this->produit($donnees) ?? ($donnees['produit_id'] ?? null ? null : $vaccination->produit);
@@ -76,9 +78,25 @@ class VaccinationController extends Controller
     {
         $this->authorize('update', $patient);
         abort_unless($vaccination->patient_id === $patient->id, 404);
+        $this->signataireSeul($vaccination);
         $vaccination->delete();
 
         return response()->json(null, 204);
+    }
+
+    /**
+     * Une injection est signée par qui l'a faite : personne d'autre ne la
+     * réécrit ni ne l'efface sous son nom (24.10.2026). Une erreur d'un
+     * autre se signale à lui, ou se corrige par une nouvelle injection.
+     *
+     * @throws AuthorizationException
+     */
+    private function signataireSeul(Vaccination $vaccination): void
+    {
+        $moi = app(ContexteClinique::class)->employe()?->id;
+        if ($vaccination->employe_id !== null && $vaccination->employe_id !== $moi) {
+            throw new AuthorizationException('Seule la personne qui a signé cette injection peut la corriger ou la retirer.');
+        }
     }
 
     /** @param  array<string, mixed>  $donnees */

@@ -4,6 +4,7 @@ namespace App\Services\Paiements;
 
 use App\Auth\SousContexteClinique;
 use App\Enums\DecisionAnnulation;
+use App\Enums\DomainePermission;
 use App\Enums\DrapeauRendezVous;
 use App\Enums\StatutDemandeRendezVous;
 use App\Enums\StatutRendezVous;
@@ -15,7 +16,9 @@ use App\Models\User;
 use App\Paiements\ErreurPaiement;
 use App\Services\MutationRendezVous;
 use App\Services\TraitementDemande;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
@@ -200,6 +203,9 @@ class AcomptesRendezVous
         if (! $demande->annulationEnAttente()) {
             throw ValidationException::withMessages(['decision' => 'Aucune demande d’annulation en attente.']);
         }
+        if ($decision->annule()) {
+            self::exigerDroitDeRembourser($demande);
+        }
         $rendezVous = RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id);
 
         DB::transaction(function () use ($demande, $decision, $auteur, $rendezVous): void {
@@ -238,11 +244,27 @@ class AcomptesRendezVous
         if (! $demande) {
             return;
         }
+        self::exigerDroitDeRembourser($demande);
         $this->rembourser($demande, $decision);
         if ($demande->annulationEnAttente()) {
             $demande->update(['annulation_decision' => $decision, 'annulation_traitee_le' => now()]);
         }
         $this->drapeau($rendezVous, false);
+    }
+
+    /**
+     * Rendre tout, une partie ou rien d'un acompte payé est une décision
+     * d'argent (24.10.2026) : elle demande le droit « Rembourser », pas le
+     * seul planning. Le rendu obligé (demande refusée, paiement arrivé
+     * trop tard) n'est pas une décision et n'en dépend pas.
+     *
+     * @throws AuthorizationException
+     */
+    public static function exigerDroitDeRembourser(DemandeRendezVous $demande): void
+    {
+        if ($demande->acompteEnJeu() && ! Gate::allows(DomainePermission::Rembourser->value)) {
+            throw new AuthorizationException('Ce rendez-vous a un acompte payé : décider de son remboursement demande le droit « Rembourser ».');
+        }
     }
 
     private function frais(DemandeRendezVous $demande): ?int
