@@ -2,9 +2,9 @@
 
 namespace App\Support;
 
+use Closure;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Log;
-use Throwable;
 
 /**
  * Le message d'une erreur SQL sans les valeurs (24.10.2026). Les liaisons
@@ -33,14 +33,14 @@ final class MasquageSql
             'code' => $e->getCode(),
             'lieu' => $e->getFile().':'.$e->getLine(),
             'pile' => collect($e->getTrace())
-                ->map(fn (array $etape): string => ($etape['file'] ?? '?').':'.($etape['line'] ?? '?').' '.($etape['class'] ?? '').($etape['type'] ?? '').($etape['function'] ?? ''))
+                ->map(fn (array $etape): string => ($etape['file'] ?? '?').':'.($etape['line'] ?? '?').' '.($etape['class'] ?? '').($etape['type'] ?? '').$etape['function'])
                 ->take(30)
                 ->all(),
         ]);
     }
 
-    /** @return callable(Throwable): mixed */
-    public static function rapporteur(): callable
+    /** @return Closure(QueryException): false */
+    public static function rapporteur(): Closure
     {
         return function (QueryException $e): false {
             self::journaliser($e);

@@ -59,7 +59,10 @@ class BoutiqueProprietaireTest extends TestCase
         $this->postJson('/api/v1/espace/commandes', ['commandes' => [
             ['clinique_id' => $clinique->id, 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 3]]],
         ]], $this->enTetes($jeton))
-            ->assertUnprocessable()->assertJsonValidationErrors('commandes.0.lignes.0.quantite');
+            ->assertUnprocessable()->assertJsonValidationErrors('commandes.0.lignes.0.quantite')
+            // Jamais le stock exact dans le refus (la vitrine ne le donne pas non plus)
+            ->assertJsonMissingPath('stock')
+            ->assertDontSee('2 ×');
         $this->assertSame(0, CommandeBoutique::withoutGlobalScopes()->count());
 
         $reponse = $this->postJson('/api/v1/espace/commandes', ['commandes' => [

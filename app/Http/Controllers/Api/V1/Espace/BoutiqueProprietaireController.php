@@ -130,9 +130,10 @@ class BoutiqueProprietaireController extends Controller
                         $stockLocal = (int) Stock::query()->where('produit_id', $produit->id)->where('clinique_id', $clinique->id)->value('quantite');
 
                         if ($stockLocal < (int) $ligne['quantite']) {
+                            // Jamais le stock exact (24.10.2026), comme la vitrine
                             throw ValidationException::withMessages([$champ => $stockLocal === 0
                                 ? 'Rupture de stock : '.$produit->nom.' ('.$clinique->nom.').'
-                                : 'Stock maximum atteint pour cette clinique : '.$stockLocal.' × '.$produit->nom.'.']);
+                                : 'Pas assez de stock pour cette quantité de '.$produit->nom.' chez '.$clinique->nom.' : réduisez-la.']);
                         }
 
                         $commande->lignes()->create([
