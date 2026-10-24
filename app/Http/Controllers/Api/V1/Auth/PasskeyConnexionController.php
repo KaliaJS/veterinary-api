@@ -24,12 +24,17 @@ class PasskeyConnexionController extends Controller
 
     public function options(Request $request, PasskeyAuthService $service): JsonResponse
     {
-        $request->validate(['email' => ['sometimes', 'email']]);
+        $request->validate([
+            'email' => ['sometimes', 'email'],
+            // App iPhone : passkeys du domaine public du site, par iOS
+            'plateforme' => ['nullable', 'in:ios'],
+        ]);
 
         // E-mail fourni → credentials du compte proposés ; sinon
         // credentials découvrables (le navigateur choisit).
         return response()->json($service->generateOptions(
             $request->filled('email') ? $request->string('email')->toString() : null,
+            $request->input('plateforme'),
         ));
     }
 

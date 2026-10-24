@@ -7,6 +7,7 @@ use App\Models\Employe;
 use App\Models\Passkey;
 use App\Models\User;
 use App\Services\PasskeyAuthService;
+use App\Support\CeremonieWebauthn;
 use Database\Factories\PasskeyFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -204,6 +205,36 @@ class PasskeyTest extends TestCase
         PasskeyFactory::new()->create(['user_id' => $user->id]);
 
         $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertJsonPath('data.user.a_une_passkey', true);
+    }
+
+    /* ---------- App iPhone (24.10.2026) ---------- */
+
+    /** L'app passe par iOS : options pour le domaine public du site, origine signée par iOS. */
+    public function test_l_app_iphone_recoit_des_options_pour_le_domaine_du_site(): void
+    {
+        config([
+            'passkey.rp_id' => 'app.veterinary.local',
+            'passkey.allowed_origins' => ['https://app.veterinary.local:5174'],
+            'passkey.app_rp_id' => 'veterinary.app',
+        ]);
+
+        $this->postJson('/api/v1/auth/passkey/options', ['plateforme' => 'ios'])
+            ->assertOk()->assertJsonPath('options.rpId', 'veterinary.app');
+        $this->postJson('/api/v1/auth/passkey/options')
+            ->assertOk()->assertJsonPath('options.rpId', 'app.veterinary.local');
+        $this->postJson('/api/v1/auth/passkey/options', ['plateforme' => 'android'])
+            ->assertUnprocessable()->assertJsonValidationErrors('plateforme');
+
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+
+        $this->postJson('/api/v1/auth/passkeys/options', ['plateforme' => 'ios'], $this->enTetes($jeton))
+            ->assertOk()->assertJsonPath('options.rp.id', 'veterinary.app');
+        $this->postJson('/api/v1/auth/passkeys/options', [], $this->enTetes($jeton))
+            ->assertOk()->assertJsonPath('options.rp.id', 'app.veterinary.local');
+
+        // Chaque domaine n'admet que ses origines
+        $this->assertSame(['https://veterinary.app'], CeremonieWebauthn::origines('veterinary.app'));
+        $this->assertSame(['https://app.veterinary.local:5174'], CeremonieWebauthn::origines('app.veterinary.local'));
     }
 
     /* ---------- Ajout d'une passkey, connecté ---------- */

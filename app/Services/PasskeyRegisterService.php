@@ -44,14 +44,14 @@ class PasskeyRegisterService
      *
      * @return array{defi_id: string, options: array<array-key, mixed>}
      */
-    public function generateOptions(User $user): array
+    public function generateOptions(User $user, ?string $plateforme = null): array
     {
         $defiId = (string) Str::ulid();
 
         $options = PublicKeyCredentialCreationOptions::create(
             rp: PublicKeyCredentialRpEntity::create(
                 name: config('passkey.rp_name'),
-                id: config('passkey.rp_id'),
+                id: CeremonieWebauthn::rpId($plateforme),
             ),
             user: PublicKeyCredentialUserEntity::create(
                 name: $user->email,
@@ -118,11 +118,14 @@ class PasskeyRegisterService
             ]);
         }
 
+        // Le domaine choisi à l'émission (front ou app iPhone)
+        $rpId = $options->rp->id ?? config('passkey.rp_id');
+
         try {
-            return AuthenticatorAttestationResponseValidator::create(CeremonieWebauthn::creation())->check(
+            return AuthenticatorAttestationResponseValidator::create(CeremonieWebauthn::creation($rpId))->check(
                 authenticatorAttestationResponse: $publicKeyCredential->response,
                 publicKeyCredentialCreationOptions: $options,
-                host: config('passkey.rp_id'),
+                host: $rpId,
             );
         } catch (Throwable $exception) {
             report($exception);

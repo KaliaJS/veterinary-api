@@ -26,7 +26,10 @@ class PasskeyController extends Controller
 
     public function options(Request $request, PasskeyRegisterService $service): JsonResponse
     {
-        return response()->json($service->generateOptions($request->user()));
+        // App iPhone : passkeys du domaine public du site, par iOS
+        $request->validate(['plateforme' => ['nullable', 'in:ios']]);
+
+        return response()->json($service->generateOptions($request->user(), $request->input('plateforme')));
     }
 
     public function enregistrer(

@@ -34,7 +34,7 @@ use Webauthn\PublicKeyCredentialRequestOptions;
 class PasskeyAuthService
 {
     /** @return array{defi_id: string, options: array<array-key, mixed>} */
-    public function generateOptions(?string $email = null): array
+    public function generateOptions(?string $email = null, ?string $plateforme = null): array
     {
         $defiId = (string) Str::ulid();
 
@@ -47,7 +47,7 @@ class PasskeyAuthService
 
         $options = PublicKeyCredentialRequestOptions::create(
             challenge: random_bytes(32),
-            rpId: config('passkey.rp_id'),
+            rpId: CeremonieWebauthn::rpId($plateforme),
             allowCredentials: $allowedCredentials,
             userVerification: AuthenticatorSelectionCriteria::USER_VERIFICATION_REQUIREMENT_REQUIRED,
         );
@@ -105,12 +105,16 @@ class PasskeyAuthService
                 ]);
             }
 
+            $options = PasskeyJsonSerializer::deserialize($optionsJson, PublicKeyCredentialRequestOptions::class);
+            // Le domaine choisi à l'émission (front ou app iPhone)
+            $rpId = $options->rpId ?? config('passkey.rp_id');
+
             try {
-                $credentialRecord = AuthenticatorAssertionResponseValidator::create(CeremonieWebauthn::assertion())->check(
+                $credentialRecord = AuthenticatorAssertionResponseValidator::create(CeremonieWebauthn::assertion($rpId))->check(
                     credentialRecord: $passkey->donnees,
                     authenticatorAssertionResponse: $publicKeyCredential->response,
-                    publicKeyCredentialRequestOptions: PasskeyJsonSerializer::deserialize($optionsJson, PublicKeyCredentialRequestOptions::class),
-                    host: config('passkey.rp_id'),
+                    publicKeyCredentialRequestOptions: $options,
+                    host: $rpId,
                     userHandle: null,
                 );
             } catch (Throwable $exception) {

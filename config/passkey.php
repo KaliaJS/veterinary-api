@@ -36,6 +36,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | App iPhone
+    |--------------------------------------------------------------------------
+    |
+    | La vue web de l'app (capacitor://localhost) ne peut pas faire de
+    | cérémonie WebAuthn : l'app passe par iOS, pour le domaine public du
+    | site déclaré dans ses domaines associés (`webcredentials:`) et
+    | confirmé par le site (/.well-known/apple-app-site-association). iOS
+    | signe alors l'origine https://<domaine>. En production, c'est le même
+    | domaine que le front : une passkey sert dans Safari et dans l'app.
+    |
+    */
+
+    'app_rp_id' => env('PASSKEY_APP_RP_ID', 'veterinary.app'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Défis
     |--------------------------------------------------------------------------
     */
