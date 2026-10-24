@@ -726,6 +726,29 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertSame([], $this->transcripteur->appels);
     }
 
+    /** Plafond atteint et abandon pendant ce contrôle : arrêt silencieux, la partie ne passe pas en erreur (24.10.2026). */
+    public function test_un_abandon_pendant_le_controle_du_plafond_ne_met_pas_la_partie_en_erreur(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $this->organisation->forceFill(['plafond_transcription' => 1])->save();
+        $this->enregistrementTranscrit(4000)->forceFill(['statut' => StatutEnregistrement::Valide])->save();
+        $fait = false;
+        DB::listen(function (QueryExecuted $requete) use (&$fait, $id): void {
+            if (! $fait && str_contains($requete->sql, 'sum("parties_enregistrement"."duree_secondes")')) {
+                $fait = true;
+                EnregistrementConsultation::withoutGlobalScopes()->whereKey($id)->update(['statut' => StatutEnregistrement::Abandonne->value]);
+            }
+        });
+
+        $this->envoyer($id, 1, 'AUDIO');
+
+        $this->assertTrue($fait);
+        $partie = PartieEnregistrement::query()->where('enregistrement_consultation_id', $id)->sole();
+        $this->assertNotSame(StatutPartie::Erreur, $partie->statut);
+        $this->assertNull($partie->fichier);
+        $this->assertSame([], $this->transcripteur->appels);
+    }
+
     /** Une partie complète d'un enregistrement abandonné n'est jamais envoyée au fournisseur (24.10.2026). */
     public function test_une_partie_d_un_enregistrement_abandonne_n_est_pas_transcrite(): void
     {

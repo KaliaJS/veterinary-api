@@ -77,7 +77,10 @@ final class TranscrirePartie implements ShouldQueue
         // une longue consultation ne les dépasse pas en cours de route
         $organisation = $partie->enregistrement->organisation;
         if ($organisation && $consommation->refus($organisation)) {
-            self::echec($partie, 'plafond');
+            // Abandonné pendant ce contrôle : arrêt silencieux, pas d'erreur
+            if (! $this->abandonne($partie)) {
+                self::echec($partie, 'plafond');
+            }
 
             return;
         }

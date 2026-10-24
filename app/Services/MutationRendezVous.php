@@ -10,13 +10,13 @@ use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\Salle;
 use App\Models\User;
-use App\Paiements\ErreurPaiement;
 use App\Services\Paiements\AcomptesRendezVous;
 use BackedEnum;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * Toute mutation de rendez-vous passe ici : application des attributs
@@ -196,7 +196,10 @@ class MutationRendezVous
                         entreesSupplementaires: ['motifAnnulation' => [null, $motif]],
                     );
                 });
-            } catch (ErreurPaiement $e) {
+            } catch (Throwable $e) {
+                // Prestataire qui refuse, ou toute autre erreur : ce rendez-vous
+                // reste au planning, compté à annuler à la main ; les suivants
+                // sont traités et l'absence est enregistrée (24.10.2026)
                 report($e);
                 $restants++;
 
