@@ -8,6 +8,7 @@ use App\Http\Requests\V1\Hospitalisation\AdmettreSejourRequest;
 use App\Http\Requests\V1\Hospitalisation\ModifierSejourRequest;
 use App\Http\Resources\V1\SejourResource;
 use App\Models\Clinique;
+use App\Models\Patient;
 use App\Models\Sejour;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -46,6 +47,17 @@ class SejourController extends Controller
         $donnees = $request->validated();
 
         $sejour = DB::transaction(function () use ($request, $donnees): Sejour {
+            // Sous verrou, revérifié (24.10.2026) : deux admissions envoyées en
+            // même temps ne prennent ni le même patient ni le même box
+            Patient::withoutGlobalScopes()->whereKey($donnees['patient_id'])->lockForUpdate()->first();
+            Clinique::withoutGlobalScopes()->whereKey(app(ContexteClinique::class)->cliniqueId())->lockForUpdate()->first();
+            if (Sejour::withoutGlobalScope('clinique')->enCours()->where('patient_id', $donnees['patient_id'])->exists()) {
+                throw ValidationException::withMessages(['patient_id' => 'Ce patient est déjà hospitalisé.']);
+            }
+            if (Sejour::query()->enCours()->where('box', $donnees['box'])->exists()) {
+                throw ValidationException::withMessages(['box' => 'Ce box est occupé par un séjour en cours.']);
+            }
+
             $sejour = Sejour::create([
                 ...$donnees,
                 'veterinaire_id' => $donnees['veterinaire_id']

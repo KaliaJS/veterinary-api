@@ -104,6 +104,28 @@ class InterventionTest extends TestCase
         ]);
     }
 
+    /** Un rendez-vous ne porte qu'une intervention, et seulement pour son patient : refusé, pas une erreur 500. */
+    public function test_le_rendez_vous_lie_est_libre_et_du_meme_patient(): void
+    {
+        $rendezVous = $this->rendezVousChir();
+        $donnees = fn (int $patient) => [
+            'patient_id' => $patient,
+            'procedure' => 'Détartrage',
+            'prevu_le' => now()->setTime(9, 0)->toISOString(),
+            'duree_minutes' => 60,
+            'salle_id' => $this->salle->id,
+            'chirurgien_id' => $this->chirurgien->id,
+            'rendez_vous_id' => $rendezVous->id,
+        ];
+        $autre = Patient::factory()->for($this->patient->client)->create();
+
+        $this->postJson('/api/v1/bloc/interventions', $donnees($autre->id), $this->jeton())
+            ->assertUnprocessable()->assertJsonValidationErrors('rendez_vous_id');
+        $this->postJson('/api/v1/bloc/interventions', $donnees($this->patient->id), $this->jeton())->assertCreated();
+        $this->postJson('/api/v1/bloc/interventions', $donnees($this->patient->id), $this->jeton())
+            ->assertUnprocessable()->assertJsonValidationErrors(['rendez_vous_id' => 'Ce rendez-vous a déjà son intervention.']);
+    }
+
     public function test_la_programmation_cree_le_dossier_avec_checklist_et_protocole_par_defaut(): void
     {
         $reponse = $this->postJson('/api/v1/bloc/interventions', [
