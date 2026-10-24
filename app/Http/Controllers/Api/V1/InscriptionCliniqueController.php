@@ -47,11 +47,13 @@ class InscriptionCliniqueController extends Controller
         if ($user->email_verified_at === null) {
             throw ValidationException::withMessages(['email' => 'Confirmez d’abord votre adresse e-mail : connectez-vous avec le code reçu par e-mail, puis inscrivez votre clinique.']);
         }
-        $employe = $inscription->inscrire($user, $request->validated());
-
         /** @var JetonApi $ancien */
         $ancien = $user->currentAccessToken();
+        $emetteur->exigerSessionEnCours($ancien);
+        $employe = $inscription->inscrire($user, $request->validated());
+
         $jeton = $emetteur->emettrePour($user, new Rattachement($employe, $employe->cliniques->sole()), $ancien->name);
+        $emetteur->garderLaSession($jeton, $ancien);
         $ancien->delete();
 
         return (new JetonEmisResource($jeton, $employe))->response()->setStatusCode(201);

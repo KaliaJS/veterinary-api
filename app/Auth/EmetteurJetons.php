@@ -77,12 +77,7 @@ class EmetteurJetons
      */
     public function rafraichir(User $user, JetonApi $jetonCourant): array
     {
-        // Durée absolue : une session ne se prolonge pas indéfiniment
-        if ($jetonCourant->debutSession()->lt(now()->subDays(JetonApi::SESSION_MAX_JOURS))) {
-            $jetonCourant->delete();
-
-            throw new AuthenticationException('Session expirée : reconnectez-vous.');
-        }
+        $this->exigerSessionEnCours($jetonCourant);
 
         $resultat = $jetonCourant->clinique_id === null
             ? ['jeton' => $this->emettreSansClinique($user, $jetonCourant->name), 'employe' => null]
@@ -105,6 +100,7 @@ class EmetteurJetons
      */
     public function changerClinique(User $user, JetonApi $jetonCourant, int $cliniqueId): array
     {
+        $this->exigerSessionEnCours($jetonCourant);
         $resultat = $this->emettre($user, $cliniqueId, $jetonCourant->name);
 
         $this->garderLaSession($resultat['jeton'], $jetonCourant);
@@ -113,8 +109,24 @@ class EmetteurJetons
         return $resultat;
     }
 
+    /**
+     * Durée absolue : une session ne se prolonge pas indéfiniment, ni par
+     * un rafraîchissement, ni par un changement de clinique, ni par une
+     * inscription de clinique (24.10.2026).
+     *
+     * @throws AuthenticationException
+     */
+    public function exigerSessionEnCours(JetonApi $jetonCourant): void
+    {
+        if ($jetonCourant->debutSession()->lt(now()->subDays(JetonApi::SESSION_MAX_JOURS))) {
+            $jetonCourant->delete();
+
+            throw new AuthenticationException('Session expirée : reconnectez-vous.');
+        }
+    }
+
     /** Le jeton neuf garde le début de la session de l'ancien. */
-    private function garderLaSession(NewAccessToken $neuf, JetonApi $ancien): void
+    public function garderLaSession(NewAccessToken $neuf, JetonApi $ancien): void
     {
         $neuf->accessToken->forceFill(['session_depuis' => $ancien->debutSession()])->save();
     }
