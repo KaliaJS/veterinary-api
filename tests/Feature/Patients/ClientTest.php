@@ -10,6 +10,8 @@ use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Hashing\BcryptHasher;
+use Illuminate\Support\Facades\Hash;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -212,6 +214,35 @@ class ClientTest extends TestCase
         // Révoquée, la fiche se détache ; le compte, prouvé par son titulaire, reste
         $this->deleteJson("/api/v1/clients/{$this->client->id}/compte", [], $this->enTetes($this->jeton))->assertNoContent();
         $this->assertModelExists($existant);
+    }
+
+    /** Avec ou sans compte existant, le même travail : un hachage de mot de passe, rien de plus (pas de différence de temps de réponse). */
+    public function test_l_ouverture_fait_le_meme_travail_que_le_compte_existe_ou_non(): void
+    {
+        User::factory()->create(['email' => 'pris@exemple.ch']);
+        $neuve = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+        // Un hacheur qui compte ses hachages
+        $compteur = new class(['rounds' => 4]) extends BcryptHasher
+        {
+            public int $hachages = 0;
+
+            public function make(#[\SensitiveParameter] $value, array $options = []): string
+            {
+                $this->hachages++;
+
+                return parent::make($value, $options);
+            }
+        };
+        Hash::extend('compteur', fn () => $compteur);
+        config(['hashing.driver' => 'compteur']);
+        Hash::forgetDrivers();
+
+        $this->postJson("/api/v1/clients/{$this->client->id}/compte", ['email' => 'pris@exemple.ch'], $this->enTetes($this->jeton))->assertOk();
+        $avecCompte = $compteur->hachages;
+        $this->postJson("/api/v1/clients/{$neuve->id}/compte", ['email' => 'libre@exemple.ch'], $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertSame(1, $avecCompte);
+        $this->assertSame(2, $compteur->hachages);
     }
 
     public function test_une_fiche_sans_email_est_refusee(): void

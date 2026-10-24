@@ -9,6 +9,7 @@ use App\Models\Client;
 use App\Models\User;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -42,11 +43,15 @@ class CompteClientController extends Controller
         // (24.10.2026). La réponse est la même qu'à la création : la clinique
         // ne peut pas tester quelles adresses ont un compte. Le titulaire y
         // retrouve cette clinique, comme les autres.
+        // Le même travail dans les deux cas (24.10.2026, décidé avec Jim) :
+        // hacher un mot de passe prend un quart de seconde ; fait aussi quand
+        // le compte existe, le temps de réponse ne dit plus si l'adresse en a un
         $email = mb_strtolower(trim($email));
+        $motDePasse = Hash::make(Str::password(40));
         $user = User::query()->where('email', $email)->first() ?? User::create([
             'name' => trim($client->prenom.' '.$client->nom),
             'email' => $email,
-            'password' => Str::password(40),
+            'password' => $motDePasse,
         ]);
 
         $client->update(['user_id' => $user->id]);

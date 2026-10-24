@@ -516,6 +516,84 @@ class AcompteReservationTest extends TestCase
         $this->assertNull($alertes()->firstWhere('titre', '1 acompte rendu en partie'));
     }
 
+    /** Acompte rendu (par l'app, chez Stripe ou perdu au litige) : le rendez-vous perd son drapeau « acompte » (24.10.2026). */
+    public function test_un_acompte_rendu_retire_le_drapeau_acompte_du_rendez_vous(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonClinique] = $this->administrateurAvecJeton($this->clinique);
+        $webhook = fn (DemandeRendezVous $demande, string $id, string $type, array $objet) => app(WebhooksStripe::class)->traiter([
+            'id' => $id, 'type' => $type, 'objet' => ['payment_intent' => $demande->acompte_intention_id, ...$objet], 'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+
+        // Rendu en entier chez Stripe, le rendez-vous reste prévu
+        $chezStripe = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $this->assertContains('acompte', $this->drapeaux($chezStripe->rendez_vous_id));
+        $webhook($chezStripe, 'evt_drapeau_1', 'charge.refunded', ['refunded' => true, 'amount_refunded' => 3000]);
+        $this->assertNotContains('acompte', $this->drapeaux($chezStripe->rendez_vous_id));
+
+        // Perdu au litige
+        $litige = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi->addWeek());
+        $webhook($litige, 'evt_drapeau_2', 'charge.dispute.created', []);
+        $webhook($litige, 'evt_drapeau_3', 'charge.dispute.closed', ['status' => 'lost']);
+        $this->assertNotContains('acompte', $this->drapeaux($litige->rendez_vous_id));
+
+        // Rendu par l'app, à la demande d'annulation
+        $parLApp = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi->addWeeks(2));
+        $this->postJson("/api/v1/espace/rendez-vous/{$parLApp->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        $this->postJson("/api/v1/demandes/{$parLApp->id}/annulation", ['decision' => 'complet'], $this->enTetes($jetonClinique))->assertOk();
+        $this->assertNotContains('acompte', $this->drapeaux($parLApp->rendez_vous_id));
+    }
+
+    /** Perdu au litige plus de 30 jours après un rendu partiel, facture faite : l'alerte revient, datée du litige (24.10.2026). */
+    public function test_un_litige_perdu_longtemps_apres_un_rendu_partiel_alerte_de_nouveau(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $rendezVous = RendezVous::withoutGlobalScopes()->sole();
+        $rendezVous->update(['status' => 'cours']);
+        $this->postJson("/api/v1/rendez-vous/{$rendezVous->id}/statut", ['status' => 'fini'], $this->enTetes($jetonAdmin))->assertOk();
+        $webhook = fn (string $id, string $type, array $objet) => app(WebhooksStripe::class)->traiter(['id' => $id, 'type' => $type, 'objet' => ['payment_intent' => $demande->acompte_intention_id, ...$objet], 'compte' => $demande->acompte_stripe_compte_id]);
+        $alerte = fn () => collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonAdmin))->assertOk()->json('data.alertes'))->firstWhere('titre', '1 acompte rendu après la facture');
+
+        $webhook('evt_long_1', 'charge.refunded', ['refunded' => false, 'amount_refunded' => 1000]);
+        $this->assertNotNull($alerte());
+
+        // Ce rendu date de 40 jours : l'alerte s'est éteinte
+        $demande->refresh()->update(['acompte_rembourse_le' => now()->subDays(40)]);
+        $this->assertNull($alerte());
+
+        $webhook('evt_long_2', 'charge.dispute.created', []);
+        $webhook('evt_long_3', 'charge.dispute.closed', ['status' => 'lost']);
+        $this->assertEqualsWithDelta(now()->timestamp, $demande->refresh()->acompte_rembourse_le->timestamp, 5);
+        $this->assertNotNull($alerte());
+        $this->assertStringContainsString('CHF 0.00 encore encaissés', str_replace("\u{a0}", ' ', $alerte()['detail']));
+    }
+
+    /** « Rendre moins les frais » décidé dans l'app pour un rendez-vous annulé : pas une alerte de rendu partiel (24.10.2026). */
+    public function test_rendre_moins_les_frais_n_alerte_pas_d_un_rendu_partiel(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonClinique] = $this->administrateurAvecJeton($this->clinique);
+        $alertes = fn () => collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonClinique))->assertOk()->json('data.alertes'))->pluck('titre')->all();
+
+        // Demandée par le client, décidée par la clinique
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => 'hors_frais'], $this->enTetes($jetonClinique))->assertOk();
+        $this->assertSame(2868, $demande->refresh()->acompte_rembourse_centimes);
+        $this->assertNotContains('1 acompte rendu en partie', $alertes());
+
+        // Annulée par la clinique, moins les frais
+        $autre = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi->addWeek());
+        $this->postJson("/api/v1/rendez-vous/{$autre->rendez_vous_id}/annuler", ['acompte' => 'hors_frais'], $this->enTetes($jetonClinique))->assertOk();
+        $this->assertSame(2868, $autre->refresh()->acompte_rembourse_centimes);
+        $this->assertNotContains('1 acompte rendu en partie', $alertes());
+    }
+
     /** Litige clos : gagné ou « warning_closed » garde l'acompte ; un événement d'un autre compte Stripe est ignoré. */
     public function test_un_litige_d_acompte_gagne_ou_clos_sans_suite_garde_l_acompte(): void
     {

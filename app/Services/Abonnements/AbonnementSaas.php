@@ -472,9 +472,35 @@ final class AbonnementSaas
             'proprietaire' => FactureProprietaire::query()->find($id),
             default => null,
         };
-        if ($facture && ($intention['status'] ?? null) === 'succeeded' && $facture->stripe_paiement_id === ($intention['id'] ?? null)) {
-            $this->payer($facture);
+        $intentionId = $intention['id'] ?? null;
+        if (! $facture || ($intention['status'] ?? null) !== 'succeeded' || ! is_string($intentionId)) {
+            return;
         }
+        if ($facture->stripe_paiement_id === $intentionId) {
+            $this->payer($facture);
+
+            return;
+        }
+
+        // Un prélèvement que la facture ne connaît pas : sa réponse s'est
+        // perdue (délai dépassé), il est passé quand même (24.10.2026). Reconnu
+        // à son montant, il paie la facture ; une facture déjà payée par un
+        // autre l'a été deux fois, à rendre à la main
+        Cache::lock('encaisser:'.$type.':'.$facture->id, 120)->block(15, function () use ($facture, $intention, $intentionId): void {
+            $facture->refresh();
+            if ((int) ($intention['amount'] ?? -1) !== (int) round((float) $facture->montant * 100)) {
+                Log::warning('Prélèvement réussi d’un autre montant que sa facture : ignoré.', ['facture' => $facture->numero, 'prelevement' => $intentionId]);
+
+                return;
+            }
+            if ($facture->statut === 'payee' && $facture->stripe_paiement_id !== $intentionId) {
+                Log::critical('Second prélèvement réussi pour une facture déjà payée : à rembourser.', ['facture' => $facture->numero, 'prelevement' => $intentionId]);
+
+                return;
+            }
+            $facture->forceFill(['stripe_paiement_id' => $intentionId])->save();
+            $this->payer($facture);
+        });
     }
 
     /* ————— Renouvellements (planificateur) ————— */
@@ -574,6 +600,11 @@ final class AbonnementSaas
 
     private function demarrer(Organisation|User $abonne, string $formule, int $prix, string $nom, bool $annuel): Reglement
     {
+        return $this->sousVerrouAbonne($abonne, fn () => $this->demarrerSousVerrou($abonne, $formule, $prix, $nom, $annuel));
+    }
+
+    private function demarrerSousVerrou(Organisation|User $abonne, string $formule, int $prix, string $nom, bool $annuel): Reglement
+    {
         // Une souscription restée en attente de confirmation est remplacée ;
         // réglée entre-temps, ou traitée par la banque, on n'en lance pas une seconde
         $remplacees = $this->factures($abonne)->where('statut', 'a_payer')->get()
@@ -595,6 +626,11 @@ final class AbonnementSaas
 
     /** Formule plus chère : nouveau cycle aujourd'hui, crédit du temps non utilisé. */
     private function monter(Organisation $organisation, FormuleSaas $cible): Reglement
+    {
+        return $this->sousVerrouAbonne($organisation, fn () => $this->monterSousVerrou($organisation, $cible));
+    }
+
+    private function monterSousVerrou(Organisation $organisation, FormuleSaas $cible): Reglement
     {
         [$lignes, $debut, $fin, $usage] = $this->lignesMontee($organisation, $cible);
         $facture = $this->creerFacture($organisation, $lignes, [
@@ -821,11 +857,11 @@ final class AbonnementSaas
             return new Reglement($facture, 'reussi');
         }
         // La tentative précédente, relue sous le verrou : passée, traitée par la
-        // banque, ou en attente d'une confirmation, annulée avant d'en lancer
-        // une autre (le client ne confirmera jamais les deux)
+        // banque, ou en attente d'une confirmation ou refusée, annulée avant
+        // d'en lancer une autre (le client ne confirmera jamais les deux)
         if ($facture->stripe_paiement_id) {
             $etat = $this->stripe->lirePrelevement($facture->stripe_paiement_id);
-            if ($etat['statut'] === 'action_requise') {
+            if (in_array($etat['statut'], ['action_requise', 'refuse'], true)) {
                 $etat = $this->stripe->annulerPrelevement($facture->stripe_paiement_id);
             }
             if ($etat['statut'] === 'reussi') {
@@ -947,8 +983,8 @@ final class AbonnementSaas
     /** Facture annulée : rien n'est dû, ses minutes de transcription et ses suggestions redeviennent à facturer. */
     /**
      * Annule une facture restée à payer. Son prélèvement en attente de
-     * confirmation (3-D Secure ouvert dans un autre onglet) est d'abord annulé
-     * chez Stripe : il ne pourra plus passer (24.10.2026). Passé entre-temps, la
+     * confirmation (3-D Secure ouvert dans un autre onglet) ou refusé est
+     * d'abord annulé chez Stripe : il ne pourra plus passer (24.10.2026). Passé entre-temps, la
      * facture est payée, pas annulée ; encore traité par la banque, elle reste.
      * Vrai si la facture est annulée.
      */
@@ -956,7 +992,9 @@ final class AbonnementSaas
     {
         if ($facture->stripe_paiement_id) {
             $etat = $this->stripe->lirePrelevement($facture->stripe_paiement_id);
-            if ($etat['statut'] === 'action_requise') {
+            // Refusé, il se confirme encore avec une autre carte (Stripe.js) :
+            // annulé lui aussi (24.10.2026)
+            if (in_array($etat['statut'], ['action_requise', 'refuse'], true)) {
                 $etat = $this->stripe->annulerPrelevement($facture->stripe_paiement_id);
             }
             if ($etat['statut'] === 'reussi') {
@@ -1076,6 +1114,27 @@ final class AbonnementSaas
     {
         if (! $abonne->stripe_client_id || ! $abonne->stripe_moyen_paiement_id) {
             throw ValidationException::withMessages(['moyen_paiement' => 'Enregistrez d’abord une carte.']);
+        }
+    }
+
+    /**
+     * Une souscription ou un changement de formule à la fois par abonné
+     * (24.10.2026) : deux onglets, ou un double clic, ne créent pas deux
+     * factures prélevées chacune.
+     *
+     * @param  callable(): Reglement  $action
+     */
+    private function sousVerrouAbonne(Organisation|User $abonne, callable $action): Reglement
+    {
+        $verrou = Cache::lock('abonnement:'.($abonne instanceof Organisation ? 'organisation' : 'proprietaire').':'.$abonne->id, 120);
+        if (! $verrou->get()) {
+            throw ValidationException::withMessages(['plan' => 'Une souscription est déjà en cours. Patientez un instant.']);
+        }
+
+        try {
+            return $action();
+        } finally {
+            $verrou->release();
         }
     }
 

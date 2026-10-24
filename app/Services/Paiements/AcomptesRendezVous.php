@@ -161,7 +161,7 @@ class AcomptesRendezVous
             'remboursement-acompte-'.$demande->id,
             $montant < $demande->acompte_centimes ? $montant : null,
         );
-        $demande->update(['acompte_rembourse_le' => now(), 'acompte_rembourse_centimes' => $montant]);
+        $this->noterRendu($demande, $montant);
 
         return true;
     }
@@ -177,10 +177,7 @@ class AcomptesRendezVous
         if (! $demande || $centimes <= 0 || ($compte !== null && $demande->acompte_stripe_compte_id !== null && $demande->acompte_stripe_compte_id !== $compte)) {
             return;
         }
-        $demande->update([
-            'acompte_rembourse_le' => $demande->acompte_rembourse_le ?? now(),
-            'acompte_rembourse_centimes' => max($centimes, (int) $demande->acompte_rembourse_centimes),
-        ]);
+        $this->noterRendu($demande, max($centimes, (int) $demande->acompte_rembourse_centimes));
     }
 
     /**
@@ -197,13 +194,10 @@ class AcomptesRendezVous
 
         if (! $ouvert) {
             $gagne = in_array($statut, ['won', 'warning_closed'], true);
-            $demande->update([
-                'acompte_litige' => $gagne ? 'gagne' : 'perdu',
-                ...$gagne ? [] : [
-                    'acompte_rembourse_le' => $demande->acompte_rembourse_le ?? now(),
-                    'acompte_rembourse_centimes' => $demande->acompte_centimes,
-                ],
-            ]);
+            $demande->update(['acompte_litige' => $gagne ? 'gagne' : 'perdu']);
+            if (! $gagne) {
+                $this->noterRendu($demande, (int) $demande->acompte_centimes);
+            }
 
             return;
         }
@@ -362,9 +356,28 @@ class AcomptesRendezVous
         }
     }
 
-    /** Le drapeau « annulation demandée » du rendez-vous, posé ou retiré. */
+    /**
+     * Acompte rendu (en tout ou en partie, par l'app, chez Stripe ou perdu au
+     * litige), daté du dernier rendu : les alertes comptent depuis lui
+     * (24.10.2026). Le rendez-vous perd son drapeau « acompte » : il n'y a plus
+     * d'argent en jeu, l'annuler ne demande plus le droit « Rembourser ».
+     */
+    private function noterRendu(DemandeRendezVous $demande, int $centimes): void
+    {
+        $demande->update(['acompte_rembourse_le' => now(), 'acompte_rembourse_centimes' => $centimes]);
+        $rendezVous = $demande->rendez_vous_id ? RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id) : null;
+        if ($rendezVous) {
+            $rendezVous->forceFill(['flags' => collect($rendezVous->flags ?? [])->reject(fn ($d) => $d === DrapeauRendezVous::Acompte)->values()->all()])->save();
+        }
+    }
+
+    /**
+     * Le drapeau « annulation demandée » du rendez-vous, posé ou retiré. Relu
+     * d'abord : un rendu vient peut-être d'en retirer « acompte ».
+     */
     private function drapeau(RendezVous $rendezVous, bool $pose): void
     {
+        $rendezVous->refresh();
         $drapeaux = collect($rendezVous->flags ?? [])->reject(fn ($d) => $d === DrapeauRendezVous::AnnulationDemandee);
         if ($pose) {
             $drapeaux->push(DrapeauRendezVous::AnnulationDemandee);

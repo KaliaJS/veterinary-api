@@ -34,6 +34,9 @@ use Webauthn\PublicKeyCredentialRequestOptions;
  */
 class PasskeyAuthService
 {
+    /** Passkeys réelles qu'il faut avant de figer leur répartition pour les faux identifiants */
+    public const int SEUIL_FORME = 20;
+
     /** @return array{defi_id: string, options: array<array-key, mixed>} */
     public function generateOptions(?string $email = null, ?string $plateforme = null): array
     {
@@ -107,12 +110,19 @@ class PasskeyAuthService
      * de l'identifiant en octets, transports tels que servis. Calculée une
      * fois puis gardée : recalculée, elle changerait la forme des faux
      * identifiants d'une même adresse d'un jour à l'autre, ce qu'un vrai ne
-     * fait jamais. Sans passkey encore, celle du trousseau d'Apple.
+     * fait jamais. Elle n'est figée qu'à partir de SEUIL_FORME passkeys :
+     * avant (au lancement), celle du trousseau d'Apple, sans la garder, pour
+     * ne pas figer à jamais une forme qui ne ressemblerait plus aux vraies.
      *
      * @return array{nombres: array<int, int>, longueurs: array<int, int>, transports: array<string, int>}
      */
     private static function formeDesPasskeys(): array
     {
+        $repli = ['nombres' => [1 => 1], 'longueurs' => [20 => 1], 'transports' => ['["hybrid","internal"]' => 1]];
+        if (! Cache::has('passkeys:forme') && Passkey::query()->count() < self::SEUIL_FORME) {
+            return $repli;
+        }
+
         return Cache::rememberForever('passkeys:forme', function (): array {
             $forme = [
                 'nombres' => Passkey::query()->selectRaw('count(*) as n')->groupBy('user_id')->pluck('n')->map(fn ($n): int => (int) $n)->countBy()->all(),

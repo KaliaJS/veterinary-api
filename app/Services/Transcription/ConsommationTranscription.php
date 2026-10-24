@@ -8,6 +8,7 @@ use App\Mail\AlerteTranscription;
 use App\Mail\PlafondTranscriptionOrganisation;
 use App\Models\Organisation;
 use App\Models\PartieEnregistrement;
+use App\Services\CompteurMensuel;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Cache;
@@ -114,32 +115,45 @@ final class ConsommationTranscription
 
     /**
      * Dépense Deepgram estimée de la plateforme ce mois-ci, en dollars : les
-     * secondes transcrites, plus les essais envoyés qui ont échoué (24.10.2026).
-     * Un appel qui a expiré de notre côté, ou que l'on a relancé, a pu être
-     * traité, et payé, chez Deepgram. La clinique, elle, ne paie que la durée
-     * de son audio (secondes()).
+     * secondes transcrites, plus les essais envoyés qui n'ont pas abouti
+     * (24.10.2026). Un appel qui a expiré de notre côté, ou dont le worker a
+     * été arrêté, a pu être traité, et payé, chez Deepgram. La clinique, elle,
+     * ne paie que la durée de son audio (secondes()).
      */
     public function depenseDeepgram(): float
     {
-        $secondes = $this->secondes() + (int) Cache::get(self::cleEssaisEchoues(), 0);
+        $secondes = $this->secondes() + CompteurMensuel::valeur(self::ESSAIS_EN_VOL);
 
         return round($secondes / 60 * (float) config('transcription.cout_minute_deepgram_usd'), 2);
     }
 
-    /** Un essai envoyé à Deepgram a échoué : sa durée, estimée d'après la taille du fichier, est comptée au budget du mois. */
-    public function essaiEchoue(int $octets): void
+    private const string ESSAIS_EN_VOL = 'deepgram:essais-sans-reponse';
+
+    /**
+     * Un essai part chez Deepgram : sa durée, estimée d'après la taille du
+     * fichier, est comptée au budget du mois avant l'envoi, en base. Rien ne
+     * la retire s'il n'aboutit pas, même si le worker est arrêté pendant
+     * l'appel. Rend de quoi la retirer (essaiAbouti).
+     *
+     * @return array{mois: string, secondes: int}
+     */
+    public function essaiEnvoye(int $octets): array
     {
         $secondes = (int) ceil(max(0, $octets) * 8 / self::BITS_PAR_SECONDE);
-        if ($secondes === 0) {
-            return;
-        }
-        Cache::add(self::cleEssaisEchoues(), 0, now()->addDays(40));
-        Cache::increment(self::cleEssaisEchoues(), $secondes);
+
+        return ['mois' => $secondes > 0 ? CompteurMensuel::ajouter(self::ESSAIS_EN_VOL, $secondes) : '', 'secondes' => $secondes];
     }
 
-    private static function cleEssaisEchoues(): string
+    /**
+     * L'essai a abouti : sa durée réelle compte par la partie transcrite, l'estimation est retirée.
+     *
+     * @param  array{mois: string, secondes: int}  $essai
+     */
+    public function essaiAbouti(array $essai): void
     {
-        return 'deepgram:essais-echoues:'.CarbonImmutable::now('Europe/Zurich')->format('Y-m');
+        if ($essai['secondes'] > 0) {
+            CompteurMensuel::retirer(self::ESSAIS_EN_VOL, $essai['secondes'], $essai['mois']);
+        }
     }
 
     /** @return array<string, mixed> */

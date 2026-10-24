@@ -4,6 +4,7 @@ namespace App\Paiements;
 
 use Stripe\Exception\ApiErrorException;
 use Stripe\Exception\CardException;
+use Stripe\Exception\IdempotencyException;
 use Stripe\Exception\InvalidRequestException;
 use Stripe\PaymentIntent;
 use Stripe\StripeClient;
@@ -68,20 +69,29 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
 
     public function prelever(string $client, string $moyen, int $centimes, string $libelle, array $metadonnees, bool $horsSession, string $cleIdempotence): array
     {
+        $creer = fn (bool $horsSession) => $this->client->paymentIntents->create([
+            'amount' => $centimes,
+            'currency' => 'chf',
+            'customer' => $client,
+            'payment_method' => $moyen,
+            // La carte enregistrée, sans redirection (3-D Secure passe par Stripe.js)
+            'automatic_payment_methods' => ['enabled' => true, 'allow_redirects' => 'never'],
+            'confirm' => true,
+            'off_session' => $horsSession,
+            'description' => $libelle,
+            'statement_descriptor_suffix' => 'VETERINARY',
+            'metadata' => $metadonnees,
+        ], ['idempotency_key' => $cleIdempotence]);
+
         try {
-            $intention = $this->client->paymentIntents->create([
-                'amount' => $centimes,
-                'currency' => 'chf',
-                'customer' => $client,
-                'payment_method' => $moyen,
-                // La carte enregistrée, sans redirection (3-D Secure passe par Stripe.js)
-                'automatic_payment_methods' => ['enabled' => true, 'allow_redirects' => 'never'],
-                'confirm' => true,
-                'off_session' => $horsSession,
-                'description' => $libelle,
-                'statement_descriptor_suffix' => 'VETERINARY',
-                'metadata' => $metadonnees,
-            ], ['idempotency_key' => $cleIdempotence]);
+            try {
+                $intention = $creer($horsSession);
+            } catch (IdempotencyException) {
+                // La clé a déjà servi à l'autre mode : l'essai de la nuit, sans
+                // réponse, puis « Régler » (24.10.2026). Rejouée telle quelle,
+                // Stripe rend la réponse de cet essai au lieu de prélever deux fois
+                $intention = $creer(! $horsSession);
+            }
         } catch (CardException $e) {
             // Refus ou confirmation exigée hors session : l'intention reste, réglable plus tard
             $intention = $e->getError()?->payment_intent;

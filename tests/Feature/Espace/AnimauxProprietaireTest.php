@@ -179,7 +179,6 @@ class AnimauxProprietaireTest extends TestCase
         $refus = 'Aucun animal ne correspond à ce numéro de puce et à ce nom de famille. Vérifiez-les, ou appelez la clinique qui le suit.';
         $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 000 000', 'nom_proprietaire' => 'Pérez'], $this->enTetes($jeton))
             ->assertUnprocessable()->assertJsonValidationErrors(['puce' => $refus]);
-        $refus = 'Aucun animal ne correspond à ce numéro de puce et à ce nom de famille. Vérifiez-les, ou appelez la clinique qui le suit.';
         foreach (['Rex', 'Martin'] as $autre) {
             $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567', 'nom_proprietaire' => $autre], $this->enTetes($jeton))
                 ->assertUnprocessable()->assertJsonValidationErrors(['puce' => $refus])
@@ -219,10 +218,10 @@ class AnimauxProprietaireTest extends TestCase
             ->assertJsonPath('data.0.organisation.id', $clinique->societe->organisation_id);
         $this->getJson('/api/v1/patients/rattachements', $this->enTetes($jetonClinique))->assertOk()->assertJsonCount(0, 'data');
 
-        // Déjà rattaché : une nouvelle réclamation (par un autre compte) est refusée.
+        // Déjà rattaché : une nouvelle réclamation (par un autre compte) est refusée, avec le même message que les autres échecs
         ['jeton' => $jetonAutre] = $this->proprietaireAvecJeton();
         $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 234 567', 'nom_proprietaire' => 'Pérez'], $this->enTetes($jetonAutre))
-            ->assertUnprocessable()->assertJsonValidationErrors('puce');
+            ->assertUnprocessable()->assertJsonValidationErrors(['puce' => $refus]);
     }
 
     public function test_le_compte_qui_gere_l_animal_le_modifie_et_regle_le_droit_de_la_clinique(): void

@@ -280,8 +280,14 @@ class CliniqueProprietaireController extends Controller
                 // Le lien de ses e-mails, pour suivre la demande sans compte
                 'jeton' => Str::random(48),
             ]);
+        } catch (ValidationException $refus) {
+            // Refusée par une règle (heure prise, plafond) : rien n'est enregistré, le code resservira
+            $codes->liberer($email, $clinique, $marque);
+
+            throw $refus;
         } catch (Throwable $e) {
-            $codes->liberer($marque);
+            // Toute autre erreur : la demande a pu être enregistrée, le code ne resservira pas
+            $codes->consommer($email, $clinique);
 
             throw $e;
         }
@@ -394,8 +400,14 @@ class CliniqueProprietaireController extends Controller
         // À valider : accusé de réception, avec le lien où suivre la réponse
         if (! $reserver) {
             $adresse = $demande->load(['clinique', 'user'])->adresseDuProprietaire();
+            // La demande est enregistrée : un accusé qui ne part pas (panne du
+            // serveur d'e-mails) ne la fait pas échouer (24.10.2026)
             if ($adresse) {
-                Mail::to($adresse)->send(new DemandeRendezVousEnvoyee($demande));
+                try {
+                    Mail::to($adresse)->send(new DemandeRendezVousEnvoyee($demande));
+                } catch (Throwable $e) {
+                    report($e);
+                }
             }
         }
 

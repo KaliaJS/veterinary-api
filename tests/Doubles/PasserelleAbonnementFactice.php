@@ -113,7 +113,8 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
 
     public function annulerPrelevement(string $id): array
     {
-        if (($this->prelevements[$id]['statut'] ?? null) === 'action_requise') {
+        // Comme Stripe : en attente de confirmation ou refusé, il s'annule
+        if (in_array($this->prelevements[$id]['statut'] ?? null, ['action_requise', 'refuse'], true)) {
             $this->prelevements[$id]['statut'] = 'annule';
         }
 

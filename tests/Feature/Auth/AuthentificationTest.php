@@ -63,21 +63,37 @@ class AuthentificationTest extends TestCase
         }
     }
 
-    /** La forme vient des vraies passkeys (ici des clés USB), pas de la forme de secours, et ne change plus ensuite pour une même adresse. */
+    /**
+     * Au-delà de vingt vraies passkeys, la forme vient d'elles (ici des clés
+     * USB, deux par compte), pas de la forme de secours, puis ne change plus
+     * pour une même adresse ; en deçà, la forme du trousseau d'Apple, sans
+     * la figer.
+     */
     public function test_les_identifiants_factices_suivent_la_repartition_reelle_et_restent_stables(): void
     {
-        foreach (['a@exemple.ch', 'b@exemple.ch', 'c@exemple.ch'] as $email) {
-            PasskeyFactory::new()->forme(64, ['usb'])->create(['user_id' => User::factory()->create(['email' => $email])->id]);
-        }
         $options = fn (string $email) => $this->postJson('/api/v1/auth/passkey/options', ['email' => $email])->assertOk()->json('options.allowCredentials');
+        $usb = fn () => PasskeyFactory::new()->forme(64, ['usb']);
 
+        // Trois comptes à deux clés : trop peu, la forme de secours, pas figée
+        foreach (range(1, 3) as $i) {
+            $usb()->count(2)->create(['user_id' => User::factory()->create()->id]);
+        }
+        $avant = $options('inconnu@exemple.ch');
+        $this->assertCount(1, $avant);
+        $this->assertSame(20, strlen(Base64UrlSafe::decodeNoPadding($avant[0]['id'])));
+
+        // Vingt-quatre passkeys : la forme des vraies (deux par compte, 64 octets, usb)
+        foreach (range(1, 9) as $i) {
+            $usb()->count(2)->create(['user_id' => User::factory()->create()->id]);
+        }
         $factices = $options('inconnu@exemple.ch');
+        $this->assertCount(2, $factices);
         $this->assertSame(64, strlen(Base64UrlSafe::decodeNoPadding($factices[0]['id'])));
         $this->assertSame(['usb'], $factices[0]['transports']);
 
-        // Le lendemain, d'autres passkeys sont venues : la même adresse répond pareil
+        // Puis d'autres passkeys viennent : la même adresse répond pareil
         $this->travel(2)->days();
-        foreach (range(1, 5) as $i) {
+        foreach (range(1, 30) as $i) {
             PasskeyFactory::new()->forme(20, ['hybrid', 'internal'])->create(['user_id' => User::factory()->create()->id]);
         }
         $this->assertSame($factices, $options('inconnu@exemple.ch'));

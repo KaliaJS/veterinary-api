@@ -264,6 +264,46 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertSame(600, $consommation->secondes($this->organisation->id));
     }
 
+    /** Compté avant l'envoi, en base (24.10.2026) : un worker arrêté pendant l'appel, ou un cache vidé, n'efface pas l'essai ; abouti, seule sa durée réelle compte. */
+    public function test_un_essai_deepgram_compte_des_l_envoi_et_survit_au_cache(): void
+    {
+        config(['transcription.cout_minute_deepgram_usd' => 0.01]);
+        $consommation = app(ConsommationTranscription::class);
+        $pendantLAppel = null;
+        $this->transcripteur->duree = 120;
+        $this->transcripteur->pendant = function () use ($consommation, &$pendantLAppel): void {
+            $pendantLAppel = $consommation->depenseDeepgram();
+        };
+        $soixanteSecondes = str_repeat('A', 240000 - strlen(TranscripteurFactice::ENTETE));
+
+        $id = $this->demarrer()->json('data.id');
+        $this->morceau($id, 1, 0, 1, $soixanteSecondes)->assertOk();
+        // Pendant l'appel, là où un worker arrêté s'interrompt : les 60 secondes estimées comptent déjà
+        $this->assertSame(0.01, $pendantLAppel);
+        // Abouti : l'estimation est retirée, la durée réelle (120 secondes) compte
+        $this->assertSame(0.02, $consommation->depenseDeepgram());
+
+        // Un essai sans réponse reste compté après un vidage du cache
+        $this->transcripteur->pendant = null;
+        $this->transcripteur->refus = new TranscriptionImpossible('Délai dépassé.');
+        $this->morceau($id, 2, 0, 1, $soixanteSecondes)->assertOk();
+        Cache::flush();
+        $this->assertSame(0.03, $consommation->depenseDeepgram());
+    }
+
+    /** Une rédaction reprise reste comptée au budget Anthropic après un vidage du cache (24.10.2026). */
+    public function test_les_reprises_anthropic_survivent_au_cache(): void
+    {
+        config(['services.anthropic.cout_redaction_usd' => 0.05, 'services.anthropic.cout_suggestion_usd' => 0.02]);
+        $budget = app(BudgetAnthropic::class);
+
+        BudgetAnthropic::nouvelEssai('redaction');
+        BudgetAnthropic::nouvelEssai('suggestion');
+        Cache::flush();
+
+        $this->assertSame(0.07, round($budget->depense(), 2));
+    }
+
     public function test_les_administrateurs_sont_prevenus_au_plafond_de_l_organisation_une_fois(): void
     {
         Mail::fake();

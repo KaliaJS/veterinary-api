@@ -64,10 +64,14 @@ class CodeDemandePublique
         return $marque !== null && Cache::add($marque, true, now()->addMinutes(self::VALIDITE_MINUTES)) ? $marque : null;
     }
 
-    /** La demande n'a pas abouti : le code resservira (une autre heure, sans nouvel e-mail). */
-    public function liberer(string $marque): void
+    /**
+     * La demande a été refusée par une règle : le code resservira (une autre
+     * heure, sans nouvel e-mail), et ce bon code ne compte pas comme un essai.
+     */
+    public function liberer(string $email, Clinique $clinique, string $marque): void
     {
         Cache::forget($marque);
+        RateLimiter::clear($this->limiteur($email, $clinique));
     }
 
     /** La demande est déposée : le code disparaît et le compteur d'essais repart. */

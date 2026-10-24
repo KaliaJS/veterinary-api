@@ -21,6 +21,7 @@ use App\Paiements\PasserellePaiement;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserelleAbonnementFactice;
@@ -476,6 +477,57 @@ class OrganisationTest extends TestCase
         $this->assertNotSame($refusee, array_slice($this->stripe->cles, -1)[0]);
     }
 
+    /** La clé change avec la carte seule : sans réponse, puis une autre carte, c'est une autre tentative (24.10.2026). */
+    public function test_la_cle_d_idempotence_change_avec_la_carte(): void
+    {
+        $facture = $this->factureRefuseeARegler();
+        $regler = fn () => $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton));
+
+        $this->stripe->panne = 'Délai dépassé.';
+        $regler()->assertUnprocessable();
+        $sansReponse = array_slice($this->stripe->cles, -1)[0];
+        $this->avecCarte('4444');
+        $regler()->assertUnprocessable();
+        $this->assertNotSame($sansReponse, array_slice($this->stripe->cles, -1)[0]);
+    }
+
+    /** La clé change avec la réponse seule : refusé, puis la même carte, c'est une autre tentative (24.10.2026). */
+    public function test_la_cle_d_idempotence_change_apres_une_reponse(): void
+    {
+        $facture = $this->factureRefuseeARegler();
+        $regler = fn () => $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton));
+
+        $this->stripe->refus = 'Fonds insuffisants sur la carte.';
+        $regler()->assertUnprocessable();
+        $refusee = array_slice($this->stripe->cles, -1)[0];
+        $this->stripe->refus = null;
+        $regler()->assertOk()->assertJsonPath('data.statut', 'payee');
+        $this->assertNotSame($refusee, array_slice($this->stripe->cles, -1)[0]);
+    }
+
+    /** Une facture annulée ne s'applique jamais, même si son prélèvement passe après coup : signalée, à rendre (24.10.2026). */
+    public function test_une_facture_annulee_ne_s_applique_jamais(): void
+    {
+        $this->jamaisAbonnee();
+        $this->app->instance(PasserellePaiement::class, new PasserellePaiementFactice);
+        $this->avecCarte();
+        $this->stripe->actionRequise = true;
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $prelevement = $this->stripe->dernierPrelevement();
+        $facture = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->sole();
+        // Annulée pendant que la banque confirmait (le prélèvement n'a pas pu être arrêté)
+        $facture->forceFill(['statut' => 'annulee'])->save();
+
+        Log::spy();
+        $this->postJson('/api/v1/stripe/webhook', ['id' => 'evt_annulee', 'type' => 'payment_intent.succeeded', 'data' => ['object' => [
+            'id' => $prelevement['id'], 'status' => 'succeeded', 'amount' => $prelevement['centimes'], 'metadata' => $prelevement['metadonnees'],
+        ]]], ['Stripe-Signature' => 'signature-valide'])->assertNoContent();
+
+        $this->assertSame('annulee', $facture->refresh()->statut);
+        $this->assertDatabaseMissing('organisations', ['id' => $this->organisationId(), 'statut_abonnement' => 'actif']);
+        Log::shouldHaveReceived('critical')->withArgs(fn ($message) => str_contains($message, 'facture annulée'))->once();
+    }
+
     /** Souscrire dans un onglet, la banque demande une confirmation ; souscrire de nouveau dans un autre : la première ne pourra plus passer (24.10.2026). */
     public function test_deux_souscriptions_en_attente_de_confirmation_ne_prelevent_qu_une_fois(): void
     {
@@ -500,6 +552,79 @@ class OrganisationTest extends TestCase
         $this->postJson("/api/v1/organisation/factures/{$aPayer->id}/confirmer", [], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.statut', 'payee');
         $this->assertSame(1, (clone $factures)->where('statut', 'payee')->count());
         $this->assertSame('annule', $this->stripe->prelevements[$premier]['statut']);
+    }
+
+    /** Un prélèvement refusé se confirme encore avec une autre carte : annulé avec sa facture, ou avant un nouvel essai (24.10.2026). */
+    public function test_un_prelevement_refuse_est_annule_chez_stripe(): void
+    {
+        // Avant un nouvel essai
+        $facture = $this->factureRefuseeARegler();
+        $refuse = $facture->stripe_paiement_id;
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.statut', 'payee');
+        $this->assertSame('annule', $this->stripe->prelevements[$refuse]['statut']);
+
+        // Avec sa facture : un pack refusé
+        $this->stripe->refus = 'Fonds insuffisants sur la carte.';
+        $this->postJson('/api/v1/organisation/packs', ['type' => 'emails', 'quantite' => 5000], $this->enTetes($this->jeton))->assertUnprocessable();
+        $pack = $this->stripe->dernierPrelevement()['id'];
+        $this->assertSame('annule', $this->stripe->prelevements[$pack]['statut']);
+        $this->stripe->refus = null;
+        $this->stripe->confirmer($pack);
+        $this->assertSame('annule', $this->stripe->prelevements[$pack]['statut']);
+    }
+
+    /** Deux onglets, ou un double clic : une souscription à la fois, une seule facture prélevée (24.10.2026). */
+    public function test_une_souscription_deja_en_cours_n_en_lance_pas_une_seconde(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+
+        // L'autre requête tient le verrou
+        $verrou = Cache::lock('abonnement:organisation:'.$this->organisationId(), 120);
+        $this->assertTrue($verrou->get());
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['plan' => 'Une souscription est déjà en cours. Patientez un instant.']);
+        $this->assertSame([], $this->stripe->prelevements);
+        $this->assertSame(0, Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->count());
+
+        $verrou->release();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $this->assertCount(1, $this->stripe->prelevements);
+    }
+
+    /** Réponse perdue (délai dépassé), prélèvement passé quand même : le webhook le reconnaît à sa facture et à son montant (24.10.2026). */
+    public function test_le_webhook_d_un_prelevement_sans_reponse_paie_sa_facture(): void
+    {
+        $this->jamaisAbonnee();
+        $this->app->instance(PasserellePaiement::class, new PasserellePaiementFactice);
+        $this->avecCarte();
+        $this->stripe->actionRequise = true;
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $prelevement = $this->stripe->dernierPrelevement();
+        $facture = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->sole();
+        // La facture n'a jamais reçu l'id : la réponse s'est perdue
+        $facture->forceFill(['stripe_paiement_id' => null])->save();
+        $webhook = fn (string $evt, array $objet) => $this->postJson('/api/v1/stripe/webhook', ['id' => $evt, 'type' => 'payment_intent.succeeded', 'data' => ['object' => [
+            'status' => 'succeeded', 'metadata' => $prelevement['metadonnees'], ...$objet,
+        ]]], ['Stripe-Signature' => 'signature-valide'])->assertNoContent();
+
+        // Un autre montant : pas le sien
+        $webhook('evt_autre', ['id' => 'pi_autre', 'amount' => $prelevement['centimes'] + 100]);
+        $this->assertSame('a_payer', $facture->refresh()->statut);
+
+        $webhook('evt_perdu', ['id' => $prelevement['id'], 'amount' => $prelevement['centimes']]);
+        $facture->refresh();
+        $this->assertSame('payee', $facture->statut);
+        $this->assertSame($prelevement['id'], $facture->stripe_paiement_id);
+        $this->assertDatabaseHas('organisations', ['id' => $this->organisationId(), 'statut_abonnement' => 'actif']);
+
+        // Un second prélèvement réussi pour la même facture : signalé, à rendre
+        Log::spy();
+        $webhook('evt_double', ['id' => 'pi_double', 'amount' => $prelevement['centimes']]);
+        $this->assertSame($prelevement['id'], $facture->refresh()->stripe_paiement_id);
+        Log::shouldHaveReceived('critical')->withArgs(fn ($message) => str_contains($message, 'déjà payée'))->once();
     }
 
     /** Une facture de renouvellement refusée, à régler, carte remplacée. */

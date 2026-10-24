@@ -8,6 +8,7 @@ use App\Services\CodeDemandePublique;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\DeposeSansCompte;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -122,7 +123,7 @@ class DemandeSansCompteTest extends TestCase
         $marque = $codes->reserver('paul@example.ch', $clinique);
         $this->assertNotNull($marque);
         $this->assertNull($codes->reserver('paul@example.ch', $clinique));
-        $codes->liberer($marque);
+        $codes->liberer('paul@example.ch', $clinique, $marque);
         $this->assertNotNull($codes->reserver('paul@example.ch', $clinique));
     }
 
@@ -140,6 +141,36 @@ class DemandeSansCompteTest extends TestCase
         $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code]))
             ->assertUnprocessable()->assertJsonValidationErrors('code');
         $this->assertSame(1, DemandeRendezVous::withoutGlobalScopes()->count());
+    }
+
+    /** Une panne de l'accusé de réception ne fait pas échouer la demande enregistrée, et son code ne resservira pas (24.10.2026). */
+    public function test_une_panne_de_l_accuse_ne_double_pas_la_demande(): void
+    {
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['rdv_sans_compte' => true, 'rdv_a_valider' => true]);
+        $code = $this->codeDeDemande($clinique->id, 'lea.rochat@example.ch');
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP indisponible'));
+
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code]))->assertCreated();
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code]))
+            ->assertUnprocessable()->assertJsonValidationErrors('code');
+        $this->assertSame(1, DemandeRendezVous::withoutGlobalScopes()->count());
+    }
+
+    /** Un bon code et une heure refusée : l'essai ne compte pas parmi les cinq. */
+    public function test_une_heure_refusee_ne_compte_pas_comme_un_essai(): void
+    {
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['rdv_sans_compte' => true, 'rdv_a_valider' => true]);
+        $code = $this->codeDeDemande($clinique->id, 'lea.rochat@example.ch');
+        $horsGrille = CarbonImmutable::now('Europe/Zurich')->next(CarbonImmutable::TUESDAY)->setTime(10, 5)->toIso8601String();
+
+        // Cinq heures refusées : avant, le sixième envoi dépassait les cinq essais
+        foreach (range(1, 5) as $essai) {
+            $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code, 'debut_souhaite' => $horsGrille]))
+                ->assertUnprocessable()->assertJsonValidationErrors('debut_souhaite');
+        }
+        // Une minute plus tard (limite de cinq envois par minute), le même code sert
+        $this->travel(61)->seconds();
+        $this->postJson('/api/v1/public/demandes', $this->demande($clinique, ['code' => $code]))->assertCreated();
     }
 
     public function test_sans_compte_il_faut_de_quoi_repondre(): void
