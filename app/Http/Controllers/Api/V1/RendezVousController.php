@@ -17,6 +17,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -133,7 +134,9 @@ class RendezVousController extends Controller
             && $creation->champ === 'création'
             && $audits->pluck('batch_id')->unique()->count() === 1
             && $creation->user_id === $request->user()->id
-            && $creation->created_at->gt(now()->subSeconds(20));
+            && $creation->created_at->gt(now()->subSeconds(20))
+            // Vide : rien ne s'y est attaché (compte rendu signé, facture…), 24.10.2026
+            && ! self::aDesPieces($rendezVous);
 
         if (! $estDansLaFenetre) {
             throw ValidationException::withMessages([
@@ -144,5 +147,14 @@ class RendezVousController extends Controller
         $rendezVous->delete();
 
         return response()->noContent();
+    }
+
+    /** Une pièce du dossier ou de la caisse rattachée au rendez-vous. */
+    private static function aDesPieces(RendezVous $rendezVous): bool
+    {
+        return collect([
+            'comptes_rendus', 'enregistrements_consultation', 'suggestions_diagnostiques', 'interventions',
+            'examens_imagerie', 'sessions_teleconsultation', 'factures', 'demandes_rendez_vous',
+        ])->contains(fn (string $table): bool => DB::table($table)->where('rendez_vous_id', $rendezVous->id)->exists());
     }
 }

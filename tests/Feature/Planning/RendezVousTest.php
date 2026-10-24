@@ -357,6 +357,21 @@ class RendezVousTest extends TestCase
         $this->assertDatabaseMissing('rendez_vous', ['id' => $id]);
     }
 
+    /** Un compte rendu (signé) rattaché dans la fenêtre : le rendez-vous ne part pas avec lui. */
+    public function test_la_suppression_est_refusee_quand_une_piece_y_est_rattachee(): void
+    {
+        $id = $this->postJson('/api/v1/rendez-vous', [
+            'ligne_planning_id' => $this->ligne->id,
+            'starts_at' => aujourdhui()->addDay()->setTime(11, 0)->toISOString(),
+            'duree_minutes' => 20,
+        ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
+        CompteRendu::factory()->create(['rendez_vous_id' => $id, 'signe_le' => now()]);
+
+        $this->deleteJson("/api/v1/rendez-vous/{$id}", [], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('rendez_vous');
+        $this->assertDatabaseHas('rendez_vous', ['id' => $id]);
+        $this->assertDatabaseHas('comptes_rendus', ['rendez_vous_id' => $id]);
+    }
+
     public function test_la_suppression_est_refusee_apres_un_autre_geste(): void
     {
         $entetes = $this->enTetes($this->jeton);
