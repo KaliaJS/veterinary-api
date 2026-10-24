@@ -210,7 +210,8 @@ class Employe extends Model
     /** Présenté sur le site : accès actif, contrat pas encore terminé. */
     public function estPresentable(): bool
     {
-        return ! $this->acces_suspendu && ($this->fin_contrat_le === null || $this->fin_contrat_le->isFuture());
+        // Le dernier jour du contrat compte encore, au calendrier de la clinique (24.10.2026)
+        return ! $this->acces_suspendu && ($this->fin_contrat_le === null || $this->fin_contrat_le->gte(aujourdhui()));
     }
 
     public function estLicencie(): bool

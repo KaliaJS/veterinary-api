@@ -6,6 +6,7 @@ use App\Auth\RolesParDefaut;
 use App\Models\Clinique;
 use App\Models\Role;
 use App\Models\Sejour;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -142,7 +143,8 @@ class ServicesCliniqueTest extends TestCase
 
         $demande = fn (Clinique $clinique) => [
             'clinique_id' => $clinique->id,
-            'debut_souhaite' => now()->addDays(2)->setTime(14, 30)->toIso8601String(),
+            // Une heure de la grille du calendrier, un jour ouvert
+            'debut_souhaite' => CarbonImmutable::now('Europe/Zurich')->next(CarbonImmutable::TUESDAY)->setTime(14, 20)->toIso8601String(),
             'mode' => 'visio',
             'patient_name' => 'Nala',
             'espece' => 'CH',

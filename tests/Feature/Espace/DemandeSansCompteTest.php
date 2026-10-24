@@ -4,6 +4,7 @@ namespace Tests\Feature\Espace;
 
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\DeposeSansCompte;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -25,7 +26,8 @@ class DemandeSansCompteTest extends TestCase
     {
         return [
             'clinique_id' => $clinique->id,
-            'debut_souhaite' => now()->addDays(2)->setTime(10, 0)->toIso8601String(),
+            // Une heure de la grille du calendrier, un jour ouvert
+            'debut_souhaite' => CarbonImmutable::now('Europe/Zurich')->next(CarbonImmutable::TUESDAY)->setTime(10, 0)->toIso8601String(),
             'mode' => 'place',
             'patient_name' => 'Pacha',
             'espece' => 'CT',

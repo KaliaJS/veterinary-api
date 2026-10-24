@@ -7,6 +7,7 @@ use App\Models\Employe;
 use App\Models\MouvementStupefiant;
 use App\Models\Patient;
 use App\Models\Produit;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -195,5 +196,21 @@ class RegistreStupefiantTest extends TestCase
         // La collection ne répond qu'en lecture et en création.
         $this->putJson('/api/v1/stupefiants/mouvements', [], $this->enTetes($this->jeton))
             ->assertStatus(405);
+    }
+
+    /** Le registre d'un jour suit le calendrier de la clinique : 23 h 30 à Zurich est encore ce jour-là. */
+    public function test_l_export_d_un_jour_suit_le_calendrier_de_la_clinique(): void
+    {
+        $this->clinique->update(['fuseau_horaire' => 'Europe/Zurich']);
+        $jour = CarbonImmutable::parse('2026-07-14', 'Europe/Zurich');
+        $mouvement = fn (CarbonImmutable $quand) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create([
+            'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'quantite' => 5, 'motif' => 'Réception grossiste', 'created_at' => $quand->utc(),
+        ]));
+        $tard = $mouvement($jour->setTime(23, 30));
+        $mouvement($jour->addDay()->setTime(0, 30));
+        $mouvement($jour->subDay()->setTime(23, 30));
+
+        $ids = collect($this->getJson('/api/v1/stupefiants/registre?du=2026-07-14&au=2026-07-14', $this->enTetes($this->jeton))->assertOk()->json('data.mouvements'))->pluck('id');
+        $this->assertSame([$tard->id], $ids->all());
     }
 }

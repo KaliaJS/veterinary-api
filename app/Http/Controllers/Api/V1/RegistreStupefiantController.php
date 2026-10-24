@@ -36,8 +36,9 @@ class RegistreStupefiantController extends Controller
 
         $mouvements = MouvementStupefiant::query()
             ->with(['produit', 'patient', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
-            ->when($request->date('du'), fn ($requete, $du) => $requete->where('created_at', '>=', $du))
-            ->when($request->date('au'), fn ($requete, $au) => $requete->where('created_at', '<=', $au->endOfDay()))
+            // Jours du calendrier de la clinique (24.10.2026), pas de minuit UTC
+            ->when($request->date('du'), fn ($requete, $du) => $requete->where('created_at', '>=', minuitLocal($du)))
+            ->when($request->date('au'), fn ($requete, $au) => $requete->where('created_at', '<', minuitLocal($au)->addDay()))
             ->latest('created_at')
             ->latest('id')
             ->get();

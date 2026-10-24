@@ -21,3 +21,19 @@ if (! function_exists('aujourdhui')) {
         return Carbon::parse(CarbonImmutable::now($fuseau)->toDateString(), config('app.timezone'));
     }
 }
+
+if (! function_exists('minuitLocal')) {
+    /**
+     * L'instant (UTC) où commence ce jour du calendrier à la clinique
+     * (24.10.2026) : pour comparer un jour choisi à des horodatages de la
+     * base (factures payées, mouvements du registre).
+     */
+    function minuitLocal(DateTimeInterface|string $jour, ?Clinique $clinique = null): CarbonImmutable
+    {
+        $clinique ??= app(ContexteClinique::class)->clinique();
+        $fuseau = $clinique?->fuseau_horaire ?: 'Europe/Zurich';
+        $date = $jour instanceof DateTimeInterface ? $jour->format('Y-m-d') : CarbonImmutable::parse($jour)->toDateString();
+
+        return CarbonImmutable::parse($date, $fuseau)->utc();
+    }
+}

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Auth\ContexteClinique;
 use App\Enums\StatutFacture;
 use App\Enums\TypeLigneFacture;
 use App\Http\Controllers\Controller;
@@ -27,7 +28,7 @@ class StatistiquesBoutiqueController extends Controller
             ->whereNotNull('produit_id')
             ->whereHas('facture', fn ($requete) => $requete
                 ->where('statut', StatutFacture::Payee)
-                ->where('payee_le', '>=', now()->subDays(6)->startOfDay())
+                ->where('payee_le', '>=', minuitLocal(aujourdhui()->subDays(6)))
                 ->when($request->integer('clinique_id'), fn ($facture, int $clinique) => $facture->where('clinique_id', $clinique)))
             ->with(['produit', 'facture'])
             ->get();
@@ -41,7 +42,7 @@ class StatistiquesBoutiqueController extends Controller
                 'revenu' => round($ligne->quantite * (float) $ligne->prix_chf, 2),
                 'cout' => round($ligne->quantite * (float) $ligne->produit->cout, 2),
                 'clinique_id' => $ligne->facture->clinique_id,
-                'jour' => $ligne->facture->payee_le->toDateString(),
+                'jour' => $ligne->facture->payee_le->setTimezone(app(ContexteClinique::class)->clinique()?->fuseau_horaire ?? 'Europe/Zurich')->toDateString(),
             ])
             ->values();
 
