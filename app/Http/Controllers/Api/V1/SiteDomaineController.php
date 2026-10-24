@@ -7,6 +7,8 @@ use App\Http\Requests\V1\Site\ConnecterDomaineRequest;
 use App\Http\Resources\V1\SiteWebResource;
 use App\Models\SiteWeb;
 use App\Services\Domaines\DomaineSite;
+use App\Services\Domaines\FournisseurIndisponible;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Domaine personnalisé du site de l'organisation (étape 1 : domaine déjà
@@ -31,7 +33,11 @@ class SiteDomaineController extends Controller
         $this->authorize('update', SiteWeb::class);
 
         $site = SiteWeb::courant();
-        $this->domaines->verifier($site);
+        try {
+            $this->domaines->verifier($site);
+        } catch (FournisseurIndisponible $e) {
+            throw ValidationException::withMessages(['domaine' => $e->getMessage()]);
+        }
 
         return new SiteWebResource($site->refresh()->load('organisation'));
     }

@@ -71,19 +71,85 @@ class PasskeyAuthService
         ];
     }
 
-    /** @return list<PublicKeyCredentialDescriptor> */
+    /**
+     * Identifiants factices d'une adresse sans passkey : stables pour une
+     * même adresse, et faits comme les vrais (24.10.2026). Leur nombre,
+     * leur longueur et leurs transports sont tirés de la répartition des
+     * passkeys enregistrées (chiffres agrégés, jamais un vrai identifiant) :
+     * aucune forme à part ne dit que le compte n'existe pas.
+     *
+     * @return list<PublicKeyCredentialDescriptor>
+     */
     private static function identifiantsFactices(string $email): array
     {
-        $graine = hash_hmac('sha256', 'passkey-factice|'.mb_strtolower(trim($email)), (string) config('app.key'), binary: true);
+        $cle = (string) config('app.key');
+        $graine = hash_hmac('sha256', 'passkey-factice|'.mb_strtolower(trim($email)), $cle, binary: true);
+        $tirage = fn (string $quoi): float => unpack('N', hash_hmac('sha256', $graine.'|'.$quoi, $cle, binary: true))[1] / 4294967296;
+        $forme = self::formeDesPasskeys();
 
-        return array_map(
-            fn (int $i): PublicKeyCredentialDescriptor => PublicKeyCredentialDescriptor::create(
+        return array_map(function (int $i) use ($graine, $cle, $tirage, $forme): PublicKeyCredentialDescriptor {
+            $longueur = (int) self::choisir($forme['longueurs'], $tirage('longueur|'.$i));
+            $octets = '';
+            for ($bloc = 0; strlen($octets) < $longueur; $bloc++) {
+                $octets .= hash_hmac('sha256', $graine.'|id|'.$i.'|'.$bloc, $cle, binary: true);
+            }
+
+            return PublicKeyCredentialDescriptor::create(
                 PublicKeyCredentialDescriptor::CREDENTIAL_TYPE_PUBLIC_KEY,
-                hash_hmac('sha256', $graine.'|'.$i, (string) config('app.key'), binary: true),
-                [PublicKeyCredentialDescriptor::AUTHENTICATOR_TRANSPORT_INTERNAL, PublicKeyCredentialDescriptor::AUTHENTICATOR_TRANSPORT_HYBRID],
-            ),
-            range(1, 1 + ord($graine[0]) % 2),
-        );
+                substr($octets, 0, $longueur),
+                json_decode((string) self::choisir($forme['transports'], $tirage('transports|'.$i)), true),
+            );
+        }, range(1, (int) self::choisir($forme['nombres'], $tirage('nombre'))));
+    }
+
+    /**
+     * Répartition des passkeys enregistrées : nombre par compte, longueur
+     * de l'identifiant en octets, transports tels que servis. Recalculée
+     * chaque jour ; sans passkey encore, celle du trousseau d'Apple.
+     *
+     * @return array{nombres: array<int, int>, longueurs: array<int, int>, transports: array<string, int>}
+     */
+    private static function formeDesPasskeys(): array
+    {
+        return Cache::remember('passkeys:forme', now()->addDay(), function (): array {
+            $forme = [
+                'nombres' => Passkey::query()->selectRaw('count(*) as n')->groupBy('user_id')->pluck('n')->map(fn ($n): int => (int) $n)->countBy()->all(),
+                'longueurs' => [],
+                'transports' => [],
+            ];
+            foreach (Passkey::query()->select(['id', 'donnees'])->lazyById(200) as $passkey) {
+                $descripteur = $passkey->donnees->getPublicKeyCredentialDescriptor();
+                $longueur = strlen($descripteur->id);
+                $transports = (string) json_encode($descripteur->transports);
+                $forme['longueurs'][$longueur] = ($forme['longueurs'][$longueur] ?? 0) + 1;
+                $forme['transports'][$transports] = ($forme['transports'][$transports] ?? 0) + 1;
+            }
+
+            return [
+                'nombres' => $forme['nombres'] ?: [1 => 1],
+                'longueurs' => $forme['longueurs'] ?: [20 => 1],
+                'transports' => $forme['transports'] ?: ['["hybrid","internal"]' => 1],
+            ];
+        });
+    }
+
+    /**
+     * La valeur dont la part cumulée atteint `$tirage` (entre 0 et 1).
+     *
+     * @param  array<int|string, int>  $poids
+     */
+    private static function choisir(array $poids, float $tirage): int|string
+    {
+        ksort($poids);
+        $seuil = $tirage * array_sum($poids);
+        foreach ($poids as $valeur => $part) {
+            $seuil -= $part;
+            if ($seuil < 0) {
+                return $valeur;
+            }
+        }
+
+        return array_key_last($poids);
     }
 
     /**

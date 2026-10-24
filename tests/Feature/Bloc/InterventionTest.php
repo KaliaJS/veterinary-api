@@ -126,6 +126,38 @@ class InterventionTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['rendez_vous_id' => 'Ce rendez-vous a déjà son intervention.']);
     }
 
+    /** En modification non plus : ni le rendez-vous d'un autre animal, ni celui qui a déjà son intervention, ni changer d'animal en le gardant. */
+    public function test_la_modification_ne_detourne_pas_le_rendez_vous_d_un_autre_patient(): void
+    {
+        $rendezVous = $this->rendezVousChir();
+        $liee = $this->intervention(['rendez_vous_id' => $rendezVous->id]);
+        $libre = $this->intervention();
+        $autreClient = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+        $autre = Patient::factory()->for($autreClient)->create();
+        $sienne = $this->intervention(['patient_id' => $autre->id]);
+
+        // Le rendez-vous a déjà son intervention
+        $this->patchJson("/api/v1/bloc/interventions/{$libre->id}", ['rendez_vous_id' => $rendezVous->id], $this->jeton())
+            ->assertUnprocessable()->assertJsonValidationErrors(['rendez_vous_id' => 'Ce rendez-vous a déjà son intervention.']);
+        // Le rendez-vous d'un autre animal
+        $rendezVousAutre = RendezVous::factory()->pourPatient($autre)->create([
+            'clinique_id' => $this->clinique->id, 'type' => TypeRendezVous::Chirurgie,
+            'starts_at' => now()->setTime(11, 0), 'ends_at' => now()->setTime(12, 0),
+        ]);
+        $this->patchJson("/api/v1/bloc/interventions/{$libre->id}", ['rendez_vous_id' => $rendezVousAutre->id], $this->jeton())
+            ->assertUnprocessable()->assertJsonValidationErrors('rendez_vous_id');
+        // Changer d'animal en gardant le rendez-vous : refusé, le rendez-vous reste à son animal
+        $this->patchJson("/api/v1/bloc/interventions/{$liee->id}", ['patient_id' => $autre->id], $this->jeton())
+            ->assertUnprocessable()->assertJsonValidationErrors('patient_id');
+        $this->assertSame($this->patient->id, $rendezVous->refresh()->patient_id);
+        $this->assertSame($this->patient->client_id, $rendezVous->client_id);
+
+        // Changer d'animal en détachant le rendez-vous, ou garder le sien : accepté
+        $this->patchJson("/api/v1/bloc/interventions/{$liee->id}", ['patient_id' => $autre->id, 'rendez_vous_id' => null], $this->jeton())->assertOk();
+        $this->patchJson("/api/v1/bloc/interventions/{$sienne->id}", ['rendez_vous_id' => $rendezVousAutre->id, 'duree_minutes' => 45], $this->jeton())->assertOk();
+        $this->assertSame($this->patient->id, $rendezVous->refresh()->patient_id);
+    }
+
     public function test_la_programmation_cree_le_dossier_avec_checklist_et_protocole_par_defaut(): void
     {
         $reponse = $this->postJson('/api/v1/bloc/interventions', [

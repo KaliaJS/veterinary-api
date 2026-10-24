@@ -70,7 +70,12 @@ class DomaineSite
         ]);
         $this->oublierCacheCors();
 
-        $this->verifier($site);
+        // Le fournisseur muet juste après l'ajout : en attente, la vérification
+        // de chaque heure reprendra
+        try {
+            $this->verifier($site);
+        } catch (FournisseurIndisponible) {
+        }
     }
 
     /** Les origines CORS des sites suivent les domaines reliés. */
@@ -86,6 +91,7 @@ class DomaineSite
         }
 
         $prouve = $this->prouve($site);
+        // FournisseurIndisponible remonte, le site reste tel quel (24.10.2026)
         $etat = $this->fournisseur->etat($site->domaine, $site->domaine_fournisseur_id);
         $erreur = $etat['erreur'] ?? ($prouve ? null : 'Ajoutez l’enregistrement TXT de vérification chez votre registraire : il prouve que le domaine est à vous.');
 

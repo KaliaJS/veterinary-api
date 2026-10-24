@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\CalculateurPermissions;
 use App\Auth\ContexteClinique;
+use App\Auth\GardeEquipe;
 use App\Enums\DomainePermission;
 use App\Http\Controllers\Controller;
 use App\Models\DerogationPermission;
@@ -153,15 +154,8 @@ class OrganisationRoleController extends Controller
         DB::transaction(function () use ($changement): void {
             $changement();
 
-            $administrateurs = Employe::withoutGlobalScopes()
-                ->where('organisation_id', $this->organisationId())
-                ->where('acces_suspendu', false)
-                ->where(fn ($q) => $q->whereNull('fin_contrat_le')->orWhereDate('fin_contrat_le', '>=', aujourdhui()))
-                ->with('role', 'derogations')
-                ->get()
-                ->filter(fn (Employe $employe): bool => in_array(DomainePermission::Organisation->value, $this->calculateur->pour($employe), true));
-
-            if ($administrateurs->isEmpty()) {
+            // Les mêmes que pour les gestes RH : un licencié sur le départ ne compte plus
+            if (app(GardeEquipe::class)->administrateursActifs($this->organisationId())->isEmpty()) {
                 throw ValidationException::withMessages([
                     'droits' => 'L’organisation doit garder au moins un administrateur actif (droit Administration).',
                 ]);

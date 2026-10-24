@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Organisation;
 use App\Models\User;
 use App\Services\Abonnements\AbonnementSaas;
+use App\Support\MasquageSql;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
@@ -56,7 +57,8 @@ class RenouvelerAbonnements extends Command
                 $traiter($abonne);
                 $traites++;
             } catch (Throwable $e) {
-                Log::error('Renouvellement impossible.', ['abonne' => $abonne::class.':'.$abonne->id, 'erreur' => $e->getMessage()]);
+                // Sans les valeurs d'un message SQL (24.10.2026)
+                Log::error('Renouvellement impossible.', ['abonne' => $abonne::class.':'.$abonne->id, 'erreur' => MasquageSql::message($e->getMessage())]);
             }
         });
     }

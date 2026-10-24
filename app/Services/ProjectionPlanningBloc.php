@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Enums\StatutRendezVous;
 use App\Models\Intervention;
-use App\Models\Patient;
 use App\Models\User;
 
 /**
@@ -12,7 +11,7 @@ use App\Models\User;
  * (docs/branchement.md §1.8) : l'intervention est le dossier maître du
  * bloc, le rendez-vous `chir` lié n'est que sa projection planning. La
  * synchronisation est à sens unique — l'intervention pousse horaires,
- * salle, patient et clôture vers le RDV via MutationRendezVous (donc
+ * salle et clôture vers le RDV via MutationRendezVous (donc
  * auditée comme n'importe quel geste planning) ; rien ne remonte du
  * planning vers le bloc. Un RDV annulé n'est plus touché.
  */
@@ -20,7 +19,11 @@ class ProjectionPlanningBloc
 {
     public function __construct(private MutationRendezVous $mutation) {}
 
-    /** Pousse horaires, salle et patient de l'intervention vers le RDV lié. */
+    /**
+     * Pousse horaires et salle de l'intervention vers le RDV lié. Jamais
+     * le patient (24.10.2026) : le rendez-vous reste celui de l'animal
+     * pour qui il a été pris, la requête refuse un lien vers un autre.
+     */
     public function aligner(Intervention $intervention, ?User $auteur): void
     {
         $rendezVous = $intervention->rendezVous;
@@ -34,11 +37,6 @@ class ProjectionPlanningBloc
             'ends_at' => $intervention->prevu_le->copy()->addMinutes($intervention->duree_minutes),
             'salle_id' => $intervention->salle_id,
         ];
-
-        if ($intervention->patient_id !== $rendezVous->patient_id) {
-            $attributs['patient_id'] = $intervention->patient_id;
-            $attributs = [...$attributs, ...Patient::findOrFail($intervention->patient_id)->denormalisation()];
-        }
 
         // Parité audit planning : un déplacement n'audite pas le
         // `endsAt` qui suit le début ; un pur changement de durée

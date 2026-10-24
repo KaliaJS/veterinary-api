@@ -11,16 +11,20 @@ use Illuminate\Support\Facades\Log;
  * sont déjà masquées (`mask_bindings_in_exception_messages`), mais le
  * message du pilote MySQL répète la valeur fautive : « Duplicate entry
  * 'lea@exemple.ch' for key… », « Incorrect integer value: 'abc' for
- * column… ». Au journal, la valeur devient « *** » ; table, colonne et
- * index restent, de quoi comprendre l'erreur.
+ * column… », « Truncated incorrect DOUBLE value: 'abc' ». Au journal, la
+ * valeur devient « *** » ; table, colonne et index restent, de quoi
+ * comprendre l'erreur. Les tâches en échec passent par le même masque
+ * (EchecsMasques), comme les journaux écrits à la main.
  */
 final class MasquageSql
 {
     public static function message(string $message): string
     {
         return (string) preg_replace(
-            ["/Duplicate entry '.*?' for key/s", "/value: '.*?' for (column|function)/s", "/Data truncated for column '([^']*)' at row/"],
-            ["Duplicate entry '***' for key", "value: '***' for $1", "Data truncated for column '$1' at row"],
+            // « value: '…' » suivi de « for column », de la fin, ou de la requête
+            // (1292 : « Truncated incorrect DOUBLE value: 'abc' (Connection… »)
+            ["/Duplicate entry '.*?' for key/s", "/value: '.*?'(?= for | \\(Connection|$)/s"],
+            ["Duplicate entry '***' for key", "value: '***'"],
             $message,
         );
     }

@@ -8,6 +8,7 @@ use App\Models\ProduitEmballage;
 use App\Models\ProduitVeterinaire;
 use App\Models\VaccinSchema;
 use App\Models\Valence;
+use App\Support\MasquageSql;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -69,7 +70,7 @@ final class ImportSwissmedic
             $this->clore($journal, $debut);
             $this->notifier($resultat['nouveaux_vaccins']);
         } catch (Throwable $erreur) {
-            $journal->message = mb_substr($erreur->getMessage(), 0, 2000);
+            $journal->message = mb_substr(MasquageSql::message($erreur->getMessage()), 0, 2000);
             $this->clore($journal, $debut);
             throw $erreur;
         } finally {

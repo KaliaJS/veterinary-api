@@ -28,8 +28,8 @@ use Illuminate\Validation\ValidationException;
  * Inscription d'une clinique par un vétérinaire, depuis son compte :
  * l'organisation, sa société, sa première clinique (horaires de départ)
  * et le vétérinaire comme administrateur. Le GLN est vérifié dans MedReg
- * avant ; s'il ne l'est pas, la plateforme reçoit un e-mail pour valider
- * ou refuser à la main. L'organisation reste fermée tant qu'elle n'est ni
+ * avant ; inconnu de MedReg, il est refusé ; autre nom ou MedReg en panne,
+ * la plateforme reçoit un e-mail pour valider ou refuser à la main. L'organisation reste fermée tant qu'elle n'est ni
  * vérifiée ni payée (Organisation::fermeture). Depuis le 23.10.2026, le
  * GLN ne suffit plus (il est public) : sans identité déjà vérifiée par
  * Stripe Identity, la clinique s'ouvre quelques jours, sans ce qui coûte,
@@ -50,6 +50,11 @@ final class InscriptionClinique
 
         $resultat = $this->verification->verifier($donnees['gln'], $donnees['prenom'], $donnees['nom'], $user);
         $verifiee = $resultat->estVerifie();
+        // Un GLN qu'aucun vétérinaire ne porte dans MedReg est refusé, comme au
+        // profil (24.10.2026) : il n'y a rien à vérifier à la main
+        if ($resultat->raison === 'introuvable') {
+            throw ValidationException::withMessages(['gln' => 'Ce GLN n’est celui d’aucun vétérinaire dans MedReg. Vérifiez les 13 chiffres.']);
+        }
 
         // La nouvelle organisation naît hors de toute autre : aucun
         // contexte clinique ne doit filtrer ni signer ses créations.
@@ -144,7 +149,10 @@ final class InscriptionClinique
             $user = $organisation->inscritePar;
             $gln = $organisation->verification_gln;
 
-            if ($user && $gln && ! User::where('gln', $gln)->whereKeyNot($user->id)->exists()) {
+            // Seule une identité établie réserve un GLN (24.10.2026), comme au profil
+            $reserve = $gln && User::query()->where('gln', $gln)->whereKeyNot($user?->id)
+                ->where(fn ($requete) => User::avecIdentiteEtablie($requete))->exists();
+            if ($user && $gln && ! $reserve) {
                 $this->retenirGln($user, $gln, null);
             }
         });

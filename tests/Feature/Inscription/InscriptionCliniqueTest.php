@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserelleIdentite;
 use App\Paiements\PasserellePaiement;
+use App\Services\Inscription\InscriptionClinique;
 use App\Services\Transcription\ConsommationTranscription;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -314,7 +315,7 @@ class InscriptionCliniqueTest extends TestCase
     public function test_un_lien_de_verification_altere_ne_sert_a_rien(): void
     {
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
-        $this->postJson('/api/v1/inscription-clinique', $this->inscription(['gln' => self::AUTRE_GLN]), $this->enTetes($jeton))->assertCreated();
+        $this->postJson('/api/v1/inscription-clinique', $this->inscription(['prenom' => 'Paul', 'nom' => 'Martin']), $this->enTetes($jeton))->assertCreated();
         $organisation = Organisation::query()->where('inscrite_par', $user->id)->firstOrFail();
 
         $this->get("/verification-cliniques/{$organisation->id}/valider")->assertForbidden();
@@ -332,9 +333,9 @@ class InscriptionCliniqueTest extends TestCase
     public function test_un_refus_previent_le_veterinaire_avec_le_motif_et_reste_acquis(): void
     {
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
-        $entetes = $this->enTetes($this->postJson('/api/v1/inscription-clinique', $this->inscription(['gln' => self::AUTRE_GLN]), $this->enTetes($jeton))->json('data.token'));
+        $entetes = $this->enTetes($this->postJson('/api/v1/inscription-clinique', $this->inscription(['prenom' => 'Paul', 'nom' => 'Martin']), $this->enTetes($jeton))->json('data.token'));
         $organisation = Organisation::query()->where('inscrite_par', $user->id)->firstOrFail();
-        $this->assertSame('introuvable', $organisation->verification_raison);
+        $this->assertSame('nom_different', $organisation->verification_raison);
 
         Mail::assertSent(VerificationCliniqueAFaire::class, function (VerificationCliniqueAFaire $envoye): bool {
             $this->post($envoye->lienRefuser, ['note' => 'Aucune autorisation de pratiquer à ce nom.'])->assertOk()->assertSee('Inscription refusée');
@@ -359,11 +360,48 @@ class InscriptionCliniqueTest extends TestCase
     public function test_une_seule_inscription_a_la_fois(): void
     {
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();
-        $nouveau = $this->postJson('/api/v1/inscription-clinique', $this->inscription(['gln' => self::AUTRE_GLN]), $this->enTetes($jeton))->json('data.token');
+        $nouveau = $this->postJson('/api/v1/inscription-clinique', $this->inscription(['prenom' => 'Paul', 'nom' => 'Martin']), $this->enTetes($jeton))->json('data.token');
 
         $this->postJson('/api/v1/inscription-clinique', $this->inscription(), $this->enTetes($nouveau))
             ->assertUnprocessable()
             ->assertJsonPath('errors.inscription.0', 'Votre clinique « Cabinet du Lac » attend encore sa vérification.');
+    }
+
+    /** Inconnu de MedReg : refusé comme au profil, rien n'est créé (24.10.2026). */
+    public function test_un_gln_inconnu_de_medreg_est_refuse(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+
+        $this->postJson('/api/v1/inscription-clinique', $this->inscription(['gln' => self::AUTRE_GLN]), $this->enTetes($jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['gln' => 'Ce GLN n’est celui d’aucun vétérinaire dans MedReg. Vérifiez les 13 chiffres.']);
+
+        $this->assertDatabaseMissing('organisations', ['inscrite_par' => $user->id]);
+        Mail::assertNotSent(VerificationCliniqueAFaire::class);
+    }
+
+    /** Validée à la main : le GLN revient au vétérinaire, sauf s'il est celui d'une identité établie. */
+    public function test_la_validation_a_la_main_suit_la_regle_de_l_identite_etablie(): void
+    {
+        $copieur = User::factory()->create();
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->postJson('/api/v1/inscription-clinique', $this->inscription(['prenom' => 'Paul', 'nom' => 'Martin']), $this->enTetes($jeton))->assertCreated();
+        // Entre-temps, un autre compte a saisi ce GLN sans identité vérifiée
+        $copieur->forceFill(['gln' => self::GLN])->save();
+
+        app(InscriptionClinique::class)->valider(Organisation::query()->where('inscrite_par', $user->id)->firstOrFail());
+        $this->assertSame(self::GLN, $user->refresh()->gln);
+        $this->assertNull($copieur->refresh()->gln);
+
+        // Le GLN d'une identité établie reste à elle
+        $etabli = User::factory()->create();
+        ['user' => $second, 'jeton' => $jetonSecond] = $this->proprietaireAvecJeton();
+        $user->forceFill(['gln' => null])->save();
+        $this->postJson('/api/v1/inscription-clinique', $this->inscription(['prenom' => 'Paul', 'nom' => 'Martin']), $this->enTetes($jetonSecond))->assertCreated();
+        $etabli->forceFill(['gln' => self::GLN, 'identite_verifiee_le' => now()])->save();
+        app(InscriptionClinique::class)->valider(Organisation::query()->where('inscrite_par', $second->id)->firstOrFail());
+        $this->assertNull($second->refresh()->gln);
+        $this->assertSame(self::GLN, $etabli->refresh()->gln);
     }
 
     public function test_un_gln_deja_celui_d_un_autre_compte_passe_a_la_main_sans_interroger_medreg(): void

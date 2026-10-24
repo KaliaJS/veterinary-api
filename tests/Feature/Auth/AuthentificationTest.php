@@ -9,9 +9,11 @@ use App\Models\DerogationPermission;
 use App\Models\Employe;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
+use Database\Factories\PasskeyFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Support\Facades\Notification;
+use ParagonIE\ConstantTime\Base64UrlSafe;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -40,6 +42,25 @@ class AuthentificationTest extends TestCase
         Notification::fake();
         $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'a.meyer@deuxrives.ch'])->assertStatus(202)->assertJson(['message' => 'Un code a été envoyé.']);
         $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'inconnu@exemple.ch'])->assertStatus(202)->assertJson(['message' => 'Un code a été envoyé.']);
+    }
+
+    /** Les identifiants factices ont la forme des vrais : nombre, longueur, transports (24.10.2026). */
+    public function test_les_identifiants_factices_ressemblent_aux_vrais(): void
+    {
+        // Des passkeys du trousseau d'Apple : 20 octets, transports dans l'ordre du navigateur
+        foreach (['a.meyer@deuxrives.ch', 'l.rochat@exemple.ch', 'p.favre@exemple.ch'] as $email) {
+            PasskeyFactory::new()->forme(20, ['hybrid', 'internal'])->create(['user_id' => User::factory()->create(['email' => $email])->id]);
+        }
+
+        $options = fn (string $email) => $this->postJson('/api/v1/auth/passkey/options', ['email' => $email])->assertOk()->json('options.allowCredentials');
+        $vraie = $options('a.meyer@deuxrives.ch');
+        foreach (['inconnu@exemple.ch', 'personne@ailleurs.ch', 'x@y.ch'] as $email) {
+            $factices = $options($email);
+            $this->assertCount(count($vraie), $factices, $email);
+            $this->assertSame(strlen(Base64UrlSafe::decodeNoPadding($vraie[0]['id'])), strlen(Base64UrlSafe::decodeNoPadding($factices[0]['id'])), $email);
+            $this->assertSame($vraie[0]['transports'], $factices[0]['transports'], $email);
+            $this->assertSame(array_keys($vraie[0]), array_keys($factices[0]), $email);
+        }
     }
 
     public function test_le_code_email_permet_de_se_connecter(): void

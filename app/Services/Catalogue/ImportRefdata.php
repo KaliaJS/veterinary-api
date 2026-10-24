@@ -4,6 +4,7 @@ namespace App\Services\Catalogue;
 
 use App\Models\CatalogueImport;
 use App\Models\ProduitEmballage;
+use App\Support\MasquageSql;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -44,7 +45,7 @@ final class ImportRefdata
             $journal->fill($resultat)->statut = CatalogueImport::REUSSI;
             $this->clore($journal, $debut);
         } catch (Throwable $erreur) {
-            $journal->message = mb_substr($erreur->getMessage(), 0, 2000);
+            $journal->message = mb_substr(MasquageSql::message($erreur->getMessage()), 0, 2000);
             $this->clore($journal, $debut);
             throw $erreur;
         } finally {

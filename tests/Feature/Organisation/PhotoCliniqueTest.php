@@ -81,6 +81,18 @@ class PhotoCliniqueTest extends TestCase
         Storage::disk('prive')->assertMissing([$nouvelle, PhotosCliniques::version($nouvelle, 1200)]);
     }
 
+    /** Une photo très haute et étroite : chaque version bornée sur sa hauteur aussi. */
+    public function test_la_hauteur_des_versions_est_bornee(): void
+    {
+        $this->post("/api/v1/organisation/cliniques/{$this->clinique->id}/photo", ['photo' => UploadedFile::fake()->image('enseigne.png', 400, 6000)], $this->entetesJson())->assertOk();
+
+        $chemin = $this->clinique->refresh()->photo_chemin;
+        foreach (PhotosCliniques::LARGEURS as $largeur) {
+            [$l, $h] = getimagesizefromstring(Storage::disk('prive')->get(PhotosCliniques::version($chemin, $largeur)));
+            $this->assertLessThanOrEqual($largeur, max($l, $h), "version {$largeur}");
+        }
+    }
+
     public function test_l_ecran_organisation_dit_ce_qui_manque_pour_paraitre_dans_l_annuaire(): void
     {
         $this->clinique->update(['rue' => 'Rue du Lac 1', 'npa' => '1000', 'ville' => 'Lausanne', 'latitude' => null, 'longitude' => null]);

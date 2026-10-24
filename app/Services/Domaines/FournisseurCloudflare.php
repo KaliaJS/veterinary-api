@@ -2,6 +2,7 @@
 
 namespace App\Services\Domaines;
 
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -41,7 +42,20 @@ class FournisseurCloudflare implements FournisseurDomaines
             return ['actif' => false, 'erreur' => 'Domaine inconnu chez Cloudflare.'];
         }
 
-        $resultat = $this->client()->get($this->url($identifiant))->json('result') ?? [];
+        // Injoignable ou en erreur de son côté : on ne sait rien du domaine
+        try {
+            $reponse = $this->client()->get($this->url($identifiant));
+        } catch (ConnectionException $e) {
+            report($e);
+
+            throw new FournisseurIndisponible;
+        }
+        if ($reponse->serverError() || $reponse->status() === 429) {
+            Log::warning('Cloudflare ne répond pas pour un domaine.', ['domaine' => $domaine, 'statut' => $reponse->status()]);
+
+            throw new FournisseurIndisponible;
+        }
+        $resultat = $reponse->json('result') ?? [];
         $actif = ($resultat['status'] ?? null) === 'active' && ($resultat['ssl']['status'] ?? null) === 'active';
         $erreurs = [...($resultat['verification_errors'] ?? []), ...($resultat['ssl']['validation_errors'] ?? [])];
 

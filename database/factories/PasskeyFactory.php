@@ -24,7 +24,27 @@ class PasskeyFactory extends Factory
 
     public function definition(): array
     {
-        $identifiant = random_bytes(32);
+        return $this->attributs(32, ['internal']);
+    }
+
+    /**
+     * Identifiant de `$octets` octets et transports donnés (une passkey du
+     * trousseau d'Apple : 20 octets, ['hybrid', 'internal']).
+     *
+     * @param  list<string>  $transports
+     */
+    public function forme(int $octets, array $transports): static
+    {
+        return $this->state(fn (): array => $this->attributs($octets, $transports));
+    }
+
+    /**
+     * @param  list<string>  $transports
+     * @return array<string, mixed>
+     */
+    private function attributs(int $octets, array $transports): array
+    {
+        $identifiant = random_bytes($octets);
 
         return [
             'user_id' => User::factory(),
@@ -33,7 +53,7 @@ class PasskeyFactory extends Factory
             'donnees' => fn (array $attributs): CredentialRecord => CredentialRecord::create(
                 $identifiant,
                 'public-key',
-                ['internal'],
+                $transports,
                 'none',
                 EmptyTrustPath::create(),
                 Uuid::fromString('00000000-0000-0000-0000-000000000000'),

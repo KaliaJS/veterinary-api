@@ -367,6 +367,58 @@ class AcompteReservationTest extends TestCase
         $this->assertFalse($demande->acompteEnJeu());
     }
 
+    /** Rendu chez Stripe après la facture qui le déduit : la facturation est prévenue (24.10.2026). */
+    public function test_un_acompte_rendu_apres_la_facture_alerte_la_facturation(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonAdmin] = $this->administrateurAvecJeton($this->clinique);
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $rendezVous = RendezVous::withoutGlobalScopes()->sole();
+        $rendezVous->update(['status' => 'cours']);
+        $this->postJson("/api/v1/rendez-vous/{$rendezVous->id}/statut", ['status' => 'fini'], $this->enTetes($jetonAdmin))->assertOk();
+        $titres = fn () => collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonAdmin))->assertOk()->json('data.alertes'))->pluck('titre')->all();
+        $this->assertNotContains('1 acompte rendu après la facture', $titres());
+
+        // Rendu en partie chez Stripe : 10 francs sur 30
+        app(WebhooksStripe::class)->traiter([
+            'id' => 'evt_acompte_partiel', 'type' => 'charge.refunded',
+            'objet' => ['payment_intent' => $demande->acompte_intention_id, 'refunded' => false, 'amount_refunded' => 1000],
+            'compte' => $demande->acompte_stripe_compte_id,
+        ]);
+        $this->assertSame(20.0, $demande->refresh()->acompteRetenu());
+        $alerte = collect($this->getJson('/api/v1/alertes', $this->enTetes($jetonAdmin))->json('data.alertes'))->firstWhere('titre', '1 acompte rendu après la facture');
+        $this->assertNotNull($alerte);
+        $this->assertStringContainsString('CHF 30.00 déduits, CHF 20.00 encore encaissés', str_replace("\u{a0}", ' ', $alerte['detail']));
+    }
+
+    /** Litige clos : gagné ou « warning_closed » garde l'acompte ; un événement d'un autre compte Stripe est ignoré. */
+    public function test_un_litige_d_acompte_gagne_ou_clos_sans_suite_garde_l_acompte(): void
+    {
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $webhook = fn (string $id, string $type, array $objet, ?string $compte = null) => app(WebhooksStripe::class)->traiter([
+            'id' => $id, 'type' => $type, 'objet' => $objet, 'compte' => $compte ?? $demande->acompte_stripe_compte_id,
+        ]);
+
+        foreach (['won', 'warning_closed'] as $i => $statut) {
+            $webhook("evt_ouvert_{$i}", 'charge.dispute.created', ['payment_intent' => $demande->acompte_intention_id]);
+            $webhook("evt_clos_{$i}", 'charge.dispute.closed', ['payment_intent' => $demande->acompte_intention_id, 'status' => $statut]);
+            $demande->refresh();
+            $this->assertSame('gagne', $demande->acompte_litige, $statut);
+            $this->assertNull($demande->acompte_rembourse_le, $statut);
+            $this->assertSame(30.0, $demande->acompteRetenu(), $statut);
+        }
+
+        // Un remboursement ou un litige perdu annoncé par un autre compte : rien ne bouge
+        $webhook('evt_autre_r', 'charge.refunded', ['payment_intent' => $demande->acompte_intention_id, 'refunded' => true, 'amount_refunded' => 3000], 'acct_intrus');
+        $webhook('evt_autre_l', 'charge.dispute.closed', ['payment_intent' => $demande->acompte_intention_id, 'status' => 'lost'], 'acct_intrus');
+        $demande->refresh();
+        $this->assertNull($demande->acompte_rembourse_le);
+        $this->assertSame('gagne', $demande->acompte_litige);
+    }
+
     public function test_un_acompte_que_stripe_refuse_de_rendre_ne_perd_rien_on_reessaie(): void
     {
         $this->clinique->update(['acompte_centimes' => 3000]);

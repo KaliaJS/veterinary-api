@@ -74,6 +74,12 @@ return [
     'timezone' => 'UTC',
 
     /*
+    | Proxys de confiance (24.10.2026) : « * » derrière le répartiteur de
+    | charge de Laravel Cloud, vide en local. Voir ProxiesDeConfiance.
+    */
+    'proxies_de_confiance' => env('TRUSTED_PROXIES'),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration
     |--------------------------------------------------------------------------

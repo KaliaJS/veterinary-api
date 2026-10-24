@@ -75,6 +75,20 @@ class RolesEtDroitsTest extends TestCase
         ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors(['droits' => 'L’organisation doit garder au moins un administrateur actif (droit Administration).']);
     }
 
+    /** Un autre administrateur licencié, fin de contrat à venir : il ne compte plus (24.10.2026). */
+    public function test_un_administrateur_licencie_ne_compte_pas_au_reglage_des_droits(): void
+    {
+        ['employe' => $partant] = $this->administrateurAvecJeton($this->clinique);
+        $partant->update(['licenciement_notifie_le' => aujourdhui(), 'fin_contrat_le' => aujourdhui()->addMonth()]);
+
+        $this->putJson("/api/v1/organisation/employes/{$this->administrateur->id}/exceptions", [
+            'droits' => [['droit' => 'organisation', 'accorde' => false]],
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('droits');
+
+        $this->putJson('/api/v1/organisation/roles/'.$this->role(RolesParDefaut::ADMINISTRATEUR)->id, ['droits' => ['planning']], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('droits');
+    }
+
     public function test_une_exception_accorde_un_droit_au_dela_du_role(): void
     {
         ['employe' => $asv] = $this->employeAvecJeton($this->clinique, [], 'asv');

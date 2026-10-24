@@ -40,8 +40,10 @@ final class PhotosCliniques
         $chemin = 'photos-cliniques/'.$organisationId.'/'.Str::random(40).'.webp';
 
         foreach (self::LARGEURS as $largeur) {
-            $version = imagesx($image) > $largeur ? imagescale($image, $largeur) : $image;
-            Storage::disk(self::DISQUE)->put(self::version($chemin, $largeur), ImageReencodee::webp($version ?: $image, self::QUALITE));
+            // Bornée sur son plus grand côté (24.10.2026) : une photo très
+            // haute ne garde pas ses 8000 pixels de hauteur
+            $version = ImageReencodee::reduire($image, $largeur);
+            Storage::disk(self::DISQUE)->put(self::version($chemin, $largeur), ImageReencodee::webp($version, self::QUALITE));
         }
 
         $petite = imagescale($image, self::APERCU_LARGEUR);

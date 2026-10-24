@@ -7,11 +7,13 @@ use App\Http\Middleware\ExigerModerateur;
 use App\Http\Middleware\ExigerOrganisationOuverte;
 use App\Http\Middleware\ExigerServiceClinique;
 use App\Http\Middleware\ForcerReponseJson;
+use App\Http\Middleware\ProxiesDeConfiance;
 use App\Paiements\ErreurPaiement;
 use App\Support\MasquageSql;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 
@@ -24,6 +26,9 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prependToGroup('api', ForcerReponseJson::class);
+
+        // L'adresse du client derrière le répartiteur de charge (TRUSTED_PROXIES)
+        $middleware->replace(TrustProxies::class, ProxiesDeConfiance::class);
 
         // Limite générale de l'API (AppServiceProvider, limiteur `api`)
         $middleware->throttleApi();

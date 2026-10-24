@@ -5,6 +5,7 @@ namespace App\Auth;
 use App\Enums\DomainePermission;
 use App\Models\Employe;
 use App\Models\Role;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Garde-fous des gestes RH (23.10.2026) : personne ne se donne plus de
@@ -68,14 +69,27 @@ class GardeEquipe
             return false;
         }
 
-        return ! Employe::withoutGlobalScopes()
-            ->where('organisation_id', $employe->organisation_id)
-            ->whereKeyNot($employe->id)
+        return ! $this->administrateursActifs($employe->organisation_id)
+            ->contains(fn (Employe $autre): bool => $autre->id !== $employe->id);
+    }
+
+    /**
+     * Les administrateurs qui restent : ni suspendus, ni licenciés (même
+     * avant leur fin de contrat), contrat en cours. Une seule définition
+     * pour les gestes RH et le réglage des rôles (24.10.2026).
+     *
+     * @return Collection<int, Employe>
+     */
+    public function administrateursActifs(int $organisationId): Collection
+    {
+        return Employe::withoutGlobalScopes()
+            ->where('organisation_id', $organisationId)
             ->where('acces_suspendu', false)
             ->whereNull('licenciement_notifie_le')
             ->where(fn ($q) => $q->whereNull('fin_contrat_le')->orWhereDate('fin_contrat_le', '>=', aujourdhui()))
             ->with('role', 'derogations')
             ->get()
-            ->contains(fn (Employe $autre): bool => in_array(DomainePermission::Organisation->value, $this->calculateur->pour($autre), true));
+            ->filter(fn (Employe $employe): bool => in_array(DomainePermission::Organisation->value, $this->calculateur->pour($employe), true))
+            ->values();
     }
 }

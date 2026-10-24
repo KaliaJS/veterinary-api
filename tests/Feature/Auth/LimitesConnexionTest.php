@@ -31,17 +31,73 @@ class LimitesConnexionTest extends TestCase
             ->postJson('/api/v1/auth/passkey/options', ['email' => 'personne31@exemple.ch'])->assertOk();
     }
 
-    public function test_une_boite_ne_recoit_pas_plus_de_trois_codes_en_quinze_minutes_quelle_que_soit_l_ip(): void
+    /** Par adresse et par IP (24.10.2026) : trois en quinze minutes, dix par jour ; la victime, ailleurs, reçoit le sien. */
+    public function test_les_envois_d_une_ip_ne_privent_pas_la_victime_de_son_code(): void
     {
         Notification::fake();
+        $envoyer = fn (string $ip) => $this->withServerVariables(['REMOTE_ADDR' => $ip])
+            ->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'victime@exemple.ch']);
 
-        foreach (['198.51.100.1', '198.51.100.2', '198.51.100.3'] as $ip) {
-            $this->withServerVariables(['REMOTE_ADDR' => $ip])
-                ->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'victime@exemple.ch'])->assertStatus(202);
+        foreach (range(1, 3) as $i) {
+            $envoyer('198.51.100.1')->assertStatus(202);
         }
+        $envoyer('198.51.100.1')->assertTooManyRequests();
+        $envoyer('203.0.113.7')->assertStatus(202);
 
-        $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.4'])
-            ->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'victime@exemple.ch'])->assertTooManyRequests();
+        // Dix par jour depuis la même IP, même espacés : 3 + 3 + 3 + 1
+        foreach ([3, 3, 1] as $nombre) {
+            $this->travel(16)->minutes();
+            foreach (range(1, $nombre) as $i) {
+                $envoyer('198.51.100.1')->assertStatus(202);
+            }
+        }
+        $envoyer('198.51.100.1')->assertTooManyRequests();
+        $envoyer('203.0.113.7')->assertStatus(202);
+    }
+
+    /** Toutes IP confondues, plus haut : dix en quinze minutes, cinquante par jour. */
+    public function test_une_boite_n_est_pas_bombardee_depuis_beaucoup_d_ip(): void
+    {
+        Notification::fake();
+        $envoyer = fn (string $ip) => $this->withServerVariables(['REMOTE_ADDR' => $ip])
+            ->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'victime@exemple.ch']);
+
+        foreach (range(1, 10) as $i) {
+            $envoyer("198.51.100.{$i}")->assertStatus(202);
+        }
+        $envoyer('198.51.100.11')->assertTooManyRequests();
+
+        foreach (range(1, 4) as $vague) {
+            $this->travel(16)->minutes();
+            foreach (range(1, 10) as $i) {
+                $envoyer('192.0.2.'.($vague * 10 + $i))->assertStatus(202);
+            }
+        }
+        $this->travel(16)->minutes();
+        $envoyer('203.0.113.200')->assertTooManyRequests();
+    }
+
+    /** Derrière le répartiteur de charge, l'IP du client compte, pas celle du répartiteur. */
+    public function test_derriere_le_repartiteur_l_ip_du_client_compte(): void
+    {
+        Notification::fake();
+        $envoyer = fn (string $client) => $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])
+            ->withHeader('X-Forwarded-For', $client)
+            ->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'victime@exemple.ch']);
+
+        // Sans proxys de confiance : tout le monde a l'adresse du répartiteur
+        foreach (range(1, 3) as $i) {
+            $envoyer('198.51.100.1')->assertStatus(202);
+        }
+        $envoyer('203.0.113.7')->assertTooManyRequests();
+
+        config(['app.proxies_de_confiance' => '*']);
+        $this->travel(16)->minutes();
+        foreach (range(1, 3) as $i) {
+            $envoyer('198.51.100.1')->assertStatus(202);
+        }
+        $envoyer('198.51.100.1')->assertTooManyRequests();
+        $envoyer('203.0.113.7')->assertStatus(202);
     }
 
     public function test_au_cinquieme_mauvais_code_le_bon_code_ne_marche_plus(): void
@@ -82,6 +138,24 @@ class LimitesConnexionTest extends TestCase
         $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.200'])
             ->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $neuf])
             ->assertOk();
+    }
+
+    /** Dans les dix minutes de validité : le code neuf rend les cinq essais, sans attendre l'expiration. */
+    public function test_un_code_neuf_rend_les_cinq_essais_tout_de_suite(): void
+    {
+        Notification::fake();
+        $user = User::factory()->create();
+        $code = $this->envoyerEtRecupererLeCode($user);
+        $faux = $code === '11111111' ? '22222222' : '11111111';
+
+        foreach (range(1, 5) as $essai) {
+            $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $faux])->assertUnprocessable();
+        }
+
+        $this->travel(1)->minutes();
+        Notification::fake();
+        $neuf = $this->envoyerEtRecupererLeCode($user);
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $neuf])->assertOk();
     }
 
     public function test_le_bon_code_passe_apres_quelques_erreurs(): void

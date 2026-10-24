@@ -80,9 +80,10 @@ class DomaineSiteTest extends TestCase
         if (! $this->txtPose) {
             return [];
         }
-        $site = SiteWeb::withoutGlobalScopes()->whereNotNull('domaine_jeton')->first();
+        $site = SiteWeb::withoutGlobalScopes()->whereNotNull('domaine_jeton')->get()
+            ->first(fn (SiteWeb $site): bool => $nom === DomaineSite::PREFIXE_TXT.'.'.$site->domaine);
 
-        return $site && $nom === DomaineSite::PREFIXE_TXT.'.'.$site->domaine ? [DomaineSite::valeurTxt($site->domaine_jeton)] : [];
+        return $site ? [DomaineSite::valeurTxt($site->domaine_jeton)] : [];
     }
 
     private function administrateur(Clinique $clinique): string
@@ -297,6 +298,45 @@ class DomaineSiteTest extends TestCase
         $this->pointe = true;
         $this->artisan('sites:verifier-domaines')->assertSuccessful();
         $this->getJson('/api/v1/public/domaines/www.ma-clinique.ch')->assertOk();
+    }
+
+    /** Cloudflare en panne : on ne sait rien, le domaine actif le reste ; la boucle continue pour les autres. */
+    public function test_une_panne_de_cloudflare_ne_desactive_pas_le_domaine(): void
+    {
+        config(['sites.domaines.fournisseur' => 'cloudflare']);
+        $enPanne = false;
+        Http::fake([
+            'api.cloudflare.com/client/v4/zones/zone123/custom_hostnames' => fn (Request $r) => Http::response(['success' => true, 'result' => ['id' => $r['hostname'] === 'www.ma-clinique.ch' ? 'ch-1' : 'ch-2']]),
+            'api.cloudflare.com/client/v4/zones/zone123/custom_hostnames/ch-1' => function () use (&$enPanne) {
+                return $enPanne ? Http::response('Bad gateway', 502) : Http::response(['result' => ['status' => 'active', 'ssl' => ['status' => 'active']]]);
+            },
+            'api.cloudflare.com/client/v4/zones/zone123/custom_hostnames/ch-2' => Http::response(['result' => ['status' => 'active', 'ssl' => ['status' => 'active']]]),
+        ]);
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertJsonPath('data.domaine.statut', 'actif');
+
+        // Un second site, en attente, que la boucle doit vérifier malgré la panne du premier
+        app(ContexteClinique::class)->oublier();
+        $autre = Clinique::factory()->create();
+        $jetonAutre = $this->administrateur($autre);
+        $this->patchJson('/api/v1/site', ['est_publie' => true], $this->enTetes($jetonAutre))->assertOk();
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.autre-clinique.ch'], $this->enTetes($jetonAutre))->assertOk();
+        SiteWeb::withoutGlobalScopes()->where('domaine', 'www.autre-clinique.ch')->update(['domaine_statut' => DomaineSite::ATTENTE, 'domaine_verifie_le' => null]);
+
+        // « Vérifier » à la main pendant la panne : le dire, sans rien changer
+        app(ContexteClinique::class)->oublier();
+        $enPanne = true;
+        $this->postJson('/api/v1/site/domaine/verifier', [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['domaine' => 'Le service des domaines ne répond pas. Réessayez dans quelques minutes.']);
+        $this->assertSame(DomaineSite::ACTIF, SiteWeb::withoutGlobalScopes()->where('domaine', 'www.ma-clinique.ch')->value('domaine_statut'));
+
+        // Deux jours de panne : le domaine reste actif, l'autre site est vérifié quand même
+        app(ContexteClinique::class)->oublier();
+        $this->travel(2)->days();
+        $this->artisan('sites:verifier-domaines')->assertSuccessful();
+
+        $this->assertSame(DomaineSite::ACTIF, SiteWeb::withoutGlobalScopes()->where('domaine', 'www.ma-clinique.ch')->value('domaine_statut'));
+        $this->getJson('/api/v1/public/domaines/www.ma-clinique.ch')->assertOk();
+        $this->assertSame(DomaineSite::ACTIF, SiteWeb::withoutGlobalScopes()->where('domaine', 'www.autre-clinique.ch')->value('domaine_statut'));
     }
 
     public function test_un_domaine_en_attente_plus_de_quatorze_jours_est_retire(): void

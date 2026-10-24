@@ -13,6 +13,7 @@ use App\Paiements\PasserelleIdentite;
 use App\Paiements\PasserelleIdentiteStripe;
 use App\Paiements\PasserellePaiement;
 use App\Paiements\PasserelleStripe;
+use App\Queue\EchecsMasques;
 use App\Services\Diagnostic\Suggesteur;
 use App\Services\Diagnostic\SuggesteurClaude;
 use App\Services\Domaines\FournisseurCloudflare;
@@ -25,6 +26,7 @@ use App\Services\Transcription\TranscripteurDeepgram;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Mail\Markdown;
+use Illuminate\Queue\Failed\FailedJobProviderInterface;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
@@ -42,6 +44,9 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->scoped(ContexteClinique::class);
         $this->app->scoped(ContexteProprietaire::class);
+
+        // Les tâches en échec gardées sans les valeurs des messages SQL
+        $this->app->extend('queue.failer', fn (FailedJobProviderInterface $fournisseur) => $fournisseur instanceof EchecsMasques ? $fournisseur : new EchecsMasques($fournisseur));
 
         // Paiements en caisse : Stripe (Terminal, TWINT), remplacé par un
         // double dans les tests
@@ -207,14 +212,19 @@ class AppServiceProvider extends ServiceProvider
         // Fichiers publics (photos, logos) et autorisation de certificat, par IP
         RateLimiter::for('fichiers', fn (Request $request): Limit => Limit::perMinute(300)->by('fichiers:'.$request->ip()));
 
-        // Envoi d'un code : par destinataire, toutes IP confondues (une
-        // boîte n'est pas bombardée, un code ne part pas en boucle)
+        // Envoi d'un code (24.10.2026) : par destinataire et par IP, et plus
+        // haut toutes IP confondues. Une boîte n'est pas bombardée, et
+        // empêcher quelqu'un de recevoir son code demande beaucoup d'adresses
+        // IP, plus seulement dix envois.
         RateLimiter::for('code-email', function (Request $request): array {
             $email = mb_strtolower((string) ($request->input('email') ?? $request->user()?->email));
+            $ip = (string) $request->ip();
 
             return [
-                Limit::perMinutes(15, 3)->by('code:'.$email),
-                Limit::perDay(10)->by('code-jour:'.$email),
+                Limit::perMinutes(15, 3)->by('code:'.$email.'|'.$ip),
+                Limit::perDay(10)->by('code-jour:'.$email.'|'.$ip),
+                Limit::perMinutes(15, 10)->by('code-adresse:'.$email),
+                Limit::perDay(50)->by('code-adresse-jour:'.$email),
             ];
         });
     }

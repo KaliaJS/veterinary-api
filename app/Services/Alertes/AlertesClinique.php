@@ -6,6 +6,7 @@ use App\Enums\StatutPaiement;
 use App\Enums\TypeAlerte;
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
+use App\Models\Facture;
 use App\Models\Lot;
 use App\Models\Organisation;
 use App\Models\Paiement;
@@ -105,6 +106,29 @@ class AlertesClinique
                 $this->compte($acomptes->count(), 'acompte contesté', 'acomptes contestés'),
                 $this->noms($acomptes->map(fn (DemandeRendezVous $d) => 'acompte de '.$d->patient_name.' ('.$this->chf((int) $d->acompte_centimes).')')).'. Répondez depuis Réglages, Paiements, avant l’échéance de la banque.',
                 'reglages:paiements',
+            );
+        }
+
+        // Acompte rendu ou perdu au litige après la facture (24.10.2026) : la
+        // facture le déduit encore, le client doit la différence
+        $factures = Facture::withoutGlobalScopes()
+            ->with('rendezVous.demandeEnLigne')
+            ->where('clinique_id', $clinique->id)
+            ->where('acompte', '>', 0)
+            ->whereHas('rendezVous.demandeEnLigne', fn ($requete) => $requete->where('acompte_rembourse_le', '>=', now()->subDays(30)))
+            ->orderByDesc('emise_le')
+            ->get()
+            ->filter(fn (Facture $f): bool => (int) round(($f->rendezVous?->demandeEnLigne?->acompteRetenu() ?? 0) * 100) < (int) round((float) $f->acompte * 100))
+            ->values();
+        if ($factures->isNotEmpty()) {
+            $alertes[] = $this->alerte(
+                TypeAlerte::Paiement,
+                'acomptes-rendus:'.$this->empreinte($factures->map(fn (Facture $f) => $f->id.'-'.$f->rendezVous?->demandeEnLigne?->acompte_rembourse_centimes)),
+                'warn',
+                $this->compte($factures->count(), 'acompte rendu après la facture', 'acomptes rendus après la facture'),
+                $this->noms($factures->map(fn (Facture $f) => 'facture '.$f->numero.' ('.$this->chf((int) round((float) $f->acompte * 100)).' déduits, '
+                    .$this->chf((int) round(($f->rendezVous?->demandeEnLigne?->acompteRetenu() ?? 0) * 100)).' encore encaissés)')).'. La facture déduit plus que ce qui reste : corrigez-la pour que le client paie la différence.',
+                'facturation',
             );
         }
 
