@@ -379,6 +379,34 @@ class OrganisationTest extends TestCase
         $this->assertCount(3, $this->stripe->prelevements);
     }
 
+    /** Régler à la main pendant que la banque traite le renouvellement : jamais un second prélèvement. */
+    public function test_regler_pendant_que_la_banque_traite_ne_preleve_pas_une_seconde_fois(): void
+    {
+        $this->jamaisAbonnee();
+        Mail::fake();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+
+        $this->stripe->enCours = true;
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertCount(2, $this->stripe->prelevements);
+        $facture = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->where('statut', 'a_payer')->sole();
+
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('facture');
+        $this->assertCount(2, $this->stripe->prelevements);
+
+        // Passé entre-temps (webhook manqué) : « Régler » constate le paiement, sans prélever
+        $this->stripe->confirmer($this->stripe->dernierPrelevement()['id']);
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'payee');
+        $this->assertCount(2, $this->stripe->prelevements);
+    }
+
     public function test_l_acces_ne_survit_pas_a_une_echeance_jamais_renouvelee(): void
     {
         // Le planificateur arrêté : l'accès tient le délai de grâce, pas plus

@@ -421,6 +421,19 @@ final class AbonnementSaas
         if ($facture->statut !== 'a_payer') {
             throw ValidationException::withMessages(['facture' => 'Cette facture n’attend aucun paiement.']);
         }
+        // Un prélèvement déjà parti pour cette facture : jamais un second tant
+        // que la banque le traite ; passé entre-temps, la facture est payée
+        if ($facture->stripe_paiement_id) {
+            $etat = $this->stripe->lirePrelevement($facture->stripe_paiement_id);
+            if ($etat['statut'] === 'reussi') {
+                $this->payer($facture);
+
+                return new Reglement($facture->refresh(), 'reussi');
+            }
+            if ($etat['statut'] === 'en_cours') {
+                throw ValidationException::withMessages(['facture' => 'Votre banque traite déjà le paiement de cette facture. Attendez sa réponse avant de payer à nouveau.']);
+            }
+        }
         $abonne = $this->abonneDe($facture);
         $this->exigerCarte($abonne);
 
