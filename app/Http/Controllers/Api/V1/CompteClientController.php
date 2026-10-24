@@ -95,6 +95,13 @@ class CompteClientController extends Controller
             }
         }
 
-        return $user->stripe_client_id !== null;
+        // Abonné (Stripe ou App Store), modérateur, identité payée ou GLN :
+        // un compte qui vit par lui-même, pas seulement par cette fiche (24.10.2026)
+        return $user->stripe_client_id !== null
+            || $user->apple_abonnement_id !== null
+            || $user->est_moderateur
+            || $user->identite_payee_le !== null
+            || $user->gln !== null
+            || $user->passkeys()->exists();
     }
 }
