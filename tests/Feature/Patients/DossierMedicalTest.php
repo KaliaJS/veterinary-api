@@ -160,10 +160,12 @@ class DossierMedicalTest extends TestCase
         $this->postJson("/api/v1/patients/{$this->patient->id}/documents", [
             'nom' => 'Certificat de bonne santé.pdf',
             'type' => 'certificat',
-            'signataire' => 'Dr Meyer',
+            // Un nom saisi n'est jamais repris : c'est la personne connectée qui signe
+            'signataire' => 'Dr Faux',
         ], $entetes)
             ->assertCreated()
-            ->assertJsonPath('data.etabli_le', aujourdhui()->toDateString());
+            ->assertJsonPath('data.etabli_le', aujourdhui()->toDateString())
+            ->assertJsonPath('data.signataire', $this->employe->nom);
 
         $this->getJson("/api/v1/patients/{$this->patient->id}/documents", $entetes)
             ->assertOk()

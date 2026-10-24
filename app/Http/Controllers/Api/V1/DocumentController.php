@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Auth\ContexteClinique;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\DossierMedical\EnregistrerDocumentRequest;
 use App\Http\Resources\V1\DocumentResource;
@@ -39,6 +40,9 @@ class DocumentController extends Controller
 
         $document = $patient->documents()->create([
             ...$donnees,
+            // Le signataire est la personne connectée, jamais un nom saisi
+            // (affiché dans l'espace du propriétaire), 24.10.2026
+            'signataire' => app(ContexteClinique::class)->employe()?->nom,
             'etabli_le' => $donnees['etabli_le'] ?? aujourdhui()->toDateString(),
         ]);
 
