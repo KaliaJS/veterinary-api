@@ -124,6 +124,19 @@ class ClotureCaisseTest extends TestCase
             ->assertCreated();
     }
 
+    /** Un TWINT marqué à la main, dont le vrai paiement arrivé ensuite a été rendu : rien n'a été reçu, la Z demande pourquoi. */
+    public function test_un_paiement_rendu_ne_prouve_pas_le_terminal(): void
+    {
+        $facture = $this->facturePayee(MoyenPaiement::Twint, 85, aLaMain: true);
+        Paiement::query()->create([
+            'facture_id' => $facture->id, 'clinique_id' => $this->clinique->id, 'moyen' => MoyenPaiement::Twint, 'montant' => 85,
+            'stripe_payment_intent_id' => 'pi_rendu', 'statut' => StatutPaiement::Rembourse, 'reussi_le' => now(),
+        ]);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 200, 'especes_comptees' => 200, 'nouveau_fond' => 200], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('note');
+    }
+
     public function test_le_fond_suit_la_cloture_precedente_et_le_depot_ne_depasse_pas_les_especes(): void
     {
         ClotureCaisse::factory()->create(['clinique_id' => $this->clinique->id, 'nouveau_fond' => 300, 'arretee_le' => now()->subDay()]);

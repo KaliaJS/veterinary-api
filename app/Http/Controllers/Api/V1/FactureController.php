@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
 use App\Enums\StatutFacture;
-use App\Enums\StatutPaiement;
 use App\Enums\TypeLigneFacture;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Facturation\EnregistrerFactureRequest;
@@ -39,9 +38,9 @@ class FactureController extends Controller
         $this->authorize('viewAny', Facture::class);
 
         $factures = Facture::query()
-            ->with(['lignes', 'decompte'])
+            ->with(['lignes', 'decompte', 'encaisseePar:id,name'])
             // Encaissée par Stripe (terminal, TWINT) : total vérifié, rien à rapprocher
-            ->withExists(['paiements as paye_par_stripe' => fn (Builder $requete) => $requete->whereIn('statut', StatutPaiement::encaisses())])
+            ->withExists(['paiements as paye_par_stripe' => fn (Builder $requete) => $requete->whereIn('statut', Facture::preuvesDeTerminal())])
             ->when($request->enum('statut', StatutFacture::class), fn (Builder $requete, StatutFacture $statut) => $requete->where('statut', $statut))
             ->when($request->integer('patient_id'), fn (Builder $requete, int $patient) => $requete->where('patient_id', $patient))
             ->when($request->integer('clinique_id'), fn (Builder $requete, int $clinique) => $requete->where('clinique_id', $clinique))
@@ -113,7 +112,7 @@ class FactureController extends Controller
         $this->authorize('view', $facture);
 
         // Avec l'en-tête de la clinique qui l'a émise (PDF d'une clinique sœur)
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'clinique.societe']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'clinique.societe', 'encaisseePar:id,name']));
     }
 
     /**

@@ -296,11 +296,12 @@ class PaiementStripeTest extends TestCase
         $this->webhook($this->evenement('evt_l6', 'charge.dispute.closed', ['payment_intent' => $demandeInfo->stripe_payment_intent_id, 'status' => 'warning_closed']))->assertNoContent();
         $this->assertSame('reussi', $demandeInfo->refresh()->statut->value);
 
-        // Les factures restent comptées comme payées par Stripe
-        $this->getJson('/api/v1/facturation/factures', $this->enTetes($this->jeton))
-            ->assertOk()
-            ->assertJsonPath('data.1.paye_par_stripe', true)
-            ->assertJsonPath('data.2.paye_par_stripe', true);
+        // À la Z, un paiement rendu ne prouve plus un encaissement par terminal (24.10.2026) ;
+        // un paiement réussi, oui
+        $parFacture = collect($this->getJson('/api/v1/facturation/factures', $this->enTetes($this->jeton))->assertOk()->json('data'))->pluck('paye_par_stripe', 'id');
+        $this->assertTrue($parFacture[$demandeInfo->facture_id]);
+        $this->assertFalse($parFacture[$rendu->facture_id]);
+        $this->assertFalse($parFacture[$conteste->facture_id]);
     }
 
     public function test_les_alertes_de_paiement_restent_a_la_facturation(): void

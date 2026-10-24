@@ -80,6 +80,22 @@ class Facture extends Model
         return $this->belongsTo(Clinique::class);
     }
 
+    /**
+     * Qui a encaissé (caisse, terminal, vente comptoir).
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function encaisseePar(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'encaissee_par_id');
+    }
+
+    /** Statuts d'un paiement par terminal qui prouve l'encaissement : un paiement rendu n'a rien apporté (24.10.2026). */
+    public static function preuvesDeTerminal(): array
+    {
+        return [StatutPaiement::Reussi, StatutPaiement::Litige];
+    }
+
     /** @return BelongsTo<Patient, $this> */
     public function patient(): BelongsTo
     {

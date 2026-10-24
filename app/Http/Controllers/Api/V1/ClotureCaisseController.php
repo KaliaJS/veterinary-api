@@ -6,7 +6,6 @@ use App\Auth\ContexteClinique;
 use App\Enums\MoyenPaiement;
 use App\Enums\PieceNumerotee;
 use App\Enums\StatutFacture;
-use App\Enums\StatutPaiement;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Facturation\EnregistrerClotureCaisseRequest;
 use App\Http\Resources\V1\ClotureCaisseResource;
@@ -104,7 +103,7 @@ class ClotureCaisseController extends Controller
             // terminal) se justifie, il pourrait cacher des espèces gardées
             $saisiesALaMain = $clinique->encaisseAvecVeterinary()
                 ? $aClorer->filter(fn (Facture $facture): bool => in_array($facture->moyen_paiement, [MoyenPaiement::Tpe, MoyenPaiement::Twint], true)
-                    && $facture->paiements()->whereIn('statut', StatutPaiement::encaisses())->doesntExist())->count()
+                    && $facture->paiements()->whereIn('statut', Facture::preuvesDeTerminal())->doesntExist())->count()
                 : 0;
             if ($saisiesALaMain > 0 && $note === '') {
                 throw ValidationException::withMessages([

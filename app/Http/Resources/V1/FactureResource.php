@@ -37,6 +37,11 @@ class FactureResource extends JsonResource
             'payee_le' => $this->payee_le,
             'stock_sorti' => $this->stock_sorti,
             'cloture_caisse_id' => $this->cloture_caisse_id,
+            // Qui a encaissé : une carte ou un TWINT saisi sans terminal se voit avec son auteur
+            'encaissee_par' => $this->whenLoaded('encaisseePar', fn (): ?array => $this->encaisseePar === null ? null : [
+                'id' => $this->encaisseePar->id,
+                'nom' => $this->encaisseePar->name,
+            ]),
             // Liste des factures seulement (withExists) : encaissée par Stripe
             'paye_par_stripe' => $this->when(
                 array_key_exists('paye_par_stripe', $this->getAttributes()),
