@@ -278,7 +278,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('rendez-vous', [RendezVousProprietaireController::class, 'index']);
         Route::post('rendez-vous/{rendezVous}/annuler', [RendezVousProprietaireController::class, 'annuler']);
         Route::post('rendez-vous/{rendezVous}/demander-annulation', [RendezVousProprietaireController::class, 'demanderAnnulation']);
-        Route::post('rendez-vous/{rendezVous}/reporter', [RendezVousProprietaireController::class, 'reporter']);
+        Route::post('rendez-vous/{rendezVous}/reporter', [RendezVousProprietaireController::class, 'reporter'])->middleware('throttle:espace-demandes');
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
         Route::get('documents', [DocumentProprietaireController::class, 'index']);
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
@@ -295,8 +295,8 @@ Route::prefix('v1')->group(function (): void {
         // Offre du propriétaire : Gratuit, ou Plus (d'autres planètes)
         Route::get('abonnement', [AbonnementProprietaireController::class, 'afficher']);
         Route::post('abonnement/carte/intention', [AbonnementProprietaireController::class, 'intentionCarte'])->middleware('throttle:espace-achats');
-        Route::put('abonnement/carte', [AbonnementProprietaireController::class, 'enregistrerCarte']);
-        Route::delete('abonnement/carte', [AbonnementProprietaireController::class, 'supprimerCarte']);
+        Route::put('abonnement/carte', [AbonnementProprietaireController::class, 'enregistrerCarte'])->middleware('throttle:espace-achats');
+        Route::delete('abonnement/carte', [AbonnementProprietaireController::class, 'supprimerCarte'])->middleware('throttle:espace-achats');
         Route::post('abonnement/plus', [AbonnementProprietaireController::class, 'souscrire'])->middleware('throttle:espace-achats');
         Route::post('abonnement/resilier', [AbonnementProprietaireController::class, 'resilier']);
         Route::post('abonnement/reactiver', [AbonnementProprietaireController::class, 'reactiver']);
@@ -483,11 +483,11 @@ Route::prefix('v1')->group(function (): void {
         // que le vétérinaire valide. Niveau organisation, comme lui.
         Route::get('transcription', [TranscriptionController::class, 'etat']);
         Route::get('rendez-vous/{rendezVous}/enregistrement', [EnregistrementConsultationController::class, 'afficher']);
-        Route::post('rendez-vous/{rendezVous}/enregistrement', [EnregistrementConsultationController::class, 'demarrer']);
-        Route::post('enregistrements/{enregistrement}/parties/{numero}', [PartieEnregistrementController::class, 'morceau'])->whereNumber(['enregistrement', 'numero']);
-        Route::post('enregistrements/{enregistrement}/terminer', [EnregistrementConsultationController::class, 'terminer'])->whereNumber('enregistrement');
-        Route::post('enregistrements/{enregistrement}/relancer', [EnregistrementConsultationController::class, 'relancer'])->whereNumber('enregistrement');
-        Route::delete('enregistrements/{enregistrement}', [EnregistrementConsultationController::class, 'supprimer'])->whereNumber('enregistrement');
+        Route::post('rendez-vous/{rendezVous}/enregistrement', [EnregistrementConsultationController::class, 'demarrer'])->middleware('throttle:transcription');
+        Route::post('enregistrements/{enregistrement}/parties/{numero}', [PartieEnregistrementController::class, 'morceau'])->whereNumber(['enregistrement', 'numero'])->middleware('throttle:transcription');
+        Route::post('enregistrements/{enregistrement}/terminer', [EnregistrementConsultationController::class, 'terminer'])->whereNumber('enregistrement')->middleware('throttle:transcription');
+        Route::post('enregistrements/{enregistrement}/relancer', [EnregistrementConsultationController::class, 'relancer'])->whereNumber('enregistrement')->middleware('throttle:transcription');
+        Route::delete('enregistrements/{enregistrement}', [EnregistrementConsultationController::class, 'supprimer'])->whereNumber('enregistrement')->middleware('throttle:transcription');
 
         // Suggestion diagnostique (23.10.2026) — Claude propose un
         // diagnostic différentiel à partir du compte rendu ci-dessus, tel
@@ -526,24 +526,24 @@ Route::prefix('v1')->group(function (): void {
             Route::patch('factures/{facture}/lignes/{ligne}', [FactureLigneController::class, 'update'])->whereNumber('ligne');
             Route::delete('factures/{facture}/lignes/{ligne}', [FactureLigneController::class, 'destroy'])->whereNumber('ligne');
             Route::post('factures/{facture}/prescriptions', [FacturePrescriptionController::class, 'store']);
-            Route::post('factures/{facture}/encaisser', [EncaissementController::class, 'encaisser']);
+            Route::post('factures/{facture}/encaisser', [EncaissementController::class, 'encaisser'])->middleware('throttle:stripe');
             Route::post('factures/{facture}/payer-plus-tard', [EncaissementController::class, 'payerPlusTard']);
 
             // Paiement en caisse : carte sur un terminal de la clinique, ou TWINT, sur le compte de la société
             Route::post('factures/{facture}/paiements', [PaiementCaisseController::class, 'store'])->middleware('throttle:stripe');
             Route::get('paiements/{paiement}', [PaiementCaisseController::class, 'show'])->middleware('throttle:stripe');
-            Route::post('paiements/{paiement}/annuler', [PaiementCaisseController::class, 'annuler']);
-            Route::post('paiements/{paiement}/simuler-carte', [PaiementCaisseController::class, 'simulerCarte']);
+            Route::post('paiements/{paiement}/annuler', [PaiementCaisseController::class, 'annuler'])->middleware('throttle:stripe');
+            Route::post('paiements/{paiement}/simuler-carte', [PaiementCaisseController::class, 'simulerCarte'])->middleware('throttle:stripe');
             // Compte de paiement de la société (Connect, sans tableau de bord) : état,
             // ouverture, sessions des composants intégrés
             Route::get('compte-paiement', [ComptePaiementController::class, 'afficher'])->middleware('throttle:stripe');
-            Route::post('compte-paiement', [ComptePaiementController::class, 'ouvrir']);
+            Route::post('compte-paiement', [ComptePaiementController::class, 'ouvrir'])->middleware('throttle:stripe');
             Route::post('compte-paiement/session', [ComptePaiementController::class, 'session'])->middleware('throttle:30,1,session-paiement');
-            Route::put('compte-paiement/integration', [ComptePaiementController::class, 'integration']);
+            Route::put('compte-paiement/integration', [ComptePaiementController::class, 'integration'])->middleware('throttle:stripe');
             Route::get('mode-encaissement', [ComptePaiementController::class, 'mode']);
             Route::get('terminaux', [TerminalPaiementController::class, 'index'])->middleware('throttle:stripe');
-            Route::post('terminaux', [TerminalPaiementController::class, 'store']);
-            Route::delete('terminaux/{terminal}', [TerminalPaiementController::class, 'destroy']);
+            Route::post('terminaux', [TerminalPaiementController::class, 'store'])->middleware('throttle:stripe');
+            Route::delete('terminaux/{terminal}', [TerminalPaiementController::class, 'destroy'])->middleware('throttle:stripe');
             Route::put('factures/{facture}/decompte', [DecompteAssuranceController::class, 'enregistrer']);
             Route::post('factures/{facture}/decompte/avancer', [DecompteAssuranceController::class, 'avancer']);
 

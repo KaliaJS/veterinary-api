@@ -189,6 +189,12 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('espace-commandes', fn (Request $request): Limit => Limit::perHour(10)->by('commandes:'.$parCompte($request)));
         RateLimiter::for('espace-achats', fn (Request $request): Limit => Limit::perHour(30)->by('achats:'.$parCompte($request)));
 
+        // Enregistrements des consultations : chaque morceau part chez
+        // Deepgram, payé ; par compte (24.10.2026). Douze morceaux au plus
+        // par enregistrement, une synchronisation hors ligne en envoie
+        // plusieurs d'un coup.
+        RateLimiter::for('transcription', fn (Request $request): Limit => Limit::perMinute(60)->by('transcription:'.$parCompte($request)));
+
         // Appels à Stripe depuis la caisse : la limite de Stripe est commune
         // à toute la plateforme, une clinique ne l'épuise pas (clinique du
         // jeton : le limiteur passe avant le contexte clinique)
