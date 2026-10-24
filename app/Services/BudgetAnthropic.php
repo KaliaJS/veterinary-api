@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\EnregistrementConsultation;
 use App\Models\SuggestionDiagnostique;
 use Carbon\CarbonImmutable;
 
@@ -27,7 +26,7 @@ final class BudgetAnthropic
     {
         $debut = CarbonImmutable::now('Europe/Zurich')->startOfMonth()->utc();
 
-        $redactions = (int) EnregistrementConsultation::withoutGlobalScopes()->where('updated_at', '>=', $debut)->sum('redactions')
+        $redactions = CompteurMensuel::valeur('anthropic:redactions')
             + CompteurMensuel::valeur('anthropic:essais:redaction');
         $suggestions = SuggestionDiagnostique::withoutGlobalScopes()->where('created_at', '>=', $debut)->count()
             + CompteurMensuel::valeur('anthropic:essais:suggestion');

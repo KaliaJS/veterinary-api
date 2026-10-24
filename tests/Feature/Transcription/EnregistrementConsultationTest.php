@@ -21,17 +21,22 @@ use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\Role;
 use App\Services\BudgetAnthropic;
+use App\Services\CompteurMensuel;
 use App\Services\Transcription\ConsommationTranscription;
+use App\Services\Transcription\ReceptionAudio;
 use App\Services\Transcription\Redacteur;
 use App\Services\Transcription\RedactionImpossible;
 use App\Services\Transcription\Transcripteur;
 use App\Services\Transcription\TranscriptionImpossible;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use Illuminate\Validation\ValidationException;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\RedacteurFactice;
 use Tests\Doubles\TranscripteurFactice;
@@ -417,10 +422,8 @@ class EnregistrementConsultationTest extends TestCase
     public function test_le_budget_anthropic_atteint_arrete_la_redaction(): void
     {
         config(['services.anthropic.budget_usd' => 0.01, 'services.anthropic.cout_redaction_usd' => 0.15]);
-        EnregistrementConsultation::withoutGlobalScopes()->create([
-            'organisation_id' => $this->organisation->id, 'clinique_id' => $this->clinique->id, 'rendez_vous_id' => $this->rendezVous->id,
-            'statut' => StatutEnregistrement::Valide, 'redactions' => 1,
-        ]);
+        // Une rédaction déjà partie ce mois-ci
+        CompteurMensuel::ajouter('anthropic:redactions', 1);
 
         $id = $this->demarrer()->json('data.id');
         $this->envoyer($id, 1, 'AUDIO');
@@ -513,13 +516,15 @@ class EnregistrementConsultationTest extends TestCase
         EnregistrementConsultation::query()->whereKey($id)->update(['redactions' => 2]);
         // Un brouillon déjà rédigé : il part aussi
         EnregistrementConsultation::query()->findOrFail($id)->forceFill(['brouillon' => ['s' => 'Boiterie', 'o' => '', 'a' => '', 'p' => '', 'incertitudes' => []]])->save();
-        PartieEnregistrement::query()->update(['segments' => json_encode([['voix' => 0, 'debut' => 0, 'texte' => 'Bonjour']]), 'duree_secondes' => 90]);
+        // Par le modèle : le texte est chiffré comme en vrai
+        PartieEnregistrement::query()->sole()->forceFill(['segments' => [['voix' => 0, 'debut' => 0, 'texte' => 'Bonjour']], 'duree_secondes' => 90])->save();
 
         $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
 
         // Audio et texte effacés…
         $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions'));
         $this->assertNull(PartieEnregistrement::query()->sole()->segments);
+        $this->assertNull(PartieEnregistrement::query()->sole()->fichier);
         // … mais ce qui a été payé reste compté : les plafonds ne repartent pas à zéro
         $abandonne = EnregistrementConsultation::query()->findOrFail($id);
         $this->assertSame('abandonne', $abandonne->statut->value);
@@ -548,6 +553,65 @@ class EnregistrementConsultationTest extends TestCase
         $this->assertSame(96, $consommation->secondesDeLaPeriode($this->organisation));
         $this->assertSame(0.02, $consommation->depenseDeepgram());
         $this->assertSame($minutes, $this->getJson('/api/v1/transcription', $this->enTetes($this->jeton))->assertOk()->json('data.minutes_periode'));
+
+        // Le plafond atteint par ces secondes le reste après l'abandon
+        $this->organisation->forceFill(['plafond_transcription' => 1])->save();
+        $this->demarrer()->assertUnprocessable()->assertJsonPath('errors.transcription.0', 'Le plafond de transcription de votre organisation est atteint pour cette période. Un administrateur peut le relever dans les réglages de l’organisation.');
+    }
+
+    /** Une rédaction compte au budget Anthropic du mois où elle part : un abandon le mois suivant ne la déplace pas (24.10.2026). */
+    public function test_une_redaction_compte_au_mois_ou_elle_part(): void
+    {
+        config(['services.anthropic.cout_redaction_usd' => 0.05, 'services.anthropic.cout_suggestion_usd' => 0]);
+        $budget = app(BudgetAnthropic::class);
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+        $id = $this->demarrer()->json('data.id');
+        $this->envoyer($id, 1, 'AUDIO');
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 1], $this->enTetes($this->jeton))->assertOk();
+        $this->assertSame(0.05, round($budget->depense(), 2));
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 10:00', 'Europe/Zurich'));
+        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($jeton))->assertNoContent();
+
+        $this->assertSame(0.0, round($budget->depense(), 2));
+    }
+
+    /** Un morceau qui arrive pour un enregistrement abandonné n'est pas écrit (24.10.2026). */
+    public function test_un_morceau_arrive_apres_l_abandon_n_est_pas_ecrit(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $this->morceau($id, 1, 0, 2, 'AA')->assertOk();
+        $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
+
+        // Parti avant l'abandon, il arrive après : le contrôle de la requête est déjà passé
+        $fiche = EnregistrementConsultation::withoutGlobalScopes()->findOrFail($id);
+        try {
+            app(ReceptionAudio::class)->morceau($fiche, 1, 1, 2, 'm4a', UploadedFile::fake()->createWithContent('1', 'AA'));
+            $this->fail('Le morceau aurait dû être refusé.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('enregistrement', $e->errors());
+        }
+        $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions'));
+    }
+
+    /** Une partie complète d'un enregistrement abandonné n'est jamais envoyée au fournisseur (24.10.2026). */
+    public function test_une_partie_d_un_enregistrement_abandonne_n_est_pas_transcrite(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $this->transcripteur->pendant = null;
+        Queue::fake();
+        $this->envoyer($id, 1, 'AUDIO');
+        $partie = PartieEnregistrement::query()->sole();
+        $this->assertSame(StatutPartie::Recue, $partie->statut);
+        // Abandonné pendant que la tâche attendait dans la file, le fichier assemblé encore là
+        EnregistrementConsultation::withoutGlobalScopes()->whereKey($id)->update(['statut' => StatutEnregistrement::Abandonne->value]);
+
+        app()->call([new TranscrirePartie($partie->id), 'handle']);
+
+        $this->assertSame([], $this->transcripteur->appels);
+        $this->assertNull($partie->refresh()->fichier);
+        $this->assertSame([], Storage::disk('prive')->allFiles('transcriptions/'.$id));
     }
 
     /** Abandonné pendant que le fournisseur transcrit : la durée payée compte, le texte n'est pas écrit, pas de rédaction. */

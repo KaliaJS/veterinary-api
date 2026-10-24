@@ -6,6 +6,7 @@ use App\Enums\StatutEnregistrement;
 use App\Models\EnregistrementConsultation;
 use App\Models\PartieEnregistrement;
 use App\Services\BudgetAnthropic;
+use App\Services\CompteurMensuel;
 use App\Services\Transcription\BrouillonSoap;
 use App\Services\Transcription\Redacteur;
 use App\Services\Transcription\RedactionImpossible;
@@ -78,6 +79,9 @@ final class RedigerCompteRendu implements ShouldQueue
             ->update(['statut' => StatutEnregistrement::Redaction->value, 'erreur' => null, 'redactions' => $enregistrement->redactions + 1]);
 
         if ($pris === 1) {
+            // Comptée au budget du mois où elle part, en base (24.10.2026) :
+            // un abandon le mois suivant ne la déplace pas
+            CompteurMensuel::ajouter('anthropic:redactions', 1);
             self::dispatch($enregistrement->id);
         }
     }

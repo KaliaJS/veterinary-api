@@ -2,6 +2,7 @@
 
 namespace App\Services\Transcription;
 
+use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
 use App\Jobs\TranscrirePartie;
 use App\Models\EnregistrementConsultation;
@@ -29,7 +30,11 @@ final class ReceptionAudio
         // verrouillé le temps du compte : les premiers morceaux de plusieurs
         // parties envoyés en même temps ne passent pas chacun la borne
         $partie = DB::transaction(function () use ($enregistrement, $numero, $total, $format): PartieEnregistrement {
-            EnregistrementConsultation::withoutGlobalScopes()->whereKey($enregistrement->id)->lockForUpdate()->first();
+            $fiche = EnregistrementConsultation::withoutGlobalScopes()->whereKey($enregistrement->id)->lockForUpdate()->first();
+            // Abandonné entre-temps (24.10.2026) : plus rien ne s'écrit
+            if (! $fiche || $fiche->statut === StatutEnregistrement::Abandonne) {
+                throw ValidationException::withMessages(['enregistrement' => 'Cet enregistrement a été abandonné.']);
+            }
             $annonces = (int) PartieEnregistrement::query()
                 ->where('enregistrement_consultation_id', $enregistrement->id)
                 ->where('numero', '!=', $numero)
@@ -62,6 +67,14 @@ final class ReceptionAudio
         $fichier->storeAs($partie->dossierMorceaux(), self::nom($index), 'prive');
 
         $complete = DB::transaction(function () use ($partie, $enregistrement): ?PartieEnregistrement {
+            // Sous le verrou de la fiche, comme l'abandon : un morceau écrit
+            // pendant l'abandon est effacé, rien n'est assemblé ni transcrit
+            $fiche = EnregistrementConsultation::withoutGlobalScopes()->whereKey($enregistrement->id)->lockForUpdate()->first();
+            if (! $fiche || $fiche->statut === StatutEnregistrement::Abandonne) {
+                Storage::disk('prive')->deleteDirectory($partie->dossierMorceaux());
+
+                return null;
+            }
             $partie = PartieEnregistrement::query()->lockForUpdate()->findOrFail($partie->id);
             if ($partie->statut !== StatutPartie::Envoi || count($this->recus($partie)) < $partie->morceaux) {
                 return null;
