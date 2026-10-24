@@ -32,6 +32,9 @@ class SessionTeleconsultationResource extends JsonResource
                 'nom' => $this->patient->nom,
                 'espece' => $this->patient->espece,
                 'proprietaire' => $this->patient->client->nom_affiche,
+                // Prénom et nom, sans civilité : les initiales de l'appel sont
+                // celles de la liste des propriétaires (24.10.2026)
+                'proprietaire_prenom_nom' => trim(($this->patient->client->prenom ?? '').' '.$this->patient->client->nom),
             ]),
             'demarre_par' => $this->whenLoaded('demarrePar', fn (): array => [
                 'id' => $this->demarrePar->id,

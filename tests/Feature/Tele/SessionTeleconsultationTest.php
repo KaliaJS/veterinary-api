@@ -77,6 +77,7 @@ class SessionTeleconsultationTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.est_terminee', false)
             ->assertJsonPath('data.patient_id', $this->patient->id)
+            ->assertJsonPath('data.patient.proprietaire_prenom_nom', $this->patient->client->prenom.' '.$this->patient->client->nom)
             ->assertJsonPath('data.motif', 'Suivi dermatologique')
             ->assertJsonPath('data.demarre_par.id', $this->employe->id);
 
