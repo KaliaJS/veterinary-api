@@ -29,7 +29,12 @@ class CodeEmail
 
     private const int ESSAIS_MAX = 5;
 
-    /** Essais par adresse et par jour, tous codes confondus */
+    /**
+     * Essais par adresse ET par IP et par jour, tous codes confondus : par
+     * adresse seule, n'importe qui bloquerait la connexion d'une autre
+     * personne pour la journée en tapant de faux codes (24.10.2026). La
+     * devinette reste bornée : 5 essais par code, 10 codes par jour.
+     */
     private const int ESSAIS_JOUR = 20;
 
     public function __construct(private CreationCompte $comptes) {}
@@ -46,6 +51,8 @@ class CodeEmail
         $code = (string) random_int(10000000, 99999999);
 
         Cache::put($this->cle($email), Hash::make($code), now()->addMinutes(self::VALIDITE_MINUTES));
+        // Un code neuf, cinq essais neufs (les envois restent limités par adresse)
+        RateLimiter::clear($this->limiteur($email));
 
         $lien = $lienConnexion
             ? rtrim((string) config('app.frontend_url'), '/').'/?connexion=1#email='.rawurlencode($email).'&code='.$code
@@ -155,7 +162,7 @@ class CodeEmail
 
     private function limiteurJour(string $email): string
     {
-        return 'code-email-jour:'.mb_strtolower($email);
+        return 'code-email-jour:'.mb_strtolower($email).'|'.request()->ip();
     }
 
     private function cle(string $email): string

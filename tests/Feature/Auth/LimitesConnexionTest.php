@@ -62,6 +62,28 @@ class LimitesConnexionTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('code');
     }
 
+    /** De faux codes depuis ailleurs ne ferment pas la connexion de la personne pour la journée. */
+    public function test_de_faux_codes_ne_bloquent_pas_la_victime_et_un_code_neuf_rend_ses_essais(): void
+    {
+        Notification::fake();
+        $user = User::factory()->create();
+        $code = $this->envoyerEtRecupererLeCode($user);
+        $faux = $code === '11111111' ? '22222222' : '11111111';
+
+        // Un tiers, depuis une seule IP, épuise ses essais du jour sur cette adresse
+        foreach (range(1, 25) as $essai) {
+            $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.66'])
+                ->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $faux]);
+        }
+
+        // La personne demande un code neuf et se connecte depuis chez elle
+        $this->travel(16)->minutes();
+        $neuf = $this->envoyerEtRecupererLeCode($user);
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.200'])
+            ->postJson('/api/v1/auth/code-email/verifier', ['email' => $user->email, 'code' => $neuf])
+            ->assertOk();
+    }
+
     public function test_le_bon_code_passe_apres_quelques_erreurs(): void
     {
         Notification::fake();
