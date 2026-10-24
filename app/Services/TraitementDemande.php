@@ -125,7 +125,9 @@ class TraitementDemande
             'creneaux_proposes' => collect($debuts)->sort()->map(fn (CarbonImmutable $debut): string => $debut->utc()->toIso8601String())->values()->all(),
             'message' => $message,
             'traitee_le' => now(),
-            'jeton' => $demande->jeton ?? ($demande->user_id === null ? Str::random(48) : null),
+            // Un lien pour la demande sans compte qui n'en a pas encore ; jamais
+            // réécrit (l'attribut ne se relit pas : il rendrait l'empreinte)
+            ...($demande->user_id === null && $demande->jetonClair() === null ? ['jeton' => Str::random(48)] : []),
         ]);
 
         $this->ecrire($demande, new DemandeRendezVousProposee($demande->load('clinique')));

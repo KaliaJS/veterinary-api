@@ -140,6 +140,28 @@ class DemandesEnLigneTest extends TestCase
             ->assertJsonValidationErrors('creneaux.0');
     }
 
+    /** Sans compte : le lien reçu au dépôt reste le bon après la proposition, et celui du nouvel e-mail aussi. */
+    public function test_proposer_garde_le_lien_de_la_demande_sans_compte(): void
+    {
+        $demande = $this->demande();
+        $lien = $demande->jetonClair();
+
+        $this->postJson("/api/v1/demandes/{$demande->id}/proposer", [
+            'creneaux' => [$this->mardi->addHour()->toIso8601String()],
+        ], $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertSame($lien, $demande->refresh()->jetonClair());
+        $this->assertSame(DemandeRendezVous::empreinte($lien), $demande->getRawOriginal('jeton'));
+        Mail::assertSent(DemandeRendezVousProposee::class, fn ($mail) => str_contains($mail->demande->lienDeSuivi(), '/demande/'.$lien));
+
+        $this->getJson("/api/v1/public/demandes/{$lien}")
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'proposee');
+        $this->postJson("/api/v1/public/demandes/{$lien}/choisir", ['starts_at' => $this->mardi->addHour()->toIso8601String()])
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'acceptee');
+    }
+
     public function test_refuser_garde_le_motif_et_previent_le_proprietaire(): void
     {
         $demande = $this->demande();
