@@ -28,6 +28,8 @@ class AlerteJetonCloudflare
             Mail::to($adresse)->send(new JetonCloudflareRefuse($statut));
         } catch (Throwable $e) {
             report($e);
+            // Pas partie : la place du jour se libère, le prochain refus réessaie
+            Cache::forget('alerte:jeton-cloudflare:'.$jour);
         }
     }
 }

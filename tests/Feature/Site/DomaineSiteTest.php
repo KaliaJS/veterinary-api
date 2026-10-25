@@ -8,6 +8,7 @@ use App\Mail\JetonCloudflareRefuse;
 use App\Models\Clinique;
 use App\Models\Role;
 use App\Models\SiteWeb;
+use App\Services\Domaines\AlerteJetonCloudflare;
 use App\Services\Domaines\DomaineSite;
 use App\Services\Domaines\FournisseurCloudflare;
 use App\Services\Domaines\ResolveurDns;
@@ -471,6 +472,42 @@ class DomaineSiteTest extends TestCase
         $this->travel(1)->days();
         app(FournisseurCloudflare::class)->retirer('www.autre-clinique.ch', 'ch-9');
         $this->addToAssertionCount(1);
+    }
+
+    /** D26.3b : une alerte qui n'a pas pu partir libère la place du jour : le refus suivant réessaie (26.10.2026). */
+    public function test_une_alerte_qui_n_est_pas_partie_repart_au_refus_suivant(): void
+    {
+        config(['plateforme.alerte_email' => 'alertes@plateforme.test']);
+        $envoi = \Mockery::mock();
+        $envoi->shouldReceive('send')->once();
+        $appels = 0;
+        Mail::shouldReceive('to')->twice()->andReturnUsing(function () use (&$appels, $envoi) {
+            if (++$appels === 1) {
+                throw new \RuntimeException('SMTP indisponible');
+            }
+
+            return $envoi;
+        });
+
+        app(AlerteJetonCloudflare::class)->signaler(401);
+        app(AlerteJetonCloudflare::class)->signaler(401);
+        app(AlerteJetonCloudflare::class)->signaler(401);
+    }
+
+    /** D26.3c : une panne passagère à l'ajout ou au retrait d'un domaine (429, 5xx, réseau) n'alerte pas non plus (26.10.2026). */
+    public function test_une_panne_passagere_a_l_ajout_ou_au_retrait_n_alerte_pas(): void
+    {
+        Mail::fake();
+        config(['sites.domaines.fournisseur' => 'cloudflare', 'plateforme.alerte_email' => 'alertes@plateforme.test']);
+        foreach ([429, 500, 503, 0] as $panne) {
+            Http::fake(['api.cloudflare.com/*' => $panne === 0
+                ? fn () => throw new ConnectionException('cURL error 28: timeout')
+                : Http::response(['success' => false], $panne)]);
+            $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertUnprocessable();
+            rescue(fn () => app(FournisseurCloudflare::class)->retirer('www.autre-clinique.ch', 'ch-9'), report: false);
+        }
+
+        Mail::assertNotSent(JetonCloudflareRefuse::class);
     }
 
     /** D26.3c : une panne passagère de Cloudflare (429, 5xx, réseau) n'alerte pas (26.10.2026). */

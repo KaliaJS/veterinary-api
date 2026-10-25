@@ -380,6 +380,8 @@ final class AbonnementSaas
         }
         $this->exigerCarte($organisation);
 
+        $this->verifierAchatEnSuspens($organisation, 'pack');
+
         $libelle = $type->libelle($quantite);
         $facture = $this->creerFacture($organisation, [['libelle' => $libelle, 'montant' => $prix * 100]], [
             'type' => 'pack', 'pack' => $type->value, 'quantite' => (string) $quantite,
@@ -395,6 +397,7 @@ final class AbonnementSaas
             throw ValidationException::withMessages(['article' => 'Cet objet est déjà sur votre planète.']);
         }
         $this->exigerCarte($user);
+        $this->verifierAchatEnSuspens($user, 'planete');
 
         $facture = $this->creerFacture($user, [['libelle' => $article->nom().' pour votre planète', 'montant' => $article->centimes()]], [
             'type' => 'planete', 'article' => $article->value,
@@ -416,6 +419,7 @@ final class AbonnementSaas
             throw ValidationException::withMessages(['gln' => 'Indiquez d’abord votre GLN dans votre profil.']);
         }
         $this->exigerCarte($user);
+        $this->verifierAchatEnSuspens($user, 'identite');
 
         $facture = $this->creerFacture($user, [['libelle' => 'Vérification d’identité (badge vétérinaire vérifié)', 'montant' => VerificationIdentite::PRIX_BADGE_CENTIMES]], [
             'type' => 'identite',
@@ -714,7 +718,19 @@ final class AbonnementSaas
         $transcription = null;
 
         if ($dernier) {
-            $transcription = $this->fermerFauteDePaiement($abonne, $reglement->facture);
+            $fermeture = $this->fermerFauteDePaiement($abonne, $reglement->facture);
+            if ($fermeture === false) {
+                // Payée entre-temps, traitée par la banque, ou impossible à
+                // vérifier (Stripe ne répond pas) : rien ne se ferme et aucun
+                // e-mail « accès fermé » ne part ; on regarde de nouveau dans
+                // six heures (26.10.2026)
+                if ($reglement->facture->refresh()->statut !== 'payee') {
+                    $abonne->forceFill(['statut_abonnement' => 'impaye', 'prochaine_tentative_le' => now()->addHours(6)])->save();
+                }
+
+                return;
+            }
+            $transcription = $fermeture;
         } else {
             $abonne->forceFill([
                 'statut_abonnement' => 'impaye',
@@ -742,11 +758,12 @@ final class AbonnementSaas
      * nouvelle période le jour du paiement. Les minutes de transcription
      * déjà consommées restent dues, sur leur propre facture.
      */
-    private function fermerFauteDePaiement(Organisation|User $abonne, OrganisationFacture|FactureProprietaire $facture): ?OrganisationFacture
+    /** @return OrganisationFacture|null|false false : rien ne s'est fermé (payée, en cours, ou pas vérifiable) */
+    private function fermerFauteDePaiement(Organisation|User $abonne, OrganisationFacture|FactureProprietaire $facture): OrganisationFacture|false|null
     {
-        // Passée ou traitée par la banque entre-temps : rien ne se ferme
+        // Passée, traitée par la banque ou pas vérifiable : rien ne se ferme
         if (! $this->annuler($facture)) {
-            return null;
+            return false;
         }
         $transcription = null;
 
@@ -852,6 +869,26 @@ final class AbonnementSaas
         }
 
         return $reglement;
+    }
+
+    /**
+     * Un achat précédent du même genre resté à vérifier (erreur de Stripe,
+     * prélèvement peut-être passé) : jamais un second avant de savoir
+     * (26.10.2026). Vérifié sans rien de passé, il est annulé et l'achat
+     * continue ; passé, ou toujours impossible à vérifier, l'achat est refusé.
+     */
+    private function verifierAchatEnSuspens(Organisation|User $abonne, string $type): void
+    {
+        $enSuspens = $this->factures($abonne)->where('statut', 'a_payer')->where('tentatives_prelevement', '>', 0)->get()
+            ->filter(fn ($f) => ($f->metadonnees['type'] ?? null) === $type);
+        foreach ($enSuspens as $facture) {
+            if ($this->annuler($facture)) {
+                continue;
+            }
+            throw ValidationException::withMessages(['paiement' => $facture->refresh()->statut === 'payee'
+                ? 'Votre achat précédent vient d’être confirmé : il est réglé.'
+                : 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans un instant.']);
+        }
     }
 
     /**

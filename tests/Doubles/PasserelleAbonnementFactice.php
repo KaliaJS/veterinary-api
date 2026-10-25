@@ -40,6 +40,9 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
 
     public bool $passeMalgreErreur = false;
 
+    /** La liste des prélèvements ne répond pas */
+    public bool $listeEnPanne = false;
+
     /** @var list<string> factures cherchées */
     public array $recherches = [];
 
@@ -146,6 +149,9 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     public function chercherPrelevements(string $client, string $facture): array
     {
         $this->recherches[] = $facture;
+        if ($this->listeEnPanne) {
+            throw new ErreurPaiement(ErreurPaiement::GENERIQUE, 'api_connection_error');
+        }
         $trouves = array_filter($this->prelevements, fn (array $p) => $p['client'] === $client && ($p['metadonnees']['facture'] ?? null) === $facture);
 
         return array_values(array_map(fn (array $p) => $this->lirePrelevement($p['id']), array_reverse($trouves)));

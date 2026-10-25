@@ -54,6 +54,10 @@ class LimitesDeFrequenceTest extends TestCase
         foreach ($attendues as $route => $limite) {
             $this->assertTrue($routes->has($route), "Route introuvable : {$route}");
             $this->assertContains($limite, $routes[$route], "{$route} sans {$limite}");
+            // L'abonnement a son compteur, pas aussi celui de la caisse (26.10.2026)
+            if ($limite === 'throttle:stripe-abonnement') {
+                $this->assertNotContains('throttle:stripe', $routes[$route], "{$route} compte aussi sur la caisse");
+            }
         }
     }
 }
