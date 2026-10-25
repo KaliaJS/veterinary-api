@@ -9,6 +9,7 @@ use App\Models\Clinique;
 use App\Models\Role;
 use App\Models\SiteWeb;
 use App\Services\Domaines\DomaineSite;
+use App\Services\Domaines\FournisseurCloudflare;
 use App\Services\Domaines\ResolveurDns;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
@@ -435,6 +436,41 @@ class DomaineSiteTest extends TestCase
         $statut = 403;
         $verifier();
         Mail::assertSent(JetonCloudflareRefuse::class, 2);
+    }
+
+    /** D26.3a : un jeton refusé à l'ajout ou au retrait d'un domaine prévient aussi la plateforme ; la clinique ne lit pas « vérifiez l'orthographe » (26.10.2026). */
+    public function test_un_jeton_refuse_a_l_ajout_ou_au_retrait_previent_la_plateforme(): void
+    {
+        Mail::fake();
+        config(['sites.domaines.fournisseur' => 'cloudflare', 'plateforme.alerte_email' => 'alertes@plateforme.test']);
+        Http::fake(['api.cloudflare.com/*' => Http::response(['success' => false, 'errors' => [['code' => 10000, 'message' => 'Authentication error']]], 403)]);
+
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.domaine.0', 'Le service des domaines ne répond pas. Réessayez dans quelques minutes.');
+        Mail::assertSent(JetonCloudflareRefuse::class, fn (JetonCloudflareRefuse $mail) => $mail->hasTo('alertes@plateforme.test') && $mail->statut === 403);
+
+        // Le lendemain, en retirant un domaine relié
+        $this->travel(1)->days();
+        app(FournisseurCloudflare::class)->retirer('www.autre-clinique.ch', 'ch-9');
+        Mail::assertSent(JetonCloudflareRefuse::class, 2);
+    }
+
+    /** D26.3b : un e-mail d'alerte qui ne part pas ne fait rien échouer : la clinique lit le même message, la vérification continue (26.10.2026). */
+    public function test_une_alerte_qui_ne_part_pas_ne_fait_rien_echouer(): void
+    {
+        config(['sites.domaines.fournisseur' => 'cloudflare', 'plateforme.alerte_email' => 'alertes@plateforme.test']);
+        Http::fake(['api.cloudflare.com/*' => Http::response(['success' => false], 401)]);
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP indisponible'));
+
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.domaine.0', 'Le service des domaines ne répond pas. Réessayez dans quelques minutes.');
+
+        // Le retrait d'un domaine, qui n'a pas d'autre filet, ne lève rien non plus
+        $this->travel(1)->days();
+        app(FournisseurCloudflare::class)->retirer('www.autre-clinique.ch', 'ch-9');
+        $this->addToAssertionCount(1);
     }
 
     /** D26.3c : une panne passagère de Cloudflare (429, 5xx, réseau) n'alerte pas (26.10.2026). */

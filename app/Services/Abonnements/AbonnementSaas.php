@@ -837,11 +837,35 @@ final class AbonnementSaas
     {
         $reglement = $this->encaisser($abonne, $facture, false);
         if ($reglement->statut === 'refuse') {
-            $this->annuler($facture);
+            // Pas annulée si le prélèvement est passé malgré une erreur de
+            // Stripe, ou n'a pas pu être vérifié (26.10.2026) : jamais une
+            // seconde facture prélevée pour le même achat
+            if (! $this->annuler($facture)) {
+                $facture->refresh();
+                if ($facture->statut === 'payee') {
+                    return new Reglement($facture, 'reussi');
+                }
+
+                throw ValidationException::withMessages(['paiement' => 'Le paiement est en cours de vérification chez le prestataire. Réessayez dans un instant.']);
+            }
             throw ValidationException::withMessages(['paiement' => $reglement->message ?? 'La carte a été refusée.']);
         }
 
         return $reglement;
+    }
+
+    /**
+     * Après une erreur de Stripe au résultat incertain : le prélèvement de
+     * cette facture passé ou en cours chez ce client, s'il y en a un
+     * (26.10.2026). Lève ErreurPaiement si Stripe ne répond pas.
+     *
+     * @return array{id: ?string, statut: string, client_secret: ?string, message: ?string}|null
+     */
+    private function prelevementIncertainPasse(Organisation|User $abonne, OrganisationFacture|FactureProprietaire $facture, string $cle): ?array
+    {
+        return collect($this->stripe->chercherPrelevements((string) $abonne->stripe_client_id, $cle))
+            ->first(fn (array $p) => $p['id'] !== null && $p['id'] !== $facture->stripe_paiement_id
+                && in_array($p['statut'], ['reussi', 'en_cours', 'action_requise'], true));
     }
 
     private function encaisser(Organisation|User $abonne, OrganisationFacture|FactureProprietaire $facture, bool $horsSession): Reglement
@@ -897,9 +921,7 @@ final class AbonnementSaas
         // passé ou en cours, qui est alors repris
         if ($facture->tentatives_prelevement > 0) {
             try {
-                $trouve = collect($this->stripe->chercherPrelevements($cle))
-                    ->first(fn (array $p) => $p['id'] !== null && $p['id'] !== $facture->stripe_paiement_id
-                        && in_array($p['statut'], ['reussi', 'en_cours', 'action_requise'], true));
+                $trouve = $this->prelevementIncertainPasse($abonne, $facture, $cle);
             } catch (ErreurPaiement $e) {
                 // Sans réponse sûre, rien n'est tenté : on réessaiera
                 return new Reglement($facture, 'refuse', null, $e->getMessage());
@@ -931,9 +953,9 @@ final class AbonnementSaas
         } catch (ErreurPaiement $e) {
             // Erreur du prestataire : traitée comme un refus (la facture ne reste pas orpheline)
             Log::warning('Prélèvement impossible.', ['facture' => $facture->numero, 'erreur' => $e->getMessage()]);
-            // Stripe a répondu par une erreur : il la garde sous cette clé 24 h,
+            // Erreur de Stripe lui-même (5xx) : il la garde sous cette clé 24 h,
             // la tentative suivante en prend une autre (26.10.2026)
-            if ($e->prestataireARepondu()) {
+            if ($e->erreurGardeeParStripe()) {
                 $facture->forceFill(['tentatives_prelevement' => $facture->tentatives_prelevement + 1])->save();
             }
             $resultat = ['id' => null, 'statut' => 'refuse', 'client_secret' => null, 'message' => $e->getMessage()];
@@ -1034,6 +1056,21 @@ final class AbonnementSaas
      */
     private function annuler(OrganisationFacture|FactureProprietaire $facture): bool
     {
+        // Une tentative au résultat incertain (erreur de Stripe) : passée, elle
+        // devient la référence, et la facture n'est pas annulée à tort ; sans
+        // réponse de Stripe pour le vérifier, elle reste due (26.10.2026)
+        if ($facture->tentatives_prelevement > 0) {
+            try {
+                $trouve = $this->prelevementIncertainPasse($this->abonneDe($facture), $facture, ($facture instanceof OrganisationFacture ? 'organisation' : 'proprietaire').':'.$facture->id);
+            } catch (ErreurPaiement $e) {
+                report($e);
+
+                return false;
+            }
+            if ($trouve) {
+                $facture->forceFill(['stripe_paiement_id' => $trouve['id']])->save();
+            }
+        }
         if ($facture->stripe_paiement_id) {
             $etat = $this->stripe->lirePrelevement($facture->stripe_paiement_id);
             // Refusé, il se confirme encore avec une autre carte (Stripe.js) :

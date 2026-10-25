@@ -2,14 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Mail\JetonCloudflareRefuse;
 use App\Models\SiteWeb;
 use App\Services\Domaines\DomaineSite;
-use App\Services\Domaines\JetonFournisseurRefuse;
-use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Mail;
 use Throwable;
 
 /** Revérifie les domaines en attente (DNS en cours de propagation). Planifiée toutes les 10 minutes. */
@@ -46,23 +41,6 @@ class VerifierDomainesSites extends Command
         } catch (Throwable $e) {
             report($e);
             $this->warn("Domaine {$site->domaine} : vérification impossible, réessayée au passage suivant.");
-            if ($e instanceof JetonFournisseurRefuse) {
-                $this->alerterJetonRefuse($e->statut);
-            }
         }
-    }
-
-    /**
-     * Jeton Cloudflare refusé : un e-mail à la plateforme, une fois par jour
-     * tant que le refus dure (26.10.2026).
-     */
-    private function alerterJetonRefuse(int $statut): void
-    {
-        $adresse = config('plateforme.alerte_email');
-        $jour = CarbonImmutable::now('Europe/Zurich')->toDateString();
-        if (! $adresse || ! Cache::add('alerte:jeton-cloudflare:'.$jour, true, now()->addDays(2))) {
-            return;
-        }
-        Mail::to($adresse)->send(new JetonCloudflareRefuse($statut));
     }
 }

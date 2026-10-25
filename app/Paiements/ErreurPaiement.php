@@ -19,18 +19,22 @@ class ErreurPaiement extends RuntimeException
 
     /**
      * `statutHttp` : le code de la réponse de Stripe, null si aucune réponse
-     * n'est arrivée (délai, réseau). Une réponse en erreur est gardée par
-     * Stripe sous la clé d'idempotence (26.10.2026).
+     * n'est arrivée (délai, réseau) (26.10.2026).
      */
     public function __construct(string $message, public readonly ?string $codeStripe = null, public readonly ?int $statutHttp = null)
     {
         parent::__construct($message);
     }
 
-    /** Stripe a répondu (même par une erreur) : la clé d'idempotence est usée. */
-    public function prestataireARepondu(): bool
+    /**
+     * Une erreur de Stripe lui-même (5xx) : il la garde 24 h sous la clé
+     * d'idempotence, qui est usée (26.10.2026). Un refus de la requête (4xx,
+     * dont 409 : la même clé est déjà en cours) n'est pas gardé, la clé sert
+     * encore ; sans réponse, non plus.
+     */
+    public function erreurGardeeParStripe(): bool
     {
-        return $this->statutHttp !== null;
+        return $this->statutHttp !== null && $this->statutHttp >= 500;
     }
 
     /** Un message traduit, ou le générique ; le détail de Stripe au journal. */

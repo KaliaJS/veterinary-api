@@ -574,7 +574,7 @@ Route::prefix('v1')->group(function (): void {
             Route::withoutMiddleware('organisation.ouverte')->group(function (): void {
                 Route::get('/', [OrganisationController::class, 'afficher']);
                 Route::get('abonnement/apercu', [AbonnementController::class, 'apercu']);
-                // Appels à Stripe : la limite de la caisse (par clinique du jeton), 24.10.2026
+                // Appels à Stripe : leur propre compteur, par compte (26.10.2026)
                 Route::post('abonnement', [AbonnementController::class, 'changer'])->middleware('throttle:stripe-abonnement');
                 Route::post('moyen-paiement/intention', [MoyenPaiementController::class, 'intention'])->middleware('throttle:stripe-abonnement');
                 Route::put('moyen-paiement', [MoyenPaiementController::class, 'enregistrer'])->middleware('throttle:stripe-abonnement');

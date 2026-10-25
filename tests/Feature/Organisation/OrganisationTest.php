@@ -224,8 +224,14 @@ class OrganisationTest extends TestCase
 
         $this->deleteJson("/api/v1/organisation/cliniques/{$avecAcompte->id}", [], $this->enTetes($this->jeton))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['clinique' => 'Cette clinique a reçu des acomptes en ligne : elle se désactive, elle ne se supprime pas.']);
+            ->assertJsonValidationErrors(['clinique' => 'Cette clinique a des acomptes en ligne : elle se désactive, elle ne se supprime pas.']);
         $this->assertDatabaseHas('cliniques', ['id' => $avecAcompte->id]);
+
+        // Un acompte en train d'être payé (intention ouverte) la retient aussi
+        $enPaiement = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        app(ContexteClinique::class)->oublier();
+        DemandeRendezVous::factory()->create(['clinique_id' => $enPaiement->id, 'acompte_centimes' => 3000, 'acompte_intention_id' => 'pi_y']);
+        $this->deleteJson("/api/v1/organisation/cliniques/{$enPaiement->id}", [], $this->enTetes($this->jeton))->assertUnprocessable();
 
         $sansAcompte = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
         app(ContexteClinique::class)->oublier();
@@ -928,6 +934,52 @@ class OrganisationTest extends TestCase
         [$enErreur, $suivante] = array_slice($this->stripe->cles, -2);
         $this->assertSame($seconde, $enErreur);
         $this->assertNotSame($enErreur, $suivante);
+    }
+
+    /** D26.1b : un 409 de Stripe (la même clé déjà en cours) n'use pas la clé : le clic suivant la reprend (26.10.2026). */
+    public function test_un_409_de_stripe_garde_la_cle(): void
+    {
+        $facture = $this->factureRefuseeARegler();
+        $regler = fn () => $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton));
+
+        $this->stripe->erreurServeur = 409;
+        $regler()->assertUnprocessable();
+        $this->stripe->erreurServeur = null;
+        $regler()->assertOk();
+
+        [$en409, $suivante] = array_slice($this->stripe->cles, -2);
+        $this->assertSame($en409, $suivante);
+    }
+
+    /** D26.1c : une souscription dont le prélèvement passe malgré une erreur 500 n'est pas annulée : elle est payée, sans second achat (26.10.2026). */
+    public function test_une_souscription_passee_malgre_une_erreur_500_est_payee(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->stripe->erreurServeur = 500;
+        $this->stripe->passeMalgreErreur = true;
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+
+        $factures = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->get();
+        $this->assertCount(1, $factures);
+        $this->assertSame('payee', $factures->sole()->statut);
+        $this->assertCount(1, $this->stripe->prelevements);
+        $this->assertDatabaseHas('organisations', ['id' => $this->organisationId(), 'statut_abonnement' => 'actif']);
+    }
+
+    /** Et un vrai échec (rien passé chez Stripe) annule la souscription comme avant (26.10.2026). */
+    public function test_une_souscription_en_erreur_500_sans_prelevement_est_annulee(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->stripe->erreurServeur = 500;
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('paiement');
+
+        $this->assertSame('annulee', Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->sole()->statut);
     }
 
     /** D26.1c : une erreur 500 alors que le prélèvement est passé chez Stripe : la tentative suivante le retrouve et le reprend, sans second prélèvement (26.10.2026). */

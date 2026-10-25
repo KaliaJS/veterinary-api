@@ -142,6 +142,10 @@ $pdo->exec('CREATE DATABASE `'.BASE.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_uni
 
 try {
     $app->make(KernelConsole::class)->bootstrap();
+    // Jamais la base de travail : une configuration en cache ignorerait DB_DATABASE
+    if (DB::connection()->getDatabaseName() !== BASE) {
+        throw new RuntimeException('La base visée n’est pas '.BASE.' (configuration en cache ?) : essai arrêté.');
+    }
     Artisan::call('migrate', ['--force' => true]);
 
     // Une clinique neuve par essai : aucun essai ne voit les lignes d'un autre

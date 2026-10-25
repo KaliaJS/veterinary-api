@@ -67,41 +67,39 @@ class PasserelleAbonnementStripeTest extends TestCase
         $this->prelever(true);
     }
 
-    /** D26.1 : une erreur de Stripe garde son code de réponse ; une coupure réseau n'en a pas (26.10.2026). */
-    public function test_une_erreur_de_stripe_dit_s_il_a_repondu(): void
+    /** D26.1 : seule une erreur de Stripe lui-même (5xx) use la clé ; un 409 (même clé en cours) ou une coupure réseau, non (26.10.2026). */
+    public function test_seule_une_erreur_5xx_use_la_cle(): void
     {
-        $this->http->echouer(500, 'api_error', null, 'Something went wrong on Stripe.');
-        try {
-            $this->prelever(true);
+        $verdict = function (callable $programmer): array {
+            $programmer();
+            try {
+                $this->prelever(true);
+            } catch (ErreurPaiement $e) {
+                return [$e->statutHttp, $e->erreurGardeeParStripe()];
+            }
             $this->fail('Erreur attendue');
-        } catch (ErreurPaiement $e) {
-            $this->assertSame(500, $e->statutHttp);
-            $this->assertTrue($e->prestataireARepondu());
-        }
+        };
 
-        $this->http->couper(new ApiConnectionException('Délai dépassé'));
-        try {
-            $this->prelever(true);
-            $this->fail('Erreur attendue');
-        } catch (ErreurPaiement $e) {
-            $this->assertNull($e->statutHttp);
-            $this->assertFalse($e->prestataireARepondu());
-        }
+        $this->assertSame([500, true], $verdict(fn () => $this->http->echouer(500, 'api_error', null)));
+        $this->assertSame([409, false], $verdict(fn () => $this->http->echouer(409, 'idempotency_error', null, 'There is currently another in-progress request using this Idempotent Key.')));
+        $this->assertSame([null, false], $verdict(fn () => $this->http->couper(new ApiConnectionException('Délai dépassé'))));
     }
 
-    /** D26.1c : les prélèvements d'une facture se cherchent par sa métadonnée, les plus récents d'abord (26.10.2026). */
-    public function test_les_prelevements_d_une_facture_se_cherchent_par_sa_metadonnee(): void
+    /** D26.1c : les prélèvements d'une facture se lisent dans la liste du client (à jour tout de suite), filtrés par facture, les plus récents d'abord (26.10.2026). */
+    public function test_les_prelevements_d_une_facture_se_lisent_dans_la_liste_du_client(): void
     {
-        $this->http->repondre(['object' => 'search_result', 'data' => [
-            ['id' => 'pi_ancien', 'object' => 'payment_intent', 'status' => 'canceled', 'created' => 100],
-            ['id' => 'pi_recent', 'object' => 'payment_intent', 'status' => 'succeeded', 'created' => 200],
+        $this->http->repondre(['object' => 'list', 'data' => [
+            ['id' => 'pi_ancien', 'object' => 'payment_intent', 'status' => 'canceled', 'created' => 100, 'metadata' => ['facture' => 'organisation:12']],
+            ['id' => 'pi_autre', 'object' => 'payment_intent', 'status' => 'succeeded', 'created' => 300, 'metadata' => ['facture' => 'organisation:13']],
+            ['id' => 'pi_recent', 'object' => 'payment_intent', 'status' => 'succeeded', 'created' => 200, 'metadata' => ['facture' => 'organisation:12']],
         ], 'has_more' => false]);
 
-        $trouves = (new PasserelleAbonnementStripe(new StripeClient('sk_test_faux')))->chercherPrelevements('organisation:12');
+        $trouves = (new PasserelleAbonnementStripe(new StripeClient('sk_test_faux')))->chercherPrelevements('cus_test', 'organisation:12');
 
         $requete = $this->http->derniere();
-        $this->assertSame('/v1/payment_intents/search', $requete['chemin']);
-        $this->assertSame("metadata['facture']:'organisation:12'", $requete['params']['query']);
+        $this->assertSame('get', $requete['methode']);
+        $this->assertSame('/v1/payment_intents', $requete['chemin']);
+        $this->assertSame('cus_test', $requete['params']['customer']);
         $this->assertSame(['pi_recent', 'pi_ancien'], array_column($trouves, 'id'));
         $this->assertSame('reussi', $trouves[0]['statut']);
     }

@@ -26,6 +26,12 @@ class FournisseurCloudflare implements FournisseurDomaines
 
         if (! $reponse->successful()) {
             Log::warning('Cloudflare a refusé le domaine.', ['domaine' => $domaine, 'statut' => $reponse->status(), 'erreurs' => $reponse->json('errors')]);
+            // Notre jeton refusé : ce n'est pas le domaine de la clinique (26.10.2026)
+            if (in_array($reponse->status(), [401, 403], true)) {
+                app(AlerteJetonCloudflare::class)->signaler($reponse->status());
+
+                throw new JetonFournisseurRefuse($reponse->status());
+            }
 
             throw new ErreurDomaine(match (true) {
                 $reponse->status() === 409 || str_contains(strtolower((string) $this->message($reponse->json())), 'duplicate') => 'Ce domaine est déjà relié à un autre site.',
@@ -56,7 +62,13 @@ class FournisseurCloudflare implements FournisseurDomaines
         if ($reponse->serverError() || in_array($reponse->status(), [401, 403, 429], true)) {
             Log::warning('Cloudflare ne répond pas pour un domaine.', ['domaine' => $domaine, 'statut' => $reponse->status()]);
 
-            throw in_array($reponse->status(), [401, 403], true) ? new JetonFournisseurRefuse($reponse->status()) : new FournisseurIndisponible;
+            if (in_array($reponse->status(), [401, 403], true)) {
+                app(AlerteJetonCloudflare::class)->signaler($reponse->status());
+
+                throw new JetonFournisseurRefuse($reponse->status());
+            }
+
+            throw new FournisseurIndisponible;
         }
         $resultat = $reponse->json('result') ?? [];
         $actif = ($resultat['status'] ?? null) === 'active' && ($resultat['ssl']['status'] ?? null) === 'active';
@@ -76,7 +88,10 @@ class FournisseurCloudflare implements FournisseurDomaines
     public function retirer(string $domaine, ?string $identifiant): void
     {
         if ($identifiant) {
-            $this->client()->delete($this->url($identifiant));
+            $reponse = $this->client()->delete($this->url($identifiant));
+            if (in_array($reponse->status(), [401, 403], true)) {
+                app(AlerteJetonCloudflare::class)->signaler($reponse->status());
+            }
         }
     }
 

@@ -129,11 +129,12 @@ class OrganisationCliniqueController extends Controller
             ]);
         }
 
-        // Des acomptes payés en ligne (même rendus ou contestés) : leur trace
-        // reste, un litige la retrouve (26.10.2026)
-        if (DemandeRendezVous::withoutGlobalScopes()->where('clinique_id', $fiche->id)->whereNotNull('acompte_paye_le')->exists()) {
+        // Des acomptes en ligne, payés (même rendus ou contestés) ou en train de
+        // l'être : leur trace reste, un litige ou un paiement tardif la
+        // retrouve (26.10.2026)
+        if (DemandeRendezVous::withoutGlobalScopes()->where('clinique_id', $fiche->id)->whereNotNull('acompte_intention_id')->exists()) {
             throw ValidationException::withMessages([
-                'clinique' => 'Cette clinique a reçu des acomptes en ligne : elle se désactive, elle ne se supprime pas.',
+                'clinique' => 'Cette clinique a des acomptes en ligne : elle se désactive, elle ne se supprime pas.',
             ]);
         }
 

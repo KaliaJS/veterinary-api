@@ -143,10 +143,10 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
         return $this->lirePrelevement($id);
     }
 
-    public function chercherPrelevements(string $facture): array
+    public function chercherPrelevements(string $client, string $facture): array
     {
         $this->recherches[] = $facture;
-        $trouves = array_filter($this->prelevements, fn (array $p) => ($p['metadonnees']['facture'] ?? null) === $facture);
+        $trouves = array_filter($this->prelevements, fn (array $p) => $p['client'] === $client && ($p['metadonnees']['facture'] ?? null) === $facture);
 
         return array_values(array_map(fn (array $p) => $this->lirePrelevement($p['id']), array_reverse($trouves)));
     }
