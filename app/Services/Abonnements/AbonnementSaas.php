@@ -891,6 +891,26 @@ final class AbonnementSaas
             }
         }
 
+        // Une tentative précédente a reçu une erreur de Stripe : son résultat
+        // est incertain (26.10.2026). Avant d'en lancer une autre avec une
+        // nouvelle clé, on cherche chez Stripe un prélèvement de cette facture
+        // passé ou en cours, qui est alors repris
+        if ($facture->tentatives_prelevement > 0) {
+            try {
+                $trouve = collect($this->stripe->chercherPrelevements($cle))
+                    ->first(fn (array $p) => $p['id'] !== null && $p['id'] !== $facture->stripe_paiement_id
+                        && in_array($p['statut'], ['reussi', 'en_cours', 'action_requise'], true));
+            } catch (ErreurPaiement $e) {
+                // Sans réponse sûre, rien n'est tenté : on réessaiera
+                return new Reglement($facture, 'refuse', null, $e->getMessage());
+            }
+            if ($trouve) {
+                $facture->forceFill(['stripe_paiement_id' => $trouve['id']])->save();
+
+                return $this->encaisserSousVerrou($abonne, $facture->refresh(), $cle, $centimes, $horsSession);
+            }
+        }
+
         try {
             $resultat = $this->stripe->prelever(
                 (string) $abonne->stripe_client_id,
@@ -902,13 +922,20 @@ final class AbonnementSaas
                 // La même pour une même tentative, avec la même carte, aussi
                 // longtemps qu'aucune réponse n'est arrivée : une réponse perdue
                 // (délai dépassé) puis renvoyée, même une heure plus tard, ne
-                // prélève pas deux fois. Une réponse reçue (refus, prélèvement)
-                // ou une autre carte : une nouvelle tentative
-                'facture-'.$cle.'-'.($facture->stripe_paiement_id ?? 'premier').'-'.$abonne->stripe_moyen_paiement_id,
+                // prélève pas deux fois. Une réponse reçue (refus, prélèvement,
+                // erreur de Stripe) ou une autre carte : une nouvelle tentative
+                'facture-'.$cle.'-'.($facture->stripe_paiement_id ?? 'premier')
+                    .($facture->tentatives_prelevement > 0 ? '-t'.$facture->tentatives_prelevement : '')
+                    .'-'.$abonne->stripe_moyen_paiement_id,
             );
         } catch (ErreurPaiement $e) {
             // Erreur du prestataire : traitée comme un refus (la facture ne reste pas orpheline)
             Log::warning('Prélèvement impossible.', ['facture' => $facture->numero, 'erreur' => $e->getMessage()]);
+            // Stripe a répondu par une erreur : il la garde sous cette clé 24 h,
+            // la tentative suivante en prend une autre (26.10.2026)
+            if ($e->prestataireARepondu()) {
+                $facture->forceFill(['tentatives_prelevement' => $facture->tentatives_prelevement + 1])->save();
+            }
             $resultat = ['id' => null, 'statut' => 'refuse', 'client_secret' => null, 'message' => $e->getMessage()];
         }
 

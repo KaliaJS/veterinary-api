@@ -32,8 +32,16 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     /** La banque traite encore le prélèvement (`processing`) */
     public bool $enCours = false;
 
-    /** Le prestataire répond par une erreur (requête refusée, panne) */
+    /** Le prestataire ne répond pas (délai, réseau) */
     public ?string $panne = null;
+
+    /** Stripe répond par une erreur (ex. 500) ; avec `passeMalgreErreur`, le prélèvement a quand même eu lieu */
+    public ?int $erreurServeur = null;
+
+    public bool $passeMalgreErreur = false;
+
+    /** @var list<string> factures cherchées */
+    public array $recherches = [];
 
     /** @var list<string> Clés d'idempotence reçues, pannes comprises */
     public array $cles = [];
@@ -89,6 +97,15 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
             throw new ErreurPaiement($this->panne, 'api_error');
         }
         $id = 'pi_'.++$this->sequence;
+        if ($this->erreurServeur !== null) {
+            if ($this->passeMalgreErreur) {
+                $this->prelevements[$id] = [
+                    'id' => $id, 'client' => $client, 'moyen' => $moyen, 'centimes' => $centimes, 'libelle' => $libelle,
+                    'metadonnees' => $metadonnees, 'hors_session' => $horsSession, 'statut' => 'reussi', 'cle' => $cleIdempotence,
+                ];
+            }
+            throw new ErreurPaiement(ErreurPaiement::GENERIQUE, 'api_error', $this->erreurServeur);
+        }
         $statut = match (true) {
             $this->refus !== null => 'refuse',
             $this->actionRequise => 'action_requise',
@@ -124,6 +141,14 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
         }
 
         return $this->lirePrelevement($id);
+    }
+
+    public function chercherPrelevements(string $facture): array
+    {
+        $this->recherches[] = $facture;
+        $trouves = array_filter($this->prelevements, fn (array $p) => ($p['metadonnees']['facture'] ?? null) === $facture);
+
+        return array_values(array_map(fn (array $p) => $this->lirePrelevement($p['id']), array_reverse($trouves)));
     }
 
     /** Le client confirme le paiement auprès de sa banque (Stripe.js). Un prélèvement annulé ne se confirme plus. */

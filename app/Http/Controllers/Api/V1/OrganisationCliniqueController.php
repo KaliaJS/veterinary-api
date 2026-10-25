@@ -8,6 +8,7 @@ use App\Http\Requests\V1\Organisation\EnregistrerCliniqueRequest;
 use App\Http\Requests\V1\Organisation\ModifierCliniqueRequest;
 use App\Http\Resources\V1\CliniqueResource;
 use App\Models\Clinique;
+use App\Models\DemandeRendezVous;
 use App\Models\HoraireOuverture;
 use App\Models\Organisation;
 use App\Models\TerminalPaiement;
@@ -125,6 +126,14 @@ class OrganisationCliniqueController extends Controller
         if ($porteDesDonnees) {
             throw ValidationException::withMessages([
                 'clinique' => 'Cette clinique porte un historique, elle se désactive, elle ne se supprime pas.',
+            ]);
+        }
+
+        // Des acomptes payés en ligne (même rendus ou contestés) : leur trace
+        // reste, un litige la retrouve (26.10.2026)
+        if (DemandeRendezVous::withoutGlobalScopes()->where('clinique_id', $fiche->id)->whereNotNull('acompte_paye_le')->exists()) {
+            throw ValidationException::withMessages([
+                'clinique' => 'Cette clinique a reçu des acomptes en ligne : elle se désactive, elle ne se supprime pas.',
             ]);
         }
 

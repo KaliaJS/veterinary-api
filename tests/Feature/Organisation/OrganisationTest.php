@@ -10,6 +10,7 @@ use App\Mail\CarteExpireAvantPrelevement;
 use App\Mail\PaiementAbonnementRefuse;
 use App\Models\Absence;
 use App\Models\Clinique;
+use App\Models\DemandeRendezVous;
 use App\Models\Employe;
 use App\Models\Organisation;
 use App\Models\OrganisationFacture;
@@ -26,6 +27,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserelleAbonnementFactice;
@@ -209,6 +211,26 @@ class OrganisationTest extends TestCase
             ->assertNoContent();
 
         $this->assertDatabaseMissing('cliniques', ['id' => $vide->id]);
+    }
+
+    /** D26.9 : une clinique qui a des demandes avec un acompte payé ne se supprime pas ; une demande sans acompte payé ne la retient pas (26.10.2026). */
+    public function test_une_clinique_aux_acomptes_payes_ne_se_supprime_pas(): void
+    {
+        $avecAcompte = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        DemandeRendezVous::factory()->create([
+            'clinique_id' => $avecAcompte->id, 'acompte_centimes' => 3000, 'acompte_intention_id' => 'pi_x',
+            'acompte_paye_le' => now(), 'acompte_rembourse_le' => now(), 'acompte_rembourse_centimes' => 3000, 'acompte_litige' => 'perdu',
+        ]);
+
+        $this->deleteJson("/api/v1/organisation/cliniques/{$avecAcompte->id}", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['clinique' => 'Cette clinique a reçu des acomptes en ligne : elle se désactive, elle ne se supprime pas.']);
+        $this->assertDatabaseHas('cliniques', ['id' => $avecAcompte->id]);
+
+        $sansAcompte = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        app(ContexteClinique::class)->oublier();
+        DemandeRendezVous::factory()->create(['clinique_id' => $sansAcompte->id]);
+        $this->deleteJson("/api/v1/organisation/cliniques/{$sansAcompte->id}", [], $this->enTetes($this->jeton))->assertNoContent();
     }
 
     public function test_le_solde_de_conges_compte_aussi_les_conges_des_employes_des_autres_cliniques(): void
@@ -869,6 +891,87 @@ class OrganisationTest extends TestCase
         $webhook('evt_double', ['id' => 'pi_double', 'amount' => $prelevement['centimes']]);
         $this->assertSame($prelevement['id'], $facture->refresh()->stripe_paiement_id);
         Log::shouldHaveReceived('critical')->withArgs(fn ($message) => str_contains($message, 'déjà payée'))->once();
+    }
+
+    /** D26.1a : après une erreur de Stripe qui a répondu (500), la tentative suivante part avec une nouvelle clé ; « Régler » ne rejoue pas la même erreur (26.10.2026). */
+    public function test_apres_une_erreur_500_de_stripe_la_tentative_suivante_change_de_cle(): void
+    {
+        $facture = $this->factureRefuseeARegler();
+        $regler = fn () => $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton));
+
+        $this->stripe->erreurServeur = 500;
+        $regler()->assertUnprocessable();
+        $cleEnErreur = array_slice($this->stripe->cles, -1)[0];
+
+        $this->stripe->erreurServeur = null;
+        $regler()->assertOk()->assertJsonPath('data.statut', 'payee');
+        $this->assertNotSame($cleEnErreur, array_slice($this->stripe->cles, -1)[0]);
+    }
+
+    /** D26.1b : une erreur sans réponse (délai, réseau) garde la même clé ; une erreur avec réponse la change (26.10.2026). */
+    public function test_une_erreur_sans_reponse_garde_la_cle_une_erreur_500_la_change(): void
+    {
+        $facture = $this->factureRefuseeARegler();
+        $regler = fn () => $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton));
+
+        $this->stripe->panne = 'Délai dépassé.';
+        $regler()->assertUnprocessable();
+        $regler()->assertUnprocessable();
+        [$premiere, $seconde] = array_slice($this->stripe->cles, -2);
+        $this->assertSame($premiere, $seconde);
+
+        $this->stripe->panne = null;
+        $this->stripe->erreurServeur = 500;
+        $regler()->assertUnprocessable();
+        $this->stripe->erreurServeur = null;
+        $regler()->assertOk();
+        [$enErreur, $suivante] = array_slice($this->stripe->cles, -2);
+        $this->assertSame($seconde, $enErreur);
+        $this->assertNotSame($enErreur, $suivante);
+    }
+
+    /** D26.1c : une erreur 500 alors que le prélèvement est passé chez Stripe : la tentative suivante le retrouve et le reprend, sans second prélèvement (26.10.2026). */
+    public function test_un_prelevement_passe_malgre_une_erreur_500_est_repris(): void
+    {
+        $facture = $this->factureRefuseeARegler();
+        $regler = fn () => $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton));
+
+        $this->stripe->erreurServeur = 500;
+        $this->stripe->passeMalgreErreur = true;
+        $regler()->assertUnprocessable();
+        $passe = $this->stripe->dernierPrelevement()['id'];
+        $avant = count($this->stripe->prelevements);
+
+        $this->stripe->erreurServeur = null;
+        $this->stripe->passeMalgreErreur = false;
+        $regler()->assertOk()->assertJsonPath('data.statut', 'payee');
+
+        $this->assertCount($avant, $this->stripe->prelevements);
+        $this->assertSame($passe, $facture->refresh()->stripe_paiement_id);
+    }
+
+    /** D26.2 : les routes d'abonnement de l'organisation ont leur propre compteur : une caisse qui a épuisé le sien ne les bloque pas, et inversement (26.10.2026). */
+    public function test_l_abonnement_a_son_propre_compteur_de_frequence(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        // La caisse de la clinique a épuisé ses 180 appels à Stripe de la minute
+        $cleCaisse = md5('stripe'.'stripe:'.$this->clinique->id);
+        foreach (range(1, 180) as $appel) {
+            RateLimiter::hit($cleCaisse, 60);
+        }
+        $this->postJson('/api/v1/facturation/terminaux', [], $this->enTetes($this->jeton))->assertStatus(429);
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+
+        // Et l'inverse : le compteur de l'abonnement épuisé laisse la caisse tranquille
+        RateLimiter::clear($cleCaisse);
+        foreach (range(1, 30) as $appel) {
+            RateLimiter::hit(md5('stripe-abonnement'.'stripe-abonnement:'.$this->user->id), 60);
+        }
+        $this->postJson('/api/v1/organisation/abonnement/resilier', [], $this->enTetes($this->jeton))->assertStatus(429);
+        $this->postJson('/api/v1/facturation/terminaux', [], $this->enTetes($this->jeton))->assertStatus(422);
     }
 
     /** Une facture de renouvellement refusée, à régler, carte remplacée. */

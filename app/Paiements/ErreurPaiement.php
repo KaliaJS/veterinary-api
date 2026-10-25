@@ -17,9 +17,20 @@ class ErreurPaiement extends RuntimeException
 {
     public const string GENERIQUE = 'Le prestataire de paiement n’a pas pu traiter la demande. Réessayez dans un instant.';
 
-    public function __construct(string $message, public readonly ?string $codeStripe = null)
+    /**
+     * `statutHttp` : le code de la réponse de Stripe, null si aucune réponse
+     * n'est arrivée (délai, réseau). Une réponse en erreur est gardée par
+     * Stripe sous la clé d'idempotence (26.10.2026).
+     */
+    public function __construct(string $message, public readonly ?string $codeStripe = null, public readonly ?int $statutHttp = null)
     {
         parent::__construct($message);
+    }
+
+    /** Stripe a répondu (même par une erreur) : la clé d'idempotence est usée. */
+    public function prestataireARepondu(): bool
+    {
+        return $this->statutHttp !== null;
     }
 
     /** Un message traduit, ou le générique ; le détail de Stripe au journal. */
@@ -29,7 +40,7 @@ class ErreurPaiement extends RuntimeException
             Log::warning('Stripe a refusé un appel.', ['code' => $e->getStripeCode(), 'message' => $e->getMessage(), 'requete' => $e->getRequestId()]);
         }
 
-        return new self($traduction ?? self::GENERIQUE, $e->getStripeCode());
+        return new self($traduction ?? self::GENERIQUE, $e->getStripeCode(), $e->getHttpStatus());
     }
 
     public function estGenerique(): bool

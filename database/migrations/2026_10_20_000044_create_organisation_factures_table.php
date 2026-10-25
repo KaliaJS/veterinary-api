@@ -18,6 +18,7 @@ return new class extends Migration
             $table->foreignId('organisation_id')->constrained()->restrictOnDelete();
             $table->string('stripe_facture_id')->nullable();
             $table->string('stripe_paiement_id')->nullable();
+            $table->unsignedSmallInteger('tentatives_prelevement')->default(0)->comment('Tentatives ayant reçu une erreur de Stripe : change la clé d’idempotence');
             $table->string('numero', 40);
             $table->date('emise_le');
             $table->string('libelle');

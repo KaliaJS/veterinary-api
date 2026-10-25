@@ -575,14 +575,14 @@ Route::prefix('v1')->group(function (): void {
                 Route::get('/', [OrganisationController::class, 'afficher']);
                 Route::get('abonnement/apercu', [AbonnementController::class, 'apercu']);
                 // Appels à Stripe : la limite de la caisse (par clinique du jeton), 24.10.2026
-                Route::post('abonnement', [AbonnementController::class, 'changer'])->middleware('throttle:stripe');
-                Route::post('moyen-paiement/intention', [MoyenPaiementController::class, 'intention'])->middleware('throttle:stripe');
-                Route::put('moyen-paiement', [MoyenPaiementController::class, 'enregistrer'])->middleware('throttle:stripe');
-                Route::delete('moyen-paiement', [MoyenPaiementController::class, 'supprimer'])->middleware('throttle:stripe');
+                Route::post('abonnement', [AbonnementController::class, 'changer'])->middleware('throttle:stripe-abonnement');
+                Route::post('moyen-paiement/intention', [MoyenPaiementController::class, 'intention'])->middleware('throttle:stripe-abonnement');
+                Route::put('moyen-paiement', [MoyenPaiementController::class, 'enregistrer'])->middleware('throttle:stripe-abonnement');
+                Route::delete('moyen-paiement', [MoyenPaiementController::class, 'supprimer'])->middleware('throttle:stripe-abonnement');
                 Route::get('factures', [OrganisationFactureController::class, 'index']);
                 Route::get('factures/{facture}', [OrganisationFactureController::class, 'show'])->whereNumber('facture');
-                Route::post('factures/{facture}/regler', [OrganisationFactureController::class, 'regler'])->whereNumber('facture')->middleware('throttle:stripe');
-                Route::post('factures/{facture}/confirmer', [OrganisationFactureController::class, 'confirmer'])->whereNumber('facture')->middleware('throttle:stripe');
+                Route::post('factures/{facture}/regler', [OrganisationFactureController::class, 'regler'])->whereNumber('facture')->middleware('throttle:stripe-abonnement');
+                Route::post('factures/{facture}/confirmer', [OrganisationFactureController::class, 'confirmer'])->whereNumber('facture')->middleware('throttle:stripe-abonnement');
             });
 
             Route::get('societes', [SocieteController::class, 'index']);
@@ -604,9 +604,9 @@ Route::prefix('v1')->group(function (): void {
             // les modules de l'espace vétérinaire et paraissent dans l'annuaire
             Route::put('cliniques/{clinique}/services', OrganisationServicesCliniqueController::class)->whereNumber('clinique');
 
-            Route::post('abonnement/resilier', [AbonnementController::class, 'resilier'])->middleware('throttle:stripe');
-            Route::post('abonnement/reactiver', [AbonnementController::class, 'reactiver'])->middleware('throttle:stripe');
-            Route::post('packs', [PackQuotaController::class, 'acheter'])->middleware('throttle:stripe');
+            Route::post('abonnement/resilier', [AbonnementController::class, 'resilier'])->middleware('throttle:stripe-abonnement');
+            Route::post('abonnement/reactiver', [AbonnementController::class, 'reactiver'])->middleware('throttle:stripe-abonnement');
+            Route::post('packs', [PackQuotaController::class, 'acheter'])->middleware('throttle:stripe-abonnement');
             Route::get('transcription', [OrganisationTranscriptionController::class, 'afficher']);
             Route::put('transcription', [OrganisationTranscriptionController::class, 'modifier']);
             Route::get('diagnostic', [OrganisationDiagnosticController::class, 'afficher']);

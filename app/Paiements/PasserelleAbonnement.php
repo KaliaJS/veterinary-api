@@ -55,4 +55,13 @@ interface PasserelleAbonnement
      * @return array{id: ?string, statut: 'reussi'|'action_requise'|'refuse'|'en_cours', client_secret: ?string, message: ?string}
      */
     public function annulerPrelevement(string $id): array;
+
+    /**
+     * Les prélèvements d'une facture (métadonnée `facture`), les plus récents
+     * d'abord (26.10.2026) : après une erreur de Stripe au résultat incertain,
+     * on cherche s'il est passé avant d'en lancer un autre.
+     *
+     * @return list<array{id: ?string, statut: 'reussi'|'action_requise'|'refuse'|'en_cours', client_secret: ?string, message: ?string}>
+     */
+    public function chercherPrelevements(string $facture): array;
 }

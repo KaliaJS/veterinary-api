@@ -209,6 +209,11 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(180)->by('stripe:'.($jeton instanceof JetonApi ? $jeton->clinique_id : $request->ip()));
         });
 
+        // Abonnement de l'organisation (souscrire, carte, factures, packs) : son
+        // propre compteur, par compte (26.10.2026). Une caisse chargée ne bloque
+        // pas l'administrateur qui règle une facture, et inversement
+        RateLimiter::for('stripe-abonnement', fn (Request $request): Limit => Limit::perMinute(30)->by('stripe-abonnement:'.$parCompte($request)));
+
         // Fichiers publics (photos, logos) et autorisation de certificat, par IP
         RateLimiter::for('fichiers', fn (Request $request): Limit => Limit::perMinute(300)->by('fichiers:'.$request->ip()));
 

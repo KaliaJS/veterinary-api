@@ -110,6 +110,20 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
         return $this->etat($intention);
     }
 
+    public function chercherPrelevements(string $facture): array
+    {
+        $resultats = $this->appel(fn () => $this->client->paymentIntents->search([
+            'query' => "metadata['facture']:'".str_replace("'", "\\'", $facture)."'",
+            'limit' => 10,
+        ]));
+
+        return collect($resultats->data)
+            ->sortByDesc(fn (PaymentIntent $intention) => $intention->created)
+            ->map(fn (PaymentIntent $intention) => $this->etat($intention))
+            ->values()
+            ->all();
+    }
+
     public function lirePrelevement(string $id): array
     {
         return $this->etat($this->appel(fn () => $this->client->paymentIntents->retrieve($id)));

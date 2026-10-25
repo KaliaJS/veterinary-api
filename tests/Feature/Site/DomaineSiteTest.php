@@ -4,6 +4,7 @@ namespace Tests\Feature\Site;
 
 use App\Auth\ContexteClinique;
 use App\Auth\RolesParDefaut;
+use App\Mail\JetonCloudflareRefuse;
 use App\Models\Clinique;
 use App\Models\Role;
 use App\Models\SiteWeb;
@@ -14,6 +15,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -390,6 +392,64 @@ class DomaineSiteTest extends TestCase
             $this->artisan('sites:verifier-domaines')->assertSuccessful();
             $this->assertSame(DomaineSite::ACTIF, SiteWeb::withoutGlobalScopes()->value('domaine_statut'), (string) $statut);
         }
+    }
+
+    /** Un domaine actif vérifié chaque heure, Cloudflare répondant le statut voulu ; rend une fonction qui lance la vérification. */
+    private function domaineActifChezCloudflare(int &$statut): callable
+    {
+        config(['sites.domaines.fournisseur' => 'cloudflare', 'plateforme.alerte_email' => 'alertes@plateforme.test']);
+        Http::fake([
+            'api.cloudflare.com/client/v4/zones/zone123/custom_hostnames' => Http::response(['success' => true, 'result' => ['id' => 'ch-1']]),
+            'api.cloudflare.com/client/v4/zones/zone123/custom_hostnames/ch-1' => function () use (&$statut) {
+                if ($statut === 0) {
+                    throw new ConnectionException('cURL error 28: timeout');
+                }
+
+                return $statut === 200 ? Http::response(['result' => ['status' => 'active', 'ssl' => ['status' => 'active']]]) : Http::response(['success' => false], $statut);
+            },
+        ]);
+        $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertJsonPath('data.domaine.statut', 'actif');
+        app(ContexteClinique::class)->oublier();
+
+        return function (): void {
+            SiteWeb::withoutGlobalScopes()->update(['domaine_verifie_le' => now()->subHours(3)]);
+            $this->artisan('sites:verifier-domaines')->assertSuccessful();
+        };
+    }
+
+    /** D26.3a et D26.3b : un jeton Cloudflare refusé (401, 403) prévient la plateforme, une fois par jour tant que le refus dure (26.10.2026). */
+    public function test_un_jeton_cloudflare_refuse_previent_la_plateforme_une_fois_par_jour(): void
+    {
+        Mail::fake();
+        $statut = 200;
+        $verifier = $this->domaineActifChezCloudflare($statut);
+
+        $statut = 401;
+        $verifier();
+        $verifier();
+        Mail::assertSent(JetonCloudflareRefuse::class, 1);
+        Mail::assertSent(JetonCloudflareRefuse::class, fn (JetonCloudflareRefuse $mail) => $mail->hasTo('alertes@plateforme.test') && $mail->statut === 401);
+        $this->assertSame(DomaineSite::ACTIF, SiteWeb::withoutGlobalScopes()->value('domaine_statut'));
+
+        $this->travel(1)->days();
+        $statut = 403;
+        $verifier();
+        Mail::assertSent(JetonCloudflareRefuse::class, 2);
+    }
+
+    /** D26.3c : une panne passagère de Cloudflare (429, 5xx, réseau) n'alerte pas (26.10.2026). */
+    public function test_une_panne_passagere_de_cloudflare_n_alerte_pas(): void
+    {
+        Mail::fake();
+        $statut = 200;
+        $verifier = $this->domaineActifChezCloudflare($statut);
+
+        foreach ([429, 500, 503, 0] as $panne) {
+            $statut = $panne;
+            $verifier();
+        }
+
+        Mail::assertNotSent(JetonCloudflareRefuse::class);
     }
 
     public function test_un_domaine_en_attente_plus_de_quatorze_jours_est_retire(): void
