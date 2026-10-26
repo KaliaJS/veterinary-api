@@ -2397,6 +2397,108 @@ class OrganisationTest extends TestCase
         $this->assertSame(50, $evenement->expiresAt);
     }
 
+    /** Deux passages des renouvellements qui se chevauchent : le second, qui a lu l'organisation avant que le premier la renouvelle, la relit sous son verrou et ne prélève jamais la même période deux fois (26.10.2026). */
+    public function test_deux_passages_des_renouvellements_ne_prelevent_pas_deux_fois(): void
+    {
+        $this->abonneeACabinet();
+        $this->voyager('2026-11-20 06:00');
+        $enRetard = Organisation::query()->findOrFail($this->organisationId());
+        $avant = count($this->stripe->prelevements);
+
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        app(AbonnementSaas::class)->renouveler($enRetard);
+
+        $this->assertCount(1, $this->prelevementsDepuis($avant));
+        $this->assertSame(1, OrganisationFacture::query()->get()->filter(fn (OrganisationFacture $f) => ($f->metadonnees['action'] ?? null) === 'renouvellement')->count());
+    }
+
+    /** Un abonné déjà pris par un autre passage (ou par un achat en cours) est laissé à ce passage : rien n'est prélevé ni journalisé en erreur, le passage suivant le reprend. */
+    public function test_un_abonne_deja_pris_est_laisse_au_passage_en_cours(): void
+    {
+        $this->abonneeACabinet();
+        $this->voyager('2026-11-20 06:00');
+        $avant = count($this->stripe->prelevements);
+        $verrou = Cache::lock('abonnement:organisation:'.$this->organisationId(), 600);
+        $this->assertTrue($verrou->get());
+        Log::spy();
+
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $this->assertSame([], $this->prelevementsDepuis($avant));
+        Log::shouldNotHaveReceived('error');
+        $verrou->release();
+        $this->voyager('2026-11-20 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertCount(1, $this->prelevementsDepuis($avant));
+    }
+
+    /** Une relance déjà prise par un autre passage : laissée à ce passage, rien n'est prélevé ; le passage suivant la reprend une fois. */
+    public function test_une_relance_deja_prise_est_laissee_au_passage_en_cours(): void
+    {
+        $this->abonneeAvecRenouvellementRefuse();
+        $this->stripe->refus = null;
+        $this->voyager('2026-11-21 07:00');
+        $avant = count($this->stripe->prelevements);
+        $verrou = Cache::lock('abonnement:organisation:'.$this->organisationId(), 600);
+        $this->assertTrue($verrou->get());
+
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $this->assertSame([], $this->prelevementsDepuis($avant));
+        $verrou->release();
+        $this->voyager('2026-11-21 08:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertCount(1, $this->prelevementsDepuis($avant));
+        $this->assertSame('actif', Organisation::query()->findOrFail($this->organisationId())->statut_abonnement);
+    }
+
+    /** Une ancienne abonnée résiliée (date de résiliation gardée) qui se réabonne pendant une panne : sa souscription est bien renvoyée chaque minute. */
+    public function test_une_resouscription_apres_resiliation_est_renvoyee(): void
+    {
+        $this->abonneeACabinet();
+        $this->postJson('/api/v1/organisation/abonnement/resilier', [], $this->enTetes($this->jeton))->assertOk();
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertSame('resilie', Organisation::query()->findOrFail($this->organisationId())->statut_abonnement);
+        Organisation::query()->whereKey($this->organisationId())->update(['resilie_le' => '2026-11-20']);
+        $avant = count($this->stripe->prelevements);
+        $this->voyager('2026-11-25 10:00');
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->stripe->panne = null;
+
+        $this->verifierLesPaiements();
+
+        $this->assertCount(1, $this->prelevementsDepuis($avant));
+    }
+
+    /** Renouvellement passé chez Stripe malgré la réponse perdue, puis résiliation : le passage de chaque heure le retrouve, la période est payée une fois et se termine à son échéance sans autre prélèvement. */
+    public function test_un_renouvellement_passe_puis_une_resiliation_est_paye_une_fois(): void
+    {
+        $this->abonneeACabinet();
+        $avant = count($this->stripe->prelevements);
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->stripe->passeMalgreErreur = true;
+        $this->stripe->listeEnPanne = true;
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->stripe->panne = null;
+        $this->stripe->passeMalgreErreur = false;
+        $this->voyager('2026-11-20 06:30');
+        $this->postJson('/api/v1/organisation/abonnement/resilier', [], $this->enTetes($this->jeton))->assertOk();
+        $this->stripe->listeEnPanne = false;
+
+        $this->voyager('2026-11-20 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame(['actif', '2026-12-20'], [$organisation->statut_abonnement, $organisation->periode_fin->toDateString()]);
+
+        $this->voyager('2026-12-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertCount(1, $this->prelevementsDepuis($avant));
+        $this->assertSame('resilie', $organisation->refresh()->statut_abonnement);
+    }
+
     /** La vérification des paiements passe chaque minute. */
     public function test_la_verification_des_paiements_passe_chaque_minute(): void
     {

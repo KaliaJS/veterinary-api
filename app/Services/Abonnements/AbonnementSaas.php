@@ -571,6 +571,19 @@ final class AbonnementSaas
     /** Échéance atteinte : fin d'un abonnement résilié, ou nouvelle période. */
     public function renouveler(Organisation|User $abonne): void
     {
+        // Un seul passage à la fois par abonné, relu sous son verrou : deux
+        // passages qui se chevauchent ne prélèvent jamais la même période
+        // deux fois (26.10.2026)
+        $this->siLibre($abonne, function () use ($abonne): void {
+            if ($abonne->statut_abonnement === 'actif' && $abonne->periode_fin
+                && $abonne->periode_fin->toDateString() <= CarbonImmutable::today('Europe/Zurich')->toDateString()) {
+                $this->renouvelerSousVerrou($abonne);
+            }
+        });
+    }
+
+    private function renouvelerSousVerrou(Organisation|User $abonne): void
+    {
         // Un changement de formule jamais confirmé auprès de la banque est
         // abandonné, sans jamais être prélevé. Passé entre-temps, il a ouvert
         // une nouvelle période ; encore à vérifier chez Stripe, rien n'est
@@ -649,6 +662,16 @@ final class AbonnementSaas
 
     /** Nouvelle tentative sur la facture de renouvellement en attente. */
     public function retenter(Organisation|User $abonne): void
+    {
+        // Comme le renouvellement : relu sous le verrou de l'abonné (26.10.2026)
+        $this->siLibre($abonne, function () use ($abonne): void {
+            if ($abonne->statut_abonnement === 'impaye' && $abonne->prochaine_tentative_le && ! $abonne->prochaine_tentative_le->isFuture()) {
+                $this->retenterSousVerrou($abonne);
+            }
+        });
+    }
+
+    private function retenterSousVerrou(Organisation|User $abonne): void
     {
         $facture = $this->factures($abonne)
             ->where('statut', 'a_payer')
@@ -1564,6 +1587,25 @@ final class AbonnementSaas
      * @param  callable(): ?Reglement  $action
      * @param  array{0: string, 1: string}  $occupe  champ et message quand le verrou est pris
      */
+    /**
+     * Le verrou de l'abonné, pris sans attendre : déjà pris (autre passage,
+     * achat en cours), l'abonné est laissé, le passage suivant le reprend.
+     */
+    private function siLibre(Organisation|User $abonne, callable $action): void
+    {
+        $verrou = Cache::lock('abonnement:'.($abonne instanceof Organisation ? 'organisation' : 'proprietaire').':'.$abonne->id, 600);
+        if (! $verrou->get()) {
+            return;
+        }
+
+        try {
+            $abonne->refresh();
+            $action();
+        } finally {
+            $verrou->release();
+        }
+    }
+
     private function sousVerrouAbonne(Organisation|User $abonne, callable $action, array $occupe = ['plan', 'Un paiement est déjà en cours. Patientez un instant.']): ?Reglement
     {
         // Englobe le verrou de la facture (300 s) : toujours plus long
