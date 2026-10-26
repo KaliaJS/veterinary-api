@@ -112,20 +112,25 @@ class ClotureCaisseController extends Controller
                 ]);
             }
 
-            // La même règle que l'aperçu : un écart, ou (paiements intégrés) une
-            // carte ou un TWINT saisi à la main, qui pourrait cacher des espèces gardées
+            // Un dépôt plus grand que compté : aucune note ne le rattrape
+            if ($arrete['alerte_depot'] !== null) {
+                throw ValidationException::withMessages(['depot' => $arrete['alerte_depot']]);
+            }
+
+            // La même règle que l'aperçu : un écart, une carte ou un TWINT saisi
+            // à la main (paiements intégrés), des espèces ni déposées ni en
+            // fond, un fond refait depuis le coffre après un dépôt
             $note = trim((string) ($donnees['note'] ?? ''));
             if ($arrete['justification_requise'] && $note === '') {
                 $saisiesALaMain = $arrete['sans_terminal'];
                 throw ValidationException::withMessages(['note' => implode(' ', array_map(fn (string $motif): string => match ($motif) {
                     'ecart' => 'Écart de caisse : une justification est obligatoire dans la note.',
                     'non_ventile' => 'CHF '.number_format($arrete['non_ventile'], 2, '.', '’').' comptés ne sont ni déposés ni dans le nouveau fond : expliquez-le dans la note.',
-                    default => $saisiesALaMain.($saisiesALaMain > 1 ? ' paiements par carte ou TWINT ont été saisis' : ' paiement par carte ou TWINT a été saisi').' sans terminal : justifiez-les dans la note.',
+                    'apport_coffre' => 'CHF '.number_format($arrete['apport_coffre'], 2, '.', '’').' ajoutés au nouveau fond depuis le coffre : indiquez-le dans la note.',
+                    default => $saisiesALaMain > 1
+                        ? $saisiesALaMain.' paiements par carte ou TWINT ont été saisis sans terminal : justifiez-les dans la note.'
+                        : '1 paiement par carte ou TWINT a été saisi sans terminal : justifiez-le dans la note.',
                 }, $arrete['motifs_justification']))]);
-            }
-
-            if ($arrete['alerte_depot'] !== null) {
-                throw ValidationException::withMessages(['depot' => $arrete['alerte_depot']]);
             }
 
             $cloture = ClotureCaisse::create([
