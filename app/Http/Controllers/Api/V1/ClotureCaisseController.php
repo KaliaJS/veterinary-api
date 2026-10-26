@@ -97,23 +97,31 @@ class ClotureCaisseController extends Controller
                 $clinique,
                 $aClorer,
                 (float) $donnees['fond'],
-                $donnees['comptage'] ?? null,
+                array_key_exists('comptage', $donnees) && $donnees['comptage'] !== null ? $donnees['comptage'] : null,
                 isset($donnees['especes_comptees']) ? (float) $donnees['especes_comptees'] : null,
                 (float) $donnees['nouveau_fond'],
                 isset($donnees['depot']) ? (float) $donnees['depot'] : null,
             );
 
+            // Ce que l'écran montrait : un encaissement arrivé à un autre poste
+            // pendant le comptage n'entre pas dans un Z qu'on n'a pas vu
+            if (isset($donnees['encaissements_vus'])
+                && ((int) $donnees['encaissements_vus'] !== $arrete['encaissements'] || abs((float) ($donnees['total_vu'] ?? 0) - $arrete['total']) >= 0.005)) {
+                throw ValidationException::withMessages([
+                    'encaissements' => 'Un encaissement est arrivé pendant la clôture : les totaux ont été mis à jour, vérifiez-les avant de valider.',
+                ]);
+            }
+
+            // La même règle que l'aperçu : un écart, ou (paiements intégrés) une
+            // carte ou un TWINT saisi à la main, qui pourrait cacher des espèces gardées
             $note = trim((string) ($donnees['note'] ?? ''));
-            if (abs($arrete['ecart']) >= 0.005 && $note === '') {
+            if ($arrete['motif_justification'] === 'ecart' && $note === '') {
                 throw ValidationException::withMessages([
                     'note' => 'Écart de caisse : une justification est obligatoire dans la note.',
                 ]);
             }
-
-            // Paiements intégrés : une carte ou un TWINT saisi à la main (sans
-            // terminal) se justifie, il pourrait cacher des espèces gardées
-            $saisiesALaMain = $arrete['mode_integre'] ? $arrete['sans_terminal'] : 0;
-            if ($saisiesALaMain > 0 && $note === '') {
+            $saisiesALaMain = $arrete['sans_terminal'];
+            if ($arrete['justification_requise'] && $note === '') {
                 throw ValidationException::withMessages([
                     'note' => $saisiesALaMain.($saisiesALaMain > 1 ? ' paiements par carte ou TWINT ont été saisis' : ' paiement par carte ou TWINT a été saisi').' sans terminal : justifiez-les dans la note.',
                 ]);

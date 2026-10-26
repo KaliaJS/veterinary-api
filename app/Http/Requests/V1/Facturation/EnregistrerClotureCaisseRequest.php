@@ -20,10 +20,14 @@ class EnregistrerClotureCaisseRequest extends FormRequest
         return [
             'fond' => ['required', 'numeric', 'min:0', 'max:99999'],
             // Les billets et pièces comptés (centimes : nombre), additionnés
-            // par le serveur (26.10.2026) ; ou le montant compté
+            // par le serveur (26.10.2026) ; vide, rien n'a été compté. Le
+            // montant compté reste accepté (anciennes versions de l'app)
             'comptage' => ['nullable', 'array:'.implode(',', ArreteDeCaisse::COUPURES)],
-            'comptage.*' => ['integer', 'min:0', 'max:9999'],
-            'especes_comptees' => ['required_without:comptage', 'numeric', 'min:0', 'max:999999'],
+            'comptage.*' => ['integer', 'min:0', 'max:999'],
+            'especes_comptees' => ['nullable', 'numeric', 'min:0', 'max:999999'],
+            // Ce que l'écran montrait : un encaissement arrivé entre-temps est signalé
+            'encaissements_vus' => ['nullable', 'integer', 'min:0'],
+            'total_vu' => ['nullable', 'numeric'],
             'depot' => ['nullable', 'numeric', 'min:0', 'max:999999'],
             'nouveau_fond' => ['required', 'numeric', 'min:0', 'max:99999'],
             'note' => ['nullable', 'string', 'max:2000'],

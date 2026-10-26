@@ -18,7 +18,7 @@ class ApercuClotureCaisseRequest extends FormRequest
         return [
             'fond' => ['nullable', 'numeric', 'min:0', 'max:99999'],
             'comptage' => ['nullable', 'array:'.implode(',', ArreteDeCaisse::COUPURES)],
-            'comptage.*' => ['integer', 'min:0', 'max:9999'],
+            'comptage.*' => ['integer', 'min:0', 'max:999'],
             'nouveau_fond' => ['nullable', 'numeric', 'min:0', 'max:99999'],
             'depot' => ['nullable', 'numeric', 'min:0', 'max:999999'],
         ];

@@ -11,6 +11,7 @@ use App\Models\FactureLigne;
 use App\Models\Paiement;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -179,5 +180,103 @@ class ClotureCaisseApercuTest extends TestCase
         ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
 
         $this->getJson('/api/v1/facturation/clotures-caisse/apercu', $this->enTetes($jeton))->assertForbidden();
+    }
+
+    /** Une clinique sans espèces, tiroir vide, aucun billet saisi : la clôture s'enregistre (26.10.2026). */
+    public function test_une_cloture_sans_billet_saisi_s_enregistre(): void
+    {
+        $this->facturePayee(MoyenPaiement::Tpe, 85);
+        $this->facturePayee(MoyenPaiement::Tpe, 120);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [], 'nouveau_fond' => 0], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.especes_comptees', 0)
+            ->assertJsonPath('data.ecart', 0)
+            ->assertJsonPath('data.total_tpe', 205);
+    }
+
+    /** Le premier jour, sans fond saisi, l'aperçu propose 200 CHF, comme avant ; ensuite, celui de la veille. */
+    public function test_le_premier_jour_le_fond_propose_est_de_200(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 50);
+
+        $this->apercu()->assertJsonPath('data.fond', 200)->assertJsonPath('data.fond_impose', false);
+    }
+
+    /** Plus de 999 billets ou pièces d'une sorte : refusé (le tiroir n'en contient jamais autant, l'écart ne déborde pas). */
+    public function test_un_comptage_demesure_est_refuse(): void
+    {
+        $this->apercu(['comptage' => [10000 => 1000]])->assertUnprocessable()->assertJsonValidationErrors('comptage.10000');
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [5 => 1], 'nouveau_fond' => 0], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('comptage');
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [10000 => 1000], 'nouveau_fond' => 0], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('comptage.10000');
+    }
+
+    /** Hors paiements intégrés (terminal propre de la clinique), une carte saisie à la main est normale : rien à justifier. */
+    public function test_hors_paiements_integres_une_carte_a_la_main_ne_demande_rien(): void
+    {
+        $this->clinique->update(['paiements_integres' => false]);
+        $this->facturePayee(MoyenPaiement::Tpe, 85, aLaMain: true);
+
+        $this->apercu(['fond' => 0])->assertJsonPath('data.mode_integre', false)->assertJsonPath('data.justification_requise', false);
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [], 'nouveau_fond' => 0], $this->enTetes($this->jeton))->assertCreated();
+    }
+
+    /** Moins d'espèces que le nouveau fond : rien à déposer, jamais un dépôt négatif. */
+    public function test_le_depot_suggere_n_est_jamais_negatif(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 50);
+
+        $this->apercu(['fond' => 0, 'comptage' => [10000 => 1], 'nouveau_fond' => 190])->assertJsonPath('data.depot_suggere', 0);
+    }
+
+    /** Seules les cartes saisies à la main donnent le nom de qui les a encaissées. */
+    public function test_seules_les_saisies_sans_terminal_donnent_leur_auteur(): void
+    {
+        $terminal = $this->facturePayee(MoyenPaiement::Tpe, 85);
+        $main = $this->facturePayee(MoyenPaiement::Tpe, 40, aLaMain: true);
+        $terminal->update(['encaissee_par_id' => User::factory()->create(['name' => 'Au Terminal'])->id]);
+        $main->update(['encaissee_par_id' => User::factory()->create(['name' => 'À La Main'])->id]);
+
+        $this->apercu()->assertJsonPath('data.moyens.tpe.saisies_par', ['À La Main']);
+    }
+
+    /** Une clôture d'une clinique sœur n'impose jamais son fond : chaque clinique a son tiroir. */
+    public function test_le_fond_d_une_autre_clinique_ne_s_impose_pas(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        ClotureCaisse::factory()->create(['clinique_id' => $soeur->id, 'nouveau_fond' => 777, 'arretee_le' => now()->subDay()]);
+        $this->facturePayee(MoyenPaiement::Especes, 50);
+
+        $this->apercu(['fond' => 150])->assertJsonPath('data.fond', 150)->assertJsonPath('data.fond_impose', false);
+    }
+
+    /** Un encaissement arrivé à un autre poste pendant le comptage : le Z n'est pas enregistré sur des chiffres que l'écran ne montrait pas. */
+    public function test_un_encaissement_arrive_pendant_la_cloture_est_signale(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 50);
+        $vu = $this->apercu(['fond' => 0])->json('data');
+        $this->facturePayee(MoyenPaiement::Tpe, 85);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [5000 => 1], 'nouveau_fond' => 0, 'encaissements_vus' => $vu['encaissements'], 'total_vu' => $vu['total']], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['encaissements' => 'Un encaissement est arrivé pendant la clôture : les totaux ont été mis à jour, vérifiez-les avant de valider.']);
+        $this->assertSame(0, ClotureCaisse::query()->count());
+    }
+
+    /** L'aperçu se redemande à chaque série de billets saisis : quelques requêtes, jamais une par carte. */
+    public function test_l_apercu_ne_coute_pas_une_requete_par_carte(): void
+    {
+        foreach (range(1, 20) as $i) {
+            $this->facturePayee(MoyenPaiement::Tpe, 10, aLaMain: $i % 2 === 0);
+        }
+        $requetes = 0;
+        DB::listen(function () use (&$requetes): void {
+            $requetes++;
+        });
+
+        $this->apercu()->assertOk()->assertJsonPath('data.moyens.tpe.sans_terminal', 10);
+
+        $this->assertLessThan(20, $requetes);
     }
 }
