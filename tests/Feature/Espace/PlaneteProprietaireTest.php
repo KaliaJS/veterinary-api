@@ -2,12 +2,15 @@
 
 namespace Tests\Feature\Espace;
 
+use App\Models\AchatPlanete;
 use App\Models\Client;
 use App\Models\Patient;
 use App\Paiements\PasserelleAbonnement;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserelleAbonnementFactice;
 use Tests\TestCase;
@@ -88,9 +91,32 @@ class PlaneteProprietaireTest extends TestCase
         $verrou = Cache::lock('abonnement:proprietaire:'.$user->id, 120);
         $this->assertTrue($verrou->get());
         $this->postJson('/api/v1/espace/planete/achats', ['article' => 'niche'], $entetes)
-            ->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Un achat est déjà en cours. Patientez un instant.']);
+            ->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Un paiement est déjà en cours. Patientez un instant.']);
         $this->assertSame([], $stripe->prelevements);
         $verrou->release();
+    }
+
+    /** Un même objet acheté par un autre clic pendant que celui-ci attendait le verrou : relu sous le verrou, refusé, rien de prélevé (26.10.2026). */
+    public function test_l_objet_est_relu_sous_le_verrou(): void
+    {
+        $stripe = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $stripe);
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $entetes = $this->enTetes($jeton);
+        $this->postJson('/api/v1/espace/abonnement/carte/intention', [], $entetes)->assertOk();
+        $this->putJson('/api/v1/espace/abonnement/carte', ['payment_method' => $stripe->carteConfirmee($user->refresh()->stripe_client_id)], $entetes)->assertOk();
+        $fait = false;
+        // Juste après le premier contrôle, l'autre clic achève son achat
+        DB::listen(function (QueryExecuted $requete) use (&$fait, $user): void {
+            if (! $fait && str_contains($requete->sql, 'from "achats_planete"')) {
+                $fait = true;
+                AchatPlanete::query()->create(['user_id' => $user->id, 'article' => 'niche']);
+            }
+        });
+
+        $this->postJson('/api/v1/espace/planete/achats', ['article' => 'niche'], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['article' => 'Cet objet est déjà sur votre planète.']);
+        $this->assertTrue($fait);
+        $this->assertSame([], $stripe->prelevements);
     }
 
     public function test_le_deces_d_un_animal_se_declare_et_s_annule(): void

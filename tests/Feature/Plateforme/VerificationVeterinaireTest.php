@@ -10,8 +10,11 @@ use App\Models\User;
 use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserelleIdentite;
 use App\Paiements\PasserellePaiement;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -150,6 +153,66 @@ class VerificationVeterinaireTest extends TestCase
         $payer()->assertUnprocessable();
         $this->assertCount(1, $stripe->prelevements);
         $this->assertNotNull(User::query()->where('stripe_client_id', $client)->value('identite_payee_le'));
+    }
+
+    /** Le badge : réponse perdue (prélèvement passé), puis deux clics au même instant, puis un badge réglé entre-temps relu sous le verrou : jamais deux paiements (26.10.2026). */
+    public function test_le_badge_n_est_jamais_paye_deux_fois(): void
+    {
+        $clinique = Clinique::factory()->create();
+        ['user' => $lea, 'jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        $entetes = $this->enTetes($jeton);
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $entetes)->assertOk();
+        $this->app->instance(PasserellePaiement::class, new PasserellePaiementFactice);
+        $stripe = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $stripe);
+        $this->postJson('/api/v1/espace/abonnement/carte/intention', [], $entetes)->assertOk();
+        $this->putJson('/api/v1/espace/abonnement/carte', ['payment_method' => $stripe->carteConfirmee($lea->refresh()->stripe_client_id)], $entetes)->assertOk();
+        $payer = fn () => $this->postJson('/api/v1/auth/identite/paiement', [], $entetes);
+
+        // Deux clics au même instant : le second attend
+        $verrou = Cache::lock('abonnement:proprietaire:'.$lea->id, 120);
+        $this->assertTrue($verrou->get());
+        $payer()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Un paiement est déjà en cours. Patientez un instant.']);
+        $verrou->release();
+        $this->assertSame([], $stripe->prelevements);
+
+        // Réponse perdue, prélèvement passé, Stripe injoignable pour vérifier
+        $stripe->panne = 'Délai dépassé.';
+        $stripe->passeMalgreErreur = true;
+        $stripe->listeEnPanne = true;
+        $payer()->assertUnprocessable();
+        $stripe->panne = null;
+        $stripe->passeMalgreErreur = false;
+        $stripe->listeEnPanne = false;
+        // Stripe répond : le premier est retrouvé, réglé, rien de plus
+        $payer()->assertUnprocessable();
+        $this->assertCount(1, $stripe->prelevements);
+        $this->assertNotNull($lea->refresh()->identite_payee_le);
+    }
+
+    /** Le badge réglé par un autre clic pendant que celui-ci attendait le verrou : relu sous le verrou, refusé (26.10.2026). */
+    public function test_le_badge_est_relu_sous_le_verrou(): void
+    {
+        $clinique = Clinique::factory()->create();
+        ['user' => $lea, 'jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        $entetes = $this->enTetes($jeton);
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $entetes)->assertOk();
+        $stripe = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $stripe);
+        $this->postJson('/api/v1/espace/abonnement/carte/intention', [], $entetes)->assertOk();
+        $this->putJson('/api/v1/espace/abonnement/carte', ['payment_method' => $stripe->carteConfirmee($lea->refresh()->stripe_client_id)], $entetes)->assertOk();
+        $fait = false;
+        // Le compte vient d'être lu pour la requête : l'autre clic règle le badge à ce moment
+        DB::listen(function (QueryExecuted $requete) use (&$fait, $lea): void {
+            if (! $fait && str_contains($requete->sql, 'from "users"') && str_contains($requete->sql, 'select')) {
+                $fait = true;
+                User::query()->whereKey($lea->id)->update(['identite_payee_le' => now()]);
+            }
+        });
+
+        $this->postJson('/api/v1/auth/identite/paiement', [], $entetes)->assertUnprocessable()->assertJsonValidationErrors('identite');
+        $this->assertTrue($fait);
+        $this->assertSame([], $stripe->prelevements);
     }
 
     public function test_un_badge_paye_au_meme_nom_que_medreg_se_donne_seul(): void

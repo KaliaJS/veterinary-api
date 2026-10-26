@@ -4,6 +4,7 @@ namespace App\Paiements;
 
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
+use Stripe\Exception\ApiConnectionException;
 use Stripe\Exception\ApiErrorException;
 
 /**
@@ -19,7 +20,8 @@ class ErreurPaiement extends RuntimeException
 
     /**
      * `statutHttp` : le code de la réponse de Stripe, null si aucune réponse
-     * n'est arrivée (délai, réseau) (26.10.2026).
+     * n'est arrivée (délai, réseau), 0 si rien n'est parti (clé absente)
+     * (26.10.2026).
      */
     public function __construct(string $message, public readonly ?string $codeStripe = null, public readonly ?int $statutHttp = null)
     {
@@ -37,6 +39,21 @@ class ErreurPaiement extends RuntimeException
         return $this->statutHttp !== null && $this->statutHttp >= 500;
     }
 
+    /**
+     * Le prélèvement a pu passer quand même : sans réponse, 409 (la même
+     * demande en cours) ou 5xx (26.10.2026). Un autre refus (400, 401…) est net.
+     */
+    public function resultatIncertain(): bool
+    {
+        return $this->statutHttp === null || $this->statutHttp === 409 || $this->statutHttp >= 500;
+    }
+
+    /** Une panne qui passera (incertaine, ou 429 trop d'appels) : pas un refus de la carte. */
+    public function estPassagere(): bool
+    {
+        return $this->resultatIncertain() || $this->statutHttp === 429;
+    }
+
     /** Un message traduit, ou le générique ; le détail de Stripe au journal. */
     public static function depuisStripe(ApiErrorException $e, ?string $traduction): self
     {
@@ -44,7 +61,8 @@ class ErreurPaiement extends RuntimeException
             Log::warning('Stripe a refusé un appel.', ['code' => $e->getStripeCode(), 'message' => $e->getMessage(), 'requete' => $e->getRequestId()]);
         }
 
-        return new self($traduction ?? self::GENERIQUE, $e->getStripeCode(), $e->getHttpStatus());
+        // Sans code : une coupure du réseau, ou une erreur levée avant tout envoi
+        return new self($traduction ?? self::GENERIQUE, $e->getStripeCode(), $e->getHttpStatus() ?? ($e instanceof ApiConnectionException ? null : 0));
     }
 
     public function estGenerique(): bool

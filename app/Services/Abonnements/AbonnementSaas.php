@@ -68,7 +68,7 @@ final class AbonnementSaas
      */
     private const RELANCES = [1, 1, 1];
 
-    private const ACHAT_EN_COURS = ['paiement', 'Un achat est déjà en cours. Patientez un instant.'];
+    private const ACHAT_EN_COURS = ['paiement', 'Un paiement est déjà en cours. Patientez un instant.'];
 
     /** Alertes quand la carte expire avant le prochain prélèvement : 14 jours avant, puis la veille. */
     private const ALERTE_CARTE_JOURS = [14, 1];
@@ -552,6 +552,19 @@ final class AbonnementSaas
             return;
         }
 
+        // Une facture de cette échéance restée sans prélèvement (Stripe en
+        // panne) : reprise, jamais une seconde (26.10.2026)
+        $enAttente = $this->factures($abonne)->where('statut', 'a_payer')->latest('id')->get()
+            ->first(fn ($f) => ($f->metadonnees['action'] ?? null) === 'renouvellement' && ($f->metadonnees['debut'] ?? null) === $echeance->toDateString());
+        if ($enAttente) {
+            $reglement = $this->encaisser($abonne, $enAttente, true);
+            if (! $reglement->estPaye() && $reglement->statut !== 'en_cours') {
+                $this->echecRenouvellement($abonne, $reglement);
+            }
+
+            return;
+        }
+
         if ($abonne->resilie_le && $abonne->resilie_le->toDateString() <= $echeance->toDateString()) {
             $this->terminer($abonne);
 
@@ -727,7 +740,8 @@ final class AbonnementSaas
     private function echecRenouvellement(Organisation|User $abonne, Reglement $reglement): void
     {
         // Stripe en panne ou injoignable : la carte n'a pas été refusée. Ni
-        // relance consommée, ni e-mail ; on réessaie dans une heure (26.10.2026)
+        // relance consommée, ni e-mail, ni impayé ; on réessaie à l'heure
+        // suivante (26.10.2026)
         if ($reglement->prestataireEnPanne) {
             // Passé malgré l'erreur et déjà visible chez Stripe : payé tout de suite
             $facture = $reglement->facture;
@@ -740,7 +754,12 @@ final class AbonnementSaas
 
                 return;
             }
-            $abonne->forceFill(['statut_abonnement' => 'impaye', 'prochaine_tentative_le' => now()->addHour()])->save();
+            // Encore actif : il le reste (rien n'a été refusé), l'échéance passée
+            // le ramène à la commande de l'heure suivante. Déjà en relance : la
+            // prochaine tentative à l'heure pleine suivante
+            if ($abonne->statut_abonnement === 'impaye') {
+                $abonne->forceFill(['prochaine_tentative_le' => now()->addHour()->startOfHour()])->save();
+            }
 
             return;
         }
@@ -757,7 +776,7 @@ final class AbonnementSaas
                 // e-mail « accès fermé » ne part ; on regarde de nouveau dans
                 // six heures (26.10.2026)
                 if ($reglement->facture->refresh()->statut !== 'payee') {
-                    $abonne->forceFill(['statut_abonnement' => 'impaye', 'prochaine_tentative_le' => now()->addHours(6)])->save();
+                    $abonne->forceFill(['statut_abonnement' => 'impaye', 'prochaine_tentative_le' => now()->addHours(6)->startOfHour()])->save();
                 }
 
                 return;
@@ -1023,19 +1042,22 @@ final class AbonnementSaas
         } catch (ErreurPaiement $e) {
             // Erreur du prestataire : traitée comme un refus (la facture ne reste pas orpheline)
             Log::warning('Prélèvement impossible.', ['facture' => $facture->numero, 'erreur' => $e->getMessage()]);
-            // Avec ou sans réponse, le prélèvement a pu passer : la facture est
-            // à vérifier avant d'être annulée ou refaite (26.10.2026). Erreur de
-            // Stripe lui-même (5xx) : il la garde sous cette clé 24 h, la
+            // Sans réponse, 409 ou 5xx, le prélèvement a pu passer : la facture
+            // est à vérifier avant d'être annulée ou refaite (26.10.2026). Erreur
+            // de Stripe lui-même (5xx) : il la garde sous cette clé 24 h, la
             // tentative suivante en prend une autre
-            $facture->forceFill([
-                'metadonnees' => [...$facture->metadonnees ?? [], 'prelevement_incertain' => true],
-                ...$e->erreurGardeeParStripe() ? ['tentatives_prelevement' => $facture->tentatives_prelevement + 1] : [],
-            ])->save();
-            $panne = true;
+            if ($e->resultatIncertain()) {
+                $facture->forceFill([
+                    'metadonnees' => [...$facture->metadonnees ?? [], 'prelevement_incertain' => true],
+                    ...$e->erreurGardeeParStripe() ? ['tentatives_prelevement' => $facture->tentatives_prelevement + 1] : [],
+                ])->save();
+            }
+            // Une erreur nette (client inconnu, clé refusée…) reste un refus
+            $panne = $e->estPassagere();
             $resultat = ['id' => null, 'statut' => 'refuse', 'client_secret' => null, 'message' => $e->getMessage()];
         }
-        // Une réponse nette de Stripe : plus rien d'incertain
-        if (! ($panne ?? false) && ($facture->metadonnees['prelevement_incertain'] ?? false)) {
+        // Une réponse de Stripe pour cette tentative : plus rien d'incertain
+        if (! isset($e) && ($facture->metadonnees['prelevement_incertain'] ?? false)) {
             $meta = $facture->metadonnees;
             unset($meta['prelevement_incertain']);
             $facture->forceFill(['metadonnees' => $meta])->save();
@@ -1161,6 +1183,16 @@ final class AbonnementSaas
             }
             if ($trouve) {
                 $facture->forceFill(['stripe_paiement_id' => $trouve['id']])->save();
+            } elseif ($facture->tentatives_prelevement === 0) {
+                // Restée sans réponse et pas encore visible : la même demande,
+                // avec la même clé, rend le résultat de la première sans
+                // prélever deux fois ; tant qu'elle ne répond pas, rien ne
+                // s'annule (26.10.2026)
+                $reglement = $this->encaisser($this->abonneDe($facture), $facture, true);
+                if ($reglement->estPaye() || $reglement->prestataireEnPanne || in_array($reglement->statut, ['en_cours', 'action_requise'], true)) {
+                    return false;
+                }
+                $facture->refresh();
             }
         }
         if ($facture->stripe_paiement_id) {
@@ -1302,7 +1334,7 @@ final class AbonnementSaas
      * @param  callable(): ?Reglement  $action
      * @param  array{0: string, 1: string}  $occupe  champ et message quand le verrou est pris
      */
-    private function sousVerrouAbonne(Organisation|User $abonne, callable $action, array $occupe = ['plan', 'Une souscription est déjà en cours. Patientez un instant.']): ?Reglement
+    private function sousVerrouAbonne(Organisation|User $abonne, callable $action, array $occupe = ['plan', 'Un paiement est déjà en cours. Patientez un instant.']): ?Reglement
     {
         $verrou = Cache::lock('abonnement:'.($abonne instanceof Organisation ? 'organisation' : 'proprietaire').':'.$abonne->id, 120);
         if (! $verrou->get()) {

@@ -617,7 +617,7 @@ class OrganisationTest extends TestCase
         $this->assertTrue($verrou->get());
         $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['plan' => 'Une souscription est déjà en cours. Patientez un instant.']);
+            ->assertJsonValidationErrors(['plan' => 'Un paiement est déjà en cours. Patientez un instant.']);
         $this->assertSame([], $this->stripe->prelevements);
         $this->assertSame(0, Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->count());
 
@@ -679,7 +679,7 @@ class OrganisationTest extends TestCase
         $verrou = Cache::lock('abonnement:organisation:'.$this->organisationId(), 120);
         $this->assertTrue($verrou->get());
         $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
-            ->assertUnprocessable()->assertJsonValidationErrors(['plan' => 'Une souscription est déjà en cours. Patientez un instant.']);
+            ->assertUnprocessable()->assertJsonValidationErrors(['plan' => 'Un paiement est déjà en cours. Patientez un instant.']);
         $this->assertCount($avant, $this->stripe->prelevements);
         $verrou->release();
     }
@@ -719,7 +719,7 @@ class OrganisationTest extends TestCase
             $saas->souscrirePlus($luPlusTot);
             $this->fail('Une souscription est déjà en cours.');
         } catch (ValidationException $e) {
-            $this->assertSame(['Une souscription est déjà en cours. Patientez un instant.'], $e->errors()['plan']);
+            $this->assertSame(['Un paiement est déjà en cours. Patientez un instant.'], $e->errors()['plan']);
         }
         $verrou->release();
 
@@ -1131,12 +1131,30 @@ class OrganisationTest extends TestCase
         $this->assertDatabaseHas('organisations', ['id' => $this->organisationId(), 'plan' => 'cabinet', 'statut_abonnement' => null]);
         $this->getJson('/api/v1/organisation/factures', $this->enTetes($this->jeton))->assertJsonCount(0, 'data');
 
-        // Une erreur du prestataire ne laisse pas de facture en attente
+        // Une erreur nette du prestataire (400) ne laisse pas de facture en attente
         $this->stripe->refus = null;
-        $this->stripe->panne = 'Le prestataire de paiement a refusé l’opération.';
+        $this->stripe->erreurServeur = 400;
         $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('paiement');
         $this->assertSame(0, OrganisationFacture::query()->where('statut', 'a_payer')->count());
+
+        // Sans réponse (le prélèvement a pu passer) : la facture reste à vérifier
+        // tant que Stripe ne répond pas, jamais refaite à l'aveugle (26.10.2026)
+        $this->stripe->erreurServeur = null;
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement est en cours de vérification chez le prestataire. Réessayez dans un instant.']);
+        $this->assertSame(1, OrganisationFacture::query()->where('statut', 'a_payer')->count());
+        // Stripe répond : la demande restée sans réponse, rejouée avec la même clé,
+        // passe une fois ; le nouveau clic le dit, un seul prélèvement en tout
+        $this->stripe->panne = null;
+        $avant = count($this->stripe->prelevements);
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['plan' => 'Une souscription précédente vient d’être réglée, est traitée par votre banque ou reste à vérifier : rechargez la page avant de recommencer.']);
+        $this->assertCount($avant + 1, $this->stripe->prelevements);
+        $this->assertSame(0, OrganisationFacture::query()->where('statut', 'a_payer')->count());
+        $this->assertSame(1, OrganisationFacture::query()->where('statut', 'payee')->count());
+        $this->assertDatabaseHas('organisations', ['id' => $this->organisationId(), 'plan' => 'hopital', 'statut_abonnement' => 'actif']);
     }
 
     public function test_une_confirmation_bancaire_active_l_abonnement_une_fois_faite(): void
@@ -1213,6 +1231,37 @@ class OrganisationTest extends TestCase
         $this->stripe->listeEnPanne = false;
         $this->stripe->refus = 'Fonds insuffisants sur la carte.';
         $this->voyager('2026-11-23 09:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertSame('resilie', $organisation->refresh()->statut_abonnement);
+        $this->assertSame($avant + 1, $fermetures());
+    }
+
+    /** Dernière relance refusée, mais la tentative précédente restée sans réponse ne se vérifie pas : rien ne se ferme, nouvel essai six heures plus tard, à l'heure pleine (26.10.2026). */
+    public function test_une_derniere_relance_refusee_mais_inverifiable_revient_six_heures_plus_tard(): void
+    {
+        $this->jusquALaDerniereRelance();
+        $fermetures = fn () => count(Mail::sent(PaiementAbonnementRefuse::class, fn ($mail) => $mail->prochaineTentative === null));
+        $avant = $fermetures();
+        $this->stripe->erreurServeur = 500;
+        $this->voyager('2026-11-23 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        // Une heure plus tard, la carte est refusée, et la liste tombe juste avant de clore
+        $this->stripe->erreurServeur = null;
+        $this->stripe->refus = 'Fonds insuffisants sur la carte.';
+        $this->stripe->listeRepondEncore = 1;
+        $this->travelTo(CarbonImmutable::parse('2026-11-23 08:00:03', 'Europe/Zurich'));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame('impaye', $organisation->statut_abonnement);
+        $this->assertSame($avant, $fermetures());
+        $this->assertSame('2026-11-23 14:00:00', $organisation->prochaine_tentative_le->timezone('Europe/Zurich')->format('Y-m-d H:i:s'));
+
+        // La liste revient : refusée de nouveau, l'accès se ferme, un e-mail
+        $this->stripe->listeRepondEncore = null;
+        $this->stripe->listeEnPanne = false;
+        $this->travelTo(CarbonImmutable::parse('2026-11-23 14:00:01', 'Europe/Zurich'));
         $this->artisan('abonnements:renouveler')->assertSuccessful();
         $this->assertSame('resilie', $organisation->refresh()->statut_abonnement);
         $this->assertSame($avant + 1, $fermetures());
@@ -1315,7 +1364,7 @@ class OrganisationTest extends TestCase
         $this->assertSame($avant, $fermetures());
     }
 
-    /** Une panne de Stripe au renouvellement n'est pas un refus de la carte : ni relance consommée, ni e-mail « paiement refusé », nouvel essai une heure plus tard (26.10.2026). */
+    /** Une panne de Stripe au renouvellement n'est pas un refus de la carte : ni relance consommée, ni e-mail « paiement refusé », ni impayé ; nouvel essai à l'heure suivante, sur la même facture (26.10.2026). */
     public function test_une_panne_de_stripe_au_renouvellement_n_est_pas_un_refus(): void
     {
         $this->jamaisAbonnee();
@@ -1328,17 +1377,107 @@ class OrganisationTest extends TestCase
         $this->voyager('2026-11-20 06:00');
         $this->artisan('abonnements:renouveler')->assertSuccessful();
 
+        // Rien n'a été refusé : l'abonnement reste actif (pas d'« impayé » affiché),
+        // l'échéance passée le ramène à la commande de l'heure suivante
         $organisation = Organisation::query()->findOrFail($this->organisationId());
-        $this->assertSame('impaye', $organisation->statut_abonnement);
+        $this->assertSame('actif', $organisation->statut_abonnement);
         $this->assertSame(0, (int) $organisation->tentatives);
-        $this->assertSame('2026-11-20 07:00', $organisation->prochaine_tentative_le->timezone('Europe/Zurich')->format('Y-m-d H:i'));
         Mail::assertNotSent(PaiementAbonnementRefuse::class);
 
-        // Stripe répond de nouveau une heure plus tard : payé
+        // Stripe répond de nouveau une heure plus tard : payé, sur la même facture
         $this->stripe->erreurServeur = null;
         $this->voyager('2026-11-20 07:00');
         $this->artisan('abonnements:renouveler')->assertSuccessful();
         $this->assertSame('actif', $organisation->refresh()->statut_abonnement);
+        $this->assertTrue($organisation->periode_fin->gt(CarbonImmutable::parse('2026-12-01')));
+        $renouvellements = $organisation->facturesAbonnement()->get()->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'renouvellement');
+        $this->assertSame(['payee'], $renouvellements->pluck('statut')->values()->all());
+    }
+
+    /** Une erreur nette de Stripe au renouvellement (400, client inconnu) est un refus : relance comptée, e-mail, jamais des essais sans fin (26.10.2026). */
+    public function test_une_erreur_nette_au_renouvellement_est_un_refus(): void
+    {
+        $this->jamaisAbonnee();
+        Mail::fake();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $this->stripe->erreurServeur = 400;
+
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame('impaye', $organisation->statut_abonnement);
+        $this->assertSame(1, (int) $organisation->tentatives);
+        Mail::assertSent(PaiementAbonnementRefuse::class, 1);
+    }
+
+    /** Une panne pendant les relances : l'essai suivant tombe à l'heure pleine, que la commande trouve à son passage (26.10.2026). */
+    public function test_l_essai_apres_une_panne_tombe_a_l_heure_pleine(): void
+    {
+        $this->abonneeAvecRenouvellementRefuse();
+        $this->stripe->refus = null;
+        $this->stripe->erreurServeur = 500;
+        $this->travelTo(CarbonImmutable::parse('2026-11-21 07:00:03', 'Europe/Zurich'));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame('2026-11-21 08:00:00', $organisation->prochaine_tentative_le->timezone('Europe/Zurich')->format('Y-m-d H:i:s'));
+
+        $this->stripe->erreurServeur = null;
+        $this->travelTo(CarbonImmutable::parse('2026-11-21 08:00:01', 'Europe/Zurich'));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertSame('actif', $organisation->refresh()->statut_abonnement);
+    }
+
+    /** Pack : réponse perdue (prélèvement passé) et liste de Stripe en panne, puis liste revenue mais pas encore à jour : jamais un second prélèvement (26.10.2026). */
+    public function test_un_pack_a_la_reponse_perdue_et_la_liste_en_panne_n_est_pas_preleve_deux_fois(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $avant = count($this->stripe->prelevements);
+        $acheter = fn () => $this->postJson('/api/v1/organisation/packs', ['type' => 'emails', 'quantite' => 5000], $this->enTetes($this->jeton));
+
+        // Prélevé, mais la réponse se perd et la liste ne répond pas : rien n'est conclu
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->stripe->passeMalgreErreur = true;
+        $this->stripe->listeEnPanne = true;
+        $acheter()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement est en cours de vérification chez le prestataire. Réessayez dans un instant.']);
+        $this->assertCount($avant + 1, $this->stripe->prelevements);
+
+        // Nouveau clic, Stripe répond de nouveau mais la liste toujours pas : en vérification, rien de prélevé
+        $this->stripe->panne = null;
+        $this->stripe->passeMalgreErreur = false;
+        $acheter()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans un instant.']);
+        $this->assertCount($avant + 1, $this->stripe->prelevements);
+
+        // La liste revient sans montrer encore le prélèvement : la même demande rejouée rend le premier
+        $this->stripe->listeEnPanne = false;
+        $this->stripe->listeEnRetard = true;
+        $acheter()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Votre achat précédent vient d’être confirmé : il est réglé.']);
+        $this->assertCount($avant + 1, $this->stripe->prelevements);
+        $packs = OrganisationFacture::query()->get()->filter(fn (OrganisationFacture $f) => ($f->metadonnees['type'] ?? null) === 'pack');
+        $this->assertSame(['payee'], $packs->pluck('statut')->all());
+    }
+
+    /** Deux clics au même instant sur un pack : le second attend que le premier finisse (26.10.2026). */
+    public function test_un_pack_deja_en_cours_n_en_lance_pas_un_second(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $avant = count($this->stripe->prelevements);
+
+        $verrou = Cache::lock('abonnement:organisation:'.$this->organisationId(), 120);
+        $this->assertTrue($verrou->get());
+        $this->postJson('/api/v1/organisation/packs', ['type' => 'emails', 'quantite' => 5000], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Un paiement est déjà en cours. Patientez un instant.']);
+        $this->assertCount($avant, $this->stripe->prelevements);
+        $verrou->release();
     }
 
     /** Abonnée le 20.10.2026 à Cabinet, carte enregistrée, le renouvellement du 20.11 sera refusé. */

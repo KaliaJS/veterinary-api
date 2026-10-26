@@ -85,6 +85,20 @@ class PasserelleAbonnementStripeTest extends TestCase
         $this->assertSame([null, false], $verdict(fn () => $this->http->couper(new ApiConnectionException('Délai dépassé'))));
     }
 
+    /** Une erreur levée avant tout envoi (clé absente) n'est pas une réponse perdue : rien n'est parti, le résultat est sûr (26.10.2026). */
+    public function test_une_erreur_avant_tout_envoi_n_est_pas_une_reponse_perdue(): void
+    {
+        try {
+            (new PasserelleAbonnementStripe(new StripeClient(['api_key' => null])))
+                ->prelever('cus_test', 'pm_test', 4900, 'F-1 · Abonnement', ['facture' => 'organisation:1'], true, 'facture-organisation:1-premier-pm_test');
+            $this->fail('Erreur attendue');
+        } catch (ErreurPaiement $e) {
+            $this->assertSame([], $this->http->requetes);
+            $this->assertFalse($e->resultatIncertain());
+            $this->assertFalse($e->estPassagere());
+        }
+    }
+
     /** D26.1c : les prélèvements d'une facture se lisent dans la liste du client (à jour tout de suite), filtrés par facture, les plus récents d'abord (26.10.2026). */
     public function test_les_prelevements_d_une_facture_se_lisent_dans_la_liste_du_client(): void
     {

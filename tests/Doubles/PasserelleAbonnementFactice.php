@@ -43,6 +43,12 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     /** La liste des prélèvements ne répond pas */
     public bool $listeEnPanne = false;
 
+    /** La liste répond encore ce nombre de fois, puis tombe en panne */
+    public ?int $listeRepondEncore = null;
+
+    /** La liste ne montre pas encore les prélèvements tout juste créés */
+    public bool $listeEnRetard = false;
+
     /** @var list<string> factures cherchées */
     public array $recherches = [];
 
@@ -96,6 +102,16 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     {
         $this->cles[] = $cleIdempotence;
         $this->journal[] = 'prelever';
+        // Comme Stripe : une clé déjà servie rend le résultat de la première demande, si la réponse arrive
+        foreach ($this->prelevements as $deja) {
+            if ($deja['cle'] === $cleIdempotence) {
+                if ($this->panne) {
+                    throw new ErreurPaiement($this->panne, 'api_error');
+                }
+
+                return $this->lirePrelevement($deja['id']);
+            }
+        }
         if ($this->panne) {
             // Réponse perdue, mais Stripe a prélevé quand même
             if ($this->passeMalgreErreur) {
@@ -157,10 +173,13 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     public function chercherPrelevements(string $client, string $facture): array
     {
         $this->recherches[] = $facture;
+        if ($this->listeRepondEncore !== null && $this->listeRepondEncore-- <= 0) {
+            $this->listeEnPanne = true;
+        }
         if ($this->listeEnPanne) {
             throw new ErreurPaiement(ErreurPaiement::GENERIQUE, 'api_connection_error');
         }
-        $trouves = array_filter($this->prelevements, fn (array $p) => $p['client'] === $client && ($p['metadonnees']['facture'] ?? null) === $facture);
+        $trouves = $this->listeEnRetard ? [] : array_filter($this->prelevements, fn (array $p) => $p['client'] === $client && ($p['metadonnees']['facture'] ?? null) === $facture);
 
         return array_values(array_map(fn (array $p) => $this->lirePrelevement($p['id']), array_reverse($trouves)));
     }
