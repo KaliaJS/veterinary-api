@@ -494,6 +494,18 @@ class DomaineSiteTest extends TestCase
         app(AlerteJetonCloudflare::class)->signaler(401);
     }
 
+    /** D26.3b : une panne du cache ne fait rien échouer : l'alerte est sautée, signalée au journal (26.10.2026). */
+    public function test_une_alerte_sans_cache_ne_fait_rien_echouer(): void
+    {
+        config(['plateforme.alerte_email' => 'alertes@plateforme.test']);
+        Cache::shouldReceive('add')->andThrow(new \RuntimeException('Cache indisponible'));
+        Mail::fake();
+
+        app(AlerteJetonCloudflare::class)->signaler(401);
+
+        Mail::assertNothingSent();
+    }
+
     /** D26.3c : une panne passagère à l'ajout ou au retrait d'un domaine (429, 5xx, réseau) n'alerte pas non plus (26.10.2026). */
     public function test_une_panne_passagere_a_l_ajout_ou_au_retrait_n_alerte_pas(): void
     {

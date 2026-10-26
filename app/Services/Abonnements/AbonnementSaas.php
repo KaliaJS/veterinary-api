@@ -28,6 +28,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Abonnements maison (20.10.2026) : Stripe ne fait plus que garder la carte
@@ -337,13 +338,29 @@ final class AbonnementSaas
     /** Fin de l'abonnement à la fin de la période payée (propriétaire : retour à Gratuit). */
     public function resilier(Organisation|User $abonne): void
     {
-        if (! $this->enCours($abonne)) {
-            throw ValidationException::withMessages(['abonnement' => 'Aucun abonnement en cours.']);
-        }
-        $abonne->forceFill(['resilie_le' => $abonne->periode_fin])->save();
-        if ($abonne instanceof Organisation) {
-            $abonne->forceFill(['formule_suivante' => null])->save();
-        }
+        $this->sousVerrouAbonne($abonne, function () use ($abonne): null {
+            if (! $this->enCours($abonne)) {
+                throw ValidationException::withMessages(['abonnement' => 'Aucun abonnement en cours.']);
+            }
+            // Un changement de formule encore en attente : passé, il s'applique
+            // d'abord et la résiliation court jusqu'à sa nouvelle échéance ;
+            // sinon il est abandonné ; encore à vérifier chez Stripe, la
+            // résiliation attend de savoir (26.10.2026)
+            $changements = $this->factures($abonne)->where('statut', 'a_payer')->get()
+                ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'changement');
+            foreach ($changements as $changement) {
+                if (! $this->annuler($changement) && $changement->refresh()->statut !== 'payee') {
+                    throw ValidationException::withMessages(['abonnement' => 'Un changement de formule est encore en vérification chez le prestataire. Réessayez dans quelques minutes.']);
+                }
+            }
+            $abonne->refresh();
+            $abonne->forceFill(['resilie_le' => $abonne->periode_fin])->save();
+            if ($abonne instanceof Organisation) {
+                $abonne->forceFill(['formule_suivante' => null])->save();
+            }
+
+            return null;
+        }, ['abonnement', 'Un paiement est déjà en cours. Patientez un instant.']);
     }
 
     public function reactiver(Organisation|User $abonne): void
@@ -633,6 +650,17 @@ final class AbonnementSaas
             return;
         }
 
+        // Résilié pendant les relances : la facture de l'échéance est abandonnée,
+        // rien n'est prélevé (26.10.2026). Passée entre-temps, la période est
+        // payée et se termine à la suivante ; encore à vérifier, l'heure suivante
+        if ($abonne->resilie_le && $abonne->resilie_le->toDateString() <= (string) ($facture->metadonnees['debut'] ?? '')) {
+            if ($this->annuler($facture)) {
+                $this->terminer($abonne);
+            }
+
+            return;
+        }
+
         // La tentative précédente encore traitée par la banque, ou passée entre-temps
         if ($facture->stripe_paiement_id) {
             $etat = $this->stripe->lirePrelevement($facture->stripe_paiement_id);
@@ -674,7 +702,9 @@ final class AbonnementSaas
             ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'souscription')
             ->map(fn ($f) => $this->annuler($f));
         if ($remplacees->contains(false)) {
-            throw ValidationException::withMessages(['plan' => 'Une souscription précédente vient d’être réglée, est traitée par votre banque ou reste à vérifier : rechargez la page avant de recommencer.']);
+            throw ValidationException::withMessages(['plan' => $this->dejaPayee($abonne, 'souscription')
+                ? 'Une souscription précédente vient d’être réglée, est traitée par votre banque ou reste à vérifier : rechargez la page avant de recommencer.'
+                : 'Une souscription précédente est encore traitée par votre banque ou en vérification chez le prestataire. Réessayez dans quelques minutes.']);
         }
         // Relu : la facture annulée a rendu ses frais d'identité à l'organisation
         if ($remplacees->isNotEmpty()) {
@@ -701,7 +731,9 @@ final class AbonnementSaas
             ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'changement')
             ->map(fn ($f) => $this->annuler($f));
         if ($remplaces->contains(false)) {
-            throw ValidationException::withMessages(['plan' => 'Un changement de formule précédent vient d’être réglé, est traité par votre banque ou reste à vérifier : rechargez la page avant de recommencer.']);
+            throw ValidationException::withMessages(['plan' => $this->dejaPayee($organisation, 'changement')
+                ? 'Un changement de formule précédent vient d’être réglé, est traité par votre banque ou reste à vérifier : rechargez la page avant de recommencer.'
+                : 'Un changement de formule précédent est encore traité par votre banque ou en vérification chez le prestataire. Réessayez dans quelques minutes.']);
         }
         if ($remplaces->isNotEmpty()) {
             $organisation->refresh();
@@ -773,6 +805,7 @@ final class AbonnementSaas
         if ($reglement->prestataireEnPanne) {
             // Passé malgré l'erreur et déjà visible chez Stripe : payé tout de suite
             $facture = $reglement->facture;
+            // Une clé refusée ici l'a déjà été à la recherche faite avant le prélèvement, qui l'a signalée
             $trouve = self::estIncertaine($facture)
                 ? rescue(fn () => $this->prelevementIncertainPasse($abonne, $facture, self::cleFacture($facture)), null, false)
                 : null;
@@ -1041,10 +1074,12 @@ final class AbonnementSaas
                 $trouve = $this->prelevementIncertainPasse($abonne, $facture, $cle);
             } catch (ErreurPaiement $e) {
                 // Sans réponse sûre, rien n'est tenté : on réessaiera
+                $this->signalerCleRefusee($e, $facture);
+
                 return new Reglement($facture, 'refuse', null, $e->getMessage(), prestataireEnPanne: true);
             }
             if ($trouve) {
-                $facture->forceFill(['stripe_paiement_id' => $trouve['id']])->save();
+                $this->reprendre($facture, $trouve['id']);
 
                 return $this->encaisserSousVerrou($abonne, $facture->refresh(), $cle, $centimes, $horsSession);
             }
@@ -1097,10 +1132,7 @@ final class AbonnementSaas
             }
             // La clé de la plateforme refusée : ni la carte ni le client n'y
             // sont pour rien, la plateforme est prévenue (26.10.2026)
-            if ($e->cleRefusee()) {
-                Log::critical('Stripe refuse la clé de la plateforme.', ['statut' => $e->statutHttp, 'facture' => $facture->numero]);
-                $this->alerteCle->signaler((int) $e->statutHttp);
-            }
+            $this->signalerCleRefusee($e, $facture);
             // Une erreur nette (client inconnu, requête refusée…) reste un refus
             $panne = $e->estPassagere() || $e->cleRefusee();
             $resultat = ['id' => null, 'statut' => 'refuse', 'client_secret' => null, 'message' => $e->getMessage()];
@@ -1129,6 +1161,33 @@ final class AbonnementSaas
     private static function cleFacture(OrganisationFacture|FactureProprietaire $facture): string
     {
         return ($facture instanceof OrganisationFacture ? 'organisation' : 'proprietaire').':'.$facture->id;
+    }
+
+    /**
+     * Stripe refuse la clé de la plateforme (absente, 401, 403), à n'importe
+     * quel appel : journal critique et alerte du jour (26.10.2026).
+     */
+    public function signalerCleRefusee(Throwable $e, OrganisationFacture|FactureProprietaire|null $facture = null): void
+    {
+        if ($e instanceof ErreurPaiement && $e->cleRefusee()) {
+            Log::critical('Stripe refuse la clé de la plateforme.', ['statut' => $e->statutHttp, 'facture' => $facture?->numero]);
+            $this->alerteCle->signaler((int) $e->statutHttp);
+        }
+    }
+
+    /** Le prélèvement d'une facture retrouvé chez Stripe : il devient la référence, la demande perdue n'est plus en suspens (26.10.2026). */
+    private function reprendre(OrganisationFacture|FactureProprietaire $facture, string $intention): void
+    {
+        $meta = $facture->metadonnees ?? [];
+        unset($meta['demande_en_suspens']);
+        $facture->forceFill(['stripe_paiement_id' => $intention, 'metadonnees' => $meta])->save();
+    }
+
+    /** Une souscription ou un changement vient d'être réglé : la page affichée n'est plus à jour. */
+    private function dejaPayee(Organisation|User $abonne, string $action): bool
+    {
+        return $this->factures($abonne)->where('statut', 'payee')->where('paye_le', '>=', now()->subMinutes(self::SUSPENS_MINUTES))->get()
+            ->contains(fn ($f) => ($f->metadonnees['action'] ?? null) === $action);
     }
 
     /**
@@ -1241,11 +1300,12 @@ final class AbonnementSaas
                 $trouve = $this->prelevementIncertainPasse($this->abonneDe($facture), $facture, self::cleFacture($facture));
             } catch (ErreurPaiement $e) {
                 report($e);
+                $this->signalerCleRefusee($e, $facture);
 
                 return false;
             }
             if ($trouve) {
-                $facture->forceFill(['stripe_paiement_id' => $trouve['id']])->save();
+                $this->reprendre($facture, $trouve['id']);
             } elseif (self::demandeEnSuspens($facture) !== null) {
                 // Une demande perdue que Stripe peut encore traiter : rien ne
                 // s'annule avant de savoir. Annuler ne prélève jamais (26.10.2026)

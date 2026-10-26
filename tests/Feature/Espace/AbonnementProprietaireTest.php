@@ -104,4 +104,26 @@ class AbonnementProprietaireTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('payment_method');
         $this->assertSame(0, User::query()->whereNotNull('moyen_paiement')->count());
     }
+
+    /** D26.1c pour Plus : prélevé malgré une réponse perdue et la liste en panne, le clic suivant retrouve le premier prélèvement, jamais un second (26.10.2026). */
+    public function test_plus_preleve_malgre_une_reponse_perdue_n_est_pas_preleve_deux_fois(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $entetes = $this->enTetes($jeton);
+        $this->postJson('/api/v1/espace/abonnement/carte/intention', [], $entetes)->assertOk();
+        $this->putJson('/api/v1/espace/abonnement/carte', ['payment_method' => $this->stripe->carteConfirmee($user->refresh()->stripe_client_id)], $entetes)->assertOk();
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->stripe->passeMalgreErreur = true;
+        $this->stripe->listeEnPanne = true;
+        $this->postJson('/api/v1/espace/abonnement/plus', [], $entetes)->assertUnprocessable();
+        $this->stripe->panne = null;
+        $this->stripe->passeMalgreErreur = false;
+        $this->stripe->listeEnPanne = false;
+
+        $this->postJson('/api/v1/espace/abonnement/plus', [], $entetes)->assertUnprocessable();
+
+        $this->assertCount(1, $this->stripe->prelevements);
+        $this->assertSame(['plus', 'actif'], [$user->refresh()->formule, $user->statut_abonnement]);
+    }
 }

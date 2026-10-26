@@ -1155,7 +1155,7 @@ class OrganisationTest extends TestCase
         $this->stripe->panne = null;
         $avant = count($this->stripe->prelevements);
         $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
-            ->assertUnprocessable()->assertJsonValidationErrors(['plan' => 'Une souscription précédente vient d’être réglée, est traitée par votre banque ou reste à vérifier : rechargez la page avant de recommencer.']);
+            ->assertUnprocessable()->assertJsonValidationErrors(['plan' => 'Une souscription précédente est encore traitée par votre banque ou en vérification chez le prestataire. Réessayez dans quelques minutes.']);
         $this->assertCount($avant, $this->stripe->prelevements);
         $this->travel(11)->minutes();
         $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))->assertOk();
@@ -1562,7 +1562,7 @@ class OrganisationTest extends TestCase
         $avant = count($this->stripe->prelevements);
 
         $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'individuel'], $this->enTetes($this->jeton))
-            ->assertUnprocessable()->assertJsonValidationErrors(['plan' => 'Une souscription précédente vient d’être réglée, est traitée par votre banque ou reste à vérifier : rechargez la page avant de recommencer.']);
+            ->assertUnprocessable()->assertJsonValidationErrors(['plan' => 'Une souscription précédente est encore traitée par votre banque ou en vérification chez le prestataire. Réessayez dans quelques minutes.']);
         $this->assertSame([], $this->prelevementsDepuis($avant));
 
         $this->voyager('2026-10-20 10:11');
@@ -1605,6 +1605,7 @@ class OrganisationTest extends TestCase
     {
         config(['plateforme.alerte_email' => 'alertes@meteora.test']);
         $this->abonneeACabinet();
+        Log::spy();
         $this->stripe->erreurServeur = 401;
         foreach (['2026-11-20 06:00', '2026-11-20 07:00'] as $quand) {
             $this->voyager($quand);
@@ -1615,9 +1616,15 @@ class OrganisationTest extends TestCase
         $this->assertSame(['actif', 0], [$organisation->statut_abonnement, (int) $organisation->tentatives]);
         Mail::assertNotSent(PaiementAbonnementRefuse::class);
         Mail::assertSent(CleStripeRefusee::class, 1);
+        Log::shouldHaveReceived('critical')->with('Stripe refuse la clé de la plateforme.', \Mockery::any())->atLeast()->once();
+
+        // Le lendemain, toujours refusée : une nouvelle alerte
+        $this->voyager('2026-11-21 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        Mail::assertSent(CleStripeRefusee::class, 2);
 
         $this->stripe->erreurServeur = null;
-        $this->voyager('2026-11-20 08:00');
+        $this->voyager('2026-11-21 07:00');
         $this->artisan('abonnements:renouveler')->assertSuccessful();
         $this->assertSame('2026-12-20', $organisation->refresh()->periode_fin->toDateString());
     }
@@ -1682,18 +1689,33 @@ class OrganisationTest extends TestCase
         $regler()->assertOk()->assertJsonPath('data.statut', 'payee');
     }
 
-    /** Une alerte de clé Stripe qui ne part pas ne fait rien échouer : le renouvellement continue, l'abonné garde son accès (26.10.2026). */
+    /** Une alerte de clé Stripe qui ne part pas ne fait rien échouer : « Régler » répond le message habituel, le renouvellement continue, l'abonné garde son accès (26.10.2026). */
     public function test_une_alerte_de_cle_stripe_qui_ne_part_pas_ne_fait_rien_echouer(): void
     {
         config(['plateforme.alerte_email' => 'alertes@meteora.test']);
-        $this->abonneeACabinet();
+        $facture = $this->factureRefuseeARegler();
         $this->stripe->erreurServeur = 403;
         Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP indisponible'));
 
-        $this->voyager('2026-11-20 06:00');
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('paiement');
+        $this->voyager('2026-11-21 06:00');
         $this->artisan('abonnements:renouveler')->assertSuccessful();
 
-        $this->assertSame(['actif', 0], [Organisation::query()->findOrFail($this->organisationId())->statut_abonnement, (int) Organisation::query()->findOrFail($this->organisationId())->tentatives]);
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame(['impaye', 1], [$organisation->statut_abonnement, (int) $organisation->tentatives]);
+    }
+
+    /** Une panne du cache n'empêche ni « Régler » ni le renouvellement : l'alerte est sautée, signalée au journal (26.10.2026). */
+    public function test_une_alerte_de_cle_stripe_sans_cache_ne_fait_rien_echouer(): void
+    {
+        config(['plateforme.alerte_email' => 'alertes@meteora.test']);
+        Cache::shouldReceive('add')->andThrow(new \RuntimeException('Cache indisponible'));
+        Mail::fake();
+
+        app(AlerteCleStripe::class)->signaler(401);
+
+        Mail::assertNothingSent();
     }
 
     /** Une alerte de clé Stripe qui n'a pas pu partir libère la place du jour : le refus suivant réessaie (26.10.2026). */
@@ -1714,6 +1736,198 @@ class OrganisationTest extends TestCase
         app(AlerteCleStripe::class)->signaler(401);
         app(AlerteCleStripe::class)->signaler(401);
         app(AlerteCleStripe::class)->signaler(401);
+    }
+
+    /** La clé refusée aussi en cherchant le prélèvement d'une facture à vérifier : la plateforme est alertée, l'abonné n'est pas refusé (26.10.2026). */
+    public function test_une_cle_stripe_refusee_en_verifiant_alerte_aussi(): void
+    {
+        config(['plateforme.alerte_email' => 'alertes@meteora.test']);
+        $this->abonneeACabinet();
+        $this->stripe->erreurServeur = 500;
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->stripe->erreurServeur = null;
+        $this->stripe->cleRefusee = true;
+
+        $this->voyager('2026-11-20 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        Mail::assertSent(CleStripeRefusee::class, 1);
+        Mail::assertNotSent(PaiementAbonnementRefuse::class);
+        $this->assertSame('actif', Organisation::query()->findOrFail($this->organisationId())->statut_abonnement);
+    }
+
+    /** La clé refusée en cherchant le prélèvement d'une facture à vérifier, depuis « Régler » : la plateforme est alertée (26.10.2026). */
+    public function test_une_cle_stripe_refusee_en_verifiant_depuis_regler_alerte_aussi(): void
+    {
+        config(['plateforme.alerte_email' => 'alertes@meteora.test']);
+        $this->abonneeACabinet();
+        $this->stripe->erreurServeur = 500;
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->stripe->erreurServeur = null;
+        $this->stripe->cleRefusee = true;
+        $facture = OrganisationFacture::query()->where('statut', 'a_payer')->sole();
+
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertUnprocessable();
+
+        Mail::assertSent(CleStripeRefusee::class, 1);
+    }
+
+    /** La clé refusée en vérifiant un achat précédent resté en doute : la plateforme est alertée, le nouvel achat attend (26.10.2026). */
+    public function test_une_cle_stripe_refusee_en_verifiant_un_achat_alerte_aussi(): void
+    {
+        config(['plateforme.alerte_email' => 'alertes@meteora.test']);
+        $this->abonneeACabinet();
+        $acheter = fn () => $this->postJson('/api/v1/organisation/packs', ['type' => 'emails', 'quantite' => 5000], $this->enTetes($this->jeton));
+        $this->stripe->erreurServeur = 500;
+        $this->stripe->listeEnPanne = true;
+        $acheter()->assertUnprocessable();
+        $this->stripe->erreurServeur = null;
+        $this->stripe->listeEnPanne = false;
+        $this->stripe->cleRefusee = true;
+
+        $acheter()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans un instant.']);
+        Mail::assertSent(CleStripeRefusee::class, 1);
+    }
+
+    /** Deux onglets : une résiliation pendant un paiement en cours attend qu'il finisse (26.10.2026). */
+    public function test_une_resiliation_pendant_un_paiement_en_cours_attend(): void
+    {
+        $this->abonneeACabinet();
+        $verrou = Cache::lock('abonnement:organisation:'.$this->organisationId(), 120);
+        $this->assertTrue($verrou->get());
+
+        $this->postJson('/api/v1/organisation/abonnement/resilier', [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['abonnement' => 'Un paiement est déjà en cours. Patientez un instant.']);
+        $verrou->release();
+        $this->assertNull(Organisation::query()->findOrFail($this->organisationId())->resilie_le);
+    }
+
+    /** La clé refusée en relisant le prélèvement d'une relance : la plateforme est alertée, aucune relance n'est comptée (26.10.2026). */
+    public function test_une_cle_stripe_refusee_en_relisant_une_relance_alerte_aussi(): void
+    {
+        config(['plateforme.alerte_email' => 'alertes@meteora.test']);
+        $this->abonneeAvecRenouvellementRefuse();
+        $this->stripe->cleRefusee = true;
+
+        $this->voyager('2026-11-21 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        Mail::assertSent(CleStripeRefusee::class, 1);
+        $this->assertSame(1, (int) Organisation::query()->findOrFail($this->organisationId())->tentatives);
+    }
+
+    /** Une demande perdue retrouvée chez Stripe en attente de 3-D Secure : elle n'est plus en suspens, « Régler » la remplace aussitôt (26.10.2026). */
+    public function test_une_demande_perdue_retrouvee_en_attente_ne_bloque_pas_regler(): void
+    {
+        $facture = $this->factureRefuseeARegler();
+        $regler = fn () => $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton));
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->stripe->passeMalgreErreur = true;
+        $this->stripe->actionRequise = true;
+        $regler()->assertUnprocessable();
+        $this->stripe->panne = null;
+        $this->stripe->passeMalgreErreur = false;
+        $this->stripe->actionRequise = false;
+
+        $regler()->assertOk()->assertJsonPath('data.statut', 'payee');
+    }
+
+    /** Un 409 sur un pack (la même demande encore traitée chez Stripe) : un nouveau pack attend de savoir, rien n'est prélevé (26.10.2026). */
+    public function test_un_409_sur_un_pack_met_la_demande_en_suspens(): void
+    {
+        $this->abonneeACabinet();
+        $acheter = fn () => $this->postJson('/api/v1/organisation/packs', ['type' => 'emails', 'quantite' => 5000], $this->enTetes($this->jeton));
+        $this->stripe->erreurServeur = 409;
+        $acheter()->assertUnprocessable();
+        $this->stripe->erreurServeur = null;
+        $avant = count($this->stripe->prelevements);
+
+        $acheter()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans un instant.']);
+        $this->assertSame([], $this->prelevementsDepuis($avant));
+    }
+
+    /** Un changement de formule encore à vérifier : un second changement est refusé avec « réessayez dans quelques minutes » (26.10.2026). */
+    public function test_un_changement_encore_a_verifier_dit_de_reessayer_dans_quelques_minutes(): void
+    {
+        $this->abonneeACabinet();
+        $this->voyager('2026-11-10 10:00');
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->stripe->panne = null;
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['plan' => 'Un changement de formule précédent est encore traité par votre banque ou en vérification chez le prestataire. Réessayez dans quelques minutes.']);
+    }
+
+    /** Un changement passé malgré une réponse perdue, puis une résiliation : le changement s'applique d'abord, la résiliation court jusqu'à sa nouvelle échéance, rien d'autre n'est prélevé (26.10.2026). */
+    public function test_une_resiliation_apres_un_changement_passe_le_garde_et_ne_preleve_plus(): void
+    {
+        $this->abonneeACabinet();
+        $this->voyager('2026-11-10 10:00');
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->stripe->passeMalgreErreur = true;
+        $this->stripe->listeEnPanne = true;
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->stripe->panne = null;
+        $this->stripe->passeMalgreErreur = false;
+        $this->stripe->listeEnPanne = false;
+        $avant = count($this->stripe->prelevements);
+
+        $this->voyager('2026-11-12 10:00');
+        $this->postJson('/api/v1/organisation/abonnement/resilier', [], $this->enTetes($this->jeton))->assertOk();
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame([FormuleSaas::Hopital, '2026-12-10', '2026-12-10'], [$organisation->plan, $organisation->periode_fin->toDateString(), $organisation->resilie_le?->toDateString()]);
+
+        foreach (['2026-11-20 06:00', '2026-12-10 06:00'] as $quand) {
+            $this->voyager($quand);
+            $this->artisan('abonnements:renouveler')->assertSuccessful();
+        }
+        $this->assertSame([], $this->prelevementsDepuis($avant));
+        $this->assertSame('resilie', $organisation->refresh()->statut_abonnement);
+    }
+
+    /** Un changement encore à vérifier : la résiliation attend de savoir (26.10.2026). */
+    public function test_une_resiliation_attend_un_changement_encore_a_verifier(): void
+    {
+        $this->abonneeACabinet();
+        $this->voyager('2026-11-10 10:00');
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->stripe->panne = null;
+
+        $this->postJson('/api/v1/organisation/abonnement/resilier', [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['abonnement' => 'Un changement de formule est encore en vérification chez le prestataire. Réessayez dans quelques minutes.']);
+        $this->assertNull(Organisation::query()->findOrFail($this->organisationId())->resilie_le);
+    }
+
+    /** Résiliée pendant les relances d'un renouvellement refusé : la relance suivante ne prélève rien, l'abonnement se termine (26.10.2026). */
+    public function test_une_resiliation_pendant_les_relances_n_est_pas_prelevee(): void
+    {
+        $this->abonneeAvecRenouvellementRefuse();
+        $this->stripe->refus = null;
+        $this->voyager('2026-11-20 09:00');
+        $this->postJson('/api/v1/organisation/abonnement/resilier', [], $this->enTetes($this->jeton))->assertOk();
+        $avant = count($this->stripe->prelevements);
+
+        $this->voyager('2026-11-21 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $this->assertSame([], $this->prelevementsDepuis($avant));
+        $this->assertSame('resilie', Organisation::query()->findOrFail($this->organisationId())->statut_abonnement);
+        $this->assertSame(0, OrganisationFacture::query()->where('statut', 'a_payer')->count());
+    }
+
+    /** L'e-mail de la clé refusée vaut pour tout prélèvement de la plateforme, et ne promet la fermeture qu'aux organisations (26.10.2026). */
+    public function test_l_alerte_de_cle_stripe_parle_de_tous_les_prelevements(): void
+    {
+        $texte = (new CleStripeRefusee(401))->render();
+
+        $this->assertStringContainsString('à un prélèvement de la plateforme', $texte);
+        $this->assertStringContainsString('ni abonnements, ni packs, ni objets de planète, ni badges', $texte);
+        $this->assertStringContainsString('Pour les organisations', $texte);
+        $this->assertStringNotContainsString('en prélevant un abonnement', $texte);
     }
 
     /** Un 409 (la même demande en cours) ou un 429 (trop d'appels) au renouvellement : pas un refus, la même demande repart à l'heure suivante et passe (26.10.2026). */

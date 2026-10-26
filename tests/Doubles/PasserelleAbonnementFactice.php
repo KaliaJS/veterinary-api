@@ -43,6 +43,9 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     /** La liste des prélèvements ne répond pas */
     public bool $listeEnPanne = false;
 
+    /** Stripe refuse la clé de la plateforme (401) à tout appel */
+    public bool $cleRefusee = false;
+
     /** La liste répond encore ce nombre de fois, puis tombe en panne */
     public ?int $listeRepondEncore = null;
 
@@ -102,6 +105,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     {
         $this->cles[] = $cleIdempotence;
         $this->journal[] = 'prelever';
+        $this->refuserLaCle();
         // Comme Stripe : une clé déjà servie rend le résultat de la première demande, si la réponse arrive
         foreach ($this->prelevements as $deja) {
             if ($deja['cle'] === $cleIdempotence) {
@@ -118,7 +122,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
                 $id = 'pi_'.++$this->sequence;
                 $this->prelevements[$id] = [
                     'id' => $id, 'client' => $client, 'moyen' => $moyen, 'centimes' => $centimes, 'libelle' => $libelle,
-                    'metadonnees' => $metadonnees, 'hors_session' => $horsSession, 'statut' => 'reussi', 'cle' => $cleIdempotence,
+                    'metadonnees' => $metadonnees, 'hors_session' => $horsSession, 'statut' => $this->actionRequise ? 'action_requise' : 'reussi', 'cle' => $cleIdempotence,
                 ];
             }
             throw new ErreurPaiement($this->panne, 'api_error');
@@ -128,7 +132,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
             if ($this->passeMalgreErreur) {
                 $this->prelevements[$id] = [
                     'id' => $id, 'client' => $client, 'moyen' => $moyen, 'centimes' => $centimes, 'libelle' => $libelle,
-                    'metadonnees' => $metadonnees, 'hors_session' => $horsSession, 'statut' => 'reussi', 'cle' => $cleIdempotence,
+                    'metadonnees' => $metadonnees, 'hors_session' => $horsSession, 'statut' => $this->actionRequise ? 'action_requise' : 'reussi', 'cle' => $cleIdempotence,
                 ];
             }
             throw new ErreurPaiement(ErreurPaiement::GENERIQUE, 'api_error', $this->erreurServeur);
@@ -149,6 +153,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
 
     public function lirePrelevement(string $id): array
     {
+        $this->refuserLaCle();
         $p = $this->prelevements[$id] ?? throw new ErreurPaiement('Élément introuvable chez Stripe.', 'resource_missing');
 
         return [
@@ -162,6 +167,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     public function annulerPrelevement(string $id): array
     {
         $this->journal[] = 'annuler:'.$id;
+        $this->refuserLaCle();
         // Comme Stripe : en attente de confirmation ou refusé, il s'annule
         if (in_array($this->prelevements[$id]['statut'] ?? null, ['action_requise', 'refuse'], true)) {
             $this->prelevements[$id]['statut'] = 'annule';
@@ -173,6 +179,7 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     public function chercherPrelevements(string $client, string $facture): array
     {
         $this->recherches[] = $facture;
+        $this->refuserLaCle();
         if ($this->listeRepondEncore !== null && $this->listeRepondEncore-- <= 0) {
             $this->listeEnPanne = true;
         }
@@ -182,6 +189,13 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
         $trouves = $this->listeEnRetard ? [] : array_filter($this->prelevements, fn (array $p) => $p['client'] === $client && ($p['metadonnees']['facture'] ?? null) === $facture);
 
         return array_values(array_map(fn (array $p) => $this->lirePrelevement($p['id']), array_reverse($trouves)));
+    }
+
+    private function refuserLaCle(): void
+    {
+        if ($this->cleRefusee) {
+            throw new ErreurPaiement(ErreurPaiement::GENERIQUE, 'api_key_expired', 401);
+        }
     }
 
     /** Le client confirme le paiement auprès de sa banque (Stripe.js). Un prélèvement annulé ne se confirme plus. */

@@ -8,7 +8,7 @@ use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-/** À la plateforme : Stripe refuse la clé de l'API, les abonnements ne sont plus prélevés (26.10.2026). */
+/** À la plateforme : Stripe refuse la clé de l'API, plus rien n'est prélevé (26.10.2026). */
 class CleStripeRefusee extends Mailable
 {
     use Queueable;
@@ -18,7 +18,7 @@ class CleStripeRefusee extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: 'Abonnements : Stripe refuse la clé de la plateforme');
+        return new Envelope(subject: 'Paiements : Stripe refuse la clé de la plateforme');
     }
 
     public function content(): Content

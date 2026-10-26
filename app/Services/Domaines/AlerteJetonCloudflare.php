@@ -20,7 +20,17 @@ class AlerteJetonCloudflare
     {
         $adresse = config('plateforme.alerte_email');
         $jour = CarbonImmutable::now('Europe/Zurich')->toDateString();
-        if (! $adresse || ! Cache::add('alerte:jeton-cloudflare:'.$jour, true, now()->addDays(2))) {
+        if (! $adresse) {
+            return;
+        }
+        // Le cache en panne : l'alerte est sautée, signalée au journal (26.10.2026)
+        try {
+            if (! Cache::add('alerte:jeton-cloudflare:'.$jour, true, now()->addDays(2))) {
+                return;
+            }
+        } catch (Throwable $e) {
+            report($e);
+
             return;
         }
 

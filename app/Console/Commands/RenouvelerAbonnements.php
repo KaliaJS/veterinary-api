@@ -59,6 +59,8 @@ class RenouvelerAbonnements extends Command
             } catch (Throwable $e) {
                 // Sans les valeurs d'un message SQL (24.10.2026)
                 Log::error('Renouvellement impossible.', ['abonne' => $abonne::class.':'.$abonne->id, 'erreur' => MasquageSql::message($e->getMessage())]);
+                // La clé de Stripe refusée en relisant un prélèvement : la plateforme est prévenue (26.10.2026)
+                app(AbonnementSaas::class)->signalerCleRefusee($e);
             }
         });
     }
