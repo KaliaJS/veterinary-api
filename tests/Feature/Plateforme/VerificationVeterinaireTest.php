@@ -146,7 +146,7 @@ class VerificationVeterinaireTest extends TestCase
         $payer()->assertUnprocessable();
         $stripe->erreurServeur = null;
         $stripe->passeMalgreErreur = false;
-        $payer()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans un instant.']);
+        $payer()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans une minute.']);
         $this->assertCount(1, $stripe->prelevements);
 
         $stripe->listeEnPanne = false;

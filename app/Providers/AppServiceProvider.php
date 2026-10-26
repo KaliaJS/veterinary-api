@@ -57,9 +57,11 @@ class AppServiceProvider extends ServiceProvider
         ));
 
         // Abonnement SaaS des organisations : Stripe Billing, remplacé par
-        // un double dans les tests
+        // un double dans les tests. Une demande sans réponse est renvoyée
+        // aussitôt par la bibliothèque, avec la même clé (recommandation de
+        // Stripe, 26.10.2026)
         $this->app->singleton(PasserelleAbonnement::class, fn () => new PasserelleAbonnementStripe(
-            new StripeClient(['api_key' => config('services.stripe.secret') ?: null]),
+            new StripeClient(['api_key' => config('services.stripe.secret') ?: null, 'max_network_retries' => 2]),
         ));
 
         // Vérification d'identité des vétérinaires : Stripe Identity, sur

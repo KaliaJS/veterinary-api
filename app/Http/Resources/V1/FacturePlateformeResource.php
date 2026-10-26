@@ -44,6 +44,8 @@ class FacturePlateformeResource extends JsonResource
             'periode_fin' => $this->periode_fin?->subDay()->toDateString(),
             'paye_le' => $this->paye_le?->toIso8601String(),
             'carte' => $this->carte,
+            // Paiement envoyé à Stripe sans réponse encore : renvoyé chaque minute (26.10.2026)
+            'en_verification' => $this->statut === 'a_payer' && isset($this->metadonnees['demande_en_suspens']),
             // Factures Stripe d'avant le 20.10.2026 : leur PDF reste chez Stripe
             'pdf_url' => $this->lignes === null ? $this->pdf_url : null,
             ...($this->entetes ? ['emetteur' => $this->emetteur(), 'client' => $this->client()] : []),

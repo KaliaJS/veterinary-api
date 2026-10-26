@@ -43,6 +43,9 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     /** La liste des prélèvements ne répond pas */
     public bool $listeEnPanne = false;
 
+    /** Le serveur s'arrête au milieu du paiement (déploiement) : aucune réponse lue, rien de rattrapé */
+    public bool $arret = false;
+
     /** Stripe refuse la clé de la plateforme (401) à tout appel */
     public bool $cleRefusee = false;
 
@@ -115,6 +118,16 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
 
                 return $this->lirePrelevement($deja['id']);
             }
+        }
+        if ($this->arret) {
+            if ($this->passeMalgreErreur) {
+                $id = 'pi_'.++$this->sequence;
+                $this->prelevements[$id] = [
+                    'id' => $id, 'client' => $client, 'moyen' => $moyen, 'centimes' => $centimes, 'libelle' => $libelle,
+                    'metadonnees' => $metadonnees, 'hors_session' => $horsSession, 'statut' => 'reussi', 'cle' => $cleIdempotence,
+                ];
+            }
+            throw new \RuntimeException('Serveur arrêté au milieu du paiement.');
         }
         if ($this->panne) {
             // Réponse perdue, mais Stripe a prélevé quand même

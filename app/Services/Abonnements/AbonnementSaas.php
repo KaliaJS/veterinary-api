@@ -72,11 +72,13 @@ final class AbonnementSaas
     private const ACHAT_EN_COURS = ['paiement', 'Un paiement est déjà en cours. Patientez un instant.'];
 
     /**
-     * Minutes pendant lesquelles une demande restée sans réponse peut encore
-     * être traitée chez Stripe sans paraître dans la liste du client
-     * (26.10.2026) : rien d'autre ne part pour la facture, rien ne s'annule.
+     * Une demande restée sans réponse est renvoyée telle quelle (même clé,
+     * même carte) jusqu'à la réponse de Stripe, qui garde une clé au moins
+     * 24 h : pendant ces heures, rien d'autre ne part pour la facture et rien
+     * ne s'annule. Au-delà, on ne renvoie plus : la liste de Stripe fait foi
+     * (recommandation de Stripe, 26.10.2026).
      */
-    private const SUSPENS_MINUTES = 10;
+    private const SUSPENS_HEURES = 23;
 
     /** Alertes quand la carte expire avant le prochain prélèvement : 14 jours avant, puis la veille. */
     private const ALERTE_CARTE_JOURS = [14, 1];
@@ -699,10 +701,10 @@ final class AbonnementSaas
         // Une souscription restée en attente de confirmation est remplacée ;
         // réglée entre-temps, ou traitée par la banque, on n'en lance pas une seconde
         $remplacees = $this->factures($abonne)->where('statut', 'a_payer')->get()
-            ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'souscription')
-            ->map(fn ($f) => $this->annuler($f));
-        if ($remplacees->contains(false)) {
-            throw ValidationException::withMessages(['plan' => $this->dejaPayee($abonne, 'souscription')
+            ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'souscription');
+        $restees = $remplacees->reject(fn ($f) => $this->annuler($f));
+        if ($restees->isNotEmpty()) {
+            throw ValidationException::withMessages(['plan' => $restees->contains(fn ($f) => $f->refresh()->statut === 'payee')
                 ? 'Une souscription précédente vient d’être réglée, est traitée par votre banque ou reste à vérifier : rechargez la page avant de recommencer.'
                 : 'Une souscription précédente est encore traitée par votre banque ou en vérification chez le prestataire. Réessayez dans quelques minutes.']);
         }
@@ -728,10 +730,10 @@ final class AbonnementSaas
         // remplacé ; réglé entre-temps, ou traité par la banque, on n'en lance
         // pas un second (24.10.2026)
         $remplaces = $this->factures($organisation)->where('statut', 'a_payer')->get()
-            ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'changement')
-            ->map(fn ($f) => $this->annuler($f));
-        if ($remplaces->contains(false)) {
-            throw ValidationException::withMessages(['plan' => $this->dejaPayee($organisation, 'changement')
+            ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'changement');
+        $restes = $remplaces->reject(fn ($f) => $this->annuler($f));
+        if ($restes->isNotEmpty()) {
+            throw ValidationException::withMessages(['plan' => $restes->contains(fn ($f) => $f->refresh()->statut === 'payee')
                 ? 'Un changement de formule précédent vient d’être réglé, est traité par votre banque ou reste à vérifier : rechargez la page avant de recommencer.'
                 : 'Un changement de formule précédent est encore traité par votre banque ou en vérification chez le prestataire. Réessayez dans quelques minutes.']);
         }
@@ -976,7 +978,7 @@ final class AbonnementSaas
                     return new Reglement($facture, 'reussi');
                 }
 
-                throw ValidationException::withMessages(['paiement' => 'Le paiement est en cours de vérification chez le prestataire. Réessayez dans un instant.']);
+                throw ValidationException::withMessages(['paiement' => 'Le paiement est en cours de vérification chez le prestataire : il se termine tout seul dans un instant.']);
             }
             throw ValidationException::withMessages(['paiement' => $reglement->message ?? 'La carte a été refusée.']);
         }
@@ -1000,7 +1002,7 @@ final class AbonnementSaas
             }
             throw ValidationException::withMessages(['paiement' => $facture->refresh()->statut === 'payee'
                 ? 'Votre achat précédent vient d’être confirmé : il est réglé.'
-                : 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans un instant.']);
+                : 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans une minute.']);
         }
     }
 
@@ -1085,29 +1087,37 @@ final class AbonnementSaas
             }
         }
 
-        // La même pour une même tentative, avec la même carte, aussi longtemps
-        // qu'aucune réponse n'est arrivée : une réponse perdue (délai dépassé)
-        // puis renvoyée, même une heure plus tard, ne prélève pas deux fois.
-        // Une réponse reçue (refus, prélèvement, erreur de Stripe) ou une autre
-        // carte : une nouvelle tentative
-        $cleIdempotence = 'facture-'.$cle.'-'.($facture->stripe_paiement_id ?? 'premier')
-            .($facture->tentatives_prelevement > 0 ? '-t'.$facture->tentatives_prelevement : '')
-            .'-'.$abonne->stripe_moyen_paiement_id;
-        // Une demande perdue que Stripe peut encore traiter : seule elle repart
-        // (même clé) ; une autre, sur une autre carte, attendrait d'être sûr
-        // (26.10.2026)
-        $enSuspens = self::demandeEnSuspens($facture);
-        if ($enSuspens !== null && $enSuspens !== $cleIdempotence) {
-            return new Reglement($facture, 'refuse', null, 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans un instant.', prestataireEnPanne: true);
+        // Une demande envoyée sans réponse : renvoyée telle quelle (même clé,
+        // même carte, même mode), jamais une autre, jusqu'à la réponse de
+        // Stripe (recommandation de Stripe, 26.10.2026)
+        $demande = self::demandeEnSuspens($facture);
+        if ($demande === null) {
+            // La même pour une même tentative, avec la même carte : une réponse
+            // reçue (refus, prélèvement, erreur de Stripe) ou une autre carte,
+            // une nouvelle tentative
+            $demande = [
+                'le' => now()->toIso8601String(),
+                'cle' => 'facture-'.$cle.'-'.($facture->stripe_paiement_id ?? 'premier')
+                    .($facture->tentatives_prelevement > 0 ? '-t'.$facture->tentatives_prelevement : '')
+                    .'-'.$abonne->stripe_moyen_paiement_id,
+                'moyen' => (string) $abonne->stripe_moyen_paiement_id,
+                'hors_session' => $horsSession,
+            ];
+            // Notée avant l'envoi : une réponse perdue, ou un serveur arrêté au
+            // milieu (déploiement), la laisse à renvoyer
+            $facture->forceFill(['metadonnees' => [...$facture->metadonnees ?? [], 'demande_en_suspens' => $demande]])->save();
         }
+        $cleIdempotence = $demande['cle'];
 
         try {
             $resultat = $this->stripe->prelever(
                 (string) $abonne->stripe_client_id,
-                (string) $abonne->stripe_moyen_paiement_id,
+                $demande['moyen'],
                 $centimes,
                 $facture->numero.' · '.$facture->libelle,
                 ['plateforme' => 'veterinary', 'facture' => $cle],
+                // Le mode de cet appel : « Régler » après l'essai de la nuit, la
+                // passerelle rejoue dans l'autre mode (24.10.2026)
                 $horsSession,
                 $cleIdempotence,
             );
@@ -1118,18 +1128,19 @@ final class AbonnementSaas
             // est à vérifier avant d'être annulée ou refaite (26.10.2026). Erreur
             // de Stripe lui-même (5xx) : il la garde sous cette clé 24 h, la
             // tentative suivante en prend une autre
-            // Sans réponse ou 409, la demande peut encore être traitée chez Stripe
-            if ($e->resultatIncertain()) {
-                $meta = [...$facture->metadonnees ?? [], 'prelevement_incertain' => true];
+            // Sans réponse ou 409, la demande reste en suspens, à renvoyer
+            // telle quelle ; Stripe a répondu (5xx, erreur nette), elle ne l'est plus
+            $meta = $facture->metadonnees ?? [];
+            if (! $e->resultatIncertain() || $e->erreurGardeeParStripe()) {
                 unset($meta['demande_en_suspens']);
-                if (! $e->erreurGardeeParStripe()) {
-                    $meta['demande_en_suspens'] = ['le' => now()->toIso8601String(), 'cle' => $cleIdempotence];
-                }
-                $facture->forceFill([
-                    'metadonnees' => $meta,
-                    ...$e->erreurGardeeParStripe() ? ['tentatives_prelevement' => $facture->tentatives_prelevement + 1] : [],
-                ])->save();
             }
+            if ($e->resultatIncertain()) {
+                $meta['prelevement_incertain'] = true;
+            }
+            $facture->forceFill([
+                'metadonnees' => $meta,
+                ...$e->erreurGardeeParStripe() ? ['tentatives_prelevement' => $facture->tentatives_prelevement + 1] : [],
+            ])->save();
             // La clé de la plateforme refusée : ni la carte ni le client n'y
             // sont pour rien, la plateforme est prévenue (26.10.2026)
             $this->signalerCleRefusee($e, $facture);
@@ -1183,31 +1194,65 @@ final class AbonnementSaas
         $facture->forceFill(['stripe_paiement_id' => $intention, 'metadonnees' => $meta])->save();
     }
 
-    /** Une souscription ou un changement vient d'être réglé : la page affichée n'est plus à jour. */
-    private function dejaPayee(Organisation|User $abonne, string $action): bool
-    {
-        return $this->factures($abonne)->where('statut', 'payee')->where('paye_le', '>=', now()->subMinutes(self::SUSPENS_MINUTES))->get()
-            ->contains(fn ($f) => ($f->metadonnees['action'] ?? null) === $action);
-    }
-
     /**
-     * La clé d'une demande restée sans réponse (ou 409) depuis moins de
-     * SUSPENS_MINUTES : Stripe peut encore la traiter (26.10.2026).
+     * La demande envoyée à Stripe sans réponse encore (ou 409), depuis moins
+     * de SUSPENS_HEURES : à renvoyer telle quelle (26.10.2026).
+     *
+     * @return array{le: string, cle: string, moyen: string, hors_session: bool}|null
      */
-    private static function demandeEnSuspens(OrganisationFacture|FactureProprietaire $facture): ?string
+    private static function demandeEnSuspens(OrganisationFacture|FactureProprietaire $facture): ?array
     {
         $suspens = $facture->metadonnees['demande_en_suspens'] ?? null;
-        if (! is_array($suspens) || ! is_string($suspens['le'] ?? null)) {
+        if (! is_array($suspens) || ! is_string($suspens['le'] ?? null) || ! is_string($suspens['cle'] ?? null)) {
+            return null;
+        }
+        if (! CarbonImmutable::parse($suspens['le'])->addHours(self::SUSPENS_HEURES)->isFuture()) {
             return null;
         }
 
-        return CarbonImmutable::parse($suspens['le'])->addMinutes(self::SUSPENS_MINUTES)->isFuture() ? (string) ($suspens['cle'] ?? '') : null;
+        return ['le' => $suspens['le'], 'cle' => $suspens['cle'], 'moyen' => (string) ($suspens['moyen'] ?? ''), 'hors_session' => (bool) ($suspens['hors_session'] ?? true)];
     }
 
-    /** Une tentative au résultat incertain (erreur de Stripe, avec ou sans réponse) : à vérifier dans la liste du client. */
+    /**
+     * Commande de chaque minute : une demande sans réponse depuis au moins une
+     * minute est renvoyée telle quelle ; refusée, la commande est annulée comme
+     * en présence du client ; sans réponse depuis SUSPENS_HEURES, la liste de
+     * Stripe fait foi (passée, payée ; absente, annulée). Les renouvellements
+     * restent à la commande de chaque heure (26.10.2026).
+     */
+    public function verifierPaiementEnSuspens(OrganisationFacture|FactureProprietaire $facture): void
+    {
+        $suspens = $facture->metadonnees['demande_en_suspens'] ?? null;
+        if ($facture->statut !== 'a_payer' || ! is_array($suspens) || ($facture->metadonnees['action'] ?? null) === 'renouvellement') {
+            return;
+        }
+        if (CarbonImmutable::parse((string) ($suspens['le'] ?? 'now'))->isAfter(now()->subMinute())) {
+            return;
+        }
+
+        if (self::demandeEnSuspens($facture) === null) {
+            Log::warning('Prélèvement sans réponse de Stripe depuis 23 heures : rapproché de sa liste.', ['facture' => $facture->numero]);
+            $this->annuler($facture);
+
+            return;
+        }
+
+        $reglement = $this->encaisser($this->abonneDe($facture), $facture, (bool) ($suspens['hors_session'] ?? true));
+        if ($reglement->statut === 'refuse' && ! $reglement->prestataireEnPanne) {
+            $this->annuler($facture->refresh());
+        }
+    }
+
+    /**
+     * Une tentative au résultat incertain (erreur de Stripe, avec ou sans
+     * réponse, ou demande envoyée sans réponse lue) : à vérifier dans la liste
+     * du client.
+     */
     private static function estIncertaine(OrganisationFacture|FactureProprietaire $facture): bool
     {
-        return $facture->tentatives_prelevement > 0 || (bool) ($facture->metadonnees['prelevement_incertain'] ?? false);
+        return $facture->tentatives_prelevement > 0
+            || (bool) ($facture->metadonnees['prelevement_incertain'] ?? false)
+            || isset($facture->metadonnees['demande_en_suspens']);
     }
 
     /** Facture payée (une seule fois) et ce qu'elle achète, appliqué. */
@@ -1307,8 +1352,9 @@ final class AbonnementSaas
             if ($trouve) {
                 $this->reprendre($facture, $trouve['id']);
             } elseif (self::demandeEnSuspens($facture) !== null) {
-                // Une demande perdue que Stripe peut encore traiter : rien ne
-                // s'annule avant de savoir. Annuler ne prélève jamais (26.10.2026)
+                // Une demande sans réponse, renvoyée jusqu'à la réponse de
+                // Stripe : rien ne s'annule avant de savoir. Annuler ne prélève
+                // jamais (26.10.2026)
                 return false;
             }
         }
