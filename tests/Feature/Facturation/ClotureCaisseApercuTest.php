@@ -385,4 +385,49 @@ class ClotureCaisseApercuTest extends TestCase
         $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [], 'nouveau_fond' => 0, 'encaissements_vus' => 1, 'total_vu' => 'cinquante'], $this->enTetes($this->jeton))
             ->assertJsonValidationErrors(['total_vu' => 'Le total vu est invalide : rechargez la clôture.']);
     }
+
+    /** Fond 200, 300 encaissés, 480 comptés (écart de −20), 200 déposés et 200 en fond : les 80 restants sont dits avec l'écart, à l'écran comme au refus du Z. */
+    public function test_un_ecart_n_empeche_pas_de_dire_les_especes_ni_deposees_ni_dans_le_fond(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+        $donnees = ['fond' => 200, 'comptage' => [10000 => 4, 2000 => 4], 'nouveau_fond' => 200, 'depot' => 200];
+
+        $this->apercu($donnees)
+            ->assertJsonPath('data.ecart', -20)
+            ->assertJsonPath('data.non_ventile', 80)
+            ->assertJsonPath('data.motifs_justification', ['ecart', 'non_ventile']);
+        $this->postJson('/api/v1/facturation/clotures-caisse', $donnees, $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['note' => 'Écart de caisse : une justification est obligatoire dans la note. CHF 80.00 comptés ne sont ni déposés ni dans le nouveau fond : expliquez-le dans la note.']);
+    }
+
+    /** Un écart, une carte saisie sans terminal et des espèces non ventilées : les trois motifs sont servis, dans cet ordre. */
+    public function test_tous_les_motifs_de_la_note_sont_servis(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+        $this->facturePayee(MoyenPaiement::Tpe, 85, aLaMain: true);
+
+        $this->apercu(['fond' => 200, 'comptage' => [10000 => 4, 2000 => 4], 'nouveau_fond' => 200, 'depot' => 200])
+            ->assertJsonPath('data.motifs_justification', ['ecart', 'sans_terminal', 'non_ventile'])
+            ->assertJsonPath('data.motif_justification', 'ecart');
+    }
+
+    /** Le Z enregistré dit ce qui n'est ni déposé ni dans le fond : 480 comptés, 200 déposés, 200 en fond, 80. */
+    public function test_le_z_enregistre_sert_les_especes_non_ventilees(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 200, 'comptage' => [10000 => 4, 2000 => 4], 'nouveau_fond' => 200, 'depot' => 200, 'note' => '20 manquants, 80 au coffre.'], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.non_ventile', 80);
+    }
+
+    /** Trois pièces de 50 centimes et un billet de 10 : 11.50 comptés. */
+    public function test_les_pieces_de_cinquante_centimes_sont_comptees(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 11.5);
+
+        $this->apercu(['fond' => 0, 'comptage' => [1000 => 1, 50 => 3], 'nouveau_fond' => 0])
+            ->assertJsonPath('data.especes_comptees', 11.5)
+            ->assertJsonPath('data.ecart', 0);
+    }
 }

@@ -115,13 +115,13 @@ class ClotureCaisseController extends Controller
             // La même règle que l'aperçu : un écart, ou (paiements intégrés) une
             // carte ou un TWINT saisi à la main, qui pourrait cacher des espèces gardées
             $note = trim((string) ($donnees['note'] ?? ''));
-            if ($arrete['motif_justification'] !== null && $note === '') {
+            if ($arrete['justification_requise'] && $note === '') {
                 $saisiesALaMain = $arrete['sans_terminal'];
-                throw ValidationException::withMessages(['note' => match ($arrete['motif_justification']) {
+                throw ValidationException::withMessages(['note' => implode(' ', array_map(fn (string $motif): string => match ($motif) {
                     'ecart' => 'Écart de caisse : une justification est obligatoire dans la note.',
                     'non_ventile' => 'CHF '.number_format($arrete['non_ventile'], 2, '.', '’').' comptés ne sont ni déposés ni dans le nouveau fond : expliquez-le dans la note.',
                     default => $saisiesALaMain.($saisiesALaMain > 1 ? ' paiements par carte ou TWINT ont été saisis' : ' paiement par carte ou TWINT a été saisi').' sans terminal : justifiez-les dans la note.',
-                }]);
+                }, $arrete['motifs_justification']))]);
             }
 
             if ($arrete['alerte_depot'] !== null) {

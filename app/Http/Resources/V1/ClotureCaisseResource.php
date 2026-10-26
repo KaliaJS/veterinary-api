@@ -30,6 +30,8 @@ class ClotureCaisseResource extends JsonResource
             'ecart' => (float) $this->ecart,
             'depot' => (float) $this->depot,
             'nouveau_fond' => (float) $this->nouveau_fond,
+            // Compté mais ni déposé ni laissé en fond (justifié dans la note)
+            'non_ventile' => max(0.0, round((float) $this->especes_comptees - (float) $this->depot - (float) $this->nouveau_fond, 2)),
             'note' => $this->note,
             'nombre_factures' => $this->whenCounted('factures'),
             'facture_ids' => $this->whenLoaded('factures', fn () => $this->factures->pluck('id')),
