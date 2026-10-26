@@ -30,6 +30,9 @@ use Laravel\Sanctum\NewAccessToken;
  */
 class EmetteurJetons
 {
+    /** Nom d'appareil du jeton de l'Apple Watch */
+    public const string APPAREIL_MONTRE = 'montre';
+
     /**
      * Connexion en un temps : rattachement résolu puis jeton émis. Un
      * rattachement multiple sans choix est refusé (422) — les voies de
@@ -85,6 +88,32 @@ class EmetteurJetons
 
         $this->garderLaSession($resultat['jeton'], $jetonCourant);
         $jetonCourant->delete();
+
+        return $resultat;
+    }
+
+    /**
+     * Jeton de l'Apple Watch (26.10.2026), demandé par l'app iPhone : même
+     * compte, même clinique (ou sans clinique), même début de session.
+     * Le jeton qui le demande reste valable. Un seul jeton de montre par
+     * compte : le précédent est révoqué. La montre le renouvelle ensuite
+     * elle-même (rafraichir garde le nom de l'appareil).
+     *
+     * @return array{jeton: NewAccessToken, employe: Employe|null}
+     */
+    public function emettrePourMontre(User $user, JetonApi $jetonCourant): array
+    {
+        $this->exigerSessionEnCours($jetonCourant);
+
+        $resultat = $jetonCourant->clinique_id === null
+            ? ['jeton' => $this->emettreSansClinique($user, self::APPAREIL_MONTRE), 'employe' => null]
+            : $this->emettre($user, $jetonCourant->clinique_id, self::APPAREIL_MONTRE);
+
+        $user->tokens()
+            ->where('name', self::APPAREIL_MONTRE)
+            ->whereKeyNot($resultat['jeton']->accessToken->getKey())
+            ->delete();
+        $this->garderLaSession($resultat['jeton'], $jetonCourant);
 
         return $resultat;
     }

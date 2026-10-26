@@ -44,6 +44,21 @@ class SessionController extends Controller
         return new JetonEmisResource($resultat['jeton'], $resultat['employe']);
     }
 
+    /**
+     * Jeton de l'Apple Watch, demandé par l'app iPhone : la montre le
+     * garde dans son trousseau et le renouvelle elle-même. Le jeton de
+     * l'iPhone reste valable.
+     */
+    public function montre(Request $request, EmetteurJetons $emetteur): JetonEmisResource
+    {
+        /** @var JetonApi $jeton */
+        $jeton = $request->user()->currentAccessToken();
+
+        $resultat = $emetteur->emettrePourMontre($request->user(), $jeton);
+
+        return new JetonEmisResource($resultat['jeton'], $resultat['employe']);
+    }
+
     public function deconnexion(Request $request): Response
     {
         /** @var JetonApi $jeton */

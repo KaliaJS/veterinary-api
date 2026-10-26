@@ -172,6 +172,8 @@ Route::prefix('v1')->group(function (): void {
     Route::prefix('auth')->middleware(['auth:sanctum', 'clinique:facultatif'])->group(function (): void {
         Route::get('moi', [SessionController::class, 'moi']);
         Route::post('rafraichir', [SessionController::class, 'rafraichir']);
+        // Jeton de l'Apple Watch, demandé par l'app iPhone
+        Route::post('montre', [SessionController::class, 'montre'])->middleware('throttle:10,1');
         Route::post('clinique', ChangementCliniqueController::class);
         Route::post('deconnexion', [SessionController::class, 'deconnexion']);
         // Profil vétérinaire du compte : GLN (cherché dans MedReg) et spécialités
