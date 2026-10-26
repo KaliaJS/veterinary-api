@@ -499,13 +499,23 @@ class DomaineSiteTest extends TestCase
     {
         Mail::fake();
         config(['sites.domaines.fournisseur' => 'cloudflare', 'plateforme.alerte_email' => 'alertes@plateforme.test']);
+        // Un seul faux, qui lit la panne du tour (des faux successifs s'empileraient)
+        $panne = 429;
+        $appels = [];
+        Http::fake(['api.cloudflare.com/*' => function () use (&$panne, &$appels) {
+            $appels[] = $panne;
+            if ($panne === 0) {
+                throw new ConnectionException('cURL error 28: timeout');
+            }
+
+            return Http::response(['success' => false], $panne);
+        }]);
         foreach ([429, 500, 503, 0] as $panne) {
-            Http::fake(['api.cloudflare.com/*' => $panne === 0
-                ? fn () => throw new ConnectionException('cURL error 28: timeout')
-                : Http::response(['success' => false], $panne)]);
             $this->putJson('/api/v1/site/domaine', ['domaine' => 'www.ma-clinique.ch'], $this->enTetes($this->jeton))->assertUnprocessable();
             rescue(fn () => app(FournisseurCloudflare::class)->retirer('www.autre-clinique.ch', 'ch-9'), report: false);
         }
+        // Chaque panne a bien été servie, à l'ajout comme au retrait
+        $this->assertSame([429, 500, 503, 0], array_values(array_unique($appels)));
 
         Mail::assertNotSent(JetonCloudflareRefuse::class);
     }

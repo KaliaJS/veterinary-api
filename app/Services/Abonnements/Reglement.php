@@ -17,6 +17,8 @@ final readonly class Reglement
         public string $statut,
         public ?string $clientSecret = null,
         public ?string $message = null,
+        // Stripe en panne ou injoignable : rien n'a été refusé par la banque (26.10.2026)
+        public bool $prestataireEnPanne = false,
     ) {}
 
     public function estPaye(): bool

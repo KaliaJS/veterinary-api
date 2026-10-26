@@ -779,7 +779,7 @@ class OrganisationTest extends TestCase
         $avant = count($this->stripe->prelevements);
         $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['plan' => 'Un changement de formule précédent vient d’être réglé ou est traité par votre banque : rechargez la page avant de recommencer.']);
+            ->assertJsonValidationErrors(['plan' => 'Un changement de formule précédent vient d’être réglé, est traité par votre banque ou reste à vérifier : rechargez la page avant de recommencer.']);
         $this->assertCount($avant, $this->stripe->prelevements);
     }
 
@@ -1189,7 +1189,7 @@ class OrganisationTest extends TestCase
         $this->stripe->refus = null;
     }
 
-    /** D26.1c : dernière relance en erreur 500, Stripe injoignable pour vérifier : l'accès ne se ferme pas, aucun e-mail « accès fermé », on revient six heures plus tard (26.10.2026). */
+    /** D26.1c : dernière relance en erreur 500, Stripe injoignable pour vérifier : l'accès ne se ferme pas, aucun e-mail « accès fermé », on revient une heure plus tard (26.10.2026). */
     public function test_une_derniere_relance_inverifiable_ne_ferme_rien_et_n_ecrit_pas(): void
     {
         $this->jusquALaDerniereRelance();
@@ -1206,13 +1206,13 @@ class OrganisationTest extends TestCase
         $organisation = Organisation::query()->findOrFail($this->organisationId());
         $this->assertSame('impaye', $organisation->statut_abonnement);
         $this->assertSame($avant, $fermetures());
-        $this->assertSame('2026-11-23 13:00', $organisation->prochaine_tentative_le->timezone('Europe/Zurich')->format('Y-m-d H:i'));
+        $this->assertSame('2026-11-23 09:00', $organisation->prochaine_tentative_le->timezone('Europe/Zurich')->format('Y-m-d H:i'));
 
         // Stripe répond de nouveau, la carte est refusée : l'accès se ferme, un e-mail
         $this->stripe->erreurServeur = null;
         $this->stripe->listeEnPanne = false;
         $this->stripe->refus = 'Fonds insuffisants sur la carte.';
-        $this->voyager('2026-11-23 13:00');
+        $this->voyager('2026-11-23 09:00');
         $this->artisan('abonnements:renouveler')->assertSuccessful();
         $this->assertSame('resilie', $organisation->refresh()->statut_abonnement);
         $this->assertSame($avant + 1, $fermetures());
@@ -1279,6 +1279,66 @@ class OrganisationTest extends TestCase
 
         $this->assertCount($avant, $this->stripe->prelevements);
         $this->assertSame('a_payer', $facture->refresh()->statut);
+    }
+
+    /** D26.1c : un pack passé alors que la réponse s'est perdue (délai) : retrouvé dans la liste du client, il est payé, jamais annulé ni refait (26.10.2026). */
+    public function test_un_pack_a_la_reponse_perdue_est_reconnu_paye(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $avant = count($this->stripe->prelevements);
+
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->stripe->passeMalgreErreur = true;
+        $this->postJson('/api/v1/organisation/packs', ['type' => 'emails', 'quantite' => 5000], $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertCount($avant + 1, $this->stripe->prelevements);
+        $packs = Organisation::query()->findOrFail($this->organisationId())->facturesAbonnement()->get()->filter(fn ($f) => ($f->metadonnees['type'] ?? null) === 'pack');
+        $this->assertSame(['payee'], $packs->pluck('statut')->values()->all());
+    }
+
+    /** D26.1c : dernière relance passée alors que la réponse s'est perdue : payée, l'abonnement continue, aucun e-mail « accès fermé » (26.10.2026). */
+    public function test_une_derniere_relance_a_la_reponse_perdue_passee_ne_ferme_rien(): void
+    {
+        $this->jusquALaDerniereRelance();
+        $fermetures = fn () => count(Mail::sent(PaiementAbonnementRefuse::class, fn ($mail) => $mail->prochaineTentative === null));
+        $avant = $fermetures();
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->stripe->passeMalgreErreur = true;
+
+        $this->voyager('2026-11-23 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $this->assertSame('actif', Organisation::query()->findOrFail($this->organisationId())->statut_abonnement);
+        $this->assertSame($avant, $fermetures());
+    }
+
+    /** Une panne de Stripe au renouvellement n'est pas un refus de la carte : ni relance consommée, ni e-mail « paiement refusé », nouvel essai une heure plus tard (26.10.2026). */
+    public function test_une_panne_de_stripe_au_renouvellement_n_est_pas_un_refus(): void
+    {
+        $this->jamaisAbonnee();
+        Mail::fake();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+        $this->stripe->erreurServeur = 500;
+
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame('impaye', $organisation->statut_abonnement);
+        $this->assertSame(0, (int) $organisation->tentatives);
+        $this->assertSame('2026-11-20 07:00', $organisation->prochaine_tentative_le->timezone('Europe/Zurich')->format('Y-m-d H:i'));
+        Mail::assertNotSent(PaiementAbonnementRefuse::class);
+
+        // Stripe répond de nouveau une heure plus tard : payé
+        $this->stripe->erreurServeur = null;
+        $this->voyager('2026-11-20 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertSame('actif', $organisation->refresh()->statut_abonnement);
     }
 
     /** Abonnée le 20.10.2026 à Cabinet, carte enregistrée, le renouvellement du 20.11 sera refusé. */

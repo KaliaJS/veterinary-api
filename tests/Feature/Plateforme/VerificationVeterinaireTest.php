@@ -122,6 +122,36 @@ class VerificationVeterinaireTest extends TestCase
         $this->assertSame(self::GLN, $lea->refresh()->gln);
     }
 
+    /** D26.1c : un badge passé malgré une erreur 500, Stripe injoignable pour vérifier : jamais payé deux fois avant de savoir (26.10.2026). */
+    public function test_un_badge_en_doute_n_est_jamais_paye_deux_fois(): void
+    {
+        $clinique = Clinique::factory()->create();
+        ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        $entetes = $this->enTetes($jeton);
+        $this->putJson('/api/v1/auth/profil-veterinaire', ['gln' => self::GLN, 'specialites' => []], $entetes)->assertOk();
+        $this->app->instance(PasserellePaiement::class, new PasserellePaiementFactice);
+        $stripe = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $stripe);
+        $this->postJson('/api/v1/espace/abonnement/carte/intention', [], $entetes)->assertOk();
+        $client = User::query()->whereNotNull('stripe_client_id')->latest('id')->value('stripe_client_id');
+        $this->putJson('/api/v1/espace/abonnement/carte', ['payment_method' => $stripe->carteConfirmee($client)], $entetes)->assertOk();
+        $payer = fn () => $this->postJson('/api/v1/auth/identite/paiement', [], $entetes);
+
+        $stripe->erreurServeur = 500;
+        $stripe->passeMalgreErreur = true;
+        $stripe->listeEnPanne = true;
+        $payer()->assertUnprocessable();
+        $stripe->erreurServeur = null;
+        $stripe->passeMalgreErreur = false;
+        $payer()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans un instant.']);
+        $this->assertCount(1, $stripe->prelevements);
+
+        $stripe->listeEnPanne = false;
+        $payer()->assertUnprocessable();
+        $this->assertCount(1, $stripe->prelevements);
+        $this->assertNotNull(User::query()->where('stripe_client_id', $client)->value('identite_payee_le'));
+    }
+
     public function test_un_badge_paye_au_meme_nom_que_medreg_se_donne_seul(): void
     {
         $clinique = Clinique::factory()->create();

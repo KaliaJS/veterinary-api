@@ -97,6 +97,14 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
         $this->cles[] = $cleIdempotence;
         $this->journal[] = 'prelever';
         if ($this->panne) {
+            // Réponse perdue, mais Stripe a prélevé quand même
+            if ($this->passeMalgreErreur) {
+                $id = 'pi_'.++$this->sequence;
+                $this->prelevements[$id] = [
+                    'id' => $id, 'client' => $client, 'moyen' => $moyen, 'centimes' => $centimes, 'libelle' => $libelle,
+                    'metadonnees' => $metadonnees, 'hors_session' => $horsSession, 'statut' => 'reussi', 'cle' => $cleIdempotence,
+                ];
+            }
             throw new ErreurPaiement($this->panne, 'api_error');
         }
         $id = 'pi_'.++$this->sequence;

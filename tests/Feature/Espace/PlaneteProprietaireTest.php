@@ -7,6 +7,7 @@ use App\Models\Patient;
 use App\Paiements\PasserelleAbonnement;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserelleAbonnementFactice;
 use Tests\TestCase;
@@ -41,6 +42,55 @@ class PlaneteProprietaireTest extends TestCase
         $this->postJson('/api/v1/espace/planete/achats', ['article' => 'licorne'], $entetes)->assertUnprocessable()->assertJsonValidationErrors('article');
         $this->getJson('/api/v1/espace/abonnement', $entetes)
             ->assertOk()->assertJsonPath('data.factures.0.libelle', 'Niche pour votre planète')->assertJsonPath('data.factures.0.montant', 2);
+    }
+
+    /** D26.1c : un objet passé malgré une erreur (500 ou réponse perdue), Stripe injoignable pour vérifier : jamais payé deux fois avant de savoir (26.10.2026). */
+    public function test_un_objet_en_doute_n_est_jamais_paye_deux_fois(): void
+    {
+        $stripe = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $stripe);
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $entetes = $this->enTetes($jeton);
+        $this->postJson('/api/v1/espace/abonnement/carte/intention', [], $entetes)->assertOk();
+        $this->putJson('/api/v1/espace/abonnement/carte', ['payment_method' => $stripe->carteConfirmee($user->refresh()->stripe_client_id)], $entetes)->assertOk();
+        $acheter = fn (string $article) => $this->postJson('/api/v1/espace/planete/achats', ['article' => $article], $entetes);
+
+        foreach (['erreur 500' => 'niche', 'réponse perdue' => 'balle'] as $cas => $article) {
+            $avant = count($stripe->prelevements);
+            $cas === 'erreur 500' ? $stripe->erreurServeur = 500 : $stripe->panne = 'Délai dépassé.';
+            $stripe->passeMalgreErreur = true;
+            $stripe->listeEnPanne = true;
+            $acheter($article)->assertUnprocessable();
+
+            $stripe->erreurServeur = null;
+            $stripe->panne = null;
+            $stripe->passeMalgreErreur = false;
+            $acheter($article)->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans un instant.']);
+            $this->assertCount($avant + 1, $stripe->prelevements, $cas);
+
+            $stripe->listeEnPanne = false;
+            $acheter($article)->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Votre achat précédent vient d’être confirmé : il est réglé.']);
+            $this->assertCount($avant + 1, $stripe->prelevements, $cas);
+            $this->assertContains($article, $this->getJson('/api/v1/espace/planete', $entetes)->json('data.possedes'), $cas);
+        }
+    }
+
+    /** Deux clics au même instant sur un achat : le second attend que le premier finisse (26.10.2026). */
+    public function test_un_achat_deja_en_cours_n_en_lance_pas_un_second(): void
+    {
+        $stripe = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $stripe);
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $entetes = $this->enTetes($jeton);
+        $this->postJson('/api/v1/espace/abonnement/carte/intention', [], $entetes)->assertOk();
+        $this->putJson('/api/v1/espace/abonnement/carte', ['payment_method' => $stripe->carteConfirmee($user->refresh()->stripe_client_id)], $entetes)->assertOk();
+
+        $verrou = Cache::lock('abonnement:proprietaire:'.$user->id, 120);
+        $this->assertTrue($verrou->get());
+        $this->postJson('/api/v1/espace/planete/achats', ['article' => 'niche'], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Un achat est déjà en cours. Patientez un instant.']);
+        $this->assertSame([], $stripe->prelevements);
+        $verrou->release();
     }
 
     public function test_le_deces_d_un_animal_se_declare_et_s_annule(): void

@@ -68,6 +68,8 @@ final class AbonnementSaas
      */
     private const RELANCES = [1, 1, 1];
 
+    private const ACHAT_EN_COURS = ['paiement', 'Un achat est déjà en cours. Patientez un instant.'];
+
     /** Alertes quand la carte expire avant le prochain prélèvement : 14 jours avant, puis la veille. */
     private const ALERTE_CARTE_JOURS = [14, 1];
 
@@ -380,14 +382,14 @@ final class AbonnementSaas
         }
         $this->exigerCarte($organisation);
 
-        $this->verifierAchatEnSuspens($organisation, 'pack');
+        return $this->sousVerrouAbonne($organisation, function () use ($organisation, $type, $quantite, $prix): Reglement {
+            $this->verifierAchatEnSuspens($organisation, 'pack');
+            $facture = $this->creerFacture($organisation, [['libelle' => $type->libelle($quantite), 'montant' => $prix * 100]], [
+                'type' => 'pack', 'pack' => $type->value, 'quantite' => (string) $quantite,
+            ]);
 
-        $libelle = $type->libelle($quantite);
-        $facture = $this->creerFacture($organisation, [['libelle' => $libelle, 'montant' => $prix * 100]], [
-            'type' => 'pack', 'pack' => $type->value, 'quantite' => (string) $quantite,
-        ]);
-
-        return $this->encaisserMaintenant($organisation, $facture);
+            return $this->encaisserMaintenant($organisation, $facture);
+        }, self::ACHAT_EN_COURS);
     }
 
     /** Objet acheté une fois, posé sur la planète dès le paiement. */
@@ -397,13 +399,19 @@ final class AbonnementSaas
             throw ValidationException::withMessages(['article' => 'Cet objet est déjà sur votre planète.']);
         }
         $this->exigerCarte($user);
-        $this->verifierAchatEnSuspens($user, 'planete');
 
-        $facture = $this->creerFacture($user, [['libelle' => $article->nom().' pour votre planète', 'montant' => $article->centimes()]], [
-            'type' => 'planete', 'article' => $article->value,
-        ]);
+        return $this->sousVerrouAbonne($user, function () use ($user, $article): Reglement {
+            $this->verifierAchatEnSuspens($user, 'planete');
+            // Relu sous le verrou : un second clic n'achète pas deux fois le même objet
+            if (AchatPlanete::query()->where('user_id', $user->id)->where('article', $article)->exists()) {
+                throw ValidationException::withMessages(['article' => 'Cet objet est déjà sur votre planète.']);
+            }
+            $facture = $this->creerFacture($user, [['libelle' => $article->nom().' pour votre planète', 'montant' => $article->centimes()]], [
+                'type' => 'planete', 'article' => $article->value,
+            ]);
 
-        return $this->encaisserMaintenant($user, $facture);
+            return $this->encaisserMaintenant($user, $facture);
+        }, self::ACHAT_EN_COURS);
     }
 
     /**
@@ -419,13 +427,18 @@ final class AbonnementSaas
             throw ValidationException::withMessages(['gln' => 'Indiquez d’abord votre GLN dans votre profil.']);
         }
         $this->exigerCarte($user);
-        $this->verifierAchatEnSuspens($user, 'identite');
 
-        $facture = $this->creerFacture($user, [['libelle' => 'Vérification d’identité (badge vétérinaire vérifié)', 'montant' => VerificationIdentite::PRIX_BADGE_CENTIMES]], [
-            'type' => 'identite',
-        ]);
+        return $this->sousVerrouAbonne($user, function () use ($user): Reglement {
+            $this->verifierAchatEnSuspens($user, 'identite');
+            if ($user->identite_payee_le !== null) {
+                throw ValidationException::withMessages(['identite' => 'Votre vérification d’identité est déjà réglée ou en cours.']);
+            }
+            $facture = $this->creerFacture($user, [['libelle' => 'Vérification d’identité (badge vétérinaire vérifié)', 'montant' => VerificationIdentite::PRIX_BADGE_CENTIMES]], [
+                'type' => 'identite',
+            ]);
 
-        return $this->encaisserMaintenant($user, $facture);
+            return $this->encaisserMaintenant($user, $facture);
+        }, self::ACHAT_EN_COURS);
     }
 
     /* ————— Factures à régler ————— */
@@ -620,7 +633,7 @@ final class AbonnementSaas
             ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'souscription')
             ->map(fn ($f) => $this->annuler($f));
         if ($remplacees->contains(false)) {
-            throw ValidationException::withMessages(['plan' => 'Une souscription précédente vient d’être réglée ou est traitée par votre banque : rechargez la page avant de recommencer.']);
+            throw ValidationException::withMessages(['plan' => 'Une souscription précédente vient d’être réglée, est traitée par votre banque ou reste à vérifier : rechargez la page avant de recommencer.']);
         }
         // Relu : la facture annulée a rendu ses frais d'identité à l'organisation
         if ($remplacees->isNotEmpty()) {
@@ -647,7 +660,7 @@ final class AbonnementSaas
             ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'changement')
             ->map(fn ($f) => $this->annuler($f));
         if ($remplaces->contains(false)) {
-            throw ValidationException::withMessages(['plan' => 'Un changement de formule précédent vient d’être réglé ou est traité par votre banque : rechargez la page avant de recommencer.']);
+            throw ValidationException::withMessages(['plan' => 'Un changement de formule précédent vient d’être réglé, est traité par votre banque ou reste à vérifier : rechargez la page avant de recommencer.']);
         }
         if ($remplaces->isNotEmpty()) {
             $organisation->refresh();
@@ -713,6 +726,25 @@ final class AbonnementSaas
 
     private function echecRenouvellement(Organisation|User $abonne, Reglement $reglement): void
     {
+        // Stripe en panne ou injoignable : la carte n'a pas été refusée. Ni
+        // relance consommée, ni e-mail ; on réessaie dans une heure (26.10.2026)
+        if ($reglement->prestataireEnPanne) {
+            // Passé malgré l'erreur et déjà visible chez Stripe : payé tout de suite
+            $facture = $reglement->facture;
+            $trouve = self::estIncertaine($facture)
+                ? rescue(fn () => $this->prelevementIncertainPasse($abonne, $facture, self::cleFacture($facture)), null, false)
+                : null;
+            if ($trouve !== null && $trouve['statut'] === 'reussi') {
+                $facture->forceFill(['stripe_paiement_id' => $trouve['id']])->save();
+                $this->payer($facture);
+
+                return;
+            }
+            $abonne->forceFill(['statut_abonnement' => 'impaye', 'prochaine_tentative_le' => now()->addHour()])->save();
+
+            return;
+        }
+
         $tentatives = (int) $abonne->tentatives + 1;
         $dernier = $tentatives > count(self::RELANCES);
         $transcription = null;
@@ -757,8 +789,9 @@ final class AbonnementSaas
      * période qui ne commencera pas est annulée ; une reprise ouvrira une
      * nouvelle période le jour du paiement. Les minutes de transcription
      * déjà consommées restent dues, sur leur propre facture.
+     *
+     * @return OrganisationFacture|null|false false : rien ne s'est fermé (payée, en cours, ou pas vérifiable)
      */
-    /** @return OrganisationFacture|null|false false : rien ne s'est fermé (payée, en cours, ou pas vérifiable) */
     private function fermerFauteDePaiement(Organisation|User $abonne, OrganisationFacture|FactureProprietaire $facture): OrganisationFacture|false|null
     {
         // Passée, traitée par la banque ou pas vérifiable : rien ne se ferme
@@ -879,8 +912,8 @@ final class AbonnementSaas
      */
     private function verifierAchatEnSuspens(Organisation|User $abonne, string $type): void
     {
-        $enSuspens = $this->factures($abonne)->where('statut', 'a_payer')->where('tentatives_prelevement', '>', 0)->get()
-            ->filter(fn ($f) => ($f->metadonnees['type'] ?? null) === $type);
+        $enSuspens = $this->factures($abonne)->where('statut', 'a_payer')->get()
+            ->filter(fn ($f) => ($f->metadonnees['type'] ?? null) === $type && self::estIncertaine($f));
         foreach ($enSuspens as $facture) {
             if ($this->annuler($facture)) {
                 continue;
@@ -956,12 +989,12 @@ final class AbonnementSaas
         // est incertain (26.10.2026). Avant d'en lancer une autre avec une
         // nouvelle clé, on cherche chez Stripe un prélèvement de cette facture
         // passé ou en cours, qui est alors repris
-        if ($facture->tentatives_prelevement > 0) {
+        if (self::estIncertaine($facture)) {
             try {
                 $trouve = $this->prelevementIncertainPasse($abonne, $facture, $cle);
             } catch (ErreurPaiement $e) {
                 // Sans réponse sûre, rien n'est tenté : on réessaiera
-                return new Reglement($facture, 'refuse', null, $e->getMessage());
+                return new Reglement($facture, 'refuse', null, $e->getMessage(), prestataireEnPanne: true);
             }
             if ($trouve) {
                 $facture->forceFill(['stripe_paiement_id' => $trouve['id']])->save();
@@ -990,12 +1023,22 @@ final class AbonnementSaas
         } catch (ErreurPaiement $e) {
             // Erreur du prestataire : traitée comme un refus (la facture ne reste pas orpheline)
             Log::warning('Prélèvement impossible.', ['facture' => $facture->numero, 'erreur' => $e->getMessage()]);
-            // Erreur de Stripe lui-même (5xx) : il la garde sous cette clé 24 h,
-            // la tentative suivante en prend une autre (26.10.2026)
-            if ($e->erreurGardeeParStripe()) {
-                $facture->forceFill(['tentatives_prelevement' => $facture->tentatives_prelevement + 1])->save();
-            }
+            // Avec ou sans réponse, le prélèvement a pu passer : la facture est
+            // à vérifier avant d'être annulée ou refaite (26.10.2026). Erreur de
+            // Stripe lui-même (5xx) : il la garde sous cette clé 24 h, la
+            // tentative suivante en prend une autre
+            $facture->forceFill([
+                'metadonnees' => [...$facture->metadonnees ?? [], 'prelevement_incertain' => true],
+                ...$e->erreurGardeeParStripe() ? ['tentatives_prelevement' => $facture->tentatives_prelevement + 1] : [],
+            ])->save();
+            $panne = true;
             $resultat = ['id' => null, 'statut' => 'refuse', 'client_secret' => null, 'message' => $e->getMessage()];
+        }
+        // Une réponse nette de Stripe : plus rien d'incertain
+        if (! ($panne ?? false) && ($facture->metadonnees['prelevement_incertain'] ?? false)) {
+            $meta = $facture->metadonnees;
+            unset($meta['prelevement_incertain']);
+            $facture->forceFill(['metadonnees' => $meta])->save();
         }
 
         // Sans réponse du prestataire, la tentative précédente reste la référence
@@ -1008,7 +1051,19 @@ final class AbonnementSaas
             Log::info('Prélèvement refusé.', ['facture' => $facture->numero, 'message' => $resultat['message']]);
         }
 
-        return new Reglement($facture->refresh(), $resultat['statut'], $resultat['client_secret'], $resultat['message']);
+        return new Reglement($facture->refresh(), $resultat['statut'], $resultat['client_secret'], $resultat['message'], prestataireEnPanne: $panne ?? false);
+    }
+
+    /** La facture telle que Stripe la connaît (métadonnée `facture`). */
+    private static function cleFacture(OrganisationFacture|FactureProprietaire $facture): string
+    {
+        return ($facture instanceof OrganisationFacture ? 'organisation' : 'proprietaire').':'.$facture->id;
+    }
+
+    /** Une tentative au résultat incertain (erreur de Stripe, avec ou sans réponse) : à vérifier dans la liste du client. */
+    private static function estIncertaine(OrganisationFacture|FactureProprietaire $facture): bool
+    {
+        return $facture->tentatives_prelevement > 0 || (bool) ($facture->metadonnees['prelevement_incertain'] ?? false);
     }
 
     /** Facture payée (une seule fois) et ce qu'elle achète, appliqué. */
@@ -1096,9 +1151,9 @@ final class AbonnementSaas
         // Une tentative au résultat incertain (erreur de Stripe) : passée, elle
         // devient la référence, et la facture n'est pas annulée à tort ; sans
         // réponse de Stripe pour le vérifier, elle reste due (26.10.2026)
-        if ($facture->tentatives_prelevement > 0) {
+        if (self::estIncertaine($facture)) {
             try {
-                $trouve = $this->prelevementIncertainPasse($this->abonneDe($facture), $facture, ($facture instanceof OrganisationFacture ? 'organisation' : 'proprietaire').':'.$facture->id);
+                $trouve = $this->prelevementIncertainPasse($this->abonneDe($facture), $facture, self::cleFacture($facture));
             } catch (ErreurPaiement $e) {
                 report($e);
 
@@ -1241,13 +1296,17 @@ final class AbonnementSaas
      * factures prélevées chacune. L'abonné est relu sous le verrou : les
      * contrôles portent sur l'état laissé par la requête précédente.
      *
+     * Les achats immédiats (pack, objet, badge) passent aussi par lui
+     * (26.10.2026) : deux clics ne font pas deux prélèvements.
+     *
      * @param  callable(): ?Reglement  $action
+     * @param  array{0: string, 1: string}  $occupe  champ et message quand le verrou est pris
      */
-    private function sousVerrouAbonne(Organisation|User $abonne, callable $action): ?Reglement
+    private function sousVerrouAbonne(Organisation|User $abonne, callable $action, array $occupe = ['plan', 'Une souscription est déjà en cours. Patientez un instant.']): ?Reglement
     {
         $verrou = Cache::lock('abonnement:'.($abonne instanceof Organisation ? 'organisation' : 'proprietaire').':'.$abonne->id, 120);
         if (! $verrou->get()) {
-            throw ValidationException::withMessages(['plan' => 'Une souscription est déjà en cours. Patientez un instant.']);
+            throw ValidationException::withMessages([$occupe[0] => $occupe[1]]);
         }
 
         try {
