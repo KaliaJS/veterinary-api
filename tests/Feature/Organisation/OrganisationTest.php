@@ -18,6 +18,7 @@ use App\Models\OrganisationFacture;
 use App\Models\Role;
 use App\Models\Societe;
 use App\Models\User;
+use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserellePaiement;
 use App\Services\Abonnements\AbonnementSaas;
@@ -2242,18 +2243,105 @@ class OrganisationTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement est en cours de vérification chez le prestataire : il se termine tout seul dans un instant.']);
     }
 
-    /** Les renouvellements restent à la commande de chaque heure, qui renvoie la même demande : la vérification de chaque minute ne les touche pas. */
-    public function test_la_verification_de_chaque_minute_laisse_les_renouvellements(): void
+    /** « Régler » un renouvellement en relance, sans réponse de Stripe : renvoyé dès la minute suivante, payé, sans attendre la relance du lendemain. */
+    public function test_regler_une_relance_sans_reponse_est_renvoye_la_minute_suivante(): void
     {
-        $this->abonneeACabinet();
+        $this->abonneeAvecRenouvellementRefuse();
+        $this->stripe->refus = null;
+        $this->voyager('2026-11-20 08:00');
+        $facture = OrganisationFacture::query()->where('statut', 'a_payer')->sole();
         $this->stripe->panne = 'Délai dépassé.';
-        $this->voyager('2026-11-20 06:00');
-        $this->artisan('abonnements:renouveler')->assertSuccessful();
-        $cles = count($this->stripe->cles);
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->stripe->panne = null;
 
         $this->verifierLesPaiements();
 
-        $this->assertCount($cles, $this->stripe->cles);
+        $this->assertSame('payee', $facture->refresh()->statut);
+        $this->assertSame('actif', Organisation::query()->findOrFail($this->organisationId())->statut_abonnement);
+    }
+
+    /** Un renouvellement refusé au renvoi n'est jamais annulé par la vérification : il reste à la relance prévue, qui ne compte rien de plus. */
+    public function test_un_renouvellement_refuse_au_renvoi_reste_aux_relances(): void
+    {
+        $this->abonneeAvecRenouvellementRefuse();
+        $this->voyager('2026-11-20 08:00');
+        $facture = OrganisationFacture::query()->where('statut', 'a_payer')->sole();
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->stripe->panne = null;
+
+        $this->verifierLesPaiements();
+
+        $this->assertSame('a_payer', $facture->refresh()->statut);
+        $this->assertArrayNotHasKey('demande_en_suspens', $facture->metadonnees);
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame(['impaye', 1], [$organisation->statut_abonnement, (int) $organisation->tentatives]);
+    }
+
+    /** Deux passages de la vérification qui se chevauchent : celui qui arrive après une annulation relit la facture et ne prélève jamais une commande annulée. */
+    public function test_une_verification_en_retard_ne_preleve_pas_une_commande_annulee(): void
+    {
+        $this->abonneeACabinet();
+        $avant = count($this->stripe->prelevements);
+        $this->stripe->panne = 'Délai dépassé.';
+        ($this->acheteurDePack())()->assertUnprocessable();
+        $this->stripe->panne = null;
+        $this->travel(1)->minutes();
+        $enRetard = $this->packDeLaFacture();
+        $this->stripe->refus = 'Fonds insuffisants sur la carte.';
+        $this->artisan('abonnements:verifier-paiements')->assertSuccessful();
+        $this->assertSame('annulee', $this->packDeLaFacture()->statut);
+        $this->stripe->refus = null;
+
+        app(AbonnementSaas::class)->verifierPaiementEnSuspens($enRetard);
+
+        $this->assertSame([], array_values(array_filter($this->prelevementsDepuis($avant), fn (array $p) => $p['statut'] === 'reussi')));
+    }
+
+    /** Annulée juste avant le renvoi (entre la relecture de la vérification et le verrou du paiement) : jamais prélevée. */
+    public function test_une_commande_annulee_juste_avant_le_renvoi_n_est_pas_prelevee(): void
+    {
+        $this->abonneeACabinet();
+        $avant = count($this->stripe->prelevements);
+        $this->stripe->panne = 'Délai dépassé.';
+        ($this->acheteurDePack())()->assertUnprocessable();
+        $this->stripe->panne = null;
+        $this->travel(1)->minutes();
+        $facture = $this->packDeLaFacture();
+        $fait = false;
+        DB::listen(function (QueryExecuted $requete) use (&$fait, $facture): void {
+            if (! $fait && str_contains($requete->sql, 'from "organisation_factures"') && str_starts_with($requete->sql, 'select')) {
+                $fait = true;
+                OrganisationFacture::query()->whereKey($facture->id)->update(['statut' => 'annulee']);
+            }
+        });
+
+        app(AbonnementSaas::class)->verifierPaiementEnSuspens($facture);
+
+        $this->assertTrue($fait);
+        $this->assertSame([], $this->prelevementsDepuis($avant));
+    }
+
+    /** Clé de la plateforme refusée dès le premier envoi : rien n'est parti chez Stripe, rien n'est en vérification ; l'achat est annulé tout de suite. */
+    public function test_une_cle_refusee_au_premier_envoi_ne_met_rien_en_verification(): void
+    {
+        $this->abonneeACabinet();
+        $this->stripe->erreurServeur = 401;
+
+        ($this->acheteurDePack())()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => ErreurPaiement::GENERIQUE]);
+
+        $this->assertSame('annulee', $this->packDeLaFacture()->statut);
+    }
+
+    /** Trop d'appels (429) dès le premier envoi : Stripe n'a rien traité, rien n'est en vérification ; l'achat est annulé tout de suite. */
+    public function test_un_429_au_premier_envoi_ne_met_rien_en_verification(): void
+    {
+        $this->abonneeACabinet();
+        $this->stripe->erreurServeur = 429;
+
+        ($this->acheteurDePack())()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => ErreurPaiement::GENERIQUE]);
+
+        $this->assertSame('annulee', $this->packDeLaFacture()->statut);
     }
 
     /** La vérification des paiements passe chaque minute. */

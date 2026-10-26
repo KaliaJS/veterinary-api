@@ -1066,6 +1066,10 @@ final class AbonnementSaas
         if ($facture->statut === 'payee') {
             return new Reglement($facture, 'reussi');
         }
+        // Annulée entre-temps (autre passage, autre onglet) : jamais prélevée (26.10.2026)
+        if ($facture->statut !== 'a_payer') {
+            return new Reglement($facture, 'refuse', null, 'Cette commande est annulée.');
+        }
         // La tentative précédente, relue sous le verrou : passée, traitée par la
         // banque, ou en attente d'une confirmation ou refusée, annulée avant
         // d'en lancer une autre (le client ne confirmera jamais les deux)
@@ -1108,6 +1112,7 @@ final class AbonnementSaas
         // même carte, même mode), jamais une autre, jusqu'à la réponse de
         // Stripe (recommandation de Stripe, 26.10.2026)
         $demande = self::demandeEnSuspens($facture);
+        $premierEnvoi = $demande === null;
         if ($demande === null && isset($facture->metadonnees['demande_en_suspens'])) {
             // Sans réponse depuis 23 h : Stripe a pu oublier la clé ; sa liste,
             // lue ci-dessus, n'a rien : une nouvelle tentative, avec une
@@ -1153,11 +1158,14 @@ final class AbonnementSaas
             // est à vérifier avant d'être annulée ou refaite (26.10.2026). Erreur
             // de Stripe lui-même (5xx) : il la garde sous cette clé 24 h, la
             // tentative suivante en prend une autre
-            // Sans réponse, 409, 429 ou clé de la plateforme refusée : rien n'est
-            // dit de la demande, elle reste en suspens, à renvoyer telle quelle.
-            // Stripe a traité la demande (5xx, erreur nette) : elle ne l'est plus
+            // Sans réponse ou 409 : la demande reste en suspens, à renvoyer
+            // telle quelle. Stripe l'a traitée (5xx, erreur nette) : elle ne
+            // l'est plus. Refusée avant tout traitement (429, clé de la
+            // plateforme) : au premier envoi, rien n'est parti ; au renvoi,
+            // rien n'est dit de la première, elle reste en suspens
             $meta = $facture->metadonnees ?? [];
-            if ($e->erreurGardeeParStripe() || ! ($e->estPassagere() || $e->cleRefusee())) {
+            $refuseeAvant = $e->statutHttp === 429 || $e->cleRefusee();
+            if ($e->erreurGardeeParStripe() || ! ($e->estPassagere() || $e->cleRefusee()) || ($refuseeAvant && $premierEnvoi)) {
                 unset($meta['demande_en_suspens']);
             }
             if ($e->resultatIncertain()) {
@@ -1241,15 +1249,17 @@ final class AbonnementSaas
 
     /**
      * Commande de chaque minute : une demande sans réponse depuis au moins une
-     * minute est renvoyée telle quelle ; refusée, la commande est annulée comme
-     * en présence du client ; sans réponse depuis SUSPENS_HEURES, la liste de
-     * Stripe fait foi (passée, payée ; absente, annulée). Les renouvellements
-     * restent à la commande de chaque heure (26.10.2026).
+     * minute est renvoyée telle quelle ; refusée, un achat est annulé comme en
+     * présence du client, une facture due (renouvellement, minutes d'un
+     * abonnement fermé) reste à régler ; sans réponse depuis SUSPENS_HEURES,
+     * la liste de Stripe fait foi (26.10.2026).
      */
     public function verifierPaiementEnSuspens(OrganisationFacture|FactureProprietaire $facture): void
     {
+        // Relue : un passage précédent a pu la régler ou l'annuler entre-temps
+        $facture->refresh();
         $suspens = $facture->metadonnees['demande_en_suspens'] ?? null;
-        if ($facture->statut !== 'a_payer' || ! is_array($suspens) || ($facture->metadonnees['action'] ?? null) === 'renouvellement') {
+        if ($facture->statut !== 'a_payer' || ! is_array($suspens)) {
             return;
         }
         if (CarbonImmutable::parse((string) ($suspens['le'] ?? 'now'))->isAfter(now()->subMinute())) {
@@ -1547,7 +1557,8 @@ final class AbonnementSaas
      */
     private function sousVerrouAbonne(Organisation|User $abonne, callable $action, array $occupe = ['plan', 'Un paiement est déjà en cours. Patientez un instant.']): ?Reglement
     {
-        $verrou = Cache::lock('abonnement:'.($abonne instanceof Organisation ? 'organisation' : 'proprietaire').':'.$abonne->id, 300);
+        // Englobe le verrou de la facture (300 s) : toujours plus long
+        $verrou = Cache::lock('abonnement:'.($abonne instanceof Organisation ? 'organisation' : 'proprietaire').':'.$abonne->id, 600);
         if (! $verrou->get()) {
             throw ValidationException::withMessages([$occupe[0] => $occupe[1]]);
         }
