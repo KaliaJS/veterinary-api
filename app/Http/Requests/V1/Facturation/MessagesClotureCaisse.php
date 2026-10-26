@@ -16,6 +16,9 @@ trait MessagesClotureCaisse
             'nouveau_fond.*' => 'Le nouveau fond est un montant de 0 à 99 999 CHF.',
             'depot.*' => 'Le dépôt est un montant de 0 à 999 999 CHF.',
             'especes_comptees.*' => 'Les espèces comptées sont un montant de 0 à 999 999 CHF.',
+            'note.*' => 'La note tient en 2000 caractères au plus.',
+            'encaissements_vus.*' => 'Le nombre d’encaissements vus est invalide : rechargez la clôture.',
+            'total_vu.*' => 'Le total vu est invalide : rechargez la clôture.',
             'comptage.array' => 'Ces billets ou pièces n’existent pas en francs suisses.',
             'comptage.*.*' => 'Entre 0 et 999 billets ou pièces de chaque sorte.',
         ];

@@ -311,6 +311,21 @@ class ClotureCaisseApercuTest extends TestCase
         $this->apercu(['depot' => -1])->assertJsonValidationErrors(['depot' => 'Le dépôt est un montant de 0 à 999 999 CHF.']);
         $this->apercu(['comptage' => [10000 => 1000]])->assertJsonValidationErrors(['comptage.10000' => 'Entre 0 et 999 billets ou pièces de chaque sorte.']);
         $this->apercu(['comptage' => [30000 => 1]])->assertJsonValidationErrors(['comptage' => 'Ces billets ou pièces n’existent pas en francs suisses.']);
+        $this->apercu(['fond' => -5])->assertJsonValidationErrors(['fond' => 'Le fond de caisse est un montant de 0 à 99 999 CHF.']);
+    }
+
+    /** L'enregistrement du Z dit ses refus en français aussi. */
+    public function test_les_messages_du_z_sont_en_francais(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 50);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [], 'nouveau_fond' => 0, 'note' => str_repeat('a', 2001)], $entetes)
+            ->assertJsonValidationErrors(['note' => 'La note tient en 2000 caractères au plus.']);
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [], 'nouveau_fond' => 100000], $entetes)
+            ->assertJsonValidationErrors(['nouveau_fond' => 'Le nouveau fond est un montant de 0 à 99 999 CHF.']);
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [], 'nouveau_fond' => 0, 'encaissements_vus' => 'beaucoup'], $entetes)
+            ->assertJsonValidationErrors(['encaissements_vus' => 'Le nombre d’encaissements vus est invalide : rechargez la clôture.']);
     }
 
     /** Une carte saisie à la main sans écart : le message dit pourquoi la note est demandée ; un écart dit l'écart. */
