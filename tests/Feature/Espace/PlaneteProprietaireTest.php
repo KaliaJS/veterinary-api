@@ -119,6 +119,28 @@ class PlaneteProprietaireTest extends TestCase
         $this->assertSame([], $stripe->prelevements);
     }
 
+    /** Un objet resté sans réponse, puis un autre : rien tant que le premier peut encore passer chez Stripe ; dix minutes plus tard, rien de passé, il est annulé et seul le second est prélevé (26.10.2026). */
+    public function test_un_objet_sans_reponse_puis_un_autre_ne_preleve_que_le_second(): void
+    {
+        $stripe = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $stripe);
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $entetes = $this->enTetes($jeton);
+        $this->postJson('/api/v1/espace/abonnement/carte/intention', [], $entetes)->assertOk();
+        $this->putJson('/api/v1/espace/abonnement/carte', ['payment_method' => $stripe->carteConfirmee($user->refresh()->stripe_client_id)], $entetes)->assertOk();
+        $stripe->panne = 'Délai dépassé.';
+        $this->postJson('/api/v1/espace/planete/achats', ['article' => 'niche'], $entetes)->assertUnprocessable();
+        $stripe->panne = null;
+
+        $this->postJson('/api/v1/espace/planete/achats', ['article' => 'banc'], $entetes)->assertUnprocessable();
+        $this->assertSame([], $stripe->prelevements);
+
+        $this->travel(11)->minutes();
+        $this->postJson('/api/v1/espace/planete/achats', ['article' => 'banc'], $entetes)->assertOk();
+        $this->assertCount(1, $stripe->prelevements);
+        $this->assertSame(['banc'], AchatPlanete::query()->where('user_id', $user->id)->pluck('article')->map(fn ($a) => $a->value)->all());
+    }
+
     public function test_le_deces_d_un_animal_se_declare_et_s_annule(): void
     {
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();

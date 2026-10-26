@@ -96,6 +96,7 @@ class PasserelleAbonnementStripeTest extends TestCase
             $this->assertSame([], $this->http->requetes);
             $this->assertFalse($e->resultatIncertain());
             $this->assertFalse($e->estPassagere());
+            $this->assertTrue($e->cleRefusee());
         }
     }
 

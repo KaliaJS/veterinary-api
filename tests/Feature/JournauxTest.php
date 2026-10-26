@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Organisation;
+use App\Paiements\PasserelleAbonnement;
 use App\Services\Transcription\TranscripteurDeepgram;
 use App\Support\MasquageSql;
 use Illuminate\Database\QueryException;
@@ -13,6 +14,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use PDOException;
 use RuntimeException;
+use Tests\Doubles\PasserelleAbonnementFactice;
 use Tests\TestCase;
 
 /**
@@ -104,7 +106,11 @@ class JournauxTest extends TestCase
     /** Le renouvellement d'un abonnement qui échoue au SQL : journalisé sans la valeur. */
     public function test_un_renouvellement_en_echec_est_journalise_sans_les_valeurs(): void
     {
-        $organisation = Organisation::factory()->create(['statut_abonnement' => 'actif', 'periode_fin' => now()->subDay()]);
+        // Carte refusée : l'organisation passe en relance, et son enregistrement échoue
+        $stripe = new PasserelleAbonnementFactice;
+        $stripe->refus = 'Fonds insuffisants sur la carte.';
+        $this->app->instance(PasserelleAbonnement::class, $stripe);
+        $organisation = Organisation::factory()->create(['statut_abonnement' => 'actif', 'periode_fin' => now()->subDay(), 'stripe_client_id' => 'cus_1', 'stripe_moyen_paiement_id' => 'pm_1']);
         Organisation::saving(fn () => throw new QueryException('mysql', 'update `organisations` set `x` = ?', [], new PDOException("SQLSTATE[23000]: 1062 Duplicate entry 'lea.fontaine@exemple.ch' for key 'x'")));
         Log::spy();
 

@@ -70,6 +70,13 @@ final class AbonnementSaas
 
     private const ACHAT_EN_COURS = ['paiement', 'Un paiement est déjà en cours. Patientez un instant.'];
 
+    /**
+     * Minutes pendant lesquelles une demande restée sans réponse peut encore
+     * être traitée chez Stripe sans paraître dans la liste du client
+     * (26.10.2026) : rien d'autre ne part pour la facture, rien ne s'annule.
+     */
+    private const SUSPENS_MINUTES = 10;
+
     /** Alertes quand la carte expire avant le prochain prélèvement : 14 jours avant, puis la veille. */
     private const ALERTE_CARTE_JOURS = [14, 1];
 
@@ -82,6 +89,7 @@ final class AbonnementSaas
         private PasserelleAbonnement $stripe,
         private ConsommationTranscription $transcription,
         private ConsommationDiagnostic $diagnostic,
+        private AlerteCleStripe $alerteCle,
     ) {}
 
     /* ————— Carte ————— */
@@ -535,12 +543,25 @@ final class AbonnementSaas
     /** Échéance atteinte : fin d'un abonnement résilié, ou nouvelle période. */
     public function renouveler(Organisation|User $abonne): void
     {
+        // Un changement de formule jamais confirmé auprès de la banque est
+        // abandonné, sans jamais être prélevé. Passé entre-temps, il a ouvert
+        // une nouvelle période ; encore à vérifier chez Stripe, rien n'est
+        // prélevé avant de savoir, la commande de l'heure suivante revient
+        // (26.10.2026)
+        $changements = $this->factures($abonne)->where('statut', 'a_payer')->get()
+            ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'changement');
+        foreach ($changements as $changement) {
+            if (! $this->annuler($changement) && $changement->refresh()->statut !== 'payee') {
+                return;
+            }
+        }
+        if ($changements->isNotEmpty()) {
+            $abonne->refresh();
+            if ($abonne->periode_fin->toDateString() > CarbonImmutable::today('Europe/Zurich')->toDateString()) {
+                return;
+            }
+        }
         $echeance = CarbonImmutable::parse($abonne->periode_fin->toDateString(), 'Europe/Zurich');
-
-        // Un changement de formule jamais confirmé auprès de la banque est abandonné
-        $this->factures($abonne)->where('statut', 'a_payer')->get()
-            ->filter(fn ($f) => ($f->metadonnees['action'] ?? null) === 'changement')
-            ->each(fn ($f) => $this->annuler($f));
 
         // Le prélèvement de cette échéance est déjà parti (la banque le traite
         // encore) : jamais un second, on suit le premier (23.10.2026)
@@ -556,17 +577,24 @@ final class AbonnementSaas
         // panne) : reprise, jamais une seconde (26.10.2026)
         $enAttente = $this->factures($abonne)->where('statut', 'a_payer')->latest('id')->get()
             ->first(fn ($f) => ($f->metadonnees['action'] ?? null) === 'renouvellement' && ($f->metadonnees['debut'] ?? null) === $echeance->toDateString());
+
+        if ($abonne->resilie_le && $abonne->resilie_le->toDateString() <= $echeance->toDateString()) {
+            // Résilié pendant que cette facture attendait une panne de Stripe :
+            // abandonnée (26.10.2026). Passée entre-temps, la période est payée
+            // et se termine à la suivante ; encore à vérifier, l'heure suivante
+            if ($enAttente && ! $this->annuler($enAttente)) {
+                return;
+            }
+            $this->terminer($abonne);
+
+            return;
+        }
+
         if ($enAttente) {
             $reglement = $this->encaisser($abonne, $enAttente, true);
             if (! $reglement->estPaye() && $reglement->statut !== 'en_cours') {
                 $this->echecRenouvellement($abonne, $reglement);
             }
-
-            return;
-        }
-
-        if ($abonne->resilie_le && $abonne->resilie_le->toDateString() <= $echeance->toDateString()) {
-            $this->terminer($abonne);
 
             return;
         }
@@ -786,7 +814,7 @@ final class AbonnementSaas
             $abonne->forceFill([
                 'statut_abonnement' => 'impaye',
                 'tentatives' => $tentatives,
-                'prochaine_tentative_le' => now()->addDays(self::RELANCES[$tentatives - 1]),
+                'prochaine_tentative_le' => now()->addDays(self::RELANCES[$tentatives - 1])->startOfHour(),
             ])->save();
         }
 
@@ -1022,6 +1050,22 @@ final class AbonnementSaas
             }
         }
 
+        // La même pour une même tentative, avec la même carte, aussi longtemps
+        // qu'aucune réponse n'est arrivée : une réponse perdue (délai dépassé)
+        // puis renvoyée, même une heure plus tard, ne prélève pas deux fois.
+        // Une réponse reçue (refus, prélèvement, erreur de Stripe) ou une autre
+        // carte : une nouvelle tentative
+        $cleIdempotence = 'facture-'.$cle.'-'.($facture->stripe_paiement_id ?? 'premier')
+            .($facture->tentatives_prelevement > 0 ? '-t'.$facture->tentatives_prelevement : '')
+            .'-'.$abonne->stripe_moyen_paiement_id;
+        // Une demande perdue que Stripe peut encore traiter : seule elle repart
+        // (même clé) ; une autre, sur une autre carte, attendrait d'être sûr
+        // (26.10.2026)
+        $enSuspens = self::demandeEnSuspens($facture);
+        if ($enSuspens !== null && $enSuspens !== $cleIdempotence) {
+            return new Reglement($facture, 'refuse', null, 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans un instant.', prestataireEnPanne: true);
+        }
+
         try {
             $resultat = $this->stripe->prelever(
                 (string) $abonne->stripe_client_id,
@@ -1030,14 +1074,7 @@ final class AbonnementSaas
                 $facture->numero.' · '.$facture->libelle,
                 ['plateforme' => 'veterinary', 'facture' => $cle],
                 $horsSession,
-                // La même pour une même tentative, avec la même carte, aussi
-                // longtemps qu'aucune réponse n'est arrivée : une réponse perdue
-                // (délai dépassé) puis renvoyée, même une heure plus tard, ne
-                // prélève pas deux fois. Une réponse reçue (refus, prélèvement,
-                // erreur de Stripe) ou une autre carte : une nouvelle tentative
-                'facture-'.$cle.'-'.($facture->stripe_paiement_id ?? 'premier')
-                    .($facture->tentatives_prelevement > 0 ? '-t'.$facture->tentatives_prelevement : '')
-                    .'-'.$abonne->stripe_moyen_paiement_id,
+                $cleIdempotence,
             );
         } catch (ErreurPaiement $e) {
             // Erreur du prestataire : traitée comme un refus (la facture ne reste pas orpheline)
@@ -1046,20 +1083,32 @@ final class AbonnementSaas
             // est à vérifier avant d'être annulée ou refaite (26.10.2026). Erreur
             // de Stripe lui-même (5xx) : il la garde sous cette clé 24 h, la
             // tentative suivante en prend une autre
+            // Sans réponse ou 409, la demande peut encore être traitée chez Stripe
             if ($e->resultatIncertain()) {
+                $meta = [...$facture->metadonnees ?? [], 'prelevement_incertain' => true];
+                unset($meta['demande_en_suspens']);
+                if (! $e->erreurGardeeParStripe()) {
+                    $meta['demande_en_suspens'] = ['le' => now()->toIso8601String(), 'cle' => $cleIdempotence];
+                }
                 $facture->forceFill([
-                    'metadonnees' => [...$facture->metadonnees ?? [], 'prelevement_incertain' => true],
+                    'metadonnees' => $meta,
                     ...$e->erreurGardeeParStripe() ? ['tentatives_prelevement' => $facture->tentatives_prelevement + 1] : [],
                 ])->save();
             }
-            // Une erreur nette (client inconnu, clé refusée…) reste un refus
-            $panne = $e->estPassagere();
+            // La clé de la plateforme refusée : ni la carte ni le client n'y
+            // sont pour rien, la plateforme est prévenue (26.10.2026)
+            if ($e->cleRefusee()) {
+                Log::critical('Stripe refuse la clé de la plateforme.', ['statut' => $e->statutHttp, 'facture' => $facture->numero]);
+                $this->alerteCle->signaler((int) $e->statutHttp);
+            }
+            // Une erreur nette (client inconnu, requête refusée…) reste un refus
+            $panne = $e->estPassagere() || $e->cleRefusee();
             $resultat = ['id' => null, 'statut' => 'refuse', 'client_secret' => null, 'message' => $e->getMessage()];
         }
         // Une réponse de Stripe pour cette tentative : plus rien d'incertain
-        if (! isset($e) && ($facture->metadonnees['prelevement_incertain'] ?? false)) {
+        if (! isset($e) && array_intersect_key($facture->metadonnees ?? [], ['prelevement_incertain' => 1, 'demande_en_suspens' => 1]) !== []) {
             $meta = $facture->metadonnees;
-            unset($meta['prelevement_incertain']);
+            unset($meta['prelevement_incertain'], $meta['demande_en_suspens']);
             $facture->forceFill(['metadonnees' => $meta])->save();
         }
 
@@ -1080,6 +1129,20 @@ final class AbonnementSaas
     private static function cleFacture(OrganisationFacture|FactureProprietaire $facture): string
     {
         return ($facture instanceof OrganisationFacture ? 'organisation' : 'proprietaire').':'.$facture->id;
+    }
+
+    /**
+     * La clé d'une demande restée sans réponse (ou 409) depuis moins de
+     * SUSPENS_MINUTES : Stripe peut encore la traiter (26.10.2026).
+     */
+    private static function demandeEnSuspens(OrganisationFacture|FactureProprietaire $facture): ?string
+    {
+        $suspens = $facture->metadonnees['demande_en_suspens'] ?? null;
+        if (! is_array($suspens) || ! is_string($suspens['le'] ?? null)) {
+            return null;
+        }
+
+        return CarbonImmutable::parse($suspens['le'])->addMinutes(self::SUSPENS_MINUTES)->isFuture() ? (string) ($suspens['cle'] ?? '') : null;
     }
 
     /** Une tentative au résultat incertain (erreur de Stripe, avec ou sans réponse) : à vérifier dans la liste du client. */
@@ -1183,16 +1246,10 @@ final class AbonnementSaas
             }
             if ($trouve) {
                 $facture->forceFill(['stripe_paiement_id' => $trouve['id']])->save();
-            } elseif ($facture->tentatives_prelevement === 0) {
-                // Restée sans réponse et pas encore visible : la même demande,
-                // avec la même clé, rend le résultat de la première sans
-                // prélever deux fois ; tant qu'elle ne répond pas, rien ne
-                // s'annule (26.10.2026)
-                $reglement = $this->encaisser($this->abonneDe($facture), $facture, true);
-                if ($reglement->estPaye() || $reglement->prestataireEnPanne || in_array($reglement->statut, ['en_cours', 'action_requise'], true)) {
-                    return false;
-                }
-                $facture->refresh();
+            } elseif (self::demandeEnSuspens($facture) !== null) {
+                // Une demande perdue que Stripe peut encore traiter : rien ne
+                // s'annule avant de savoir. Annuler ne prélève jamais (26.10.2026)
+                return false;
             }
         }
         if ($facture->stripe_paiement_id) {

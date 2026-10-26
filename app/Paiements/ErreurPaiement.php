@@ -48,6 +48,15 @@ class ErreurPaiement extends RuntimeException
         return $this->statutHttp === null || $this->statutHttp === 409 || $this->statutHttp >= 500;
     }
 
+    /**
+     * La clé de la plateforme refusée (absente, 401, 403) : ni la carte ni le
+     * client n'y sont pour rien, la plateforme doit la remplacer (26.10.2026).
+     */
+    public function cleRefusee(): bool
+    {
+        return in_array($this->statutHttp, [0, 401, 403], true);
+    }
+
     /** Une panne qui passera (incertaine, ou 429 trop d'appels) : pas un refus de la carte. */
     public function estPassagere(): bool
     {
