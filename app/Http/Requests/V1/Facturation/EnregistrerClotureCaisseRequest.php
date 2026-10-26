@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\V1\Facturation;
 
+use App\Services\Facturation\ArreteDeCaisse;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -18,7 +19,11 @@ class EnregistrerClotureCaisseRequest extends FormRequest
     {
         return [
             'fond' => ['required', 'numeric', 'min:0', 'max:99999'],
-            'especes_comptees' => ['required', 'numeric', 'min:0', 'max:999999'],
+            // Les billets et pièces comptés (centimes : nombre), additionnés
+            // par le serveur (26.10.2026) ; ou le montant compté
+            'comptage' => ['nullable', 'array:'.implode(',', ArreteDeCaisse::COUPURES)],
+            'comptage.*' => ['integer', 'min:0', 'max:9999'],
+            'especes_comptees' => ['required_without:comptage', 'numeric', 'min:0', 'max:999999'],
             'depot' => ['nullable', 'numeric', 'min:0', 'max:999999'],
             'nouveau_fond' => ['required', 'numeric', 'min:0', 'max:99999'],
             'note' => ['nullable', 'string', 'max:2000'],

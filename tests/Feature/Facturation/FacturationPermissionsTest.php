@@ -134,6 +134,7 @@ class FacturationPermissionsTest extends TestCase
             ['postJson', "/api/v1/facturation/factures/{$facture}/decompte/avancer", []],
             ['getJson', '/api/v1/facturation/clotures-caisse', []],
             ['postJson', '/api/v1/facturation/clotures-caisse', []],
+            ['getJson', '/api/v1/facturation/clotures-caisse/apercu', []],
             ['getJson', '/api/v1/facturation/devis', []],
             ['postJson', '/api/v1/facturation/devis', []],
             ['getJson', "/api/v1/facturation/devis/{$devis}", []],

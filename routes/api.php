@@ -552,6 +552,7 @@ Route::prefix('v1')->group(function (): void {
 
             Route::get('clotures-caisse', [ClotureCaisseController::class, 'index']);
             Route::post('clotures-caisse', [ClotureCaisseController::class, 'store']);
+            Route::get('clotures-caisse/apercu', [ClotureCaisseController::class, 'apercu']);
             Route::get('clotures-caisse/{cloture}', [ClotureCaisseController::class, 'show']);
 
             Route::post('devis/apercu', [DevisController::class, 'apercu']);
