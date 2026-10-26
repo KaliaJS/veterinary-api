@@ -45,7 +45,7 @@ class ArreteDeCaisse
     /**
      * @param  Collection<int, Facture>  $factures
      * @param  array<int|string, int|string>|null  $comptage  nombre de billets ou pièces par coupure (centimes)
-     * @return array{encaissements: int, moyens: array<string, array{montant: float, nombre: int, sans_terminal: int, saisies_par: list<string>}>, total: float, fond: float, fond_impose: bool, especes_theoriques: float, coupures: list<array{centimes: int, nombre: int, montant: float}>, especes_comptees: float, ecart: float, nouveau_fond: float, depot: float, depot_suggere: float, sans_terminal: int, mode_integre: bool, motif_justification: ?string, justification_requise: bool, alerte_depot: ?string}
+     * @return array{encaissements: int, moyens: array<string, array{montant: float, nombre: int, sans_terminal: int, saisies_par: list<string>}>, total: float, fond: float, fond_impose: bool, especes_theoriques: float, coupures: list<array{centimes: int, nombre: int, montant: float}>, especes_comptees: float, ecart: float, nouveau_fond: float, depot: float, depot_suggere: float, sans_terminal: int, mode_integre: bool, motif_justification: ?string, justification_requise: bool, alerte_depot: ?string, non_ventile: float}
      */
     public function calculer(Clinique $clinique, Collection $factures, ?float $fondSaisi, ?array $comptage, ?float $especesComptees, ?float $nouveauFond, ?float $depot): array
     {
@@ -86,9 +86,24 @@ class ArreteDeCaisse
         $suggere = max(0.0, round($comptees - $nouveauFond, 2));
         $depot = $depot !== null ? round($depot, 2) : $suggere;
         $sansTerminalTotal = array_sum(array_column($moyens, 'sans_terminal'));
-        // Une seule règle, pour l'aperçu et pour le Z : un écart, ou (paiements
-        // intégrés) une carte ou un TWINT saisi à la main
-        $motif = abs($ecart) >= 0.005 ? 'ecart' : ($modeIntegre && $sansTerminalTotal > 0 ? 'sans_terminal' : null);
+        // Ce qui est compté part en dépôt ou reste en fond. Plus que compté :
+        // impossible, sauf un fond complété (coffre) sans dépôt ; moins : le
+        // reste se justifie (26.10.2026)
+        $alerte = match (true) {
+            $depot > $comptees + 0.005 => 'Le dépôt ne dépasse jamais les espèces comptées.',
+            $depot > 0.005 && $depot + $nouveauFond > $comptees + 0.005 => 'Le dépôt et le nouveau fond dépassent les espèces comptées.',
+            default => null,
+        };
+        $nonVentile = max(0.0, round($comptees - $depot - $nouveauFond, 2));
+        // Une seule règle, pour l'aperçu et pour le Z : un écart, (paiements
+        // intégrés) une carte ou un TWINT saisi à la main, ou des espèces ni
+        // déposées ni dans le fond
+        $motif = match (true) {
+            abs($ecart) >= 0.005 => 'ecart',
+            $modeIntegre && $sansTerminalTotal > 0 => 'sans_terminal',
+            $nonVentile >= 0.005 => 'non_ventile',
+            default => null,
+        };
 
         return [
             'encaissements' => $factures->count(),
@@ -107,8 +122,8 @@ class ArreteDeCaisse
             'mode_integre' => $modeIntegre,
             'motif_justification' => $motif,
             'justification_requise' => $motif !== null,
-            // Le dépôt part des espèces comptées : jamais plus
-            'alerte_depot' => $depot > $comptees + 0.005 ? 'Le dépôt ne dépasse jamais les espèces comptées.' : null,
+            'alerte_depot' => $alerte,
+            'non_ventile' => $nonVentile,
         ];
     }
 }

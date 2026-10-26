@@ -341,4 +341,48 @@ class ClotureCaisseApercuTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['note' => '1 paiement par carte ou TWINT a été saisi sans terminal : justifiez-les dans la note.']);
         $this->apercu(['fond' => 0, 'comptage' => [10000 => 1]])->assertJsonPath('data.motif_justification', 'sans_terminal');
     }
+
+    /** 500 comptés, 400 laissés en fond et 300 déposés : 700 sortis d'un tiroir de 500, refusé. */
+    public function test_depot_et_nouveau_fond_ne_depassent_pas_les_especes_comptees(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+
+        $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 400, 'depot' => 300])
+            ->assertJsonPath('data.alerte_depot', 'Le dépôt et le nouveau fond dépassent les espèces comptées.');
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 400, 'depot' => 300], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['depot' => 'Le dépôt et le nouveau fond dépassent les espèces comptées.']);
+    }
+
+    /** 100 comptés et un nouveau fond de 200 sans dépôt : le fond est complété (coffre), accepté. */
+    public function test_un_fond_complete_sans_depot_est_accepte(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 50);
+
+        $this->apercu(['fond' => 50, 'comptage' => [10000 => 1], 'nouveau_fond' => 200])
+            ->assertJsonPath('data.alerte_depot', null)
+            ->assertJsonPath('data.non_ventile', 0);
+    }
+
+    /** 500 comptés, 200 de fond, 250 déposés : 50 ni déposés ni dans le fond, à expliquer dans la note. */
+    public function test_des_especes_ni_deposees_ni_dans_le_fond_se_justifient(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+        $donnees = ['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 200, 'depot' => 250];
+
+        $this->apercu($donnees)
+            ->assertJsonPath('data.non_ventile', 50)
+            ->assertJsonPath('data.motif_justification', 'non_ventile');
+        $this->postJson('/api/v1/facturation/clotures-caisse', $donnees, $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['note' => 'CHF 50.00 comptés ne sont ni déposés ni dans le nouveau fond : expliquez-le dans la note.']);
+        $this->postJson('/api/v1/facturation/clotures-caisse', [...$donnees, 'note' => 'Gardés pour la monnaie de demain.'], $this->enTetes($this->jeton))->assertCreated();
+    }
+
+    /** Le total vu, mal formé, est refusé en français. */
+    public function test_le_message_du_total_vu_est_en_francais(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 50);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [], 'nouveau_fond' => 0, 'encaissements_vus' => 1, 'total_vu' => 'cinquante'], $this->enTetes($this->jeton))
+            ->assertJsonValidationErrors(['total_vu' => 'Le total vu est invalide : rechargez la clôture.']);
+    }
 }
