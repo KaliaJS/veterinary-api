@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Espace;
 
+use App\Auth\EmetteurJetons;
 use App\Models\User;
 use App\Paiements\PasserelleAbonnement;
 use Carbon\CarbonImmutable;
@@ -125,5 +126,29 @@ class AbonnementProprietaireTest extends TestCase
 
         $this->assertCount(1, $this->stripe->prelevements);
         $this->assertSame(['plus', 'actif'], [$user->refresh()->formule, $user->statut_abonnement]);
+    }
+
+    /** Plus résilié pendant que son renouvellement attend une réponse de Stripe : la vérification ne le renvoie pas, rien n'est prélevé (26.10.2026). */
+    public function test_plus_resilie_pendant_un_renouvellement_sans_reponse_n_est_pas_preleve(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $entetes = $this->enTetes($jeton);
+        $this->postJson('/api/v1/espace/abonnement/carte/intention', [], $entetes)->assertOk();
+        $this->putJson('/api/v1/espace/abonnement/carte', ['payment_method' => $this->stripe->carteConfirmee($user->refresh()->stripe_client_id)], $entetes)->assertOk();
+        $this->postJson('/api/v1/espace/abonnement/plus', [], $entetes)->assertOk();
+        $avant = count($this->stripe->prelevements);
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->travelTo(CarbonImmutable::parse('2027-10-20 06:00', 'Europe/Zurich'));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->travelTo(CarbonImmutable::parse('2027-10-20 06:30', 'Europe/Zurich'));
+        $jeton = app(EmetteurJetons::class)->emettreSansClinique($user)->plainTextToken;
+        $this->postJson('/api/v1/espace/abonnement/resilier', [], $this->enTetes($jeton))->assertOk();
+        $this->stripe->panne = null;
+
+        $this->travel(1)->minutes();
+        $this->artisan('abonnements:verifier-paiements')->assertSuccessful();
+
+        $this->assertCount($avant, $this->stripe->prelevements);
     }
 }

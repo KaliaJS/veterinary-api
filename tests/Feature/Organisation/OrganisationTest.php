@@ -2260,6 +2260,48 @@ class OrganisationTest extends TestCase
         $this->assertSame('actif', Organisation::query()->findOrFail($this->organisationId())->statut_abonnement);
     }
 
+    /** Résiliée pendant que le renouvellement attend une réponse de Stripe : la vérification ne le renvoie plus ; rien dans la liste au bout de 23 heures, rien n'est prélevé et l'abonnement se termine (26.10.2026). */
+    public function test_une_resiliation_pendant_un_renouvellement_sans_reponse_n_est_pas_prelevee(): void
+    {
+        $this->abonneeACabinet();
+        $avant = count($this->stripe->prelevements);
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->verifierLesPaiements();
+        $this->voyager('2026-11-20 06:30');
+        $this->postJson('/api/v1/organisation/abonnement/resilier', [], $this->enTetes($this->jeton))->assertOk();
+        $this->stripe->panne = null;
+
+        $this->verifierLesPaiements();
+        $this->voyager('2026-11-20 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertSame([], $this->prelevementsDepuis($avant));
+
+        $this->voyager('2026-11-21 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertSame([], $this->prelevementsDepuis($avant));
+        $this->assertSame('resilie', Organisation::query()->findOrFail($this->organisationId())->statut_abonnement);
+    }
+
+    /** Résiliée pendant que la relance de la nuit attend une réponse : rien n'est renvoyé, rien n'est prélevé. */
+    public function test_une_resiliation_pendant_une_relance_sans_reponse_n_est_pas_prelevee(): void
+    {
+        $this->abonneeAvecRenouvellementRefuse();
+        $this->stripe->refus = null;
+        $avant = count($this->stripe->prelevements);
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->voyager('2026-11-21 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->voyager('2026-11-21 06:30');
+        $this->postJson('/api/v1/organisation/abonnement/resilier', [], $this->enTetes($this->jeton))->assertOk();
+        $this->stripe->panne = null;
+
+        $this->verifierLesPaiements();
+
+        $this->assertSame([], $this->prelevementsDepuis($avant));
+    }
+
     /** Un renouvellement refusé au renvoi n'est jamais annulé par la vérification : il reste à la relance prévue, qui ne compte rien de plus. */
     public function test_un_renouvellement_refuse_au_renvoi_reste_aux_relances(): void
     {

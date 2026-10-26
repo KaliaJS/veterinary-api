@@ -1265,6 +1265,15 @@ final class AbonnementSaas
         if (CarbonImmutable::parse((string) ($suspens['le'] ?? 'now'))->isAfter(now()->subMinute())) {
             return;
         }
+        // Résilié pendant que le renouvellement attendait Stripe : rien n'est
+        // renvoyé ; le renouvellement de chaque heure tranche (passé chez
+        // Stripe, la période est payée ; sinon, rien n'est prélevé et
+        // l'abonnement se termine) (26.10.2026)
+        $resilie = $this->abonneDe($facture)->resilie_le;
+        if (($facture->metadonnees['action'] ?? null) === 'renouvellement' && $resilie
+            && $resilie->toDateString() <= (string) ($facture->metadonnees['debut'] ?? '')) {
+            return;
+        }
 
         // Un achat que le client attend s'annule s'il ne passe pas ; une
         // facture due (minutes d'un abonnement fermé) reste à régler
