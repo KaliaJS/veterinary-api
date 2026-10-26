@@ -2344,6 +2344,17 @@ class OrganisationTest extends TestCase
         $this->assertSame('annulee', $this->packDeLaFacture()->statut);
     }
 
+    /** Les renouvellements passent chaque heure ; une commande tuée en pleine course (déploiement) ne les bloque que 50 minutes, jamais 24 h (26.10.2026). */
+    public function test_les_renouvellements_repartent_apres_une_commande_tuee(): void
+    {
+        $evenement = collect(app(Schedule::class)->events())
+            ->first(fn ($e) => str_contains((string) $e->command, 'abonnements:renouveler'));
+
+        $this->assertNotNull($evenement);
+        $this->assertSame('0 * * * *', $evenement->expression);
+        $this->assertSame(50, $evenement->expiresAt);
+    }
+
     /** La vérification des paiements passe chaque minute. */
     public function test_la_verification_des_paiements_passe_chaque_minute(): void
     {
