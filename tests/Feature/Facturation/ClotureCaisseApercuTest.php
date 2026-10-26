@@ -279,4 +279,51 @@ class ClotureCaisseApercuTest extends TestCase
 
         $this->assertLessThan(20, $requetes);
     }
+
+    /** Le même nombre d'encaissements, mais un autre total (un poste a clôturé, une carte est arrivée) : refusé aussi. */
+    public function test_un_total_change_pendant_la_cloture_est_signale(): void
+    {
+        $premiere = $this->facturePayee(MoyenPaiement::Especes, 50);
+        $vu = $this->apercu(['fond' => 0])->json('data');
+        $premiere->update(['cloture_caisse_id' => ClotureCaisse::factory()->create(['clinique_id' => $this->clinique->id, 'nouveau_fond' => 0, 'arretee_le' => now()->subDay()])->id]);
+        $this->facturePayee(MoyenPaiement::Tpe, 85);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [], 'nouveau_fond' => 0, 'encaissements_vus' => $vu['encaissements'], 'total_vu' => $vu['total']], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('encaissements');
+    }
+
+    /** Un dépôt saisi plus grand que les espèces comptées : l'aperçu le dit tout de suite, avec le même refus qu'à la validation. */
+    public function test_un_depot_trop_grand_est_signale_par_l_apercu(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 100);
+
+        $this->apercu(['fond' => 0, 'comptage' => [10000 => 1], 'nouveau_fond' => 0, 'depot' => 80])
+            ->assertJsonPath('data.depot', 80)
+            ->assertJsonPath('data.alerte_depot', null);
+        $this->apercu(['fond' => 0, 'comptage' => [10000 => 1], 'nouveau_fond' => 0, 'depot' => 150])
+            ->assertJsonPath('data.alerte_depot', 'Le dépôt ne dépasse jamais les espèces comptées.');
+    }
+
+    /** Un montant hors limites : le message est en français. */
+    public function test_les_messages_de_saisie_sont_en_francais(): void
+    {
+        $this->apercu(['nouveau_fond' => 100000])->assertJsonValidationErrors(['nouveau_fond' => 'Le nouveau fond est un montant de 0 à 99 999 CHF.']);
+        $this->apercu(['depot' => -1])->assertJsonValidationErrors(['depot' => 'Le dépôt est un montant de 0 à 999 999 CHF.']);
+        $this->apercu(['comptage' => [10000 => 1000]])->assertJsonValidationErrors(['comptage.10000' => 'Entre 0 et 999 billets ou pièces de chaque sorte.']);
+        $this->apercu(['comptage' => [30000 => 1]])->assertJsonValidationErrors(['comptage' => 'Ces billets ou pièces n’existent pas en francs suisses.']);
+    }
+
+    /** Une carte saisie à la main sans écart : le message dit pourquoi la note est demandée ; un écart dit l'écart. */
+    public function test_le_motif_de_la_note_est_le_bon(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 100);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [5000 => 1], 'nouveau_fond' => 0], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors(['note' => 'Écart de caisse : une justification est obligatoire dans la note.']);
+        $this->facturePayee(MoyenPaiement::Tpe, 85, aLaMain: true);
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [10000 => 1], 'nouveau_fond' => 0], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors(['note' => '1 paiement par carte ou TWINT a été saisi sans terminal : justifiez-les dans la note.']);
+        $this->apercu(['fond' => 0, 'comptage' => [10000 => 1]])->assertJsonPath('data.motif_justification', 'sans_terminal');
+    }
 }

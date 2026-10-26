@@ -14,6 +14,8 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class EnregistrerClotureCaisseRequest extends FormRequest
 {
+    use MessagesClotureCaisse;
+
     /** @return array<string, mixed> */
     public function rules(): array
     {

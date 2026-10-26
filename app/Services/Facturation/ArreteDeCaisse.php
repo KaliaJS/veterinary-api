@@ -45,7 +45,7 @@ class ArreteDeCaisse
     /**
      * @param  Collection<int, Facture>  $factures
      * @param  array<int|string, int|string>|null  $comptage  nombre de billets ou pièces par coupure (centimes)
-     * @return array{encaissements: int, moyens: array<string, array{montant: float, nombre: int, sans_terminal: int, saisies_par: list<string>}>, total: float, fond: float, fond_impose: bool, especes_theoriques: float, coupures: list<array{centimes: int, nombre: int, montant: float}>, especes_comptees: float, ecart: float, nouveau_fond: float, depot: float, depot_suggere: float, sans_terminal: int, mode_integre: bool, motif_justification: ?string, justification_requise: bool}
+     * @return array{encaissements: int, moyens: array<string, array{montant: float, nombre: int, sans_terminal: int, saisies_par: list<string>}>, total: float, fond: float, fond_impose: bool, especes_theoriques: float, coupures: list<array{centimes: int, nombre: int, montant: float}>, especes_comptees: float, ecart: float, nouveau_fond: float, depot: float, depot_suggere: float, sans_terminal: int, mode_integre: bool, motif_justification: ?string, justification_requise: bool, alerte_depot: ?string}
      */
     public function calculer(Clinique $clinique, Collection $factures, ?float $fondSaisi, ?array $comptage, ?float $especesComptees, ?float $nouveauFond, ?float $depot): array
     {
@@ -84,7 +84,11 @@ class ArreteDeCaisse
         $ecart = round($comptees - $theoriques, 2);
         $nouveauFond = round($nouveauFond ?? $fond, 2);
         $suggere = max(0.0, round($comptees - $nouveauFond, 2));
+        $depot = $depot !== null ? round($depot, 2) : $suggere;
         $sansTerminalTotal = array_sum(array_column($moyens, 'sans_terminal'));
+        // Une seule règle, pour l'aperçu et pour le Z : un écart, ou (paiements
+        // intégrés) une carte ou un TWINT saisi à la main
+        $motif = abs($ecart) >= 0.005 ? 'ecart' : ($modeIntegre && $sansTerminalTotal > 0 ? 'sans_terminal' : null);
 
         return [
             'encaissements' => $factures->count(),
@@ -97,13 +101,14 @@ class ArreteDeCaisse
             'especes_comptees' => $comptees,
             'ecart' => $ecart,
             'nouveau_fond' => $nouveauFond,
-            'depot' => $depot !== null ? round($depot, 2) : $suggere,
+            'depot' => $depot,
             'depot_suggere' => $suggere,
             'sans_terminal' => $sansTerminalTotal,
             'mode_integre' => $modeIntegre,
-            // Un écart, ou (paiements intégrés) une carte ou un TWINT saisi à la main
-            'motif_justification' => abs($ecart) >= 0.005 ? 'ecart' : ($modeIntegre && $sansTerminalTotal > 0 ? 'sans_terminal' : null),
-            'justification_requise' => abs($ecart) >= 0.005 || ($modeIntegre && $sansTerminalTotal > 0),
+            'motif_justification' => $motif,
+            'justification_requise' => $motif !== null,
+            // Le dépôt part des espèces comptées : jamais plus
+            'alerte_depot' => $depot > $comptees + 0.005 ? 'Le dépôt ne dépasse jamais les espèces comptées.' : null,
         ];
     }
 }

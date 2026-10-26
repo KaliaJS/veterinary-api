@@ -12,6 +12,8 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class ApercuClotureCaisseRequest extends FormRequest
 {
+    use MessagesClotureCaisse;
+
     /** @return array<string, mixed> */
     public function rules(): array
     {

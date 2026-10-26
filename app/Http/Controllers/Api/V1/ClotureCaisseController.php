@@ -115,20 +115,15 @@ class ClotureCaisseController extends Controller
             // La même règle que l'aperçu : un écart, ou (paiements intégrés) une
             // carte ou un TWINT saisi à la main, qui pourrait cacher des espèces gardées
             $note = trim((string) ($donnees['note'] ?? ''));
-            if ($arrete['motif_justification'] === 'ecart' && $note === '') {
-                throw ValidationException::withMessages([
-                    'note' => 'Écart de caisse : une justification est obligatoire dans la note.',
-                ]);
-            }
-            $saisiesALaMain = $arrete['sans_terminal'];
-            if ($arrete['justification_requise'] && $note === '') {
-                throw ValidationException::withMessages([
-                    'note' => $saisiesALaMain.($saisiesALaMain > 1 ? ' paiements par carte ou TWINT ont été saisis' : ' paiement par carte ou TWINT a été saisi').' sans terminal : justifiez-les dans la note.',
-                ]);
+            if ($arrete['motif_justification'] !== null && $note === '') {
+                $saisiesALaMain = $arrete['sans_terminal'];
+                throw ValidationException::withMessages(['note' => $arrete['motif_justification'] === 'ecart'
+                    ? 'Écart de caisse : une justification est obligatoire dans la note.'
+                    : $saisiesALaMain.($saisiesALaMain > 1 ? ' paiements par carte ou TWINT ont été saisis' : ' paiement par carte ou TWINT a été saisi').' sans terminal : justifiez-les dans la note.']);
             }
 
-            if ($arrete['depot'] > $arrete['especes_comptees'] + 0.005) {
-                throw ValidationException::withMessages(['depot' => 'Le dépôt ne dépasse jamais les espèces comptées.']);
+            if ($arrete['alerte_depot'] !== null) {
+                throw ValidationException::withMessages(['depot' => $arrete['alerte_depot']]);
             }
 
             $cloture = ClotureCaisse::create([
