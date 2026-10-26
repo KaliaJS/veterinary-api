@@ -1576,18 +1576,6 @@ final class AbonnementSaas
     }
 
     /**
-     * Une souscription ou un changement de formule à la fois par abonné
-     * (24.10.2026) : deux onglets, ou un double clic, ne créent pas deux
-     * factures prélevées chacune. L'abonné est relu sous le verrou : les
-     * contrôles portent sur l'état laissé par la requête précédente.
-     *
-     * Les achats immédiats (pack, objet, badge) passent aussi par lui
-     * (26.10.2026) : deux clics ne font pas deux prélèvements.
-     *
-     * @param  callable(): ?Reglement  $action
-     * @param  array{0: string, 1: string}  $occupe  champ et message quand le verrou est pris
-     */
-    /**
      * Le verrou de l'abonné, pris sans attendre : déjà pris (autre passage,
      * achat en cours), l'abonné est laissé, le passage suivant le reprend.
      */
@@ -1606,6 +1594,18 @@ final class AbonnementSaas
         }
     }
 
+    /**
+     * Une souscription ou un changement de formule à la fois par abonné
+     * (24.10.2026) : deux onglets, ou un double clic, ne créent pas deux
+     * factures prélevées chacune. L'abonné est relu sous le verrou : les
+     * contrôles portent sur l'état laissé par la requête précédente.
+     *
+     * Les achats immédiats (pack, objet, badge) passent aussi par lui
+     * (26.10.2026) : deux clics ne font pas deux prélèvements.
+     *
+     * @param  callable(): ?Reglement  $action
+     * @param  array{0: string, 1: string}  $occupe  champ et message quand le verrou est pris
+     */
     private function sousVerrouAbonne(Organisation|User $abonne, callable $action, array $occupe = ['plan', 'Un paiement est déjà en cours. Patientez un instant.']): ?Reglement
     {
         // Englobe le verrou de la facture (300 s) : toujours plus long

@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Paiements\PasserelleAbonnement;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserelleAbonnementFactice;
 use Tests\TestCase;
@@ -150,5 +151,28 @@ class AbonnementProprietaireTest extends TestCase
         $this->artisan('abonnements:verifier-paiements')->assertSuccessful();
 
         $this->assertCount($avant, $this->stripe->prelevements);
+    }
+
+    /** Plus déjà pris par un autre passage (ou un achat en cours) : laissé à ce passage, puis renouvelé une fois au passage suivant (26.10.2026). */
+    public function test_plus_deja_pris_est_laisse_au_passage_en_cours(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $entetes = $this->enTetes($jeton);
+        $this->postJson('/api/v1/espace/abonnement/carte/intention', [], $entetes)->assertOk();
+        $this->putJson('/api/v1/espace/abonnement/carte', ['payment_method' => $this->stripe->carteConfirmee($user->refresh()->stripe_client_id)], $entetes)->assertOk();
+        $this->postJson('/api/v1/espace/abonnement/plus', [], $entetes)->assertOk();
+        $avant = count($this->stripe->prelevements);
+        $this->travelTo(CarbonImmutable::parse('2027-10-20 06:00', 'Europe/Zurich'));
+        $verrou = Cache::lock('abonnement:proprietaire:'.$user->id, 600);
+        $this->assertTrue($verrou->get());
+
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $this->assertCount($avant, $this->stripe->prelevements);
+        $verrou->release();
+        $this->travelTo(CarbonImmutable::parse('2027-10-20 07:00', 'Europe/Zurich'));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertCount($avant + 1, $this->stripe->prelevements);
     }
 }

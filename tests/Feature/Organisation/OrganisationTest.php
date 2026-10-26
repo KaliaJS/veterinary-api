@@ -2499,6 +2499,87 @@ class OrganisationTest extends TestCase
         $this->assertSame('resilie', $organisation->refresh()->statut_abonnement);
     }
 
+    /** Un passage en retard qui arrive après la fermeture de l'accès (dernière relance refusée) : la relance relue ne rouvre jamais l'accès sans paiement (26.10.2026). */
+    public function test_une_relance_en_retard_ne_rouvre_pas_un_acces_ferme(): void
+    {
+        $this->jusquALaDerniereRelance();
+        $this->stripe->refus = 'Fonds insuffisants sur la carte.';
+        $this->voyager('2026-11-23 07:00');
+        $enRetard = Organisation::query()->findOrFail($this->organisationId());
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->assertSame('resilie', Organisation::query()->findOrFail($this->organisationId())->statut_abonnement);
+
+        app(AbonnementSaas::class)->retenter($enRetard);
+
+        $this->assertSame('resilie', Organisation::query()->findOrFail($this->organisationId())->statut_abonnement);
+    }
+
+    /** Un passage en retard sur une relance tout juste refusée : la prochaine tentative n'est pas encore venue, rien n'est retenté ni compté (26.10.2026). */
+    public function test_une_relance_en_retard_ne_compte_pas_une_relance_de_plus(): void
+    {
+        $this->abonneeAvecRenouvellementRefuse();
+        $this->voyager('2026-11-21 07:00');
+        $enRetard = Organisation::query()->findOrFail($this->organisationId());
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $cles = count($this->stripe->cles);
+
+        app(AbonnementSaas::class)->retenter($enRetard);
+
+        $this->assertCount($cles, $this->stripe->cles);
+        $this->assertSame(2, (int) Organisation::query()->findOrFail($this->organisationId())->tentatives);
+    }
+
+    /** Un passage en retard sur un renouvellement tout juste refusé : l'organisation, relue, n'est plus active ; ni relance de plus ni second e-mail (26.10.2026). */
+    public function test_un_renouvellement_en_retard_apres_un_refus_ne_compte_rien_de_plus(): void
+    {
+        $this->abonneeACabinet();
+        $this->stripe->refus = 'Fonds insuffisants sur la carte.';
+        $this->voyager('2026-11-20 06:00');
+        $enRetard = Organisation::query()->findOrFail($this->organisationId());
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        app(AbonnementSaas::class)->renouveler($enRetard);
+
+        $this->assertSame(1, (int) Organisation::query()->findOrFail($this->organisationId())->tentatives);
+        Mail::assertSent(PaiementAbonnementRefuse::class, 1);
+    }
+
+    /** Une relance passée chez Stripe malgré la réponse perdue, puis une résiliation pendant les relances : la relance suivante la retrouve, la période est payée et l'accès reste ouvert jusqu'à son échéance (26.10.2026). */
+    public function test_une_relance_passee_puis_une_resiliation_garde_la_periode_payee(): void
+    {
+        $this->abonneeAvecRenouvellementRefuse();
+        $this->stripe->refus = null;
+        $avant = count($this->stripe->prelevements);
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->stripe->passeMalgreErreur = true;
+        $this->stripe->listeEnPanne = true;
+        $this->voyager('2026-11-21 07:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $this->stripe->panne = null;
+        $this->stripe->passeMalgreErreur = false;
+        $this->voyager('2026-11-21 07:30');
+        $this->postJson('/api/v1/organisation/abonnement/resilier', [], $this->enTetes($this->jeton))->assertOk();
+        $this->stripe->listeEnPanne = false;
+
+        $this->voyager('2026-11-21 08:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame(['actif', '2026-12-20'], [$organisation->statut_abonnement, $organisation->periode_fin->toDateString()]);
+        $this->assertCount(1, $this->prelevementsDepuis($avant));
+    }
+
+    /** L'échéance se renouvelle dès minuit et demi, heure de Zurich, alors que l'UTC est encore la veille (26.10.2026). */
+    public function test_l_echeance_se_renouvelle_juste_apres_minuit_a_zurich(): void
+    {
+        $this->abonneeACabinet();
+        $this->voyager('2026-11-20 00:30');
+
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $this->assertSame('2026-12-20', Organisation::query()->findOrFail($this->organisationId())->periode_fin->toDateString());
+    }
+
     /** La vérification des paiements passe chaque minute. */
     public function test_la_verification_des_paiements_passe_chaque_minute(): void
     {
