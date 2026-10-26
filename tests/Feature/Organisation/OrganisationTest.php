@@ -526,14 +526,16 @@ class OrganisationTest extends TestCase
         // Tant que la demande perdue n'a pas de réponse, elle repart telle quelle (26.10.2026)
         $regler()->assertUnprocessable();
         $this->assertSame($sansReponse, array_slice($this->stripe->cles, -1)[0]);
-        // Stripe répond (refus) : la carte suivante est une nouvelle tentative, avec sa clé
+        // Stripe répond par une erreur nette (400) : ni prélèvement ni tentative
+        // comptée ; seule la carte change ensuite, et la clé avec elle
         $this->stripe->panne = null;
-        $this->stripe->refus = 'Fonds insuffisants sur la carte.';
+        $this->stripe->erreurServeur = 400;
         $regler()->assertUnprocessable();
-        $this->stripe->refus = null;
+        $repondue = array_slice($this->stripe->cles, -1)[0];
+        $this->stripe->erreurServeur = null;
         $this->avecCarte('5555');
         $regler()->assertOk();
-        $this->assertNotSame($sansReponse, array_slice($this->stripe->cles, -1)[0]);
+        $this->assertNotSame($repondue, array_slice($this->stripe->cles, -1)[0]);
     }
 
     /** La clé change avec la réponse seule : refusé, puis la même carte, c'est une autre tentative (24.10.2026). */
@@ -2079,7 +2081,9 @@ class OrganisationTest extends TestCase
         $avant = count($this->stripe->prelevements);
         $this->stripe->panne = 'Délai dépassé.';
         ($this->acheteurDePack())()->assertUnprocessable();
-        $this->verifierLesPaiements(23 * 60 + 1);
+        $this->verifierLesPaiements(22 * 60 + 58);
+        $this->assertSame('a_payer', $this->packDeLaFacture()->statut);
+        $this->verifierLesPaiements(3);
 
         $this->assertSame('annulee', $this->packDeLaFacture()->statut);
         $this->assertSame([], $this->prelevementsDepuis($avant));
@@ -2142,6 +2146,102 @@ class OrganisationTest extends TestCase
         $this->assertSame('payee', $this->packDeLaFacture()->statut);
     }
 
+    /** Une facture due (minutes d'un abonnement fermé) n'est jamais annulée par la vérification : refusée au renvoi, elle reste à régler. */
+    public function test_une_facture_due_refusee_au_renvoi_reste_a_regler(): void
+    {
+        $this->abonneeACabinet();
+        $facture = OrganisationFacture::factory()->create(['organisation_id' => $this->organisationId(), 'statut' => 'a_payer', 'montant' => 12.5, 'metadonnees' => ['type' => 'consommation', 'action' => 'fin']]);
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->stripe->panne = null;
+        $this->stripe->refus = 'Fonds insuffisants sur la carte.';
+
+        $this->verifierLesPaiements();
+
+        $this->assertSame('a_payer', $facture->refresh()->statut);
+        $this->assertArrayNotHasKey('demande_en_suspens', $facture->metadonnees);
+    }
+
+    /** Une facture due sans réponse depuis 23 heures, rien chez Stripe : jamais annulée, de nouveau à régler, avec une nouvelle clé. */
+    public function test_une_facture_due_sans_reponse_depuis_23_heures_reste_a_regler(): void
+    {
+        $this->abonneeACabinet();
+        $facture = OrganisationFacture::factory()->create(['organisation_id' => $this->organisationId(), 'statut' => 'a_payer', 'montant' => 12.5, 'metadonnees' => ['type' => 'consommation', 'action' => 'fin']]);
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $cle = end($this->stripe->cles);
+
+        $this->verifierLesPaiements(23 * 60 + 1);
+
+        $this->assertSame('a_payer', $facture->refresh()->statut);
+        $this->assertArrayNotHasKey('demande_en_suspens', $facture->metadonnees);
+        $this->stripe->panne = null;
+        $this->voyager(now()->timezone('Europe/Zurich')->format('Y-m-d H:i'));
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))->assertOk();
+        $this->assertNotSame($cle, end($this->stripe->cles));
+    }
+
+    /** Un renouvellement resté 23 heures sans réponse : Stripe a pu oublier la clé ; rien dans sa liste, la tentative suivante prend une nouvelle clé. */
+    public function test_un_renouvellement_sans_reponse_depuis_23_heures_prend_une_nouvelle_cle(): void
+    {
+        $this->abonneeACabinet();
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->voyager('2026-11-20 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+        $cle = end($this->stripe->cles);
+        $this->stripe->panne = null;
+
+        $this->voyager('2026-11-21 06:00');
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $this->assertNotSame($cle, end($this->stripe->cles));
+        $this->assertSame('2026-12-20', Organisation::query()->findOrFail($this->organisationId())->periode_fin->toDateString());
+    }
+
+    /** Un 429 au renvoi ne dit rien de la demande perdue : elle reste en vérification, un second achat attend, jamais deux prélèvements. */
+    public function test_un_429_au_renvoi_garde_la_demande_en_verification(): void
+    {
+        $this->abonneeACabinet();
+        $avant = count($this->stripe->prelevements);
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->stripe->passeMalgreErreur = true;
+        $this->stripe->listeEnRetard = true;
+        ($this->acheteurDePack())()->assertUnprocessable();
+        $this->stripe->panne = null;
+        $this->stripe->passeMalgreErreur = false;
+        $this->stripe->erreurServeur = 429;
+        $this->verifierLesPaiements();
+        $this->stripe->erreurServeur = null;
+        $this->travel(1)->minutes();
+
+        ($this->acheteurDePack())()->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement précédent est encore en vérification chez le prestataire. Réessayez dans une minute.']);
+        $this->assertCount(1, $this->prelevementsDepuis($avant));
+    }
+
+    /** Une montée encore en vérification : une formule moins chère attend de savoir, rien n'est programmé. */
+    public function test_une_descente_attend_une_montee_en_verification(): void
+    {
+        $this->abonneeACabinet();
+        $this->voyager('2026-11-10 10:00');
+        $this->stripe->panne = 'Délai dépassé.';
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'hopital'], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->stripe->panne = null;
+
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'individuel'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['plan' => 'Un changement de formule précédent est encore traité par votre banque ou en vérification chez le prestataire. Réessayez dans quelques minutes.']);
+        $this->assertNull(Organisation::query()->findOrFail($this->organisationId())->formule_suivante);
+    }
+
+    /** « Régler » sans réponse de Stripe : le paiement est en vérification et se termine tout seul. */
+    public function test_regler_sans_reponse_dit_que_le_paiement_se_termine_seul(): void
+    {
+        $facture = $this->factureRefuseeARegler();
+        $this->stripe->panne = 'Délai dépassé.';
+
+        $this->postJson("/api/v1/organisation/factures/{$facture->id}/regler", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['paiement' => 'Le paiement est en cours de vérification chez le prestataire : il se termine tout seul dans un instant.']);
+    }
+
     /** Les renouvellements restent à la commande de chaque heure, qui renvoie la même demande : la vérification de chaque minute ne les touche pas. */
     public function test_la_verification_de_chaque_minute_laisse_les_renouvellements(): void
     {
@@ -2164,6 +2264,8 @@ class OrganisationTest extends TestCase
 
         $this->assertNotNull($evenement);
         $this->assertSame('* * * * *', $evenement->expression);
+        // Tuée en pleine vérification (déploiement) : la suivante repart dans dix minutes, pas dans 24 h
+        $this->assertSame(10, $evenement->expiresAt);
     }
 
     /** Un 409 (la même demande en cours) ou un 429 (trop d'appels) au renouvellement : pas un refus, la même demande repart à l'heure suivante et passe (26.10.2026). */

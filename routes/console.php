@@ -23,7 +23,7 @@ Schedule::command('catalogue:refdata')->weeklyOn(1, '04:30')->environments(['pro
 // refus ; l'audio de transcription resté en erreur effacé chaque nuit
 Schedule::command('abonnements:renouveler')->hourly()->withoutOverlapping();
 // Paiements restés sans réponse de Stripe : renvoyés tels quels (26.10.2026)
-Schedule::command('abonnements:verifier-paiements')->everyMinute()->withoutOverlapping();
+Schedule::command('abonnements:verifier-paiements')->everyMinute()->withoutOverlapping(10);
 Schedule::command('inscriptions:reessayer')->hourly()->withoutOverlapping();
 Schedule::command('transcriptions:purger')->dailyAt('03:30')->timezone('Europe/Zurich')->withoutOverlapping();
 // Point du matin sur le stock (seuils, péremptions), avant l'ouverture des cliniques

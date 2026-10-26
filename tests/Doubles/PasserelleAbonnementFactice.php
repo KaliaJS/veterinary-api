@@ -109,6 +109,10 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
         $this->cles[] = $cleIdempotence;
         $this->journal[] = 'prelever';
         $this->refuserLaCle();
+        // Trop d'appels : Stripe refuse avant de regarder la clé
+        if ($this->erreurServeur === 429) {
+            throw new ErreurPaiement(ErreurPaiement::GENERIQUE, 'rate_limit', 429);
+        }
         // Comme Stripe : une clé déjà servie rend le résultat de la première demande, si la réponse arrive
         foreach ($this->prelevements as $deja) {
             if ($deja['cle'] === $cleIdempotence) {
