@@ -56,6 +56,8 @@ class CompteRevueAppleMailsTest extends TestCase
         Mail::to('Revue@Veterinary.app')->send(new AccesSurInvitation);
         Mail::to(self::ADRESSE)->queue(new AccesSurInvitation);
         Notification::route('mail', self::ADRESSE)->notify(new CodeEmailNotification('12345678', 10, 'https://veterinary.app'));
+        // Adressé à elle seule : ses copies ne partent pas non plus
+        Mail::to(self::ADRESSE)->bcc('plateforme@exemple.ch')->send(new AccesSurInvitation);
 
         $this->assertSame([], $this->envoyes());
     }
@@ -67,6 +69,16 @@ class CompteRevueAppleMailsTest extends TestCase
         $envoyes = $this->envoyes();
         $this->assertCount(1, $envoyes);
         $this->assertSame(['paul@exemple.ch', 'plateforme@exemple.ch'], $this->destinataires($envoyes[0]));
+    }
+
+    /** Un e-mail à plusieurs (alerte aux admins d'une clinique) part aux autres, sans l'adresse de revue. */
+    public function test_a_plusieurs_destinataires_l_e_mail_part_aux_autres(): void
+    {
+        Mail::to(['paul@exemple.ch', ['email' => 'REVUE@veterinary.app', 'name' => 'Revue'], 'lea@exemple.ch'])->send(new AccesSurInvitation);
+
+        $envoyes = $this->envoyes();
+        $this->assertCount(1, $envoyes);
+        $this->assertSame(['paul@exemple.ch', 'lea@exemple.ch'], $this->destinataires($envoyes[0]));
     }
 
     public function test_les_autres_adresses_recoivent_leurs_e_mails(): void

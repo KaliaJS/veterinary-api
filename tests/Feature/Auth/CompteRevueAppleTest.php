@@ -149,7 +149,11 @@ class CompteRevueAppleTest extends TestCase
 
         Mail::assertSent(AccesSurInvitation::class, fn (AccesSurInvitation $mail) => $mail->hasTo('paul@exemple.ch'));
         Notification::assertNothingSent();
-        $this->assertFalse(app(AdressesInvitees::class)->peutCreerUnCompte('paul@exemple.ch'));
+        // Ni une adresse quelconque, ni ses voisines (même domaine, même partie avant le @)
+        foreach (['paul@exemple.ch', 'revue@exemple.ch', 'autre@veterinary.app', 'revue@veterinary.app.ch', 'xrevue@veterinary.app'] as $email) {
+            $this->assertFalse(app(AdressesInvitees::class)->peutCreerUnCompte($email), $email);
+        }
         $this->assertTrue(app(AdressesInvitees::class)->peutCreerUnCompte(self::ADRESSE));
+        $this->assertTrue(app(AdressesInvitees::class)->peutCreerUnCompte(' Revue@Veterinary.APP '));
     }
 }
