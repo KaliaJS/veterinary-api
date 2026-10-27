@@ -626,4 +626,63 @@ class VetpointTest extends TestCase
 
         $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $entetes)->assertOk();
     }
+
+    /** Une nouvelle clé collée par-dessus une clé devenue illisible : elle la remplace, jamais une erreur 500. */
+    public function test_une_nouvelle_cle_remplace_une_cle_illisible(): void
+    {
+        $this->fauxVetpoint();
+        $this->relier();
+        DB::table('connexions_vetpoint')->update(['cle' => 'pas-un-chiffre-valable']);
+
+        $this->putJson('/api/v1/vetpoint/connexion', ['cle' => self::CLE], $this->admin())->assertOk()->assertJsonPath('data.cle_fin', 'AB12');
+
+        $this->assertSame(self::CLE, ConnexionVetpoint::query()->sole()->cleEnClair());
+    }
+
+    /** Un 404 Swissmedic de forme inattendue (message en liste) ou générique (« Not Found ») : une panne. */
+    public function test_seul_le_404_produit_introuvable_donne_aucun_resultat(): void
+    {
+        $this->relier();
+        $entetes = $this->admin();
+        $corps = ['errorMessage' => ['Product not found']];
+        Http::fake(function () use (&$corps) {
+            return Http::response($corps, 404);
+        });
+
+        $this->getJson('/api/v1/vetpoint/produits?q=062533-01-003', $entetes)->assertStatus(503);
+        $corps = ['errorMessage' => 'Not Found'];
+        $this->getJson('/api/v1/vetpoint/produits?q=062533-01-003', $entetes)->assertStatus(503);
+        $corps = ['statusCode' => 404, 'errorMessage' => 'Product not found'];
+        $this->getJson('/api/v1/vetpoint/produits?q=062533-01-003', $entetes)->assertOk()->assertJsonPath('data', []);
+    }
+
+    /** Une clé illisible ne consomme pas le compteur : recollée, la recherche marche aussitôt. */
+    public function test_les_recherches_avec_une_cle_illisible_ne_comptent_pas(): void
+    {
+        $this->fauxVetpoint([$this->produitVetpoint()]);
+        $this->relier();
+        DB::table('connexions_vetpoint')->update(['cle' => 'pas-un-chiffre-valable']);
+        $entetes = $this->admin();
+
+        foreach (range(1, 25) as $i) {
+            $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $entetes)->assertStatus(409);
+        }
+        ConnexionVetpoint::query()->delete();
+        $this->relier();
+
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $entetes)->assertOk();
+    }
+
+    /** Un contenu démesuré (1e400) : rien d'affiché, jamais « INF ml ». */
+    public function test_un_contenu_demesure_n_est_pas_affiche(): void
+    {
+        $this->relier();
+        Http::fake([
+            self::URL.'/v1/supplier' => Http::response(['suppliers' => []]),
+            self::URL.'/v1/product/query=*' => Http::response('{"products":[{"productId":"913-1","name":"X","anzahl":1e400,"einheitVerkauf":"ml"}]}', 200, ['Content-Type' => 'application/json']),
+            self::URL.'/v1/product/calculatePrices' => Http::response([]),
+        ]);
+
+        $this->getJson('/api/v1/vetpoint/produits?q=inflacam', $this->admin())->assertOk()->assertJsonPath('data.0.contenu', null);
+    }
 }

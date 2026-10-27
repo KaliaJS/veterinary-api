@@ -55,10 +55,10 @@ class ConnexionVetpointController extends Controller
             abort(503, 'Vetpoint ne répond pas : réessayez dans un moment.');
         }
 
-        ConnexionVetpoint::query()->updateOrCreate(
-            ['clinique_id' => $this->cliniqueId()],
-            ['cle' => $cle, 'verifiee_le' => now()],
-        );
+        // Remplacée, pas mise à jour : comparer avec l'ancienne obligerait à la
+        // déchiffrer, ce qui échoue si elle est devenue illisible
+        ConnexionVetpoint::query()->where('clinique_id', $this->cliniqueId())->delete();
+        ConnexionVetpoint::query()->create(['clinique_id' => $this->cliniqueId(), 'cle' => $cle, 'verifiee_le' => now()]);
         // Lus pour vérifier la clé : gardés pour la recherche (un appel de moins)
         Cache::put(self::cleCacheFournisseurs($this->cliniqueId()), $fournisseurs, now()->addDay());
 

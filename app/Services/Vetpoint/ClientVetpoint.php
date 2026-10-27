@@ -123,8 +123,10 @@ class ClientVetpoint
         if ($reponse->status() === 403) {
             throw new VetpointCgv;
         }
-        // « Product not found » seulement : une page 404 (adresse fausse) est une panne
-        if ($reponse->status() === 404 && $introuvableVide && is_array($reponse->json()) && stripos((string) ($reponse->json()['errorMessage'] ?? ''), 'not found') !== false) {
+        // « Product not found » seulement (OpenAPI) : une page 404, un « Not
+        // Found » générique ou un message d'une autre forme sont une panne
+        $message = is_array($reponse->json()) ? ($reponse->json()['errorMessage'] ?? null) : null;
+        if ($reponse->status() === 404 && $introuvableVide && is_string($message) && strcasecmp(trim($message), 'Product not found') === 0) {
             return [];
         }
         if ($reponse->status() === 429) {

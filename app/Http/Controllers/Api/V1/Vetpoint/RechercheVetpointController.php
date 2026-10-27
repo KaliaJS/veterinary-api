@@ -97,7 +97,7 @@ class RechercheVetpointController extends Controller
                     'peremption' => $texte('expirationDate'),
                     'categorie_remise' => $texte('abgabekategorie'),
                     // Vetpoint met parfois 0, sans unité : rien à montrer
-                    'contenu' => is_numeric($produit['anzahl'] ?? null) && (float) $produit['anzahl'] > 0 ? trim($produit['anzahl'].' '.($texte('einheitVerkauf') ?? '')) : null,
+                    'contenu' => (ClientVetpoint::nombre($produit['anzahl'] ?? null) ?? 0) > 0 ? trim($produit['anzahl'].' '.($texte('einheitVerkauf') ?? '')) : null,
                     'stupefiant' => (bool) ($produit['betaeubungsmittel'] ?? false),
                     'ean' => $texte('barcode'),
                     'prix_catalogue' => ClientVetpoint::nombre($produit['listPrice'] ?? null),
