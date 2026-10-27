@@ -310,7 +310,7 @@ class VetpointCommandeTest extends TestCase
     {
         $commande = $this->envoyee();
 
-        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->entetes)->assertOk()->assertJsonPath('vetpoint.lu', true);
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->entetes)->assertOk()->assertJsonPath('data.reception_vetpoint.lu', true);
 
         $this->assertSame('12.35', (string) $commande->lignes()->first()->cout);
     }
@@ -344,8 +344,8 @@ class VetpointCommandeTest extends TestCase
         $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->entetes)
             ->assertOk()
             ->assertJsonPath('data.statut', 'rec')
-            ->assertJsonPath('vetpoint.lu', false)
-            ->assertJsonPath('vetpoint.message', 'Vetpoint ne répond pas : le stock est entré avec les prix de la commande, sans les prix réels ni les péremptions de Vetpoint.');
+            ->assertJsonPath('data.reception_vetpoint.lu', false)
+            ->assertJsonPath('data.reception_vetpoint.message', 'Vetpoint ne répond pas : le stock est entré avec les prix de la commande, sans les prix réels ni les péremptions de Vetpoint.');
 
         $this->assertSame('10.00', (string) $commande->lignes()->first()->cout);
         $this->assertSame('2027-01-01', Lot::query()->where('produit_id', $produit->id)->sole()->peremption_le->toDateString());

@@ -244,9 +244,9 @@ class CommandeFournisseurController extends Controller
             return $commande;
         });
 
-        $ressource = new CommandeFournisseurResource($commande->load('lignes'));
+        $commande->receptionVetpoint = $vetpoint;
 
-        return $vetpoint === null ? $ressource : $ressource->additional(['vetpoint' => $vetpoint]);
+        return new CommandeFournisseurResource($commande->load('lignes'));
     }
 
     public function destroy(int $commande): Response

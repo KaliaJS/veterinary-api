@@ -30,6 +30,8 @@ class CommandeFournisseurResource extends JsonResource
                 'date_souhaitee' => $this->vetpoint_date_souhaitee?->toDateString(),
                 'envoi_en_cours' => $this->vetpoint_commande_id === null,
             ] : null,
+            // Réception d'une commande Vetpoint : prix réels lus ou non (28.10.2026)
+            'reception_vetpoint' => $this->when($this->resource->receptionVetpoint !== null, fn () => $this->resource->receptionVetpoint),
             'lignes' => $this->whenLoaded(
                 'lignes',
                 fn () => $this->lignes->map(fn (CommandeFournisseurLigne $ligne): array => [

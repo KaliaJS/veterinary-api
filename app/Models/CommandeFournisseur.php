@@ -20,6 +20,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class CommandeFournisseur extends Model
 {
+    /** Lecture chez Vetpoint au moment de la réception (pas une colonne) : rendue avec la commande, une fois */
+    public ?array $receptionVetpoint = null;
+
     /** @use HasFactory<CommandeFournisseurFactory> */
     use AppartientAUneClinique, HasFactory;
 
