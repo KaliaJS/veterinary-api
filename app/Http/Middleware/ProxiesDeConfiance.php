@@ -20,14 +20,17 @@ use Illuminate\Http\Request;
  * sans le remplacer, et Laravel prend la première. Sur Laravel Cloud, l'app
  * n'est joignable que par cette bordure : l'adresse du visiteur est celle
  * que Cloudflare écrit dans CF-Connecting-IP, qu'aucun visiteur ne peut
- * fixer (27.10.2026). `IP_PAR_CLOUDFLARE`, vrai par défaut sur Laravel Cloud.
+ * fixer (27.10.2026). `IP_PAR_CLOUDFLARE` : vide, automatique (actif sur
+ * Laravel Cloud) ; true ou false pour forcer.
  */
 class ProxiesDeConfiance extends TrustProxies
 {
     public function handle(Request $request, Closure $next)
     {
         $ip = $request->headers->get('CF-Connecting-IP');
-        if (config('app.ip_par_cloudflare') && is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP)) {
+        // Sans réglage : actif sur Laravel Cloud, détecté comme le fait Laravel
+        $parCloudflare = config('app.ip_par_cloudflare') ?? laravel_cloud();
+        if ($parCloudflare && is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP)) {
             // L'adresse du visiteur, et plus de chaîne X-Forwarded-For à remonter
             $request->server->set('REMOTE_ADDR', $ip);
             $request->headers->remove('X-Forwarded-For');

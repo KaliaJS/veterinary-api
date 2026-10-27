@@ -266,4 +266,35 @@ class LimitesConnexionTest extends TestCase
 
         $this->assertSame('198.51.100.9', request()->ip());
     }
+
+    /** Sans réglage (ou une ligne vide recopiée de .env.example) : actif sur Laravel Cloud, détecté comme le fait Laravel. */
+    public function test_sans_reglage_la_lecture_chez_cloudflare_suit_laravel_cloud(): void
+    {
+        Notification::fake();
+        config(['app.proxies_de_confiance' => '*', 'app.ip_par_cloudflare' => null]);
+        $_SERVER['LARAVEL_CLOUD'] = '1';
+        $envoyer = fn (string $forge) => $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])
+            ->withHeaders(['X-Forwarded-For' => $forge.', 198.51.100.1', 'CF-Connecting-IP' => '198.51.100.1'])
+            ->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'victime@exemple.ch']);
+
+        try {
+            foreach (range(1, 3) as $i) {
+                $envoyer('1.1.1.'.$i)->assertStatus(202);
+            }
+            $envoyer('1.1.1.4')->assertTooManyRequests();
+        } finally {
+            unset($_SERVER['LARAVEL_CLOUD']);
+        }
+    }
+
+    /** Hors de Laravel Cloud et sans réglage, CF-Connecting-IP n'est pas cru (n'importe qui pourrait l'écrire). */
+    public function test_hors_de_laravel_cloud_cf_connecting_ip_n_est_pas_cru(): void
+    {
+        config(['app.proxies_de_confiance' => null, 'app.ip_par_cloudflare' => null]);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.10'])->withHeader('CF-Connecting-IP', '198.51.100.1')
+            ->getJson('/api/v1/public/cliniques');
+
+        $this->assertSame('192.0.2.10', request()->ip());
+    }
 }
