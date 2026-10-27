@@ -117,6 +117,8 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
         }
         $this->clientsSupprimes[] = $client;
         unset($this->clients[$client]);
+        // Comme chez Stripe : ses cartes partent avec lui
+        $this->cartes = array_filter($this->cartes, fn (array $carte) => $carte['customer'] !== $client);
     }
 
     public function prelever(string $client, string $moyen, int $centimes, string $libelle, array $metadonnees, bool $horsSession, string $cleIdempotence): array

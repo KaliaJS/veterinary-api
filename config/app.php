@@ -79,6 +79,10 @@ return [
     */
     'proxies_de_confiance' => env('TRUSTED_PROXIES'),
 
+    // L'adresse du visiteur lue dans CF-Connecting-IP (bordure Cloudflare de
+    // Laravel Cloud, seule voie vers l'app) : vrai par défaut sur Laravel Cloud
+    'ip_par_cloudflare' => filter_var(env('IP_PAR_CLOUDFLARE', env('LARAVEL_CLOUD', false)), FILTER_VALIDATE_BOOL),
+
     /*
     |--------------------------------------------------------------------------
     | Application Locale Configuration

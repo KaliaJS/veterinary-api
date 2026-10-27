@@ -7,6 +7,7 @@ use App\Models\Employe;
 use App\Models\JetonApi;
 use App\Models\User;
 use App\Services\Comptes\SuppressionCompte;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -32,6 +33,36 @@ class EmetteurJetons
 {
     /** Nom d'appareil du jeton de l'Apple Watch */
     public const string APPAREIL_MONTRE = 'montre';
+
+    /** Faux pendant une émission depuis une session déjà ouverte (seule une connexion annule une suppression) */
+    private bool $annulationPermise = true;
+
+    /**
+     * Jeton émis depuis une session déjà ouverte (rafraîchissement, montre,
+     * changement de clinique) : jamais pendant une suppression demandée du
+     * compte (une session encore en vol ne se prolonge pas), et sans annuler
+     * la demande, que seule une connexion annule (27.10.2026).
+     *
+     * @template T
+     *
+     * @param  callable(): T  $emettre
+     * @return T
+     *
+     * @throws AuthenticationException
+     */
+    private function depuisLaSession(User $user, callable $emettre): mixed
+    {
+        if (User::query()->whereKey($user->id)->whereNotNull('suppression_demandee_le')->exists()) {
+            throw new AuthenticationException('Session fermée : la suppression de ce compte est demandée.');
+        }
+
+        $this->annulationPermise = false;
+        try {
+            return $emettre();
+        } finally {
+            $this->annulationPermise = true;
+        }
+    }
 
     /**
      * Connexion en un temps : rattachement résolu puis jeton émis. Un
@@ -79,7 +110,7 @@ class EmetteurJetons
      */
     private function annulerSuppression(User $user, NewAccessToken $jeton): NewAccessToken
     {
-        if (app(SuppressionCompte::class)->annuler($user)) {
+        if ($this->annulationPermise && app(SuppressionCompte::class)->annuler($user)) {
             /** @var JetonApi $modele */
             $modele = $jeton->accessToken;
             $modele->suppressionAnnulee = true;
@@ -96,9 +127,9 @@ class EmetteurJetons
      */
     public function rafraichir(User $user, JetonApi $jetonCourant): array
     {
-        $resultat = $jetonCourant->clinique_id === null
+        $resultat = $this->depuisLaSession($user, fn (): array => $jetonCourant->clinique_id === null
             ? ['jeton' => $this->emettreSansClinique($user, $jetonCourant->name), 'employe' => null]
-            : $this->emettre($user, $jetonCourant->clinique_id, $jetonCourant->name);
+            : $this->emettre($user, $jetonCourant->clinique_id, $jetonCourant->name));
 
         $this->garderLaSession($resultat['jeton'], $jetonCourant);
         $jetonCourant->delete();
@@ -117,9 +148,9 @@ class EmetteurJetons
      */
     public function emettrePourMontre(User $user, JetonApi $jetonCourant): array
     {
-        $resultat = $jetonCourant->clinique_id === null
+        $resultat = $this->depuisLaSession($user, fn (): array => $jetonCourant->clinique_id === null
             ? ['jeton' => $this->emettreSansClinique($user, self::APPAREIL_MONTRE), 'employe' => null]
-            : $this->emettre($user, $jetonCourant->clinique_id, self::APPAREIL_MONTRE);
+            : $this->emettre($user, $jetonCourant->clinique_id, self::APPAREIL_MONTRE));
 
         $user->tokens()
             ->where('name', self::APPAREIL_MONTRE)
@@ -141,7 +172,7 @@ class EmetteurJetons
      */
     public function changerClinique(User $user, JetonApi $jetonCourant, int $cliniqueId): array
     {
-        $resultat = $this->emettre($user, $cliniqueId, $jetonCourant->name);
+        $resultat = $this->depuisLaSession($user, fn (): array => $this->emettre($user, $cliniqueId, $jetonCourant->name));
 
         $this->garderLaSession($resultat['jeton'], $jetonCourant);
         $jetonCourant->delete();

@@ -10,13 +10,16 @@ use App\Models\DemandeRenouvellementOrdonnance;
 use App\Models\Document;
 use App\Models\Employe;
 use App\Models\Facture;
+use App\Models\FactureProprietaire;
 use App\Models\MessageClientele;
 use App\Models\Ordonnance;
 use App\Models\Patient;
+use App\Models\Societe;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
 use App\Notifications\CodeSuppressionCompte;
 use App\Paiements\PasserelleAbonnement;
+use App\Services\Comptes\SuppressionCompte;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
@@ -226,7 +229,8 @@ class SuppressionCompteTest extends TestCase
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
         $fiche = Client::factory()->create(['user_id' => $user->id]);
         $suivi = Patient::factory()->create(['client_id' => $fiche->id]);
-        $clinique = Clinique::factory()->create();
+        // Une clinique de l'organisation de sa fiche : le fil reste attribuable
+        $clinique = Clinique::factory()->create(['societe_id' => Societe::factory()->create(['organisation_id' => $fiche->organisation_id])->id]);
         $message = MessageClientele::query()->create(['clinique_id' => $clinique->id, 'user_id' => $user->id, 'auteur' => 'proprietaire', 'texte' => 'Bonjour']);
         $ordonnance = Ordonnance::factory()->create(['patient_id' => $suivi->id, 'organisation_id' => $fiche->organisation_id]);
         $renouvellement = DemandeRenouvellementOrdonnance::query()->create(['ordonnance_id' => $ordonnance->id, 'user_id' => $user->id]);
@@ -237,6 +241,8 @@ class SuppressionCompteTest extends TestCase
 
         $this->assertFalse(User::query()->whereKey($user->id)->exists());
         $this->assertDetache(MessageClientele::query()->find($message->id), 'user_id');
+        // La clinique sait encore avec qui était le fil : sa fiche client
+        $this->assertSame($fiche->id, MessageClientele::query()->find($message->id)?->client_id);
         $this->assertDetache(DemandeRenouvellementOrdonnance::query()->find($renouvellement->id), 'user_id');
     }
 
@@ -281,7 +287,9 @@ class SuppressionCompteTest extends TestCase
         $this->travel(31)->days();
         $this->artisan('comptes:effacer')->assertSuccessful();
 
-        $this->assertContains($carte, $this->stripe->detachees);
+        // Le client supprimé emporte ses cartes : aucun détachement à part, qu'une panne entre deux appels bloquerait
+        $this->assertSame([], $this->stripe->detachees);
+        $this->assertArrayNotHasKey($carte, $this->stripe->cartes);
         $this->assertContains($client, $this->stripe->clientsSupprimes);
         $this->assertFalse(User::query()->whereKey($user->id)->exists());
     }
@@ -316,5 +324,69 @@ class SuppressionCompteTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['compte' => $message]);
         Notification::assertNothingSent();
         $this->assertNull($user->refresh()->suppression_demandee_le);
+    }
+
+    /** Pièces comptables de Meteora (CO 958f, 10 ans) : les factures Plus restent, détachées, avec le nom et l'adresse du titulaire. */
+    public function test_les_factures_plus_restent_detachees_avec_le_titulaire(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'Paul Rochat', 'email' => 'paul@exemple.ch']);
+        $facture = FactureProprietaire::query()->forceCreate(['user_id' => $user->id, 'numero' => 'P-2026-0001', 'emise_le' => '2026-10-01', 'libelle' => 'Veterinary Plus', 'montant' => 12, 'statut' => 'payee']);
+        $this->demander($jeton, $user);
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
+        $gardee = FactureProprietaire::query()->find($facture->id);
+        $this->assertDetache($gardee, 'user_id');
+        $this->assertSame(['Paul Rochat', 'paul@exemple.ch'], [$gardee->titulaire_nom, $gardee->titulaire_email]);
+    }
+
+    /** La limite d'envoi du code suit le compte : un champ e-mail glissé dans la requête ne la contourne pas. */
+    public function test_l_envoi_du_code_est_limite_par_compte(): void
+    {
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+
+        foreach (range(1, 3) as $envoi) {
+            $this->postJson('/api/v1/espace/compte/suppression/code', ['email' => "leurre{$envoi}@exemple.ch"], $this->enTetes($jeton))->assertStatus(202);
+        }
+
+        $this->postJson('/api/v1/espace/compte/suppression/code', ['email' => 'leurre4@exemple.ch'], $this->enTetes($jeton))
+            ->assertStatus(429)->assertJsonPath('message', 'Trop de codes demandés : réessayez dans un quart d’heure.');
+    }
+
+    /** Une session encore en vol pendant la demande ne se prolonge pas, et n'annule rien. */
+    public function test_un_rafraichissement_pendant_la_suppression_est_refuse(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $user->forceFill(['suppression_demandee_le' => now()])->save();
+
+        $this->postJson('/api/v1/auth/rafraichir', [], $this->enTetes($jeton))->assertUnauthorized();
+        $this->assertNotNull($user->refresh()->suppression_demandee_le);
+    }
+
+    /** Reconnecté juste avant le passage de la nuit : l'effacement relit la demande et ne fait rien. */
+    public function test_l_effacement_relit_la_demande(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->demander($jeton, $user);
+        $this->travel(31)->days();
+        $vieux = User::query()->find($user->id);
+        app(EmetteurJetons::class)->emettreSansClinique($user);
+
+        app(SuppressionCompte::class)->effacer($vieux);
+
+        $this->assertTrue(User::query()->whereKey($user->id)->exists());
+    }
+
+    /** L'adresse de revue : la réponse dit qu'aucun e-mail n'est parti (l'écran ne prétend pas le contraire). */
+    public function test_l_adresse_de_revue_apprend_qu_aucun_e_mail_n_est_parti(): void
+    {
+        config(['plateforme.revue_apple.email' => 'revue@veterinary.app', 'plateforme.revue_apple.code' => '24681357']);
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton(['email' => 'revue@veterinary.app']);
+        ['jeton' => $autre] = $this->proprietaireAvecJeton();
+
+        $this->postJson('/api/v1/espace/compte/suppression/code', [], $this->enTetes($jeton))->assertStatus(202)->assertJsonPath('data.envoye', false);
+        $this->app['auth']->forgetGuards();
+        $this->postJson('/api/v1/espace/compte/suppression/code', [], $this->enTetes($autre))->assertStatus(202)->assertJsonPath('data.envoye', true);
     }
 }

@@ -313,7 +313,7 @@ Route::prefix('v1')->group(function (): void {
         Route::post('notifications/lues', [ReglagesProprietaireController::class, 'marquerLues']);
         Route::get('export', [ReglagesProprietaireController::class, 'export']);
         // Suppression du compte (App Store, 27.10.2026) : code par e-mail, effacé 30 jours après
-        Route::post('compte/suppression/code', [SuppressionCompteController::class, 'code'])->middleware('throttle:code-email');
+        Route::post('compte/suppression/code', [SuppressionCompteController::class, 'code'])->middleware('throttle:suppression-code');
         Route::post('compte/suppression', [SuppressionCompteController::class, 'demander']);
         // Offre du propriétaire : Gratuit, ou Plus (d'autres planètes)
         Route::get('abonnement', [AbonnementProprietaireController::class, 'afficher']);

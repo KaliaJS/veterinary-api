@@ -28,7 +28,7 @@ return [
 
     // Formulaire de contact du site (27.10.2026) : l'adresse qui reçoit les
     // messages, jamais montrée sur le site ; sinon celle des alertes
-    'contact_email' => env('PLATEFORME_CONTACT_EMAIL') ?: env('PLATEFORME_ALERTE_EMAIL') ?: env('PLATEFORME_VERIFICATION_EMAIL') ?: env('PLATEFORME_EMETTEUR_EMAIL'),
+    'contact_email' => env('PLATEFORME_CONTACT_EMAIL') ?: env('PLATEFORME_ALERTE_EMAIL') ?: env('PLATEFORME_VERIFICATION_EMAIL') ?: env('TRANSCRIPTION_ALERTE_EMAIL') ?: env('PLATEFORME_EMETTEUR_EMAIL'),
 
     // L'annuaire public et ses créneaux, gardés quelques secondes : chaque
     // visite ne recalcule pas toutes les cliniques (23.10.2026). 0 : jamais

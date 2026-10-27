@@ -234,4 +234,36 @@ class LimitesConnexionTest extends TestCase
 
         return $code;
     }
+
+    /**
+     * Sur Laravel Cloud, la bordure est Cloudflare et l'app n'est joignable
+     * que par elle : l'adresse du visiteur est celle de CF-Connecting-IP, que
+     * Cloudflare écrit lui-même. Un X-Forwarded-For forgé, que la bordure
+     * allonge sans le remplacer, ne change plus de compteur (27.10.2026).
+     */
+    public function test_sur_laravel_cloud_l_adresse_vient_de_cloudflare_pas_d_un_en_tete_forge(): void
+    {
+        Notification::fake();
+        config(['app.proxies_de_confiance' => '*', 'app.ip_par_cloudflare' => true]);
+        $envoyer = fn (string $forge) => $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])
+            ->withHeaders(['X-Forwarded-For' => $forge.', 198.51.100.1', 'CF-Connecting-IP' => '198.51.100.1', 'X-Forwarded-Proto' => 'https'])
+            ->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'victime@exemple.ch']);
+
+        foreach (range(1, 3) as $i) {
+            $envoyer('1.1.1.'.$i)->assertStatus(202);
+        }
+        // Une quatrième adresse forgée : même visiteur pour Cloudflare, même compteur
+        $envoyer('1.1.1.4')->assertTooManyRequests();
+    }
+
+    /** Sans l'en-tête de Cloudflare (local, tests), rien ne change. */
+    public function test_sans_l_en_tete_de_cloudflare_rien_ne_change(): void
+    {
+        config(['app.proxies_de_confiance' => '*', 'app.ip_par_cloudflare' => true]);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])->withHeader('X-Forwarded-For', '198.51.100.9')
+            ->getJson('/api/v1/public/cliniques');
+
+        $this->assertSame('198.51.100.9', request()->ip());
+    }
 }

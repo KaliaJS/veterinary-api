@@ -201,6 +201,15 @@ class AppServiceProvider extends ServiceProvider
         // Clé Vetpoint (27.10.2026) : 10 essais par minute et par compte, avec
         // un message en français. Les recherches, elles, sont comptées par
         // clinique dans RechercheVetpointController (vraies recherches seules)
+        // Code de suppression du compte (27.10.2026) : par compte, jamais par un
+        // champ de la requête qui changerait la clé
+        RateLimiter::for('suppression-code', fn (Request $request): array => [
+            Limit::perMinutes(15, 3)->by('suppression-code:'.$request->user()?->getAuthIdentifier())
+                ->response(fn () => response()->json(['message' => 'Trop de codes demandés : réessayez dans un quart d’heure.'], 429)),
+            Limit::perDay(10)->by('suppression-code-jour:'.$request->user()?->getAuthIdentifier())
+                ->response(fn () => response()->json(['message' => 'Trop de codes demandés aujourd’hui : réessayez demain.'], 429)),
+        ]);
+
         // Formulaire de contact du site (27.10.2026) : par adresse IP, sans compte
         RateLimiter::for('contact', fn (Request $request): array => [
             Limit::perHour(5)->by('contact:'.$request->ip())

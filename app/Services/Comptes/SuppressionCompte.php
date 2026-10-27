@@ -3,8 +3,12 @@
 namespace App\Services\Comptes;
 
 use App\Auth\CompteRevueApple;
+use App\Models\Client;
+use App\Models\Clinique;
 use App\Models\Document;
 use App\Models\Employe;
+use App\Models\FactureProprietaire;
+use App\Models\MessageClientele;
 use App\Models\Patient;
 use App\Models\User;
 use App\Notifications\CodeSuppressionCompte;
@@ -46,8 +50,8 @@ class SuppressionCompte
         private PasserelleAbonnement $stripe,
     ) {}
 
-    /** Un code neuf, cinq essais neufs ; aucun e-mail pour l'adresse de revue. */
-    public function envoyerCode(User $user): void
+    /** Un code neuf, cinq essais neufs ; aucun e-mail pour l'adresse de revue. Rend vrai si un e-mail est parti. */
+    public function envoyerCode(User $user): bool
     {
         $this->exigerHorsEquipe($user);
 
@@ -57,9 +61,12 @@ class SuppressionCompte
         Cache::put($this->cle($user), Hash::make($code), now()->addMinutes(self::VALIDITE_MINUTES));
         RateLimiter::clear($this->limiteur($user));
 
-        if ($codeRevue === null) {
-            $user->notify(new CodeSuppressionCompte($code, self::VALIDITE_MINUTES));
+        if ($codeRevue !== null) {
+            return false;
         }
+        $user->notify(new CodeSuppressionCompte($code, self::VALIDITE_MINUTES));
+
+        return true;
     }
 
     /**
@@ -125,27 +132,53 @@ class SuppressionCompte
 
     /**
      * Efface un compte dont la demande a 30 jours. Stripe d'abord : en
-     * panne, rien n'est effacé et le compte attend la nuit suivante.
+     * panne, rien n'est effacé et le compte attend la nuit suivante. Rend
+     * vrai si le compte est effacé.
      */
-    public function effacer(User $user): void
+    public function effacer(User $user): bool
     {
+        // Relue : reconnecté entre-temps, la demande est tombée et rien ne se passe
+        $user = $this->aEffacer($user->id);
+        if ($user === null) {
+            return false;
+        }
+
         // Entré dans une équipe entre-temps (sans se reconnecter, en principe
         // impossible) : la base refuserait, la demande tombe
         if (Employe::withoutGlobalScopes()->where('user_id', $user->id)->exists()) {
             $this->annuler($user);
 
-            return;
+            return false;
         }
 
-        if ($user->stripe_moyen_paiement_id) {
-            $this->stripe->detacherMoyenPaiement($user->stripe_moyen_paiement_id);
-        }
+        // Le client supprimé chez Stripe emporte ses cartes : un seul appel,
+        // qu'une panne laisse à refaire tel quel la nuit suivante
         if ($user->stripe_client_id) {
             $this->stripe->supprimerClient($user->stripe_client_id);
         }
 
-        $fichiers = DB::transaction(function () use ($user): array {
+        $fichiers = DB::transaction(function () use ($user): ?array {
+            // Relue sous verrou : une connexion à cet instant gagne
+            if (User::query()->whereKey($user->id)->lockForUpdate()->value('suppression_demandee_le') === null) {
+                return null;
+            }
             $fichiers = [];
+
+            // Pièces comptables de Meteora (factures Plus, CO 958f) : gardées,
+            // détachées par la base, avec le nom et l'adresse du titulaire
+            FactureProprietaire::query()->where('user_id', $user->id)
+                ->update(['titulaire_nom' => $user->name, 'titulaire_email' => $user->email]);
+
+            // Le fil gardé par la clinique reste attribuable : sa fiche client
+            $fils = MessageClientele::query()->where('user_id', $user->id)->distinct()->pluck('clinique_id');
+            foreach ($fils as $cliniqueId) {
+                $organisation = Clinique::withoutGlobalScopes()->with('societe')->find($cliniqueId)?->societe?->organisation_id;
+                $fiche = $organisation ? Client::withoutGlobalScopes()->where('user_id', $user->id)->where('organisation_id', $organisation)->value('id') : null;
+                if ($fiche) {
+                    MessageClientele::query()->where('user_id', $user->id)->where('clinique_id', $cliniqueId)->update(['client_id' => $fiche]);
+                }
+            }
+
             // Les animaux qu'il gérait seul, sans clinique ; ceux d'une
             // clinique restent à la clinique (proprietaire_id vidé par la base)
             $seuls = Patient::withoutGlobalScopes()->where('proprietaire_id', $user->id)->whereNull('organisation_id')->get();
@@ -161,7 +194,21 @@ class SuppressionCompte
             return array_values(array_filter($fichiers, fn ($chemin) => is_string($chemin) && $chemin !== ''));
         });
 
+        if ($fichiers === null) {
+            return false;
+        }
         Storage::disk('prive')->delete($fichiers);
+
+        return true;
+    }
+
+    /** Le compte, si sa demande a toujours ses 30 jours (relu en base). */
+    private function aEffacer(int $id): ?User
+    {
+        return User::query()->whereKey($id)
+            ->whereNotNull('suppression_demandee_le')
+            ->where('suppression_demandee_le', '<=', now()->subDays(self::DELAI_JOURS))
+            ->first();
     }
 
     /** @throws ValidationException */

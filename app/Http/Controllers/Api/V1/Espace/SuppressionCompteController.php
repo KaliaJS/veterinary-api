@@ -16,9 +16,10 @@ class SuppressionCompteController extends Controller
 {
     public function code(ContexteProprietaire $contexte, SuppressionCompte $suppression): JsonResponse
     {
-        $suppression->envoyerCode($contexte->user());
+        // Faux pour l'adresse de revue d'Apple : aucun e-mail, son code est fixe
+        $envoye = $suppression->envoyerCode($contexte->user());
 
-        return response()->json(['data' => ['envoye' => true]], 202);
+        return response()->json(['data' => ['envoye' => $envoye]], 202);
     }
 
     public function demander(Request $request, ContexteProprietaire $contexte, SuppressionCompte $suppression): JsonResponse

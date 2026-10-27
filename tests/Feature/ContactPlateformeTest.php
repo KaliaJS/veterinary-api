@@ -101,4 +101,42 @@ class ContactPlateformeTest extends TestCase
         $this->postJson('/api/v1/public/contact', $this->message(), ['REMOTE_ADDR' => '203.0.113.8'])->assertStatus(202);
         Mail::assertSent(MessageContact::class, 6);
     }
+
+    /** Messages en français sous les champs (l'API n'a pas de traductions). */
+    public function test_les_erreurs_sont_en_francais(): void
+    {
+        $this->postJson('/api/v1/public/contact', ['captcha' => 'jeton-valable'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors([
+                'nom' => 'Indiquez votre nom.',
+                'email' => 'Indiquez votre adresse e-mail.',
+                'message' => 'Écrivez votre message.',
+            ]);
+        $this->postJson('/api/v1/public/contact', $this->message(['email' => 'pas-une-adresse']))
+            ->assertUnprocessable()->assertJsonValidationErrors(['email' => 'Cette adresse e-mail n’est pas valable.']);
+    }
+
+    /** L'envoi de l'e-mail échoue (Resend en panne) : un message clair, pas une erreur 500, et l'adresse de réception ne sort pas. */
+    public function test_une_panne_de_l_envoi_donne_un_message_clair(): void
+    {
+        Mail::shouldReceive('to')->once()->andThrow(new \RuntimeException('Resend en panne pour '.self::RECEPTION));
+
+        $reponse = $this->postJson('/api/v1/public/contact', $this->message())
+            ->assertStatus(503)
+            ->assertJsonPath('message', 'Votre message n’est pas parti : réessayez dans quelques minutes.');
+        $this->assertStringNotContainsString(self::RECEPTION, $reponse->getContent());
+    }
+
+    /** Un retour à la ligne dans le nom ne fabrique pas de fausse ligne dans le message. */
+    public function test_un_retour_a_la_ligne_dans_le_nom_reste_sur_sa_ligne(): void
+    {
+        $this->postJson('/api/v1/public/contact', $this->message(['nom' => "Paul\r\nDe : faux@pirate.ch"]))->assertStatus(202);
+
+        Mail::assertSent(MessageContact::class, function (MessageContact $mail): bool {
+            $lignes = preg_split('/\R/', $mail->render());
+
+            return $mail->nom === 'Paul De : faux@pirate.ch'
+                && count(array_filter($lignes, fn ($ligne) => str_starts_with($ligne, 'De :'))) === 1;
+        });
+    }
 }

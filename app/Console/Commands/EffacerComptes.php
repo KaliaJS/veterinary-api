@@ -25,10 +25,13 @@ class EffacerComptes extends Command
         User::query()
             ->whereNotNull('suppression_demandee_le')
             ->where('suppression_demandee_le', '<=', now()->subDays(SuppressionCompte::DELAI_JOURS))
+            // Par identifiant : les effacements en cours de route ne font sauter aucune ligne
+            ->lazyById(100)
             ->each(function (User $user) use ($suppression, &$effaces): void {
                 try {
-                    $suppression->effacer($user);
-                    $effaces++;
+                    if ($suppression->effacer($user)) {
+                        $effaces++;
+                    }
                 } catch (Throwable $e) {
                     report($e);
                 }
