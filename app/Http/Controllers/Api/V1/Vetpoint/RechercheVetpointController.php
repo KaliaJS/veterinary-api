@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ConnexionVetpoint;
 use App\Models\Produit;
 use App\Services\Vetpoint\ClientVetpoint;
+use App\Services\Vetpoint\VetpointCgv;
 use App\Services\Vetpoint\VetpointCleRefusee;
 use App\Services\Vetpoint\VetpointIndisponible;
 use App\Services\Vetpoint\VetpointLimite;
@@ -48,6 +49,8 @@ class RechercheVetpointController extends Controller
             );
         } catch (VetpointCleRefusee) {
             abort(409, 'Vetpoint refuse la clé de la clinique : elle a peut-être été renouvelée. Générez-en une et collez-la dans Réglages, Fournisseurs.');
+        } catch (VetpointCgv) {
+            abort(409, 'Vetpoint refuse l’accès : cochez « J’accepte les CGV » dans le profil Vetpoint de la clinique, puis réessayez.');
         } catch (VetpointLimite) {
             abort(429, 'Vetpoint limite les recherches : réessayez dans une minute.');
         } catch (VetpointIndisponible) {

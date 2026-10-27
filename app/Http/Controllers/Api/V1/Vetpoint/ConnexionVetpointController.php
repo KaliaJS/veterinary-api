@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Http\Controllers\Controller;
 use App\Models\ConnexionVetpoint;
 use App\Services\Vetpoint\ClientVetpoint;
+use App\Services\Vetpoint\VetpointCgv;
 use App\Services\Vetpoint\VetpointCleRefusee;
 use App\Services\Vetpoint\VetpointIndisponible;
 use App\Services\Vetpoint\VetpointLimite;
@@ -40,9 +41,11 @@ class ConnexionVetpointController extends Controller
         ])['cle'];
 
         try {
-            ClientVetpoint::pour($cle)->fournisseurs();
+            $fournisseurs = ClientVetpoint::pour($cle)->fournisseurs();
         } catch (VetpointCleRefusee) {
             throw ValidationException::withMessages(['cle' => 'Vetpoint refuse cette clé : vérifiez-la ou générez-en une nouvelle dans votre profil Vetpoint.']);
+        } catch (VetpointCgv) {
+            throw ValidationException::withMessages(['cle' => 'Vetpoint refuse l’accès : cochez « J’accepte les CGV » dans votre profil Vetpoint, puis réessayez.']);
         } catch (VetpointLimite) {
             abort(429, 'Vetpoint limite les appels : réessayez dans une minute.');
         } catch (VetpointIndisponible) {
@@ -53,7 +56,8 @@ class ConnexionVetpointController extends Controller
             ['clinique_id' => $this->cliniqueId()],
             ['cle' => $cle, 'verifiee_le' => now()],
         );
-        Cache::forget(self::cleCacheFournisseurs($this->cliniqueId()));
+        // Lus pour vérifier la clé : gardés pour la recherche (un appel de moins)
+        Cache::put(self::cleCacheFournisseurs($this->cliniqueId()), $fournisseurs, now()->addDay());
 
         return $this->etat();
     }

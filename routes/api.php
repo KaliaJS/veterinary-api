@@ -687,7 +687,7 @@ Route::prefix('v1')->group(function (): void {
                 Route::put('connexion', [ConnexionVetpointController::class, 'update'])->middleware('throttle:10,1');
                 Route::delete('connexion', [ConnexionVetpointController::class, 'destroy']);
             });
-            Route::get('produits', RechercheVetpointController::class)->middleware(['can:stocks', 'throttle:30,1']);
+            Route::get('produits', RechercheVetpointController::class)->middleware(['can:stocks', 'throttle:vetpoint']);
         });
 
         Route::middleware('can:stocks')->prefix('stocks')->group(function (): void {

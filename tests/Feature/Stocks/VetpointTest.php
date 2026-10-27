@@ -7,6 +7,7 @@ use App\Models\Clinique;
 use App\Models\ConnexionVetpoint;
 use App\Models\DerogationPermission;
 use App\Models\Produit;
+use App\Models\ProduitVetpoint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -321,5 +322,130 @@ class VetpointTest extends TestCase
         $this->postJson("/api/v1/stocks/produits/{$produit->id}/vetpoint", ['vetpoint_id' => '913-306334', 'nom' => 'Inflacam'], $entetes)->assertForbidden();
         $this->deleteJson("/api/v1/stocks/produits/{$produit->id}/vetpoint", [], $entetes)->assertForbidden();
         Http::assertNothingSent();
+    }
+
+    // ---------- Vérification du 27.10.2026 ----------
+
+    /** Une réponse de forme inattendue : « ne répond pas », jamais une erreur 500. */
+    public function test_une_reponse_de_forme_inattendue_n_est_jamais_une_erreur_500(): void
+    {
+        $this->relier();
+        $entetes = $this->admin();
+        Http::fake([
+            self::URL.'/v1/product/query=*' => Http::response(['products' => 'aucun']),
+            self::URL.'/v1/supplier' => Http::response(['suppliers' => 'aucun']),
+        ]);
+
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $entetes)->assertStatus(503)
+            ->assertJsonPath('message', 'Vetpoint ne répond pas : réessayez dans un moment.');
+        $this->putJson('/api/v1/vetpoint/connexion', ['cle' => self::CLE], $entetes)->assertStatus(503);
+    }
+
+    /** Un numéro Swissmedic que Vetpoint ne connaît pas (404) : aucun résultat, pas une panne. */
+    public function test_un_numero_swissmedic_inconnu_ne_donne_aucun_resultat(): void
+    {
+        $this->relier();
+        Http::fake([self::URL.'/v1/product/swissmedic=*' => Http::response(['statusCode' => 404, 'errorMessage' => 'Product not found'], 404)]);
+
+        $this->getJson('/api/v1/vetpoint/produits?q=999999-99-999', $this->admin())->assertOk()->assertJsonPath('data', [])->assertJsonPath('total', 0);
+    }
+
+    /** 403 de Vetpoint : les CGV de l'interface ne sont pas acceptées (OpenAPI), à la clé comme à la recherche. */
+    public function test_des_cgv_non_acceptees_sont_dites(): void
+    {
+        $entetes = $this->admin();
+        Http::fake([self::URL.'/*' => Http::response(['statusCode' => 403], 403)]);
+
+        $this->putJson('/api/v1/vetpoint/connexion', ['cle' => self::CLE], $entetes)->assertUnprocessable()
+            ->assertJsonValidationErrors(['cle' => 'Vetpoint refuse l’accès : cochez « J’accepte les CGV » dans votre profil Vetpoint, puis réessayez.']);
+        $this->relier();
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $entetes)->assertStatus(409)
+            ->assertJsonPath('message', 'Vetpoint refuse l’accès : cochez « J’accepte les CGV » dans le profil Vetpoint de la clinique, puis réessayez.');
+    }
+
+    /**
+     * Vetpoint accepte 50 appels par minute et par clé ; une recherche en fait 2.
+     * La clinique a 20 recherches par minute, toutes personnes confondues, avec
+     * un message en français ; une autre clinique n'est pas touchée.
+     */
+    public function test_les_recherches_d_une_clinique_restent_sous_la_limite_de_vetpoint(): void
+    {
+        $this->fauxVetpoint([$this->produitVetpoint()]);
+        $this->relier();
+        $marie = $this->admin();
+        $paul = $this->admin();
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $this->relier($soeur);
+        $entetesSoeur = $this->admin($soeur);
+
+        foreach (range(1, 20) as $i) {
+            $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $i % 2 ? $marie : $paul)->assertOk();
+        }
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $paul)->assertStatus(429)
+            ->assertJsonPath('message', 'Trop de recherches Vetpoint pour la clinique : réessayez dans une minute.');
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $entetesSoeur)->assertOk();
+
+        $appels = collect(Http::recorded())->filter(fn ($paire) => str_contains($paire[0]->url(), '/v1/supplier'))->count();
+        $this->assertSame(2, $appels, 'Fournisseurs lus une fois par clinique, puis gardés');
+    }
+
+    /** La liste des fournisseurs lue pour vérifier la clé est gardée : la première recherche ne la relit pas. */
+    public function test_les_fournisseurs_lus_a_la_verification_servent_a_la_recherche(): void
+    {
+        $this->fauxVetpoint([$this->produitVetpoint()]);
+        $entetes = $this->admin();
+
+        $this->putJson('/api/v1/vetpoint/connexion', ['cle' => self::CLE], $entetes)->assertOk();
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $entetes)->assertOk()->assertJsonPath('data.0.fournisseur', 'Provet AG');
+
+        $this->assertSame(1, collect(Http::recorded())->filter(fn ($paire) => str_contains($paire[0]->url(), '/v1/supplier'))->count());
+    }
+
+    /** Le prix de la clinique pour une pièce : un seul calcul, 20 produits, quantité 1. */
+    public function test_le_prix_est_calcule_pour_une_piece_en_un_seul_appel_de_vingt(): void
+    {
+        $this->fauxVetpoint(array_map(fn (int $i): array => $this->produitVetpoint('913-'.$i), range(1, 31)));
+        $this->relier();
+
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $this->admin())->assertOk();
+
+        $calculs = collect(Http::recorded())->filter(fn ($paire) => str_contains($paire[0]->url(), 'calculatePrices'))->values();
+        $this->assertCount(1, $calculs);
+        $lignes = $calculs[0][0]->data();
+        $this->assertCount(20, $lignes);
+        $this->assertSame([1], array_values(array_unique(array_column($lignes, 'quantity'))));
+    }
+
+    /** La liste du stock (celle que lit la fiche article) porte le produit Vetpoint relié. */
+    public function test_la_liste_du_stock_porte_le_produit_vetpoint_relie(): void
+    {
+        $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+        ProduitVetpoint::query()->create(['produit_id' => $produit->id, 'vetpoint_id' => '913-306334', 'nom' => 'Inflacam', 'swissmedic' => null]);
+
+        $liste = $this->getJson('/api/v1/stocks/produits?per_page=100', $this->admin())->assertOk()->json('data');
+
+        $this->assertSame('913-306334', collect($liste)->firstWhere('id', $produit->id)['vetpoint']['id']);
+    }
+
+    /** Un produit d'une autre organisation : introuvable pour relier, délier ou dans la recherche. */
+    public function test_un_produit_d_une_autre_organisation_ne_se_relie_pas(): void
+    {
+        $this->fauxVetpoint([$this->produitVetpoint()]);
+        $this->relier();
+        $entetes = $this->admin();
+        $ailleurs = Produit::factory()->create(['organisation_id' => Clinique::factory()->create()->societe->organisation_id, 'nom' => 'Inflacam ailleurs']);
+        ProduitVetpoint::query()->create(['produit_id' => $ailleurs->id, 'vetpoint_id' => '913-306334', 'nom' => 'Inflacam', 'swissmedic' => null]);
+
+        $this->postJson("/api/v1/stocks/produits/{$ailleurs->id}/vetpoint", ['vetpoint_id' => '913-1', 'nom' => 'X'], $entetes)->assertNotFound();
+        $this->deleteJson("/api/v1/stocks/produits/{$ailleurs->id}/vetpoint", [], $entetes)->assertNotFound();
+        $this->getJson('/api/v1/vetpoint/produits?q=inflacam', $entetes)->assertOk()->assertJsonPath('data.0.produit', null);
+    }
+
+    /** La clé ne part jamais avec le modèle sérialisé. */
+    public function test_la_cle_n_est_pas_dans_le_modele_serialise(): void
+    {
+        $this->relier();
+
+        $this->assertArrayNotHasKey('cle', ConnexionVetpoint::query()->sole()->toArray());
     }
 }

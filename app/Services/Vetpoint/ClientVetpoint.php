@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Http;
  * `{"products": [...]}` ou `{}` pour une recherche, `{"suppliers": [...]}`
  * pour les fournisseurs. La recherche ne donne que le prix catalogue ; le
  * prix de la clinique vient de `calculatePrices` (20 produits au plus).
+ * Toute réponse de forme inattendue compte comme une panne (jamais un 500) ;
+ * un numéro Swissmedic inconnu (404) ne donne aucun résultat.
  */
 class ClientVetpoint
 {
@@ -30,9 +32,15 @@ class ClientVetpoint
     /** @return array<string, string> identifiant => nom */
     public function fournisseurs(): array
     {
+        $liste = $this->appeler(fn (PendingRequest $http): Response => $http->get('/v1/supplier'))['suppliers'] ?? [];
+        if (! is_array($liste)) {
+            throw new VetpointIndisponible;
+        }
         $fournisseurs = [];
-        foreach ($this->appeler(fn (PendingRequest $http): Response => $http->get('/v1/supplier'))['suppliers'] ?? [] as $fournisseur) {
-            $fournisseurs[(string) ($fournisseur['supplierId'] ?? '')] = (string) ($fournisseur['name'] ?? '');
+        foreach ($liste as $fournisseur) {
+            if (is_array($fournisseur) && isset($fournisseur['supplierId'])) {
+                $fournisseurs[(string) $fournisseur['supplierId']] = (string) ($fournisseur['name'] ?? '');
+            }
         }
 
         return $fournisseurs;
@@ -48,8 +56,11 @@ class ClientVetpoint
         $chemin = preg_match('/^\d{5,6}-\d{2}-\d{3}$/', $texte) === 1
             ? '/v1/product/swissmedic='.rawurlencode($texte)
             : '/v1/product/query='.rawurlencode($texte);
-        $reponse = $this->appeler(fn (PendingRequest $http): Response => $http->get($chemin));
-        $produits = $reponse['products'] ?? (array_is_list($reponse) ? $reponse : []);
+        $reponse = $this->appeler(fn (PendingRequest $http): Response => $http->get($chemin), introuvableVide: true);
+        $produits = array_key_exists('products', $reponse) ? $reponse['products'] : (array_is_list($reponse) ? $reponse : []);
+        if (! is_array($produits)) {
+            throw new VetpointIndisponible;
+        }
 
         return array_values(array_filter($produits, fn (mixed $produit): bool => is_array($produit) && isset($produit['productId'])));
     }
@@ -83,7 +94,7 @@ class ClientVetpoint
      * @param  callable(PendingRequest): Response  $appel
      * @return array<array-key, mixed>
      */
-    private function appeler(callable $appel): array
+    private function appeler(callable $appel, bool $introuvableVide = false): array
     {
         try {
             $reponse = $appel(Http::baseUrl(rtrim((string) config('services.vetpoint.url'), '/'))
@@ -95,8 +106,14 @@ class ClientVetpoint
             throw new VetpointIndisponible;
         }
 
-        if (in_array($reponse->status(), [401, 403], true)) {
+        if ($reponse->status() === 401) {
             throw new VetpointCleRefusee;
+        }
+        if ($reponse->status() === 403) {
+            throw new VetpointCgv;
+        }
+        if ($reponse->status() === 404 && $introuvableVide) {
+            return [];
         }
         if ($reponse->status() === 429) {
             throw new VetpointLimite;
