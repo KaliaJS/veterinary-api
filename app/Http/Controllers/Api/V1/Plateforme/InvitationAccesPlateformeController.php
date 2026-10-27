@@ -14,6 +14,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 
 /**
  * Accès sur invitation (espace Plateforme, 27.10.2026) : la liste des
@@ -49,12 +50,23 @@ class InvitationAccesPlateformeController extends Controller
             'email.unique' => 'Cette adresse est déjà invitée.',
         ]);
 
-        $invitation = InvitationAcces::query()->create([
-            'email' => $donnees['email'],
-            'note' => $donnees['note'] ?? null,
-            'invitee_par' => $request->user()->id,
-        ]);
-        Mail::to($invitation->email)->send(new InvitationAccesEnvoyee);
+        // L'e-mail part avant que l'invitation ne soit gardée : un envoi raté
+        // ne laisse pas une invitation sans e-mail, on réessaie simplement
+        try {
+            $invitation = DB::transaction(function () use ($request, $donnees): InvitationAcces {
+                $invitation = InvitationAcces::query()->create([
+                    'email' => $donnees['email'],
+                    'note' => $donnees['note'] ?? null,
+                    'invitee_par' => $request->user()->id,
+                ]);
+                Mail::to($invitation->email)->send(new InvitationAccesEnvoyee);
+
+                return $invitation;
+            });
+        } catch (TransportExceptionInterface $e) {
+            report($e);
+            abort(503, 'L’e-mail d’invitation n’a pas pu partir : réessayez dans un moment.');
+        }
 
         return response()->json(['data' => $this->resumes(collect([$invitation->load('invitant')]))[0]], 201);
     }

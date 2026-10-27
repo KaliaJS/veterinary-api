@@ -49,28 +49,32 @@ class CodeEmail
      */
     public function envoyer(string $email, bool $lienConnexion = true): void
     {
-        // Accès sur invitation (27.10.2026) : une adresse sans compte et non
-        // invitée reçoit « sur invitation » au lieu d'un code ; la réponse de
-        // l'écran reste la même, rien ne dit qui est invité
-        if (! User::where('email', $email)->exists() && ! $this->invitees->peutCreerUnCompte($email)) {
+        // Huit chiffres (23.10.2026) : cent fois plus long à deviner que six
+        $code = (string) random_int(10000000, 99999999);
+
+        // Le même travail pour toute adresse, invitée ou non (27.10.2026) :
+        // ni le compteur d'essais ni le temps de réponse ne disent qui est
+        // invité ou a un compte. Pour une adresse non invitée, le code n'est
+        // jamais envoyé, et `controler` refuse de toute façon de créer le compte
+        Cache::put($this->cle($email), Hash::make($code), now()->addMinutes(self::VALIDITE_MINUTES));
+        // Un code neuf, cinq essais neufs (les envois restent limités par adresse)
+        RateLimiter::clear($this->limiteur($email));
+
+        $user = User::where('email', $email)->first();
+
+        // Accès sur invitation : une adresse sans compte et non invitée reçoit
+        // « sur invitation » au lieu du code ; l'écran répond pareil
+        if ($user === null && ! $this->invitees->peutCreerUnCompte($email)) {
             Mail::to(mb_strtolower(trim($email)))->send(new AccesSurInvitation);
 
             return;
         }
-
-        // Huit chiffres (23.10.2026) : cent fois plus long à deviner que six
-        $code = (string) random_int(10000000, 99999999);
-
-        Cache::put($this->cle($email), Hash::make($code), now()->addMinutes(self::VALIDITE_MINUTES));
-        // Un code neuf, cinq essais neufs (les envois restent limités par adresse)
-        RateLimiter::clear($this->limiteur($email));
 
         $lien = $lienConnexion
             ? rtrim((string) config('app.frontend_url'), '/').'/?connexion=1#email='.rawurlencode($email).'&code='.$code
             : null;
 
         $notification = new CodeEmailNotification($code, self::VALIDITE_MINUTES, $lien);
-        $user = User::where('email', $email)->first();
 
         if ($user) {
             $user->notify($notification);

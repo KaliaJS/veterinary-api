@@ -10,6 +10,7 @@ use App\Models\Organisation;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Testing\TestResponse;
@@ -114,6 +115,32 @@ class AccesSurInvitationTest extends TestCase
         $nonInvitee = $this->demanderCode('paul@exemple.ch')->assertStatus(202)->json();
 
         $this->assertSame($invitee, $nonInvitee);
+    }
+
+    /**
+     * Rien ne trahit qui est invité (vérification du 27.10.2026) : cinq essais
+     * faux, une demande de code, un sixième essai. Invitée, avec un compte ou
+     * inconnue, la réponse est la même ; et le serveur fait le même travail
+     * (un code haché rangé), sans écart de temps.
+     */
+    public function test_ni_le_compteur_d_essais_ni_le_travail_ne_trahissent_qui_est_invite(): void
+    {
+        InvitationAcces::query()->create(['email' => 'marie@lac.ch']);
+        User::factory()->create(['email' => 'paul@exemple.ch']);
+        $reponses = [];
+
+        foreach (['marie@lac.ch', 'paul@exemple.ch', 'inconnu@exemple.ch'] as $email) {
+            foreach (range(1, 5) as $essai) {
+                $this->verifier($email, '00000000');
+            }
+            $this->demanderCode($email)->assertStatus(202);
+            $this->assertTrue(Cache::has('auth:code-email:'.hash('sha256', $email)), $email);
+            $reponses[$email] = $this->verifier($email, '00000000')->json('errors.code');
+        }
+
+        $this->assertSame(['Code invalide ou expiré.'], $reponses['marie@lac.ch']);
+        $this->assertSame($reponses['marie@lac.ch'], $reponses['paul@exemple.ch']);
+        $this->assertSame($reponses['marie@lac.ch'], $reponses['inconnu@exemple.ch']);
     }
 
     public function test_une_adresse_de_la_liste_cree_son_compte(): void

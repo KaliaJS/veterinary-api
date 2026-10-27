@@ -7,6 +7,7 @@ use App\Models\InvitationAcces;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
+use Symfony\Component\Mailer\Exception\TransportException;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -46,6 +47,20 @@ class InvitationsAccesPlateformeTest extends TestCase
         Mail::assertSent(InvitationAccesEnvoyee::class, fn (InvitationAccesEnvoyee $mail): bool => $mail->hasTo('marie@lac.ch'));
         config(['app.frontend_url' => 'https://veterinary.app']);
         $this->assertStringContainsString('https://veterinary.app/?connexion=1', (new InvitationAccesEnvoyee)->render());
+    }
+
+    /** L'e-mail ne part pas (Resend en panne) : rien n'est gardé, on peut réessayer. */
+    public function test_un_email_qui_ne_part_pas_ne_garde_pas_l_invitation(): void
+    {
+        [, $entetes] = $this->moderateur();
+        Mail::shouldReceive('to')->andReturnSelf();
+        Mail::shouldReceive('send')->andThrow(new TransportException('Resend injoignable'));
+
+        $this->postJson('/api/v1/plateforme/invitations', ['email' => 'marie@lac.ch'], $entetes)
+            ->assertStatus(503)
+            ->assertJsonPath('message', 'L’e-mail d’invitation n’a pas pu partir : réessayez dans un moment.');
+
+        $this->assertSame(0, InvitationAcces::query()->count());
     }
 
     public function test_une_adresse_deja_invitee_ou_qui_a_un_compte_est_refusee(): void
