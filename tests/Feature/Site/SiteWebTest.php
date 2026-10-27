@@ -424,7 +424,8 @@ class SiteWebTest extends TestCase
         $url = collect($reponse->json('data.equipe'))->firstWhere('id', $lea->id)['photo_url'];
 
         $this->assertNotNull($url);
-        $this->get($url)->assertOk();
+        // Gardée par le navigateur seulement : un accord retiré ou une photo supprimée ne survit pas au bord de Cloudflare (27.10.2026)
+        $this->get($url)->assertOk()->assertHeader('Cache-Control', 'immutable, max-age=31536000, private');
         $this->assertSame($url, $lea->refresh()->photoUrl());
 
         // Hors de l'organisation : introuvable.

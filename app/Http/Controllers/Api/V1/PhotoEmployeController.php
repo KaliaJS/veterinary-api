@@ -63,8 +63,10 @@ class PhotoEmployeController extends Controller
         // Partie, suspendue, ou sans son accord : sa photo ne se sert plus
         abort_unless($fiche->estPresentable() && $fiche->accord_site_le !== null, 404);
 
+        // Le navigateur la garde ; un cache partagé (bord de Cloudflare) jamais :
+        // une photo supprimée ou un accord retiré n'y survit pas (27.10.2026)
         return Storage::disk('prive')->response($fiche->photo_chemin, null, [
-            'Cache-Control' => 'public, max-age=31536000, immutable',
+            'Cache-Control' => 'private, max-age=31536000, immutable',
         ]);
     }
 

@@ -131,7 +131,8 @@ class PatientTest extends TestCase
         $this->assertSame('RIFF', substr(Storage::disk('prive')->get($rex->fresh()->photo_chemin), 0, 4));
         $this->assertStringNotContainsString('Exif', Storage::disk('prive')->get($rex->fresh()->photo_chemin));
 
-        $this->get($url)->assertOk()->assertHeader('Cache-Control', 'immutable, max-age=31536000, public');
+        // Gardée par le navigateur seulement : jamais par un cache partagé (bord de Cloudflare), une photo retirée n'y survit pas (27.10.2026)
+        $this->get($url)->assertOk()->assertHeader('Cache-Control', 'immutable, max-age=31536000, private');
         $this->post("/api/v1/patients/{$rex->id}/photo", ['photo' => UploadedFile::fake()->create('rex.svg', 10, 'image/svg+xml')], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['photo' => 'La photo doit être une image PNG, JPG ou WebP.']);

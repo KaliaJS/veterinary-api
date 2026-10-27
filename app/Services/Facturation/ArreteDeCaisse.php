@@ -19,7 +19,8 @@ use Illuminate\Database\Eloquent\Collection;
 class ArreteDeCaisse
 {
     /** Billets et pièces du tiroir, en centimes */
-    public const COUPURES = [20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50];
+    // Billets et pièces suisses en centimes, du billet de 1000 à la pièce de 5 centimes (27.10.2026)
+    public const COUPURES = [100000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10, 5];
 
     /** Fond proposé le premier jour, tant qu'aucun n'est saisi */
     public const FOND_PREMIER_JOUR = 200.0;

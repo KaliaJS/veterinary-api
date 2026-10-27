@@ -83,7 +83,7 @@ class ClotureCaisseApercuTest extends TestCase
             ->assertJsonPath('data.ecart', 0)
             ->assertJsonPath('data.justification_requise', false)
             ->assertJsonPath('data.depot_suggere', 400)
-            ->assertJsonPath('data.coupures.1', ['centimes' => 10000, 'nombre' => 5, 'montant' => 500]);
+            ->assertJsonPath('data.coupures.2', ['centimes' => 10000, 'nombre' => 5, 'montant' => 500]);
     }
 
     /** Plus de 100 encaissements depuis la dernière clôture : tous comptés. */
@@ -207,7 +207,7 @@ class ClotureCaisseApercuTest extends TestCase
     public function test_un_comptage_demesure_est_refuse(): void
     {
         $this->apercu(['comptage' => [10000 => 1000]])->assertUnprocessable()->assertJsonValidationErrors('comptage.10000');
-        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [5 => 1], 'nouveau_fond' => 0], $this->enTetes($this->jeton))
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [1 => 1], 'nouveau_fond' => 0], $this->enTetes($this->jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('comptage');
         $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [10000 => 1000], 'nouveau_fond' => 0], $this->enTetes($this->jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('comptage.10000');
@@ -543,5 +543,64 @@ class ClotureCaisseApercuTest extends TestCase
         $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 500.004, 'depot' => 0])
             ->assertJsonPath('data.apport_coffre', 0)
             ->assertJsonPath('data.motifs_justification', []);
+    }
+
+    /** Fond 200, un paiement de 54.05 en espèces : 254.05 se comptent juste avec une pièce de 5 centimes, sans écart ni apport du coffre. */
+    public function test_les_pieces_de_vingt_dix_et_cinq_centimes_se_comptent(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 54.05);
+
+        $this->apercu(['fond' => 200, 'comptage' => [20000 => 1, 5000 => 1, 200 => 2, 5 => 1], 'nouveau_fond' => 200])
+            ->assertOk()
+            ->assertJsonPath('data.especes_comptees', 254.05)
+            ->assertJsonPath('data.ecart', 0)
+            ->assertJsonPath('data.motifs_justification', []);
+        $this->apercu(['fond' => 0, 'comptage' => [20 => 3, 10 => 2], 'nouveau_fond' => 0])
+            ->assertOk()
+            ->assertJsonPath('data.especes_comptees', 0.8);
+    }
+
+    /** Le billet de 1000 francs existe aussi. */
+    public function test_le_billet_de_mille_francs_se_compte(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 1000);
+
+        $this->apercu(['fond' => 0, 'comptage' => [100000 => 1], 'nouveau_fond' => 0])
+            ->assertOk()
+            ->assertJsonPath('data.especes_comptees', 1000)
+            ->assertJsonPath('data.ecart', 0);
+    }
+
+    /** Écart de −20 et 120 venus du coffre : le refus du Z dit les deux, l'écart d'abord. */
+    public function test_le_refus_dit_l_ecart_et_l_apport_du_coffre(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 200, 'comptage' => [10000 => 4, 2000 => 4], 'nouveau_fond' => 200, 'depot' => 400], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['note' => 'Écart de caisse : une justification est obligatoire dans la note. CHF 120.00 ajoutés au nouveau fond depuis le coffre : indiquez-le dans la note.']);
+    }
+
+    /** Une ancienne version de l'app (espèces comptées, sans dépôt) qui complète le fond : note demandée, puis Z créé avec l'apport. */
+    public function test_une_ancienne_version_qui_complete_le_fond_doit_aussi_noter(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 50);
+        $donnees = ['fond' => 200, 'especes_comptees' => 250, 'nouveau_fond' => 300];
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', $donnees, $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['note' => 'CHF 50.00 ajoutés au nouveau fond depuis le coffre : indiquez-le dans la note.']);
+        $this->postJson('/api/v1/facturation/clotures-caisse', [...$donnees, 'note' => 'Fond porté à 300 depuis le coffre.'], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.apport_coffre', 50);
+    }
+
+    /** Dépôt laissé vide : 100 comptés pour un fond de 200, la note est demandée au Z aussi ; la faute de frappe 5000 est refusée sans note. */
+    public function test_un_fond_complete_avec_le_depot_vide_demande_une_note_au_z(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 50);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 50, 'comptage' => [10000 => 1], 'nouveau_fond' => 200], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['note' => 'CHF 100.00 ajoutés au nouveau fond depuis le coffre : indiquez-le dans la note.']);
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 50, 'comptage' => [10000 => 1], 'nouveau_fond' => 5000], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['note' => 'CHF 4’900.00 ajoutés au nouveau fond depuis le coffre : indiquez-le dans la note.']);
     }
 }

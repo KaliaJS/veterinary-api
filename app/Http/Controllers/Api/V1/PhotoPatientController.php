@@ -13,7 +13,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 /**
  * Photo de l'animal (16.10.2026), sur le modèle de la photo des employés :
  * fichier privé au nom imprévisible sur le disque local, servi par une
- * route publique en cache (une balise image ne porte pas de jeton). La
+ * route publique, en cache du navigateur seulement (une balise image ne
+ * porte pas de jeton). La
  * photo fait partie de l'identité : même droit que le nom ou la puce
  * (PatientPolicy::updateIdentity).
  */
@@ -51,8 +52,10 @@ class PhotoPatientController extends Controller
         $patient = Patient::withoutGlobalScopes()->where('photo_fichier', pathinfo($fichier, PATHINFO_FILENAME))->firstOrFail();
         abort_unless(basename((string) $patient->photo_chemin) === $fichier && Storage::disk('prive')->exists($patient->photo_chemin), 404);
 
+        // Le navigateur la garde ; un cache partagé (bord de Cloudflare) jamais :
+        // une photo supprimée ou un accord retiré n'y survit pas (27.10.2026)
         return Storage::disk('prive')->response($patient->photo_chemin, null, [
-            'Cache-Control' => 'public, max-age=31536000, immutable',
+            'Cache-Control' => 'private, max-age=31536000, immutable',
         ]);
     }
 }
