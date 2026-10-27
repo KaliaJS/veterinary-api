@@ -5,6 +5,8 @@ namespace Tests\Feature\Espace;
 use App\Auth\EmetteurJetons;
 use App\Enums\DecisionVerification;
 use App\Enums\Specialite;
+use App\Enums\StatutIdentite;
+use App\Enums\StatutVerificationVeterinaire;
 use App\Enums\TypeParcours;
 use App\Models\Client;
 use App\Models\Clinique;
@@ -58,6 +60,8 @@ class SuppressionCompteTest extends TestCase
         parent::setUp();
         $this->stripe = new PasserelleAbonnementFactice;
         $this->app->instance(PasserelleAbonnement::class, $this->stripe);
+        // Stripe Identity : un double (la vraie passerelle, sans clé en test, serait refusée)
+        $this->app->instance(PasserelleIdentite::class, new PasserelleIdentiteFactice);
         Notification::fake();
         Storage::fake('prive');
     }
@@ -434,7 +438,17 @@ class SuppressionCompteTest extends TestCase
             'apple_fin' => now()->addYear(), 'apple_renouvelle' => true, 'apple_signe_le' => now(), 'moyen_paiement' => 'Visa •••• 4242',
             'carte_expire_le' => '2028-08-31', 'statut_abonnement' => 'resilie', 'periode_fin' => '2026-12-01', 'periode_debut' => '2025-12-01',
             'ancre_jour' => 1, 'prochaine_tentative_le' => now(), 'resilie_le' => '2026-12-01',
+            'verification_veterinaire' => StatutVerificationVeterinaire::cases()[0]->value, 'identite_statut' => StatutIdentite::cases()[0]->value,
+            'identite_session_id' => 'vs_rachel', 'stripe_client_id' => 'cus_rachel', 'stripe_moyen_paiement_id' => 'pm_rachel', 'carte_alertee_le' => '2026-10-01',
         ])->save();
+        $fiche = Client::factory()->create();
+        $suivi = Patient::factory()->create(['client_id' => $fiche->id]);
+        DB::table('demandes_rattachement')->insert(['user_id' => $user->id, 'organisation_id' => $fiche->organisation_id, 'patient_id' => $suivi->id, 'puce_saisie' => '756098605321680']);
+        $demande = DemandeRendezVous::factory()->create(['user_id' => $user->id]);
+        $message = MessageClientele::query()->create(['clinique_id' => Clinique::factory()->create()->id, 'user_id' => $user->id, 'auteur' => 'proprietaire', 'texte' => 'Bonjour']);
+        $renouvellement = DemandeRenouvellementOrdonnance::query()->create(['ordonnance_id' => Ordonnance::factory()->create(['patient_id' => $suivi->id, 'organisation_id' => $fiche->organisation_id])->id, 'user_id' => $user->id]);
+        $facturePlus = FactureProprietaire::query()->forceCreate(['user_id' => $user->id, 'numero' => 'P-2026-0009', 'emise_le' => '2026-10-01', 'libelle' => 'Veterinary Plus', 'montant' => 12, 'statut' => 'payee']);
+        DB::table('revocations_app_store')->insert(['user_id' => $user->id, 'transaction_id' => 'tx-rachel', 'produit' => 'plus', 'revoquee_le' => now(), 'created_at' => now(), 'updated_at' => now()]);
         DB::table('specialites_veterinaire')->insert(['user_id' => $user->id, 'specialite' => Specialite::cases()[0]->value]);
         DB::table('parcours_veterinaire')->insert(['user_id' => $user->id, 'type' => TypeParcours::cases()[0]->value, 'titre' => 'Diplôme']);
         DB::table('preferences_proprietaire')->insert(['user_id' => $user->id]);
@@ -470,6 +484,12 @@ class SuppressionCompteTest extends TestCase
         foreach (['specialites_veterinaire', 'parcours_veterinaire', 'preferences_proprietaire', 'achats_planete', 'decisions_verification', 'demandes_rattachement'] as $table) {
             $this->assertFalse(DB::table($table)->where('user_id', $user->id)->exists(), $table);
         }
+        // Ce que la clinique ou Meteora garde, détaché de la trace
+        $this->assertDetache(DemandeRendezVous::withoutGlobalScopes()->find($demande->id), 'user_id');
+        $this->assertDetache(MessageClientele::query()->find($message->id), 'user_id');
+        $this->assertDetache(DemandeRenouvellementOrdonnance::query()->find($renouvellement->id), 'user_id');
+        $this->assertDetache(FactureProprietaire::query()->find($facturePlus->id), 'user_id');
+        $this->assertFalse(DB::table('revocations_app_store')->where('user_id', $user->id)->exists());
         // La fiche d'équipe et les pièces signées gardent leur auteur
         $this->assertSame($user->id, Employe::withoutGlobalScopes()->find($fiche->id)?->user_id);
         $this->assertSame($user->id, CompteRendu::withoutGlobalScopes()->find($compteRendu->id)?->user_id);
@@ -604,6 +624,37 @@ class SuppressionCompteTest extends TestCase
 
         $identite->pannePassagere = false;
         $this->artisan('comptes:effacer')->assertSuccessful();
+        $this->assertFalse(User::query()->whereKey($user->id)->exists());
+    }
+
+    /** Clé Stripe refusée (renouvelée sans mise à jour) : rien n'est effacé, la pièce n'est pas abandonnée chez Stripe. */
+    public function test_cle_stripe_refusee_le_compte_attend(): void
+    {
+        $identite = new PasserelleIdentiteFactice;
+        $this->app->instance(PasserelleIdentite::class, $identite);
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['identite_session_id' => 'vs_paul']);
+        $this->demander($jeton, $user);
+
+        $this->travel(31)->days();
+        foreach ([401, 403, 0] as $statut) {
+            $identite->refusEffacement = $statut;
+            $this->artisan('comptes:effacer')->assertSuccessful();
+            $this->assertTrue(User::query()->whereKey($user->id)->exists(), "statut {$statut}");
+        }
+    }
+
+    /** Session déjà partie chez Stripe : signalé, le compte est effacé quand même. */
+    public function test_session_introuvable_chez_stripe_le_compte_est_efface(): void
+    {
+        $identite = new PasserelleIdentiteFactice;
+        $this->app->instance(PasserelleIdentite::class, $identite);
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['identite_session_id' => 'vs_parti']);
+        $this->demander($jeton, $user);
+        $identite->refusEffacement = 404;
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
         $this->assertFalse(User::query()->whereKey($user->id)->exists());
     }
 }

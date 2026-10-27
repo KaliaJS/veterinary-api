@@ -47,10 +47,16 @@ class PasserelleIdentiteFactice implements PasserelleIdentite
     /** Panne passagère (5xx) au moment d'effacer */
     public bool $pannePassagere = false;
 
+    /** Refus définitif au moment d'effacer : statut HTTP (401 clé refusée, 400 session introuvable…) */
+    public ?int $refusEffacement = null;
+
     public function effacerSession(string $id): void
     {
         if ($this->pannePassagere) {
             throw new ErreurPaiement('Stripe indisponible', 'api_error', 503);
+        }
+        if ($this->refusEffacement !== null) {
+            throw new ErreurPaiement('Refusé par Stripe', $this->refusEffacement === 404 ? 'resource_missing' : 'invalid_request_error', $this->refusEffacement);
         }
         $this->effacees[] = $id;
     }

@@ -157,13 +157,15 @@ class SuppressionCompte
         }
 
         // La vérification d'identité (pièce, selfie) effacée chez Stripe ; en
-        // panne passagère, le compte attend la nuit suivante. Une session déjà
-        // effacée ou qui ne peut pas l'être (annulée sans pièce) est signalée
+        // panne passagère ou clé refusée, le compte attend la nuit suivante
+        // (la pièce n'est jamais abandonnée chez Stripe). Une session
+        // introuvable chez Stripe est signalée. Une session annulée s'efface
+        // aussi (essayé en mode test le 27.10.2026)
         if ($user->identite_session_id) {
             try {
                 $this->identite->effacerSession($user->identite_session_id);
             } catch (ErreurPaiement $e) {
-                if ($e->estPassagere()) {
+                if ($e->estPassagere() || $e->cleRefusee()) {
                     throw $e;
                 }
                 report($e);
