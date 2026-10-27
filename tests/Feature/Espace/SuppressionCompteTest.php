@@ -3,6 +3,9 @@
 namespace Tests\Feature\Espace;
 
 use App\Auth\EmetteurJetons;
+use App\Enums\DecisionVerification;
+use App\Enums\Specialite;
+use App\Enums\TypeParcours;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\CompteRendu;
@@ -21,16 +24,20 @@ use App\Models\User;
 use App\Notifications\CodeEmailNotification;
 use App\Notifications\CodeSuppressionCompte;
 use App\Paiements\PasserelleAbonnement;
+use App\Paiements\PasserelleIdentite;
 use App\Services\Comptes\SuppressionCompte;
 use Carbon\CarbonImmutable;
 use Database\Factories\PasskeyFactory;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserelleAbonnementFactice;
+use Tests\Doubles\PasserelleIdentiteFactice;
 use Tests\TestCase;
 
 /**
@@ -419,6 +426,20 @@ class SuppressionCompteTest extends TestCase
     public function test_l_ancien_membre_devient_une_trace_sans_connexion_qui_ne_garde_que_le_prenom(): void
     {
         ['user' => $user, 'jeton' => $jeton, 'fiche' => $fiche] = $this->ancienMembre();
+        $user->forceFill([
+            'password' => Hash::make('mot-de-passe-de-test'), 'medreg_id' => 1234, 'gln_verifie_le' => now(), 'verification_veterinaire_le' => now(),
+            'identite_nom' => 'SOLAL', 'identite_raison' => 'à la main', 'identite_verifiee_le' => now(), 'identite_payee_le' => now(),
+            'est_moderateur' => true, 'presentation' => 'Vétérinaire depuis 2010', 'langues' => ['fr', 'de'], 'annuaire_accord_le' => now(),
+            'code_employe' => 'K7F3QZ8M', 'apple_compte' => '11111111-2222-3333-4444-555555555555', 'apple_abonnement_id' => 'abo-1',
+            'apple_fin' => now()->addYear(), 'apple_renouvelle' => true, 'apple_signe_le' => now(), 'moyen_paiement' => 'Visa •••• 4242',
+            'carte_expire_le' => '2028-08-31', 'statut_abonnement' => 'resilie', 'periode_fin' => '2026-12-01', 'periode_debut' => '2025-12-01',
+            'ancre_jour' => 1, 'prochaine_tentative_le' => now(), 'resilie_le' => '2026-12-01',
+        ])->save();
+        DB::table('specialites_veterinaire')->insert(['user_id' => $user->id, 'specialite' => Specialite::cases()[0]->value]);
+        DB::table('parcours_veterinaire')->insert(['user_id' => $user->id, 'type' => TypeParcours::cases()[0]->value, 'titre' => 'Diplôme']);
+        DB::table('preferences_proprietaire')->insert(['user_id' => $user->id]);
+        DB::table('achats_planete')->insert(['user_id' => $user->id, 'article' => 'planete-test']);
+        DB::table('decisions_verification')->insert(['user_id' => $user->id, 'decision' => DecisionVerification::cases()[0]->value]);
         $compteRendu = CompteRendu::factory()->create(['user_id' => $user->id]);
         $facture = Facture::factory()->create(['cree_par_id' => $user->id]);
         PasskeyFactory::new()->create(['user_id' => $user->id]);
@@ -436,6 +457,19 @@ class SuppressionCompteTest extends TestCase
         $this->assertNull($trace->suppression_demandee_le);
         $this->assertSame(0, $trace->tokens()->count());
         $this->assertFalse(Passkey::query()->where('user_id', $user->id)->exists());
+        // Rien de personnel ne reste que le prénom : chaque colonne, chaque table
+        foreach (['medreg_id', 'gln_verifie_le', 'verification_veterinaire', 'verification_veterinaire_le', 'identite_statut', 'identite_session_id',
+            'identite_nom', 'identite_raison', 'identite_verifiee_le', 'identite_payee_le', 'presentation', 'langues', 'annuaire_accord_le',
+            'code_employe', 'apple_compte', 'apple_abonnement_id', 'apple_fin', 'apple_renouvelle', 'apple_signe_le', 'stripe_client_id',
+            'stripe_moyen_paiement_id', 'moyen_paiement', 'carte_expire_le', 'carte_alertee_le', 'statut_abonnement', 'periode_fin',
+            'periode_debut', 'ancre_jour', 'prochaine_tentative_le', 'resilie_le'] as $colonne) {
+            $this->assertNull($trace->getRawOriginal($colonne), $colonne);
+        }
+        $this->assertFalse((bool) $trace->est_moderateur);
+        $this->assertFalse(Hash::check('mot-de-passe-de-test', $trace->password));
+        foreach (['specialites_veterinaire', 'parcours_veterinaire', 'preferences_proprietaire', 'achats_planete', 'decisions_verification', 'demandes_rattachement'] as $table) {
+            $this->assertFalse(DB::table($table)->where('user_id', $user->id)->exists(), $table);
+        }
         // La fiche d'équipe et les pièces signées gardent leur auteur
         $this->assertSame($user->id, Employe::withoutGlobalScopes()->find($fiche->id)?->user_id);
         $this->assertSame($user->id, CompteRendu::withoutGlobalScopes()->find($compteRendu->id)?->user_id);
@@ -495,5 +529,81 @@ class SuppressionCompteTest extends TestCase
 
         $this->assertSame('Rachel Solal', $user->refresh()->name);
         $this->assertNull($user->suppression_demandee_le);
+    }
+
+    /** Connexion d'un ancien membre : aucune clinique fermée n'est proposée, il arrive dans son espace et peut supprimer son compte. */
+    public function test_un_ancien_membre_se_connecte_dans_son_espace_et_y_trouve_la_suppression(): void
+    {
+        ['user' => $user] = $this->ancienMembre();
+        $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'rachel@exemple.ch'])->assertStatus(202);
+        $code = null;
+        Notification::assertSentTo($user, CodeEmailNotification::class, function ($notification) use (&$code): bool {
+            $code = $notification->code;
+
+            return true;
+        });
+        $this->app['auth']->forgetGuards();
+
+        $jeton = $this->postJson('/api/v1/auth/code-email/verifier', ['email' => 'rachel@exemple.ch', 'code' => $code])
+            ->assertSuccessful()
+            ->assertJsonPath('data.clinique', null)
+            ->assertJsonPath('data.cliniques', [])
+            ->json('data.token');
+
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
+        $this->postJson('/api/v1/espace/compte/suppression/code', [], $this->enTetes($jeton))->assertStatus(202);
+    }
+
+    /** Contrat terminé (date passée), même avant que la tâche de nuit pose la suspension : accès fermé, suppression permise. */
+    public function test_un_contrat_termine_compte_comme_un_acces_ferme(): void
+    {
+        ['user' => $user, 'jeton' => $jeton, 'fiche' => $fiche] = $this->ancienMembre();
+        $fiche->forceFill(['acces_suspendu' => false, 'fin_contrat_le' => now()->subDays(2)->toDateString()])->save();
+
+        $this->postJson('/api/v1/espace/compte/suppression/code', [], $this->enTetes($jeton))->assertStatus(202);
+    }
+
+    /** Suspendu dans une clinique mais actif dans une autre : refusé. */
+    public function test_actif_dans_une_autre_clinique_reste_refuse(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->ancienMembre();
+        Employe::factory()->create(['user_id' => $user->id, 'acces_suspendu' => false]);
+
+        $this->postJson('/api/v1/espace/compte/suppression/code', [], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors('compte');
+    }
+
+    /** La vérification d'identité Stripe est effacée chez Stripe (redact), pour une trace comme pour un compte effacé. */
+    public function test_la_verification_d_identite_est_effacee_chez_stripe(): void
+    {
+        $identite = new PasserelleIdentiteFactice;
+        $this->app->instance(PasserelleIdentite::class, $identite);
+        ['user' => $vet, 'jeton' => $jetonVet] = $this->ancienMembre(['identite_session_id' => 'vs_rachel']);
+        ['user' => $proprio, 'jeton' => $jetonProprio] = $this->proprietaireAvecJeton(['identite_session_id' => 'vs_paul']);
+        $this->demander($jetonVet, $vet);
+        $this->app['auth']->forgetGuards();
+        $this->demander($jetonProprio, $proprio);
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
+        $this->assertEqualsCanonicalizing(['vs_rachel', 'vs_paul'], $identite->effacees);
+    }
+
+    /** Stripe Identity en panne passagère : rien n'est effacé, le compte attend la nuit suivante. */
+    public function test_stripe_identity_en_panne_le_compte_attend(): void
+    {
+        $identite = new PasserelleIdentiteFactice;
+        $this->app->instance(PasserelleIdentite::class, $identite);
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['identite_session_id' => 'vs_paul']);
+        $this->demander($jeton, $user);
+        $identite->pannePassagere = true;
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+        $this->assertTrue(User::query()->whereKey($user->id)->exists());
+
+        $identite->pannePassagere = false;
+        $this->artisan('comptes:effacer')->assertSuccessful();
+        $this->assertFalse(User::query()->whereKey($user->id)->exists());
     }
 }

@@ -27,4 +27,11 @@ interface PasserelleIdentite
     public function lireSession(string $id): array;
 
     public function annulerSession(string $id): void;
+
+    /**
+     * Efface chez Stripe tout ce que la session a collecté (pièce, selfie,
+     * rapports), irréversible : compte effacé (27.10.2026). Possible pour une
+     * session à compléter ou vérifiée ; Stripe annule une session en cours.
+     */
+    public function effacerSession(string $id): void;
 }

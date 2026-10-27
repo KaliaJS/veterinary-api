@@ -2,6 +2,7 @@
 
 namespace Tests\Doubles;
 
+use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleIdentite;
 
 /**
@@ -38,6 +39,20 @@ class PasserelleIdentiteFactice implements PasserelleIdentite
         $session = $this->sessions[$id];
 
         return array_intersect_key($session, array_flip(['id', 'statut', 'url', 'erreur', 'prenom', 'nom']));
+    }
+
+    /** @var list<string> Sessions effacées chez Stripe (redact) */
+    public array $effacees = [];
+
+    /** Panne passagère (5xx) au moment d'effacer */
+    public bool $pannePassagere = false;
+
+    public function effacerSession(string $id): void
+    {
+        if ($this->pannePassagere) {
+            throw new ErreurPaiement('Stripe indisponible', 'api_error', 503);
+        }
+        $this->effacees[] = $id;
     }
 
     public function annulerSession(string $id): void

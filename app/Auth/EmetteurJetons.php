@@ -210,6 +210,11 @@ class EmetteurJetons
             ->flatMap(fn (Employe $employe) => $employe->cliniques
                 ->filter(fn (Clinique $clinique): bool => $clinique->societe?->organisation_id === $employe->organisation_id)
                 ->map(fn (Clinique $clinique): Rattachement => new Rattachement($employe, $clinique)))
+            // Accès fermé (suspendu, ou contrat terminé) : plus proposé. Un
+            // ancien membre se connecte dans son espace, où il peut supprimer
+            // son compte (27.10.2026)
+            ->filter(fn (Rattachement $rattachement): bool => ! $rattachement->employe->acces_suspendu
+                && ($rattachement->employe->fin_contrat_le === null || ! $rattachement->employe->fin_contrat_le->lt(aujourdhui($rattachement->clinique))))
             ->sortBy(fn (Rattachement $rattachement): int => $rattachement->clinique->id)
             ->values();
     }

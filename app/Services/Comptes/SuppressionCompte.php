@@ -12,7 +12,9 @@ use App\Models\MessageClientele;
 use App\Models\Patient;
 use App\Models\User;
 use App\Notifications\CodeSuppressionCompte;
+use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleAbonnement;
+use App\Paiements\PasserelleIdentite;
 use App\Services\Abonnements\AbonnementSaas;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -50,6 +52,7 @@ class SuppressionCompte
         private CompteRevueApple $revue,
         private AbonnementSaas $abonnements,
         private PasserelleAbonnement $stripe,
+        private PasserelleIdentite $identite,
     ) {}
 
     /** Un code neuf, cinq essais neufs ; aucun e-mail pour l'adresse de revue. Rend vrai si un e-mail est parti. */
@@ -153,6 +156,20 @@ class SuppressionCompte
             return false;
         }
 
+        // La vérification d'identité (pièce, selfie) effacée chez Stripe ; en
+        // panne passagère, le compte attend la nuit suivante. Une session déjà
+        // effacée ou qui ne peut pas l'être (annulée sans pièce) est signalée
+        if ($user->identite_session_id) {
+            try {
+                $this->identite->effacerSession($user->identite_session_id);
+            } catch (ErreurPaiement $e) {
+                if ($e->estPassagere()) {
+                    throw $e;
+                }
+                report($e);
+            }
+        }
+
         // Le client supprimé chez Stripe emporte ses cartes : un seul appel,
         // qu'une panne laisse à refaire tel quel la nuit suivante
         if ($user->stripe_client_id) {
@@ -254,7 +271,10 @@ class SuppressionCompte
     /** Membre d'une équipe dont l'accès n'est pas terminé (un ancien membre peut supprimer son compte). */
     private function estMembreActif(User $user): bool
     {
-        return Employe::withoutGlobalScopes()->where('user_id', $user->id)->where('acces_suspendu', false)->exists();
+        // Comme à la porte de la clinique : ni suspendu, ni contrat terminé
+        return Employe::withoutGlobalScopes()->where('user_id', $user->id)->where('acces_suspendu', false)
+            ->where(fn ($fiche) => $fiche->whereNull('fin_contrat_le')->orWhereDate('fin_contrat_le', '>=', aujourdhui()->toDateString()))
+            ->exists();
     }
 
     /** Le compte, si sa demande a toujours ses 30 jours (relu en base). */

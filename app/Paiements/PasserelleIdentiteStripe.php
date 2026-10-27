@@ -46,6 +46,11 @@ class PasserelleIdentiteStripe implements PasserelleIdentite
         $this->appel(fn () => $this->client->identity->verificationSessions->cancel($id));
     }
 
+    public function effacerSession(string $id): void
+    {
+        $this->appel(fn () => $this->client->identity->verificationSessions->redact($id));
+    }
+
     /**
      * @template T
      *
