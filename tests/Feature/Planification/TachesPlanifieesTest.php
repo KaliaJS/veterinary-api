@@ -46,4 +46,15 @@ class TachesPlanifieesTest extends TestCase
             }
         }
     }
+
+    /** Chaque minute (vérification des paiements Stripe) : après un arrêt brutal, le verrou tombe en 2 minutes au plus. */
+    public function test_une_tache_de_chaque_minute_libere_son_verrou_en_deux_minutes(): void
+    {
+        $chaqueMinute = array_filter($this->taches(), fn (Event $tache): bool => $tache->expression === '* * * * *');
+
+        $this->assertNotEmpty($chaqueMinute);
+        foreach ($chaqueMinute as $tache) {
+            $this->assertLessThanOrEqual(2, $tache->expiresAt, (string) $tache->command);
+        }
+    }
 }

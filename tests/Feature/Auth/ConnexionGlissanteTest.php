@@ -12,9 +12,11 @@ use Tests\TestCase;
 /**
  * Connexion « tant qu'on s'en sert » (décision de Jim, 27.10.2026) : une
  * connexion reste valable tant qu'on s'en sert au moins une fois tous les
- * 30 jours, sans limite totale. Le serveur la prolonge à l'usage (au plus
- * une écriture par jour) : l'iPhone, le site et la montre n'ont rien à
- * échanger. Trente jours sans s'en servir : il faut se reconnecter.
+ * 30 jours, sans limite totale. Le serveur la prolonge à chaque usage,
+ * dans la même écriture que l'heure de dernier usage notée par Sanctum
+ * (Jim, 27.10.2026 : 30 jours pile plutôt qu'une écriture par jour) ;
+ * l'iPhone, le site et la montre n'ont rien à échanger. Trente jours sans
+ * s'en servir : il faut se reconnecter.
  */
 class ConnexionGlissanteTest extends TestCase
 {
@@ -59,25 +61,48 @@ class ConnexionGlissanteTest extends TestCase
         $this->postJson('/api/v1/auth/rafraichir', [], $this->enTetes($jeton))->assertOk();
     }
 
-    /** Trente jours sans s'en servir : la connexion est finie. */
+    /** Servie ce matin, puis trente jours et une minute sans s'en servir : la connexion est finie. */
     public function test_trente_jours_sans_utilisation_deconnectent(): void
     {
         ['jeton' => $jeton] = $this->employeAvecJeton();
-        DB::table('personal_access_tokens')->update(['created_at' => now()->subDays(31), 'expires_at' => now()->subMinute()]);
+        $this->travel(10)->hours();
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $this->travel(30 * 24 * 60 + 1)->minutes();
 
         $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertUnauthorized();
     }
 
-    /** Prolongée hier soir : un usage ce matin n'écrit rien (une écriture par jour au plus). */
-    public function test_la_prolongation_s_ecrit_une_fois_par_jour_au_plus(): void
+    /** Connecté à 9 h, servi à 19 h : valable jusqu'au 30e jour à 18 h 59, trente jours pile après ce dernier usage. */
+    public function test_la_connexion_tient_trente_jours_pile_apres_le_dernier_usage(): void
     {
         ['jeton' => $jeton] = $this->employeAvecJeton();
-        $hier = now()->addDays(30)->subHours(10)->startOfSecond();
-        DB::table('personal_access_tokens')->update(['expires_at' => $hier]);
+        $this->travel(10)->hours();
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
+        $this->app['auth']->forgetGuards();
+
+        $this->travel(30 * 24 * 60 - 1)->minutes();
+
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
+    }
+
+    /** Prolonger ne coûte rien : une requête n'écrit le jeton qu'une fois (fin et dernier usage ensemble). */
+    public function test_une_requete_n_ecrit_le_jeton_qu_une_fois(): void
+    {
+        ['jeton' => $jeton] = $this->employeAvecJeton();
+        DB::table('personal_access_tokens')->update(['expires_at' => now()->addDays(5)]);
+        $ecritures = 0;
+        DB::listen(function ($requete) use (&$ecritures): void {
+            if (str_starts_with(strtolower($requete->sql), 'update') && str_contains($requete->sql, 'personal_access_tokens')) {
+                $ecritures++;
+            }
+        });
 
         $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
 
-        $this->assertTrue($this->jeton()->expires_at->equalTo($hier));
+        $this->assertSame(1, $ecritures);
+        $this->assertTrue($this->jeton()->expires_at->gt(now()->addDays(30)->subMinute()));
     }
 
     /** La montre s'en sert aussi : sa connexion se prolonge de la même façon. */
@@ -123,29 +148,6 @@ class ConnexionGlissanteTest extends TestCase
         DB::table('personal_access_tokens')->update(['expires_at' => null]);
 
         $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertUnauthorized();
-    }
-
-    /** Il reste un peu moins de 29 jours : un usage repart pour 30 jours. */
-    public function test_la_prolongation_part_des_qu_il_reste_moins_de_vingt_neuf_jours(): void
-    {
-        ['jeton' => $jeton] = $this->employeAvecJeton();
-        DB::table('personal_access_tokens')->update(['expires_at' => now()->addDays(29)->subMinute()]);
-
-        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
-
-        $this->assertTrue($this->jeton()->expires_at->gt(now()->addDays(30)->subMinute()));
-    }
-
-    /** Prolongée il y a 23 heures : rien n'est écrit. */
-    public function test_rien_n_est_ecrit_moins_d_un_jour_apres_la_derniere_prolongation(): void
-    {
-        ['jeton' => $jeton] = $this->employeAvecJeton();
-        $avant = now()->addDays(30)->subHours(23)->startOfSecond();
-        DB::table('personal_access_tokens')->update(['expires_at' => $avant]);
-
-        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
-
-        $this->assertTrue($this->jeton()->expires_at->equalTo($avant));
     }
 
     /** Un propriétaire (jeton sans clinique) se prolonge comme les autres. */

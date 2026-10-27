@@ -571,6 +571,22 @@ class ClotureCaisseApercuTest extends TestCase
             ->assertJsonPath('data.ecart', 0);
     }
 
+    /**
+     * 999 billets de 1000 et 7 de 200 : un écart de CHF 1’000’150, au-delà de
+     * ce que la colonne garde (8,2). Refusé avec un message, jamais une erreur
+     * 500 de MySQL (SQLite des tests ne borne pas, d'où le contrôle explicite).
+     */
+    public function test_un_comptage_que_la_caisse_ne_peut_pas_garder_est_refuse(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 50);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 200, 'comptage' => [100000 => 999, 20000 => 7], 'nouveau_fond' => 200, 'depot' => 999000, 'note' => 'Recette exceptionnelle'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['comptage' => 'Le comptage donne un écart de plus de CHF 999’999.99 : vérifiez les quantités saisies.']);
+
+        $this->assertSame(0, ClotureCaisse::query()->count());
+    }
+
     /** Écart de −20 et 120 venus du coffre : le refus du Z dit les deux, l'écart d'abord. */
     public function test_le_refus_dit_l_ecart_et_l_apport_du_coffre(): void
     {

@@ -141,6 +141,22 @@ class PatientTest extends TestCase
         $this->assertNull($rex->fresh()->photo_chemin);
     }
 
+    /** Gardée un an par le navigateur (immutable) : une nouvelle photo doit avoir une nouvelle adresse, sinon l'ancienne resterait affichée (27.10.2026). */
+    public function test_une_nouvelle_photo_de_l_animal_a_une_nouvelle_adresse(): void
+    {
+        Storage::fake('prive');
+        $rex = Patient::factory()->for($this->client)->create(['nom' => 'Rex']);
+        $poser = fn (): string => $this->post("/api/v1/patients/{$rex->id}/photo", ['photo' => UploadedFile::fake()->image('rex.jpg', 300, 300)], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->json('data.photo_url');
+
+        $premiere = $poser();
+        $seconde = $poser();
+
+        $this->assertNotSame($premiere, $seconde);
+        $this->get($seconde)->assertOk();
+    }
+
     public function test_la_liste_sert_le_dernier_poids_et_la_courbe_des_douze_dernieres_pesees(): void
     {
         $patient = Patient::factory()->for($this->client)->create(['nom' => 'Rex']);

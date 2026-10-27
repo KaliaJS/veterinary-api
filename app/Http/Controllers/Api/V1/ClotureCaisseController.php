@@ -29,6 +29,9 @@ use Illuminate\Validation\ValidationException;
  */
 class ClotureCaisseController extends Controller
 {
+    /** Le plus grand écart que la colonne `ecart` (decimal 8,2) garde */
+    private const float ECART_MAX = 999999.99;
+
     public function __construct(private Numeroteur $numeroteur, private ArreteDeCaisse $arrete) {}
 
     /**
@@ -115,6 +118,14 @@ class ClotureCaisseController extends Controller
             // Un dépôt plus grand que compté : aucune note ne le rattrape
             if ($arrete['alerte_depot'] !== null) {
                 throw ValidationException::withMessages(['depot' => $arrete['alerte_depot']]);
+            }
+
+            // Depuis le billet de 1000, un comptage peut donner un écart que la
+            // colonne (8,2) ne garde pas : un message plutôt qu'une erreur 500
+            if (abs($arrete['ecart']) > self::ECART_MAX) {
+                throw ValidationException::withMessages([
+                    'comptage' => 'Le comptage donne un écart de plus de CHF '.number_format(self::ECART_MAX, 2, '.', '’').' : vérifiez les quantités saisies.',
+                ]);
             }
 
             // La même règle que l'aperçu : un écart, une carte ou un TWINT saisi

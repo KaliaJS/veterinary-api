@@ -404,6 +404,25 @@ class SiteWebTest extends TestCase
             ->assertJsonPath('data.cliniques.0.email', null);
     }
 
+    /** Gardée un an par le navigateur (immutable) : une nouvelle photo d'employé a une nouvelle adresse (27.10.2026). */
+    public function test_une_nouvelle_photo_d_employe_a_une_nouvelle_adresse(): void
+    {
+        Storage::fake('prive');
+        $lea = Employe::factory()->dans($this->clinique)->create(['nom' => 'Léa Fontaine', 'accord_site_le' => now()]);
+        $poser = function () use ($lea): string {
+            $this->post("/api/v1/site/equipe/{$lea->id}/photo", ['photo' => UploadedFile::fake()->image('lea.jpg', 400, 400)], $this->enTetes($this->jeton) + ['Accept' => 'application/json'])->assertOk();
+
+            return (string) $lea->refresh()->photoUrl();
+        };
+
+        $premiere = $poser();
+        $seconde = $poser();
+
+        $this->assertNotSame('', $premiere);
+        $this->assertNotSame($premiere, $seconde);
+        $this->get($seconde)->assertOk();
+    }
+
     public function test_la_photo_d_un_employe_se_pose_depuis_le_site_et_sert_partout(): void
     {
         Storage::fake('prive');

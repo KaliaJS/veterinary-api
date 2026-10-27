@@ -2588,8 +2588,8 @@ class OrganisationTest extends TestCase
 
         $this->assertNotNull($evenement);
         $this->assertSame('* * * * *', $evenement->expression);
-        // Tuée en pleine vérification (déploiement) : la suivante repart dans dix minutes, pas dans 24 h
-        $this->assertSame(10, $evenement->expiresAt);
+        // Tuée en pleine vérification (déploiement) : la suivante repart dans deux minutes au plus, pas dans 24 h (27.10.2026)
+        $this->assertSame(2, $evenement->expiresAt);
     }
 
     /** Un 409 (la même demande en cours) ou un 429 (trop d'appels) au renouvellement : pas un refus, la même demande repart à l'heure suivante et passe (26.10.2026). */
