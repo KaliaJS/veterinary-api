@@ -20,6 +20,8 @@ class ClotureCaisseResource extends JsonResource
             'clinique_id' => $this->clinique_id,
             'arretee_le' => $this->arretee_le,
             'user_id' => $this->user_id,
+            // Son nom, lu sur sa fiche d'équipe dans l'organisation (28.10.2026)
+            'auteur' => $this->user?->employes->firstWhere('organisation_id', $this->clinique?->societe?->organisation_id)->nom ?? $this->user?->name,
             'total_tpe' => (float) $this->total_tpe,
             'total_twint' => (float) $this->total_twint,
             'total_especes' => (float) $this->total_especes,

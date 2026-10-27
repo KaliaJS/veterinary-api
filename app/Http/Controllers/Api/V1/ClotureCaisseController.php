@@ -65,6 +65,7 @@ class ClotureCaisseController extends Controller
             ->withCount('factures')
             ->latest('arretee_le')
             ->latest('id')
+            ->with(['user.employes', 'clinique.societe'])
             ->paginate($this->parPage($request));
 
         return ClotureCaisseResource::collection($clotures);
@@ -74,7 +75,7 @@ class ClotureCaisseController extends Controller
     {
         $this->authorize('viewAny', ClotureCaisse::class);
 
-        return new ClotureCaisseResource($cloture->load('factures')->loadCount('factures'));
+        return new ClotureCaisseResource($cloture->load(['factures', 'user.employes', 'clinique.societe'])->loadCount('factures'));
     }
 
     public function store(EnregistrerClotureCaisseRequest $request): ClotureCaisseResource
@@ -163,6 +164,6 @@ class ClotureCaisseController extends Controller
             return $cloture;
         });
 
-        return new ClotureCaisseResource($cloture->load('factures')->loadCount('factures'));
+        return new ClotureCaisseResource($cloture->load(['factures', 'user.employes', 'clinique.societe'])->loadCount('factures'));
     }
 }

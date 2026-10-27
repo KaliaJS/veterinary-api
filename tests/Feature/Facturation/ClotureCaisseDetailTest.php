@@ -5,6 +5,7 @@ namespace Tests\Feature\Facturation;
 use App\Auth\RolesParDefaut;
 use App\Enums\MoyenPaiement;
 use App\Models\Clinique;
+use App\Models\Employe;
 use App\Models\ClotureCaisse;
 use App\Models\Facture;
 use App\Models\FactureLigne;
@@ -28,12 +29,14 @@ class ClotureCaisseDetailTest extends TestCase
 
     private string $jeton;
 
+    private Employe $auteur;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->clinique = Clinique::factory()->create();
-        ['jeton' => $this->jeton] = $this->administrateurAvecJeton($this->clinique);
+        ['jeton' => $this->jeton, 'employe' => $this->auteur] = $this->administrateurAvecJeton($this->clinique);
     }
 
     private function facturePayee(MoyenPaiement $moyen, float $montant): Facture
@@ -91,5 +94,18 @@ class ClotureCaisseDetailTest extends TestCase
             ->value('id')]);
 
         $this->getJson("/api/v1/facturation/clotures-caisse/{$cloture->id}", $this->enTetes($jeton))->assertForbidden();
+    }
+
+    /** Auteur d'une clôture Z : son nom (fiche d'équipe), pas seulement son numéro de compte (28.10.2026). */
+    public function test_une_cloture_dit_le_nom_de_son_auteur(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 45);
+        $id = $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 100, 'especes_comptees' => 145, 'nouveau_fond' => 100], $this->enTetes($this->jeton))
+            ->assertCreated()->json('data.id');
+
+        $this->getJson("/api/v1/facturation/clotures-caisse/{$id}", $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('data.auteur', $this->auteur->nom);
+        $this->getJson('/api/v1/facturation/clotures-caisse', $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('data.0.auteur', $this->auteur->nom);
     }
 }
