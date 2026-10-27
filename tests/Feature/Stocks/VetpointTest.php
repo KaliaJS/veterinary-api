@@ -11,6 +11,7 @@ use App\Models\ProduitVetpoint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -684,5 +685,56 @@ class VetpointTest extends TestCase
         ]);
 
         $this->getJson('/api/v1/vetpoint/produits?q=inflacam', $this->admin())->assertOk()->assertJsonPath('data.0.contenu', null);
+    }
+
+    /** Deux enregistrements au même instant : la clé collée est gardée, jamais une erreur 500, jamais de clinique sans clé. */
+    public function test_deux_enregistrements_simultanes_de_la_cle(): void
+    {
+        $this->fauxVetpoint();
+        $entetes = $this->admin();
+        $autre = false;
+        // L'autre enregistrement arrive juste après la première écriture (mise à jour ou suppression)
+        DB::listen(function ($requete) use (&$autre): void {
+            if (! $autre && preg_match('/^(update|delete)/i', $requete->sql) === 1 && str_contains($requete->sql, 'connexions_vetpoint')) {
+                $autre = true;
+                DB::table('connexions_vetpoint')->insert(['clinique_id' => $this->clinique->id, 'cle' => Crypt::encryptString('CLEDELAUTREPOSTE0000000'), 'verifiee_le' => now(), 'created_at' => now(), 'updated_at' => now()]);
+            }
+        });
+
+        $this->putJson('/api/v1/vetpoint/connexion', ['cle' => self::CLE], $entetes)->assertOk();
+
+        $this->assertSame(self::CLE, ConnexionVetpoint::query()->sole()->cleEnClair());
+    }
+
+    /** « Product not found » : casse et espaces ignorés, message exact seulement ; sur une recherche par nom, c'est une panne. */
+    public function test_product_not_found_casse_ignoree_et_message_exact(): void
+    {
+        $this->relier();
+        $entetes = $this->admin();
+        $corps = ['errorMessage' => '  PRODUCT NOT FOUND '];
+        Http::fake(function () use (&$corps) {
+            return Http::response($corps, 404);
+        });
+
+        $this->getJson('/api/v1/vetpoint/produits?q=062533-01-003', $entetes)->assertOk()->assertJsonPath('data', []);
+        $corps = ['errorMessage' => 'Product not found for supplier 913'];
+        $this->getJson('/api/v1/vetpoint/produits?q=062533-01-003', $entetes)->assertStatus(503);
+        $corps = ['errorMessage' => 'Product not found'];
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $entetes)->assertStatus(503);
+    }
+
+    /** Le contenu : tel que Vetpoint le donne, sans espace de trop ; démesuré (1e308), rien. */
+    public function test_le_contenu_est_propre(): void
+    {
+        $this->relier();
+        Http::fake([
+            self::URL.'/v1/supplier' => Http::response(['suppliers' => []]),
+            self::URL.'/v1/product/query=*' => Http::response('{"products":[{"productId":"913-1","name":"X","anzahl":"7 ","einheitVerkauf":"ml"},{"productId":"913-2","name":"Y","anzahl":1e308,"einheitVerkauf":"ml"}]}', 200, ['Content-Type' => 'application/json']),
+            self::URL.'/v1/product/calculatePrices' => Http::response([]),
+        ]);
+
+        $this->getJson('/api/v1/vetpoint/produits?q=inflacam', $this->admin())->assertOk()
+            ->assertJsonPath('data.0.contenu', '7 ml')
+            ->assertJsonPath('data.1.contenu', null);
     }
 }

@@ -28,6 +28,19 @@ class RechercheVetpointController extends Controller
 
     private const int RECHERCHES_PAR_MINUTE = 20;
 
+    /** Plus grand contenu crédible d'un emballage (au-delà : une erreur de Vetpoint) */
+    private const int CONTENU_MAX = 100000;
+
+    /** « 100 ml » ; rien si Vetpoint donne 0, un nombre démesuré ou illisible. */
+    private static function contenu(?float $quantite, ?string $brut, ?string $unite): ?string
+    {
+        if ($quantite === null || $quantite <= 0 || $quantite > self::CONTENU_MAX) {
+            return null;
+        }
+
+        return trim(trim((string) $brut).' '.trim((string) $unite));
+    }
+
     public function __invoke(Request $request, ContexteClinique $contexte): JsonResponse
     {
         $texte = trim((string) $request->validate([
@@ -97,7 +110,7 @@ class RechercheVetpointController extends Controller
                     'peremption' => $texte('expirationDate'),
                     'categorie_remise' => $texte('abgabekategorie'),
                     // Vetpoint met parfois 0, sans unité : rien à montrer
-                    'contenu' => (ClientVetpoint::nombre($produit['anzahl'] ?? null) ?? 0) > 0 ? trim($produit['anzahl'].' '.($texte('einheitVerkauf') ?? '')) : null,
+                    'contenu' => self::contenu(ClientVetpoint::nombre($produit['anzahl'] ?? null), $texte('anzahl'), $texte('einheitVerkauf')),
                     'stupefiant' => (bool) ($produit['betaeubungsmittel'] ?? false),
                     'ean' => $texte('barcode'),
                     'prix_catalogue' => ClientVetpoint::nombre($produit['listPrice'] ?? null),

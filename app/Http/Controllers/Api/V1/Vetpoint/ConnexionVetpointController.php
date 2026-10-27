@@ -10,10 +10,13 @@ use App\Services\Vetpoint\VetpointCgv;
 use App\Services\Vetpoint\VetpointCleRefusee;
 use App\Services\Vetpoint\VetpointIndisponible;
 use App\Services\Vetpoint\VetpointLimite;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -55,10 +58,7 @@ class ConnexionVetpointController extends Controller
             abort(503, 'Vetpoint ne répond pas : réessayez dans un moment.');
         }
 
-        // Remplacée, pas mise à jour : comparer avec l'ancienne obligerait à la
-        // déchiffrer, ce qui échoue si elle est devenue illisible
-        ConnexionVetpoint::query()->where('clinique_id', $this->cliniqueId())->delete();
-        ConnexionVetpoint::query()->create(['clinique_id' => $this->cliniqueId(), 'cle' => $cle, 'verifiee_le' => now()]);
+        $this->garder($cle);
         // Lus pour vérifier la clé : gardés pour la recherche (un appel de moins)
         Cache::put(self::cleCacheFournisseurs($this->cliniqueId()), $fournisseurs, now()->addDay());
 
@@ -71,6 +71,27 @@ class ConnexionVetpointController extends Controller
         Cache::forget(self::cleCacheFournisseurs($this->cliniqueId()));
 
         return response()->noContent();
+    }
+
+    /**
+     * Une seule écriture, sans jamais relire l'ancienne clé (elle peut être
+     * devenue illisible) : la clinique n'est jamais sans clé, et l'ancienne
+     * n'est pas perdue si l'écriture échoue. Deux enregistrements au même
+     * instant : le second met à jour la ligne que le premier vient de créer.
+     */
+    private function garder(string $cle): void
+    {
+        $valeurs = ['cle' => Crypt::encryptString($cle), 'verifiee_le' => now()];
+        $ligne = fn () => ConnexionVetpoint::query()->where('clinique_id', $this->cliniqueId());
+
+        if ($ligne()->update($valeurs) > 0) {
+            return;
+        }
+        try {
+            DB::table('connexions_vetpoint')->insert(['clinique_id' => $this->cliniqueId(), ...$valeurs, 'created_at' => now(), 'updated_at' => now()]);
+        } catch (UniqueConstraintViolationException) {
+            $ligne()->update($valeurs);
+        }
     }
 
     /** Les noms des fournisseurs d'une clinique, gardés un jour (recherche). */
