@@ -98,8 +98,9 @@ class JetonsRevoquesTest extends TestCase
     public function test_changer_de_clinique_garde_le_debut_de_la_session(): void
     {
         ['jeton' => $jeton, 'user' => $user] = $this->employeAvecJeton($this->clinique);
-        $debut = now()->subDays(10)->startOfSecond();
-        DB::table('personal_access_tokens')->where('tokenable_id', $user->id)->update(['session_depuis' => $debut]);
+        // Une session de plus d'un an, servie chaque mois : aucune limite totale (27.10.2026)
+        $debut = now()->subDays(400)->startOfSecond();
+        DB::table('personal_access_tokens')->where('tokenable_id', $user->id)->update(['session_depuis' => $debut, 'created_at' => $debut]);
 
         $neuf = $this->postJson('/api/v1/auth/clinique', ['clinique_id' => $this->clinique->id], $this->enTetes($jeton))->assertOk()->json('data.token');
         $this->assertTrue($user->tokens()->sole()->session_depuis->equalTo($debut));

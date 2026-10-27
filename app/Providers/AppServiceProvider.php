@@ -89,6 +89,8 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Sanctum::usePersonalAccessTokenModel(JetonApi::class);
+        // Un jeton sans fin ne pourrait jamais expirer : refusé (27.10.2026)
+        Sanctum::authenticateAccessTokensUsing(fn (JetonApi $jeton, bool $valide): bool => $valide && $jeton->expires_at !== null);
 
         // Les adresses que l'API écrit (photos, logos, liens signés, e-mails)
         // partent d'APP_URL, jamais de l'en-tête Host de la requête (23.10.2026)

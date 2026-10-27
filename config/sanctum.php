@@ -58,7 +58,8 @@ return [
     // Une connexion reste valable tant qu'on s'en sert au moins une fois
     // pendant ce nombre de minutes, sans limite totale (décision de Jim,
     // 27.10.2026) : 30 jours
-    'inactivite' => (int) env('SANCTUM_TOKEN_INACTIVITE', 60 * 24 * 30),
+    // (au moins une heure : une valeur illisible ne coupe pas tout le monde)
+    'inactivite' => max(60, (int) env('SANCTUM_TOKEN_INACTIVITE', 60 * 24 * 30)),
 
     /*
     |--------------------------------------------------------------------------

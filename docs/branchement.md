@@ -46,7 +46,7 @@ Constats transversaux qui conditionnent tout le plan :
 
 - Servi mais non consommé : `GET /auth/moi` (restauration de session —
   indispensable, le mock perd la session au rechargement, choix
-  assumé du proto), `POST /auth/rafraichir` (jetons 24 h), toute la
+  assumé du proto), `POST /auth/rafraichir` (jetons prolongés à l'usage, 30 jours sans usage, 27.10.2026), toute la
   gestion des passkeys enregistrées (`GET/POST/DELETE /auth/passkeys`
   + `/auth/passkeys/options`) — aucun écran front.
 - Trou front : le store ne connaît ni jeton, ni clinique de
@@ -507,7 +507,7 @@ dépôt : l'ordre ci-dessous est une recommandation pour l'équipe front).
   chaque domaine pose son module `src/api/<domaine>.js` à la manière
   de la frontière `src/api/auth.js` existante.
 - **Jeton** : stockage du jeton Sanctum, en-tête `Authorization`,
-  rafraîchissement avant l'expiration 24 h (`POST /auth/rafraichir`),
+  rafraîchissement avant la fin connue (30 jours sans usage) (`POST /auth/rafraichir`),
   restauration de session au boot par `GET /auth/moi`, purge et
   retour au login sur 401. Le jeton porte la clinique : le changement
   de clinique est une ré-émission de jeton, pas un paramètre de

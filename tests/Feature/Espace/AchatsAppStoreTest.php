@@ -109,7 +109,7 @@ class AchatsAppStoreTest extends TestCase
     {
         ['user' => $user, 'entetes' => $entetes, 'compte' => $compte] = $this->compte();
         $plus = AchatsAppStore::produitPlus();
-        // Une session neuve après chaque voyage dans le temps (24 h au plus)
+        // Une session neuve après chaque voyage dans le temps (30 jours sans usage au plus)
         $session = fn (): array => $this->enTetes(app(EmetteurJetons::class)->emettreSansClinique($user)->plainTextToken);
         $premiere = $this->store->transaction($plus, $compte, ['transactionId' => '2000000001', 'expiresDate' => now()->addMonth()->getTimestampMs(), 'signedDate' => now()->getTimestampMs()]);
         $this->postJson('/api/v1/espace/app-store/transactions', ['transactions' => [$premiere]], $entetes)->assertOk();

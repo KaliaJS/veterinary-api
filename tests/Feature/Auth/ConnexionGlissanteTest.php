@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\Clinique;
 use App\Models\JetonApi;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -52,7 +53,9 @@ class ConnexionGlissanteTest extends TestCase
         DB::table('personal_access_tokens')->update(['created_at' => now()->subDays(400), 'session_depuis' => now()->subDays(400), 'expires_at' => now()->addDays(10)]);
 
         $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
+        $this->app['auth']->forgetGuards();
         $this->postJson('/api/v1/auth/montre', [], $this->enTetes($jeton))->assertOk();
+        $this->app['auth']->forgetGuards();
         $this->postJson('/api/v1/auth/rafraichir', [], $this->enTetes($jeton))->assertOk();
     }
 
@@ -88,5 +91,71 @@ class ConnexionGlissanteTest extends TestCase
         $this->getJson('/api/v1/auth/moi', $this->enTetes($montre))->assertOk();
 
         $this->assertTrue(JetonApi::query()->whereMorphedTo('tokenable', $user)->where('name', 'montre')->sole()->expires_at->gt(now()->addDays(30)->subMinute()));
+    }
+
+    private function vautTrenteJours(?string $quand): bool
+    {
+        return $quand !== null && now()->addDays(30)->subMinute()->lt($quand) && now()->addDays(30)->addMinute()->gt($quand);
+    }
+
+    /** Chaque voie qui émet un jeton lui donne une fin à 30 jours : connexion, propriétaire, montre, renouvellement, changement de clinique. */
+    public function test_chaque_voie_d_emission_donne_une_fin_a_trente_jours(): void
+    {
+        $clinique = Clinique::factory()->create();
+        ['jeton' => $jeton, 'user' => $user] = $this->employeAvecJeton($clinique);
+        ['user' => $proprietaire] = $this->proprietaireAvecJeton();
+
+        $this->assertTrue($this->vautTrenteJours($proprietaire->tokens()->sole()->expires_at?->toIso8601String()));
+        $this->postJson('/api/v1/auth/montre', [], $this->enTetes($jeton))->assertOk();
+        $this->assertTrue($this->vautTrenteJours(JetonApi::query()->whereMorphedTo('tokenable', $user)->where('name', 'montre')->sole()->expires_at?->toIso8601String()));
+        $this->app['auth']->forgetGuards();
+        $neuf = $this->postJson('/api/v1/auth/rafraichir', [], $this->enTetes($jeton))->assertOk()->json('data.token');
+        $this->assertTrue($this->vautTrenteJours(JetonApi::findToken($neuf)?->expires_at?->toIso8601String()));
+        $this->app['auth']->forgetGuards();
+        $autre = $this->postJson('/api/v1/auth/clinique', ['clinique_id' => $clinique->id], $this->enTetes($neuf))->assertOk()->json('data.token');
+        $this->assertTrue($this->vautTrenteJours(JetonApi::findToken($autre)?->expires_at?->toIso8601String()));
+    }
+
+    /** Un jeton sans fin n'est jamais accepté : il ne pourrait jamais expirer. */
+    public function test_un_jeton_sans_fin_est_refuse(): void
+    {
+        ['jeton' => $jeton] = $this->employeAvecJeton();
+        DB::table('personal_access_tokens')->update(['expires_at' => null]);
+
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertUnauthorized();
+    }
+
+    /** Il reste un peu moins de 29 jours : un usage repart pour 30 jours. */
+    public function test_la_prolongation_part_des_qu_il_reste_moins_de_vingt_neuf_jours(): void
+    {
+        ['jeton' => $jeton] = $this->employeAvecJeton();
+        DB::table('personal_access_tokens')->update(['expires_at' => now()->addDays(29)->subMinute()]);
+
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
+
+        $this->assertTrue($this->jeton()->expires_at->gt(now()->addDays(30)->subMinute()));
+    }
+
+    /** Prolongée il y a 23 heures : rien n'est écrit. */
+    public function test_rien_n_est_ecrit_moins_d_un_jour_apres_la_derniere_prolongation(): void
+    {
+        ['jeton' => $jeton] = $this->employeAvecJeton();
+        $avant = now()->addDays(30)->subHours(23)->startOfSecond();
+        DB::table('personal_access_tokens')->update(['expires_at' => $avant]);
+
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
+
+        $this->assertTrue($this->jeton()->expires_at->equalTo($avant));
+    }
+
+    /** Un propriétaire (jeton sans clinique) se prolonge comme les autres. */
+    public function test_un_proprietaire_se_prolonge_aussi(): void
+    {
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+        DB::table('personal_access_tokens')->update(['expires_at' => now()->addDays(3)]);
+
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
+
+        $this->assertTrue($this->jeton()->expires_at->gt(now()->addDays(30)->subMinute()));
     }
 }

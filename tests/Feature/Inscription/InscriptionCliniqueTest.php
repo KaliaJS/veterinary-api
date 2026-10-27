@@ -372,11 +372,14 @@ class InscriptionCliniqueTest extends TestCase
     public function test_l_inscription_garde_le_debut_de_la_session(): void
     {
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
-        $debut = now()->subDays(10)->startOfSecond();
-        DB::table('personal_access_tokens')->where('tokenable_id', $user->id)->update(['session_depuis' => $debut]);
+        // Une session de plus d'un an, servie chaque mois : aucune limite totale (27.10.2026)
+        $debut = now()->subDays(400)->startOfSecond();
+        DB::table('personal_access_tokens')->where('tokenable_id', $user->id)->update(['session_depuis' => $debut, 'created_at' => $debut]);
 
         $this->postJson('/api/v1/inscription-clinique', $this->inscription(), $this->enTetes($jeton))->assertCreated();
-        $this->assertTrue($user->tokens()->sole()->session_depuis->equalTo($debut));
+        $nouveau = $user->tokens()->sole();
+        $this->assertTrue($nouveau->session_depuis->equalTo($debut));
+        $this->assertTrue($nouveau->expires_at->between(now()->addDays(30)->subMinute(), now()->addDays(30)->addMinute()));
     }
 
     /** Inconnu de MedReg : refusé comme au profil, rien n'est créé (24.10.2026). */

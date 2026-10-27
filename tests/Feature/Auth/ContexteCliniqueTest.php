@@ -48,7 +48,7 @@ class ContexteCliniqueTest extends TestCase
 
         // Rattachée par erreur à la clinique d'une autre organisation
         $employe->cliniques()->attach($ailleurs->id);
-        $autre = $user->createToken('api');
+        $autre = $user->createToken('api', ['*'], now()->addDays(30));
         JetonApi::query()->whereKey($autre->accessToken->id)->update(['clinique_id' => $ailleurs->id]);
         app(ContexteClinique::class)->oublier();
 

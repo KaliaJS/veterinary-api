@@ -135,7 +135,7 @@ class DisponibilitesTest extends TestCase
 
     public function test_les_creneaux_d_aujourd_hui_commencent_a_l_heure_courante(): void
     {
-        // Le jeton du setUp expirerait (24 h) : on en émet un après le
+        // Le jeton du setUp expirerait (30 jours sans usage) : on en émet un après le
         // voyage dans le temps.
         $this->travelTo($this->lundi->setTime(10, 7));
         ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
