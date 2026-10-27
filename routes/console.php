@@ -8,15 +8,18 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
+// Laravel Cloud (27.10.2026) : chaque tâche sur un seul serveur, et le verrou
+// d'une tâche tuée (déploiement) tombe avant son passage suivant, pas 24 h après
+
 // Domaines personnalisés des sites : le DNS met parfois des heures à se propager
-Schedule::command('sites:verifier-domaines')->everyTenMinutes()->withoutOverlapping();
+Schedule::command('sites:verifier-domaines')->everyTenMinutes()->withoutOverlapping(9)->onOneServer();
 
 // Catalogue des médicaments vétérinaires : Swissmedic publie le premier
 // jour ouvrable du mois (import le 3 à 4 h, avec marge), Refdata chaque
 // nuit (import hebdomadaire, le lundi). Production seulement : en local,
 // `catalogue:swissmedic` et `catalogue:refdata` à la main.
-Schedule::command('catalogue:swissmedic')->monthlyOn(3, '04:00')->environments(['production'])->withoutOverlapping();
-Schedule::command('catalogue:refdata')->weeklyOn(1, '04:30')->environments(['production'])->withoutOverlapping();
+Schedule::command('catalogue:swissmedic')->monthlyOn(3, '04:00')->environments(['production'])->withoutOverlapping(180)->onOneServer();
+Schedule::command('catalogue:refdata')->weeklyOn(1, '04:30')->environments(['production'])->withoutOverlapping(180)->onOneServer();
 
 // Abonnements maison : renouvellements à la date anniversaire (avec les
 // minutes de transcription de la période) et nouvelles tentatives après un
@@ -24,14 +27,14 @@ Schedule::command('catalogue:refdata')->weeklyOn(1, '04:30')->environments(['pro
 // Tuée en pleine course (déploiement) : son verrou tombe au bout de 50 minutes,
 // la suivante repart à l'heure pleine, pas 24 h plus tard ; deux passages qui
 // se croisent sont sans danger, chaque abonné est relu sous son verrou (26.10.2026)
-Schedule::command('abonnements:renouveler')->hourly()->withoutOverlapping(50);
+Schedule::command('abonnements:renouveler')->hourly()->withoutOverlapping(50)->onOneServer();
 // Paiements restés sans réponse de Stripe : renvoyés tels quels (26.10.2026)
-Schedule::command('abonnements:verifier-paiements')->everyMinute()->withoutOverlapping(10);
-Schedule::command('inscriptions:reessayer')->hourly()->withoutOverlapping();
-Schedule::command('transcriptions:purger')->dailyAt('03:30')->timezone('Europe/Zurich')->withoutOverlapping();
+Schedule::command('abonnements:verifier-paiements')->everyMinute()->withoutOverlapping(10)->onOneServer();
+Schedule::command('inscriptions:reessayer')->hourly()->withoutOverlapping(50)->onOneServer();
+Schedule::command('transcriptions:purger')->dailyAt('03:30')->timezone('Europe/Zurich')->withoutOverlapping(120)->onOneServer();
 // Point du matin sur le stock (seuils, péremptions), avant l'ouverture des cliniques
-Schedule::command('alertes:stock')->dailyAt('07:00')->timezone('Europe/Zurich')->withoutOverlapping();
+Schedule::command('alertes:stock')->dailyAt('07:00')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 
 // Contrats terminés : accès suspendu et jetons révoqués ; jetons expirés supprimés
-Schedule::command('equipe:fermer-contrats')->dailyAt('00:15')->timezone('Europe/Zurich')->withoutOverlapping();
-Schedule::command('sanctum:prune-expired --hours=48')->dailyAt('04:45')->withoutOverlapping();
+Schedule::command('equipe:fermer-contrats')->dailyAt('00:15')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
+Schedule::command('sanctum:prune-expired --hours=48')->dailyAt('04:45')->withoutOverlapping(60)->onOneServer();

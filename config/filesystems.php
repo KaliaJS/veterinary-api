@@ -41,8 +41,10 @@ return [
 
         // Fichiers privés de l'application (photos, logos, consentements,
         // audio) : le disque local en développement, un bucket privé en
-        // production (`PRIVE_DISQUE=s3` et les variables AWS_*), jamais
-        // servis directement (23.10.2026)
+        // production, jamais servis directement (23.10.2026). Sur Laravel
+        // Cloud, le bucket (juridiction UE) porte le nom de disque « prive »
+        // et remplace cette entrée tout seul (27.10.2026) ; ailleurs,
+        // `PRIVE_DISQUE=s3` et les variables AWS_*
         'prive' => env('PRIVE_DISQUE', 'local') === 's3' ? [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),
