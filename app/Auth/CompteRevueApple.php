@@ -22,4 +22,10 @@ class CompteRevueApple
 
         return mb_strtolower(trim($email)) === $adresse ? $code : null;
     }
+
+    /** `$email` est l'adresse de revue, avec un réglage valable : aucun e-mail ne lui part. */
+    public function estAdresseDeRevue(string $email): bool
+    {
+        return $this->codePour($email) !== null;
+    }
 }
