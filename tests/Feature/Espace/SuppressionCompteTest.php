@@ -441,12 +441,12 @@ class SuppressionCompteTest extends TestCase
             'verification_veterinaire' => StatutVerificationVeterinaire::cases()[0]->value, 'identite_statut' => StatutIdentite::cases()[0]->value,
             'identite_session_id' => 'vs_rachel', 'stripe_client_id' => 'cus_rachel', 'stripe_moyen_paiement_id' => 'pm_rachel', 'carte_alertee_le' => '2026-10-01',
         ])->save();
-        $fiche = Client::factory()->create();
-        $suivi = Patient::factory()->create(['client_id' => $fiche->id]);
-        DB::table('demandes_rattachement')->insert(['user_id' => $user->id, 'organisation_id' => $fiche->organisation_id, 'patient_id' => $suivi->id, 'puce_saisie' => '756098605321680']);
+        $ficheClient = Client::factory()->create();
+        $suivi = Patient::factory()->create(['client_id' => $ficheClient->id]);
+        DB::table('demandes_rattachement')->insert(['user_id' => $user->id, 'organisation_id' => $ficheClient->organisation_id, 'patient_id' => $suivi->id, 'puce_saisie' => '756098605321680']);
         $demande = DemandeRendezVous::factory()->create(['user_id' => $user->id]);
         $message = MessageClientele::query()->create(['clinique_id' => Clinique::factory()->create()->id, 'user_id' => $user->id, 'auteur' => 'proprietaire', 'texte' => 'Bonjour']);
-        $renouvellement = DemandeRenouvellementOrdonnance::query()->create(['ordonnance_id' => Ordonnance::factory()->create(['patient_id' => $suivi->id, 'organisation_id' => $fiche->organisation_id])->id, 'user_id' => $user->id]);
+        $renouvellement = DemandeRenouvellementOrdonnance::query()->create(['ordonnance_id' => Ordonnance::factory()->create(['patient_id' => $suivi->id, 'organisation_id' => $ficheClient->organisation_id])->id, 'user_id' => $user->id]);
         $facturePlus = FactureProprietaire::query()->forceCreate(['user_id' => $user->id, 'numero' => 'P-2026-0009', 'emise_le' => '2026-10-01', 'libelle' => 'Veterinary Plus', 'montant' => 12, 'statut' => 'payee']);
         DB::table('revocations_app_store')->insert(['user_id' => $user->id, 'transaction_id' => 'tx-rachel', 'produit' => 'plus', 'revoquee_le' => now(), 'created_at' => now(), 'updated_at' => now()]);
         DB::table('specialites_veterinaire')->insert(['user_id' => $user->id, 'specialite' => Specialite::cases()[0]->value]);

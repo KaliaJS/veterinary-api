@@ -47,7 +47,7 @@ class PasserelleIdentiteFactice implements PasserelleIdentite
     /** Panne passagère (5xx) au moment d'effacer */
     public bool $pannePassagere = false;
 
-    /** Refus définitif au moment d'effacer : statut HTTP (401 clé refusée, 400 session introuvable…) */
+    /** Refus définitif au moment d'effacer : statut HTTP (401 clé refusée, 404 session introuvable…) */
     public ?int $refusEffacement = null;
 
     public function effacerSession(string $id): void
