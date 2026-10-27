@@ -255,4 +255,29 @@ class AccesSurInvitationTest extends TestCase
             }
         }
     }
+
+    /**
+     * Décision de Jim (28.10.2026) : l'écran du code dit que Veterinary est sur
+     * invitation. La réponse est la même pour toute adresse (compte, invitée
+     * ou non) : l'écran ne dévoile rien.
+     */
+    public function test_la_reponse_du_code_dit_sur_invitation_la_meme_pour_toute_adresse(): void
+    {
+        config(['plateforme.acces_sur_invitation' => true]);
+        Notification::fake();
+        Mail::fake();
+        User::factory()->create(['email' => 'compte@exemple.ch']);
+        InvitationAcces::query()->create(['email' => 'invitee@exemple.ch']);
+
+        $reponses = collect(['compte@exemple.ch', 'invitee@exemple.ch', 'inconnue@exemple.ch'])
+            ->map(fn (string $email) => $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => $email])->assertStatus(202)->json());
+
+        $this->assertTrue($reponses[0]['data']['sur_invitation']);
+        $this->assertSame($reponses[0], $reponses[1]);
+        $this->assertSame($reponses[0], $reponses[2]);
+
+        config(['plateforme.acces_sur_invitation' => false]);
+        $this->travel(16)->minutes();
+        $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'autre@exemple.ch'])->assertStatus(202)->assertJsonPath('data.sur_invitation', false);
+    }
 }

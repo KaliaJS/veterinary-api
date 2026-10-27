@@ -74,9 +74,12 @@ class MessageProprietaireController extends Controller
             throw ValidationException::withMessages(['clinique_id' => 'Vous n’êtes pas client de cette clinique.']);
         }
 
+        // Sa fiche client dans l'organisation de la clinique : le fil reste attribuable (28.10.2026)
+        $organisation = $this->cliniques($contexte)->firstWhere('id', $cliniqueId)?->societe()->withoutGlobalScopes()->value('organisation_id');
         $message = MessageClientele::create([
             'clinique_id' => $cliniqueId,
             'user_id' => $contexte->user()->id,
+            'client_id' => $contexte->clients()->firstWhere('organisation_id', $organisation)?->id,
             'auteur' => 'proprietaire',
             'texte' => trim($request->validated('texte')),
         ]);

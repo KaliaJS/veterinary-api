@@ -4,6 +4,7 @@ namespace Tests\Feature\Patients;
 
 use App\Models\Clinique;
 use App\Models\CompteRendu;
+use App\Models\Employe;
 use App\Models\LignePlanning;
 use App\Models\RendezVous;
 use App\Models\User;
@@ -26,6 +27,8 @@ class CompteRenduTest extends TestCase
 
     private User $utilisateur;
 
+    private Employe $employe;
+
     private string $jeton;
 
     protected function setUp(): void
@@ -38,7 +41,7 @@ class CompteRenduTest extends TestCase
             'ligne_planning_id' => LignePlanning::factory()->create(['clinique_id' => $this->clinique->id])->id,
         ]);
 
-        ['user' => $this->utilisateur, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        ['user' => $this->utilisateur, 'jeton' => $this->jeton, 'employe' => $this->employe] = $this->employeAvecJeton($this->clinique);
     }
 
     public function test_un_rendez_vous_sans_compte_rendu_repond_introuvable(): void
@@ -98,7 +101,8 @@ class CompteRenduTest extends TestCase
 
         $this->postJson($uri.'/signer', ['s' => 'Toux.', 'o' => 'Râles.', 'a' => 'Bronchite.', 'p' => 'Antibiotique 7 jours.'], $entetes)
             ->assertSuccessful()
-            ->assertJsonPath('data.signe_par', $this->utilisateur->name)
+            // Le nom de la fiche d'équipe du signataire (28.10.2026)
+            ->assertJsonPath('data.signe_par', $this->employe->nom)
             ->assertJsonPath('data.a', 'Bronchite.');
         $this->assertNotNull(CompteRendu::query()->sole()->signe_le);
 
@@ -111,7 +115,7 @@ class CompteRenduTest extends TestCase
         $this->postJson($uri.'/complements', ['texte' => 'Radiographie du 25.10 : foyer de pneumonie.'], $entetes)
             ->assertOk()
             ->assertJsonCount(1, 'data.complements')
-            ->assertJsonPath('data.complements.0.signe_par', $this->utilisateur->name);
+            ->assertJsonPath('data.complements.0.signe_par', $this->employe->nom);
 
         // Même hors de l'API, le texte signé et ses compléments ne bougent pas
         $this->expectException(\LogicException::class);

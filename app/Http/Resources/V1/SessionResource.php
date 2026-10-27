@@ -43,6 +43,9 @@ class SessionResource extends JsonResource
             'expire_le' => $this->jeton->expires_at?->toIso8601String(),
             // Cette connexion vient d'annuler la suppression demandée du compte
             'suppression_annulee' => $this->jeton->suppressionAnnulee,
+            // ... et Plus, résilié avec la demande, le reste : à réactiver soi-même
+            'plus_resilie' => $this->jeton->suppressionAnnulee
+                && in_array($this->user->statut_abonnement, ['actif', 'impaye'], true) && $this->user->resilie_le !== null,
             'user' => new UtilisateurResource($this->user),
             'employe' => $this->employe ? [
                 'id' => $this->employe->id,

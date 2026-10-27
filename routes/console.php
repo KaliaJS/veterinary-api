@@ -34,6 +34,8 @@ Schedule::command('abonnements:renouveler')->hourly()->withoutOverlapping(50)->o
 Schedule::command('abonnements:verifier-paiements')->everyMinute()->withoutOverlapping(2)->onOneServer();
 Schedule::command('inscriptions:reessayer')->hourly()->withoutOverlapping(50)->onOneServer();
 Schedule::command('transcriptions:purger')->dailyAt('03:30')->timezone('Europe/Zurich')->withoutOverlapping(120)->onOneServer();
+// Factures Plus des comptes effacés : dix ans après leur année d'émission (28.10.2026)
+Schedule::command('factures:purger-plus')->monthlyOn(1, '04:15')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 // Comptes dont la suppression a été demandée il y a 30 jours (27.10.2026)
 Schedule::command('comptes:effacer')->dailyAt(SuppressionCompte::HEURE_EFFACEMENT)->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 // Point du matin sur le stock (seuils, péremptions), avant l'ouverture des cliniques

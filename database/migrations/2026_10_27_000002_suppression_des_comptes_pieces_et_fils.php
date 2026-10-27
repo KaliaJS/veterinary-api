@@ -38,12 +38,13 @@ return new class extends Migration
             $table->dropConstrainedForeignId('client_id');
         });
 
+        // Les factures d'un compte effacé (pièces comptables, user_id vide)
+        // restent : la colonne reste nullable, seule la cascade revient
         Schema::table('proprietaire_factures', function (Blueprint $table): void {
             $table->dropColumn(['titulaire_nom', 'titulaire_email']);
             $table->dropForeign(['user_id']);
         });
         Schema::table('proprietaire_factures', function (Blueprint $table): void {
-            $table->unsignedBigInteger('user_id')->nullable(false)->change();
             $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
         });
     }

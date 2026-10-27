@@ -26,7 +26,12 @@ class CodeEmailController extends Controller
     {
         $codeEmail->envoyer($request->string('email')->toString());
 
-        return response()->json(['message' => 'Un code a été envoyé.'], 202);
+        // La même réponse pour toute adresse ; l'écran dit seulement que
+        // l'accès est sur invitation, pour tout le monde (décision de Jim, 28.10.2026)
+        return response()->json([
+            'message' => 'Un code a été envoyé.',
+            'data' => ['sur_invitation' => (bool) config('plateforme.acces_sur_invitation')],
+        ], 202);
     }
 
     /**

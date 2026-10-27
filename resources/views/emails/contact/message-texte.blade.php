@@ -3,6 +3,9 @@ Message reçu par le formulaire de contact de veterinary.app
 
 De : {!! $nom !!} <{!! $email !!}>
 Le : {{ $recuLe }}
+@if ($compte)
+Compte Veterinary : {!! $compte !!}
+@endif
 
 {!! $texte !!}
 

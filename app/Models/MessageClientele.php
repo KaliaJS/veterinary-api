@@ -14,7 +14,7 @@ class MessageClientele extends Model
 {
     protected $table = 'messages_clientele';
 
-    protected $fillable = ['clinique_id', 'user_id', 'employe_id', 'auteur', 'texte', 'lu_le'];
+    protected $fillable = ['clinique_id', 'user_id', 'client_id', 'employe_id', 'auteur', 'texte', 'lu_le'];
 
     protected function casts(): array
     {

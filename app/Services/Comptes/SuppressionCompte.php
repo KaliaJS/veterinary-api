@@ -48,6 +48,9 @@ class SuppressionCompte
 
     private const int ESSAIS_MAX = 5;
 
+    /** Titres sautés pour garder le prénom d'une trace */
+    private const array TITRES = ['dr', 'dre', 'docteur', 'docteure', 'pr', 'pre', 'professeur', 'professeure', 'm', 'mme', 'mlle', 'me'];
+
     public function __construct(
         private CompteRevueApple $revue,
         private AbonnementSaas $abonnements,
@@ -172,10 +175,21 @@ class SuppressionCompte
             }
         }
 
+        // Une facture Plus encore en attente chez Stripe : son prélèvement est
+        // annulé d'abord (en panne, le compte attend la nuit suivante)
+        $enAttente = FactureProprietaire::query()->where('user_id', $user->id)->where('statut', 'a_payer')->get();
+        foreach ($enAttente as $facture) {
+            if ($facture->stripe_paiement_id) {
+                $this->stripe->annulerPrelevement($facture->stripe_paiement_id);
+            }
+        }
+
         // Le client supprimé chez Stripe emporte ses cartes : un seul appel,
         // qu'une panne laisse à refaire tel quel la nuit suivante
+        $clientSupprime = false;
         if ($user->stripe_client_id) {
             $this->stripe->supprimerClient($user->stripe_client_id);
+            $clientSupprime = true;
         }
 
         $fichiers = DB::transaction(function () use ($user): ?array {
@@ -184,6 +198,13 @@ class SuppressionCompte
                 return null;
             }
             $fichiers = [];
+
+            // Les factures en attente ne se paieront plus
+            FactureProprietaire::query()->where('user_id', $user->id)->where('statut', 'a_payer')->get()
+                ->each(fn (FactureProprietaire $facture) => $facture->forceFill([
+                    'statut' => 'annulee',
+                    'metadonnees' => collect($facture->metadonnees ?? [])->except('demande_en_suspens')->all(),
+                ])->save());
 
             // Pièces comptables de Meteora (factures Plus, CO 958f) : gardées,
             // détachées par la base, avec le nom et l'adresse du titulaire
@@ -224,6 +245,15 @@ class SuppressionCompte
         });
 
         if ($fichiers === null) {
+            // Reconnecté pendant l'effacement : le compte reste, mais son client
+            // Stripe n'existe plus ; il ne garde pas un lien mort (une carte
+            // s'enregistrera sur un client neuf)
+            if ($clientSupprime) {
+                User::query()->whereKey($user->id)->update([
+                    'stripe_client_id' => null, 'stripe_moyen_paiement_id' => null, 'moyen_paiement' => null, 'carte_expire_le' => null,
+                ]);
+            }
+
             return false;
         }
         Storage::disk('prive')->delete($fichiers);
@@ -251,9 +281,13 @@ class SuppressionCompte
         }
         $user->tokens()->delete();
 
-        $prenom = Str::of((string) $user->name)->trim()->explode(' ')->first();
+        // Le prénom, sans titre devant (Dr, Dre, Pr…)
+        $prenom = collect(preg_split('/\s+/u', trim((string) $user->name)) ?: [])
+            ->reject(fn (string $mot): bool => in_array(mb_strtolower(rtrim($mot, '.')), self::TITRES, true))
+            ->first(fn (string $mot): bool => $mot !== '');
         $user->forceFill([
-            'name' => $prenom !== null && $prenom !== '' ? $prenom : 'Ancien membre',
+            'efface_le' => now(),
+            'name' => $prenom ?? 'Ancien membre',
             'email' => 'compte-efface-'.$user->id.'@veterinary.invalid',
             'password' => Hash::make(Str::random(64)),
             'email_verified_at' => null,
@@ -273,10 +307,13 @@ class SuppressionCompte
     /** Membre d'une équipe dont l'accès n'est pas terminé (un ancien membre peut supprimer son compte). */
     private function estMembreActif(User $user): bool
     {
-        // Comme à la porte de la clinique : ni suspendu, ni contrat terminé
-        return Employe::withoutGlobalScopes()->where('user_id', $user->id)->where('acces_suspendu', false)
-            ->where(fn ($fiche) => $fiche->whereNull('fin_contrat_le')->orWhereDate('fin_contrat_le', '>=', aujourdhui()->toDateString()))
-            ->exists();
+        // Comme à la porte de la clinique : ni suspendu, ni contrat terminé à
+        // la date de la clinique (son fuseau, pas celui de Zurich)
+        return Employe::withoutGlobalScopes()->with('cliniques')->where('user_id', $user->id)->where('acces_suspendu', false)->get()
+            ->contains(fn (Employe $fiche): bool => $fiche->fin_contrat_le === null
+                || ($fiche->cliniques->isEmpty()
+                    ? ! $fiche->fin_contrat_le->lt(aujourdhui())
+                    : $fiche->cliniques->contains(fn (Clinique $clinique): bool => ! $fiche->fin_contrat_le->lt(aujourdhui($clinique)))));
     }
 
     /** Le compte, si sa demande a toujours ses 30 jours (relu en base). */

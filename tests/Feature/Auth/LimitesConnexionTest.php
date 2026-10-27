@@ -297,4 +297,35 @@ class LimitesConnexionTest extends TestCase
 
         $this->assertSame('192.0.2.10', request()->ip());
     }
+
+    /** Avec une liste précise de proxys de confiance, l'adresse vient de Cloudflare et https reste reconnu. */
+    public function test_avec_une_liste_de_proxys_https_reste_reconnu(): void
+    {
+        config(['app.proxies_de_confiance' => '10.0.0.1', 'app.ip_par_cloudflare' => true]);
+
+        // Reçue en http par le proxy (la bordure a terminé le https)
+        $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1', 'HTTPS' => 'off'])
+            ->withHeaders(['CF-Connecting-IP' => '198.51.100.1', 'X-Forwarded-For' => '1.1.1.1, 198.51.100.1', 'X-Forwarded-Proto' => 'https'])
+            ->getJson('http://localhost/api/v1/public/cliniques');
+
+        $this->assertSame('198.51.100.1', request()->ip());
+        $this->assertTrue(request()->isSecure());
+    }
+
+    /** IP_PAR_CLOUDFLARE=false coupe la lecture, même sur Laravel Cloud. */
+    public function test_ip_par_cloudflare_faux_coupe_la_lecture_meme_sur_laravel_cloud(): void
+    {
+        config(['app.proxies_de_confiance' => '*', 'app.ip_par_cloudflare' => false]);
+        $_SERVER['LARAVEL_CLOUD'] = '1';
+
+        try {
+            $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.1'])
+                ->withHeaders(['CF-Connecting-IP' => '198.51.100.1', 'X-Forwarded-For' => '198.51.100.9'])
+                ->getJson('/api/v1/public/cliniques');
+
+            $this->assertSame('198.51.100.9', request()->ip());
+        } finally {
+            unset($_SERVER['LARAVEL_CLOUD']);
+        }
+    }
 }

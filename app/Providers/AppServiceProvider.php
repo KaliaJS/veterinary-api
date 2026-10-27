@@ -198,9 +198,6 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('espace-commandes', fn (Request $request): Limit => Limit::perHour(10)->by('commandes:'.$parCompte($request)));
         RateLimiter::for('espace-achats', fn (Request $request): Limit => Limit::perHour(30)->by('achats:'.$parCompte($request)));
 
-        // Clé Vetpoint (27.10.2026) : 10 essais par minute et par compte, avec
-        // un message en français. Les recherches, elles, sont comptées par
-        // clinique dans RechercheVetpointController (vraies recherches seules)
         // Code de suppression du compte (27.10.2026) : par compte, jamais par un
         // champ de la requête qui changerait la clé
         RateLimiter::for('suppression-code', fn (Request $request): array => [
@@ -210,19 +207,9 @@ class AppServiceProvider extends ServiceProvider
                 ->response(fn () => response()->json(['message' => 'Trop de codes demandés aujourd’hui : réessayez demain.'], 429)),
         ]);
 
-        // Formulaire de contact du site (27.10.2026) : par adresse IP sans
-        // compte, par compte une fois connecté (sans Turnstile alors)
-        RateLimiter::for('contact', function (Request $request): array {
-            $cle = ($compte = $request->user('sanctum')?->getAuthIdentifier()) !== null ? 'compte:'.$compte : 'ip:'.$request->ip();
-
-            return [
-                Limit::perHour(5)->by('contact:'.$cle)
-                    ->response(fn () => response()->json(['message' => 'Trop de messages envoyés : réessayez dans une heure.'], 429)),
-                Limit::perDay(20)->by('contact-jour:'.$cle)
-                    ->response(fn () => response()->json(['message' => 'Trop de messages envoyés aujourd’hui : réessayez demain.'], 429)),
-            ];
-        });
-
+        // Clé Vetpoint (27.10.2026) : 10 essais par minute et par compte, avec
+        // un message en français. Les recherches, elles, sont comptées par
+        // clinique dans RechercheVetpointController (vraies recherches seules)
         RateLimiter::for('vetpoint-cle', fn (Request $request): Limit => Limit::perMinute(10)
             ->by('vetpoint-cle:'.$parCompte($request))
             ->response(fn () => response()->json(['message' => 'Trop d’essais de clé Vetpoint : réessayez dans une minute.'], 429)));

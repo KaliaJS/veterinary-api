@@ -120,6 +120,10 @@ class CodeEmail
         if (! $hache || ! Hash::check($code, $hache)) {
             if ($essais >= self::ESSAIS_MAX) {
                 Cache::forget($this->cle($email));
+                // Cinq codes faux sur l'adresse de revue d'Apple : la plateforme le sait (28.10.2026)
+                if ($this->revue->codePour($email) !== null) {
+                    app(AlerteCompteRevue::class)->signaler(mb_strtolower(trim($email)));
+                }
             }
 
             throw ValidationException::withMessages([

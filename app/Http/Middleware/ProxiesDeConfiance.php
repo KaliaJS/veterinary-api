@@ -31,9 +31,10 @@ class ProxiesDeConfiance extends TrustProxies
         // Sans réglage : actif sur Laravel Cloud, détecté comme le fait Laravel
         $parCloudflare = config('app.ip_par_cloudflare') ?? laravel_cloud();
         if ($parCloudflare && is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP)) {
-            // L'adresse du visiteur, et plus de chaîne X-Forwarded-For à remonter
-            $request->server->set('REMOTE_ADDR', $ip);
-            $request->headers->remove('X-Forwarded-For');
+            // L'adresse du visiteur devient toute la chaîne X-Forwarded-For : le
+            // proxy reste le pair direct, et le https qu'il annonce reste cru
+            // aussi avec une liste précise de proxys (28.10.2026)
+            $request->headers->set('X-Forwarded-For', $ip);
         }
 
         return parent::handle($request, $next);

@@ -174,4 +174,117 @@ class ContactPlateformeTest extends TestCase
 
         Mail::assertNothingSent();
     }
+
+    /* ——— Défauts faibles restants (demande de Jim, 28.10.2026) ——— */
+
+    public function test_tous_les_messages_d_erreur_sont_en_francais(): void
+    {
+        $this->postJson('/api/v1/public/contact', $this->message(['nom' => ['a'], 'message' => ['b'], 'captcha' => ['c']]))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['nom' => 'Indiquez votre nom.', 'message' => 'Écrivez votre message.', 'captcha' => 'La vérification anti-robot n’a pas abouti : réessayez.']);
+        $this->postJson('/api/v1/public/contact', $this->message(['captcha' => str_repeat('x', 4097), 'nom' => str_repeat('n', 121), 'message' => str_repeat('m', 5001), 'email' => str_repeat('e', 190).'@exemple.ch']))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors([
+                'captcha' => 'La vérification anti-robot n’a pas abouti : réessayez.',
+                'nom' => 'Ce nom est trop long.',
+                'message' => 'Ce message est trop long (5000 caractères au plus).',
+                'email' => 'Cette adresse e-mail est trop longue.',
+            ]);
+    }
+
+    public function test_un_separateur_de_ligne_unicode_dans_le_nom_ne_fabrique_pas_de_fausse_ligne(): void
+    {
+        foreach (["Paul\u{2028}De : faux@pirate.ch", "Paul\u{2029}De : faux@pirate.ch", "Paul\u{0085}De : faux@pirate.ch"] as $nom) {
+            $this->postJson('/api/v1/public/contact', $this->message(['nom' => $nom]))->assertStatus(202);
+        }
+
+        Mail::assertSent(MessageContact::class, 3);
+        Mail::assertSent(MessageContact::class, function (MessageContact $mail): bool {
+            $lignes = preg_split('/\R/u', $mail->render());
+
+            return count(array_filter($lignes, fn ($ligne) => str_starts_with($ligne, 'De :'))) === 1;
+        });
+    }
+
+    public function test_un_nom_vide_apres_nettoyage_est_refuse(): void
+    {
+        $this->postJson('/api/v1/public/contact', $this->message(['nom' => "\u{0007}\u{0007}"]))
+            ->assertUnprocessable()->assertJsonValidationErrors(['nom' => 'Indiquez votre nom.']);
+
+        Mail::assertNothingSent();
+    }
+
+    public function test_les_fautes_de_saisie_ne_comptent_pas_dans_la_limite(): void
+    {
+        foreach (range(1, 6) as $essai) {
+            $this->postJson('/api/v1/public/contact', ['captcha' => 'jeton-valable'], ['REMOTE_ADDR' => '203.0.113.7'])->assertUnprocessable();
+        }
+
+        $this->postJson('/api/v1/public/contact', $this->message(), ['REMOTE_ADDR' => '203.0.113.7'])->assertStatus(202);
+    }
+
+    public function test_en_ipv6_la_limite_porte_sur_le_prefixe_64(): void
+    {
+        foreach (range(1, 5) as $envoi) {
+            $this->postJson('/api/v1/public/contact', $this->message(), ['REMOTE_ADDR' => '2001:db8:1:2::'.$envoi])->assertStatus(202);
+        }
+
+        $this->postJson('/api/v1/public/contact', $this->message(), ['REMOTE_ADDR' => '2001:db8:1:2:ffff:ffff:ffff:ffff'])->assertStatus(429);
+        $this->postJson('/api/v1/public/contact', $this->message(), ['REMOTE_ADDR' => '2001:db8:1:3::1'])->assertStatus(202);
+    }
+
+    public function test_le_message_d_une_personne_connectee_dit_de_quel_compte_il_vient(): void
+    {
+        $user = User::factory()->create(['email' => 'compte@exemple.ch']);
+        $jeton = app(EmetteurJetons::class)->emettreSansClinique($user)->plainTextToken;
+
+        $this->postJson('/api/v1/public/contact', $this->message(['captcha' => null, 'email' => 'autre@exemple.ch']), ['Authorization' => 'Bearer '.$jeton])->assertStatus(202);
+
+        Mail::assertSent(MessageContact::class, fn (MessageContact $mail) => str_contains($mail->render(), "Compte Veterinary : n° {$user->id}, compte@exemple.ch"));
+    }
+
+    public function test_deux_comptes_sur_la_meme_adresse_ip_ont_chacun_leur_limite(): void
+    {
+        $paul = app(EmetteurJetons::class)->emettreSansClinique(User::factory()->create())->plainTextToken;
+        $lea = app(EmetteurJetons::class)->emettreSansClinique(User::factory()->create())->plainTextToken;
+
+        foreach (range(1, 5) as $envoi) {
+            $this->postJson('/api/v1/public/contact', $this->message(['captcha' => null]), ['Authorization' => 'Bearer '.$paul, 'REMOTE_ADDR' => '203.0.113.7'])->assertStatus(202);
+            $this->app['auth']->forgetGuards();
+        }
+
+        $this->postJson('/api/v1/public/contact', $this->message(['captcha' => null]), ['Authorization' => 'Bearer '.$lea, 'REMOTE_ADDR' => '203.0.113.7'])->assertStatus(202);
+    }
+
+    public function test_sans_cle_secrete_turnstile_rien_ne_part(): void
+    {
+        config(['services.turnstile.secret' => '']);
+
+        $this->postJson('/api/v1/public/contact', $this->message())
+            ->assertUnprocessable()->assertJsonValidationErrors('captcha');
+
+        Mail::assertNothingSent();
+    }
+
+    public function test_au_dela_de_20_messages_par_jour_le_formulaire_refuse(): void
+    {
+        foreach (range(1, 4) as $heure) {
+            foreach (range(1, 5) as $envoi) {
+                $this->postJson('/api/v1/public/contact', $this->message())->assertStatus(202);
+            }
+            $this->travel(61)->minutes();
+        }
+
+        $this->postJson('/api/v1/public/contact', $this->message())
+            ->assertStatus(429)->assertJsonPath('message', 'Trop de messages envoyés aujourd’hui : réessayez demain.');
+    }
+
+    public function test_sans_adresse_de_reception_le_formulaire_repond_clairement(): void
+    {
+        config(['plateforme.contact_email' => '']);
+
+        $this->postJson('/api/v1/public/contact', $this->message())
+            ->assertStatus(503)->assertJsonPath('message', 'Le formulaire de contact n’est pas disponible pour l’instant.');
+        Mail::assertNothingSent();
+    }
 }

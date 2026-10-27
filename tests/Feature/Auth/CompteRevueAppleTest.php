@@ -3,7 +3,9 @@
 namespace Tests\Feature\Auth;
 
 use App\Auth\AdressesInvitees;
+use App\Auth\CompteRevueApple;
 use App\Mail\AccesSurInvitation;
+use App\Mail\EssaisCompteRevue;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -155,5 +157,31 @@ class CompteRevueAppleTest extends TestCase
         }
         $this->assertTrue(app(AdressesInvitees::class)->peutCreerUnCompte(self::ADRESSE));
         $this->assertTrue(app(AdressesInvitees::class)->peutCreerUnCompte(' Revue@Veterinary.APP '));
+    }
+
+    /** Un caractère non ASCII (signe Kelvin, qui devient « k » en minuscules) n'obtient pas le code fixe. */
+    public function test_une_adresse_non_ascii_n_obtient_pas_le_code_fixe(): void
+    {
+        config(['plateforme.revue_apple.email' => 'kiosque@veterinary.app']);
+
+        $this->assertSame(self::CODE, app(CompteRevueApple::class)->codePour('Kiosque@veterinary.app'));
+        $this->assertNull(app(CompteRevueApple::class)->codePour("\u{212A}iosque@veterinary.app"));
+    }
+
+    /** Cinq essais faux sur l'adresse de revue : la plateforme est alertée (une fois par jour). */
+    public function test_des_essais_faux_sur_l_adresse_de_revue_alertent_la_plateforme(): void
+    {
+        config(['plateforme.alerte_email' => 'alerte@exemple.ch']);
+
+        foreach (range(1, 2) as $tour) {
+            $this->travel(16)->minutes();
+            $this->demander(self::ADRESSE);
+            foreach (range(1, 5) as $essai) {
+                $this->postJson('/api/v1/auth/code-email/verifier', ['email' => self::ADRESSE, 'code' => '11111111'])->assertUnprocessable();
+            }
+        }
+
+        Mail::assertSent(EssaisCompteRevue::class, 1);
+        Mail::assertSent(EssaisCompteRevue::class, fn (EssaisCompteRevue $mail) => $mail->hasTo('alerte@exemple.ch'));
     }
 }

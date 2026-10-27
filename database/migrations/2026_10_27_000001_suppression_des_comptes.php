@@ -35,12 +35,13 @@ return new class extends Migration
 
     public function down(): void
     {
+        // Les lignes gardées d'un compte effacé (user_id vide) restent : la
+        // colonne reste nullable, seule la cascade revient (28.10.2026)
         foreach (['messages_clientele', 'demandes_renouvellement_ordonnance'] as $nom) {
             Schema::table($nom, function (Blueprint $table): void {
                 $table->dropForeign(['user_id']);
             });
             Schema::table($nom, function (Blueprint $table): void {
-                $table->unsignedBigInteger('user_id')->nullable(false)->change();
                 $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
             });
         }

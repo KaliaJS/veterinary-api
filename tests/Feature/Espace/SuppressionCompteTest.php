@@ -8,6 +8,8 @@ use App\Enums\Specialite;
 use App\Enums\StatutIdentite;
 use App\Enums\StatutVerificationVeterinaire;
 use App\Enums\TypeParcours;
+use App\Http\Resources\V1\CompteRenduResource;
+use App\Http\Resources\V1\JetonEmisResource;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\CompteRendu;
@@ -25,8 +27,10 @@ use App\Models\Societe;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
 use App\Notifications\CodeSuppressionCompte;
+use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserelleIdentite;
+use App\Services\Abonnements\AbonnementSaas;
 use App\Services\Comptes\SuppressionCompte;
 use Carbon\CarbonImmutable;
 use Database\Factories\PasskeyFactory;
@@ -34,6 +38,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
@@ -656,5 +661,220 @@ class SuppressionCompteTest extends TestCase
         $this->artisan('comptes:effacer')->assertSuccessful();
 
         $this->assertFalse(User::query()->whereKey($user->id)->exists());
+    }
+
+    /* ——— Défauts faibles restants (demande de Jim, 28.10.2026) ——— */
+
+    /** Clinique à New York : la fin de contrat se compare à sa date à elle, comme à sa porte. */
+    public function test_la_fin_de_contrat_se_compare_a_la_date_de_la_clinique(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-28 02:00', 'Europe/Zurich'));
+        $newYork = Clinique::factory()->create(['fuseau_horaire' => 'America/New_York']);
+        ['employe' => $fiche, 'user' => $user] = $this->employeAvecJeton($newYork);
+        // Dernier jour du contrat à New York (le 27 y est encore aujourd'hui, à Zurich c'est le 28)
+        $fiche->forceFill(['fin_contrat_le' => '2026-10-27'])->save();
+        $jeton = app(EmetteurJetons::class)->emettreSansClinique($user)->plainTextToken;
+
+        $this->postJson('/api/v1/espace/compte/suppression/code', [], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors('compte');
+    }
+
+    /** Le dernier jour du contrat, le membre est encore actif. */
+    public function test_le_dernier_jour_du_contrat_le_membre_est_encore_actif(): void
+    {
+        ['user' => $user, 'jeton' => $jeton, 'fiche' => $fiche] = $this->ancienMembre();
+        $fiche->forceFill(['acces_suspendu' => false, 'fin_contrat_le' => aujourdhui()->toDateString()])->save();
+
+        $this->postJson('/api/v1/espace/compte/suppression/code', [], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors('compte');
+    }
+
+    /** Un contrat terminé (date passée, nuit pas encore passée) n'est plus proposé à la connexion. */
+    public function test_un_contrat_termine_n_est_plus_propose_a_la_connexion(): void
+    {
+        ['user' => $user, 'fiche' => $fiche] = $this->ancienMembre();
+        $fiche->forceFill(['acces_suspendu' => false, 'fin_contrat_le' => aujourdhui()->subDay()->toDateString()])->save();
+
+        $this->assertCount(0, app(EmetteurJetons::class)->rattachements($user->refresh()));
+    }
+
+    /** Rétabli après une suspension, connecté pendant celle-ci (session sans clinique) : il rouvre sa clinique depuis sa session. */
+    public function test_un_membre_retabli_rouvre_sa_clinique_depuis_sa_session_sans_clinique(): void
+    {
+        $clinique = Clinique::factory()->create();
+        ['employe' => $fiche, 'user' => $user] = $this->employeAvecJeton($clinique);
+        $fiche->forceFill(['acces_suspendu' => true])->save();
+        $sansClinique = app(EmetteurJetons::class)->emettreSansClinique($user)->plainTextToken;
+        $fiche->forceFill(['acces_suspendu' => false])->save();
+
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($sansClinique))->assertOk()->assertJsonPath('data.cliniques.0.id', $clinique->id);
+        $this->postJson('/api/v1/auth/clinique', ['clinique_id' => $clinique->id], $this->enTetes($sansClinique))
+            ->assertOk()->assertJsonPath('data.clinique.id', $clinique->id);
+    }
+
+    /** Signature d'un compte rendu : le nom de la fiche d'équipe (la trace ne garde que le prénom). */
+    public function test_la_signature_d_un_compte_rendu_affiche_le_nom_de_la_fiche(): void
+    {
+        $user = User::factory()->create(['name' => 'Rachel']);
+        $fiche = Employe::factory()->create(['user_id' => $user->id, 'nom' => 'Rachel Solal']);
+        $compteRendu = CompteRendu::factory()->create(['signe_par_id' => $fiche->id, 'signe_le' => now()]);
+
+        $donnees = (new CompteRenduResource($compteRendu->refresh()))->toArray(request());
+
+        $this->assertSame('Rachel Solal', $donnees['signe_par']);
+    }
+
+    /** Le prénom gardé saute un titre. */
+    public function test_le_prenom_de_la_trace_saute_un_titre(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->ancienMembre(['name' => 'Dre Rachel Solal']);
+        $this->demander($jeton, $user);
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
+        $this->assertSame('Rachel', $user->refresh()->name);
+        $this->assertNotNull($user->efface_le);
+    }
+
+    /** Une fiche liée à une trace ne se rétablit pas (elle compterait dans la limite d'employés). */
+    public function test_une_fiche_liee_a_une_trace_ne_se_retablit_pas(): void
+    {
+        $clinique = Clinique::factory()->create();
+        ['employe' => $fiche, 'user' => $user] = $this->employeAvecJeton($clinique);
+        $fiche->forceFill(['acces_suspendu' => true])->save();
+        $this->demander(app(EmetteurJetons::class)->emettreSansClinique($user)->plainTextToken, $user);
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+        $this->app['auth']->forgetGuards();
+        // Un administrateur de la clinique, connecté maintenant
+        ['jeton' => $admin] = $this->administrateurAvecJeton($clinique);
+
+        $this->postJson("/api/v1/equipe/employes/{$fiche->id}/retablir", [], $this->enTetes($admin))
+            ->assertUnprocessable()->assertJsonValidationErrors(['acces' => 'Ce compte a été supprimé : son accès ne peut pas être rétabli.']);
+        $this->assertTrue((bool) $fiche->refresh()->acces_suspendu);
+    }
+
+    /** Reconnecté pendant l'effacement (après la suppression du client Stripe) : le compte reste, sans lien vers ce client supprimé. */
+    public function test_une_connexion_pendant_l_effacement_ne_laisse_pas_de_client_stripe_supprime(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $client = $this->stripe->creerClient('Paul', 'paul@exemple.ch', []);
+        $user->forceFill(['stripe_client_id' => $client, 'stripe_moyen_paiement_id' => $this->stripe->carteConfirmee($client), 'moyen_paiement' => 'Visa •••• 4242'])->save();
+        $this->demander($jeton, $user);
+        // La connexion arrive juste après la suppression du client chez Stripe
+        $this->stripe->pendantSuppressionClient = fn () => User::query()->whereKey($user->id)->update(['suppression_demandee_le' => null]);
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
+        $user->refresh();
+        $this->assertSame([null, null, null], [$user->stripe_client_id, $user->stripe_moyen_paiement_id, $user->moyen_paiement]);
+    }
+
+    /** Une facture Plus en attente chez Stripe : annulée à l'effacement, plus rien ne la reprend. */
+    public function test_une_facture_plus_en_attente_ne_bloque_rien_apres_l_effacement(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $client = $this->stripe->creerClient('Paul', 'paul@exemple.ch', []);
+        $carte = $this->stripe->carteConfirmee($client);
+        $user->forceFill(['stripe_client_id' => $client, 'stripe_moyen_paiement_id' => $carte])->save();
+        $intention = $this->stripe->prelever($client, $carte, 1200, 'Plus', [], false, 'cle-essai');
+        $facture = FactureProprietaire::query()->forceCreate([
+            'user_id' => $user->id, 'numero' => 'P-2026-0010', 'emise_le' => '2026-10-01', 'libelle' => 'Veterinary Plus', 'montant' => 12,
+            'statut' => 'a_payer', 'stripe_paiement_id' => $intention['id'],
+            'metadonnees' => ['demande_en_suspens' => ['le' => now()->subHour()->toIso8601String()]],
+        ]);
+        $this->demander($jeton, $user);
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+        $this->artisan('abonnements:verifier-paiements')->assertSuccessful();
+        app(AbonnementSaas::class)->surPrelevement(['id' => $intention['id'], 'status' => 'succeeded', 'metadata' => ['facture' => 'proprietaire:'.$facture->id]]);
+
+        $this->assertFalse(User::query()->whereKey($user->id)->exists());
+        $this->assertSame('annulee', $facture->refresh()->statut);
+    }
+
+    /** Factures Plus détachées : effacées après 10 ans (fin de l'année d'émission + 10), chaque mois. */
+    public function test_les_factures_plus_detachees_sont_effacees_apres_10_ans(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2037-01-05 10:00', 'Europe/Zurich'));
+        $vieille = FactureProprietaire::query()->forceCreate(['user_id' => null, 'numero' => 'P-2026-0001', 'emise_le' => '2026-12-31', 'libelle' => 'Plus', 'montant' => 12, 'statut' => 'payee']);
+        $recente = FactureProprietaire::query()->forceCreate(['user_id' => null, 'numero' => 'P-2027-0001', 'emise_le' => '2027-01-02', 'libelle' => 'Plus', 'montant' => 12, 'statut' => 'payee']);
+        $titulaire = User::factory()->create();
+        $gardee = FactureProprietaire::query()->forceCreate(['user_id' => $titulaire->id, 'numero' => 'P-2025-0001', 'emise_le' => '2025-06-01', 'libelle' => 'Plus', 'montant' => 12, 'statut' => 'payee']);
+
+        $this->artisan('factures:purger-plus')->assertSuccessful();
+
+        $this->assertFalse(FactureProprietaire::query()->whereKey($vieille->id)->exists());
+        $this->assertTrue(FactureProprietaire::query()->whereKey($recente->id)->exists());
+        $this->assertTrue(FactureProprietaire::query()->whereKey($gardee->id)->exists(), 'Celle d’un compte encore là reste');
+        $this->assertCount(1, collect(app(Schedule::class)->events())->filter(fn ($e) => str_contains((string) $e->command, 'factures:purger-plus')));
+    }
+
+    /** Un message porte sa fiche client dès l'envoi. */
+    public function test_un_message_porte_sa_fiche_client_des_l_envoi(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $fiche = Client::factory()->create(['user_id' => $user->id]);
+        $clinique = Clinique::factory()->create(['societe_id' => Societe::factory()->create(['organisation_id' => $fiche->organisation_id])->id]);
+
+        $id = $this->postJson('/api/v1/espace/messages', ['clinique_id' => $clinique->id, 'texte' => 'Bonjour'], $this->enTetes($jeton))->assertCreated()->json('data.id');
+
+        $this->assertSame($fiche->id, MessageClientele::query()->find($id)?->client_id);
+    }
+
+    /** La reconnexion qui annule dit aussi que Plus reste résilié, s'il l'est. */
+    public function test_la_reconnexion_dit_que_plus_reste_resilie(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-27 10:00', 'Europe/Zurich'));
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['email' => 'paul@exemple.ch', 'formule' => 'plus', 'statut_abonnement' => 'actif', 'periode_fin' => '2027-03-01']);
+        $this->demander($jeton, $user);
+
+        $session = (new JetonEmisResource(app(EmetteurJetons::class)->emettreSansClinique($user->refresh()), null))->toArray(request());
+
+        $this->assertTrue($session['suppression_annulee']);
+        $this->assertTrue($session['plus_resilie']);
+    }
+
+    /** Une session d'identité introuvable chez Stripe est signalée. */
+    public function test_une_session_introuvable_est_signalee(): void
+    {
+        Exceptions::fake();
+        $identite = new PasserelleIdentiteFactice;
+        $identite->refusEffacement = 404;
+        $this->app->instance(PasserelleIdentite::class, $identite);
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['identite_session_id' => 'vs_parti']);
+        $this->demander($jeton, $user);
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
+        Exceptions::assertReported(ErreurPaiement::class);
+    }
+
+    /** Plus de 100 comptes la même nuit : aucun n'est sauté. */
+    public function test_l_effacement_de_nuit_traite_plus_de_100_comptes(): void
+    {
+        User::factory()->count(150)->create(['suppression_demandee_le' => now()->subDays(31)]);
+
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
+        $this->assertSame(0, User::query()->whereNotNull('suppression_demandee_le')->count());
+    }
+
+    /** Le retour arrière des migrations ne perd aucune ligne gardée (messages, renouvellements, factures détachés). */
+    public function test_le_retour_arriere_des_migrations_ne_perd_aucune_ligne(): void
+    {
+        $fiche = Client::factory()->create();
+        $message = MessageClientele::query()->create(['clinique_id' => Clinique::factory()->create()->id, 'user_id' => null, 'auteur' => 'proprietaire', 'texte' => 'Gardé']);
+        $facture = FactureProprietaire::query()->forceCreate(['user_id' => null, 'numero' => 'P-2026-0020', 'emise_le' => '2026-10-01', 'libelle' => 'Plus', 'montant' => 12, 'statut' => 'payee']);
+        $migrations = collect(['2026_10_27_000003_traces_des_comptes', '2026_10_27_000002_suppression_des_comptes_pieces_et_fils', '2026_10_27_000001_suppression_des_comptes'])
+            ->map(fn (string $nom) => require database_path("migrations/{$nom}.php"));
+
+        $migrations->each(fn ($migration) => $migration->down());
+        $this->assertTrue(MessageClientele::query()->whereKey($message->id)->exists());
+        $this->assertTrue(FactureProprietaire::query()->whereKey($facture->id)->exists());
+        $migrations->reverse()->each(fn ($migration) => $migration->up());
+        $this->assertTrue(Client::query()->withoutGlobalScopes()->whereKey($fiche->id)->exists());
     }
 }

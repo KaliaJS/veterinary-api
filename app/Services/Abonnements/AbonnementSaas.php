@@ -539,6 +539,12 @@ final class AbonnementSaas
         if (! $facture || ($intention['status'] ?? null) !== 'succeeded' || ! is_string($intentionId)) {
             return;
         }
+        // Facture d'un compte effacé (28.10.2026) : plus d'abonné à servir ; signalé
+        if ($facture instanceof FactureProprietaire && $facture->user_id === null) {
+            report(new \RuntimeException('Prélèvement réussi pour la facture '.$facture->numero.' d’un compte effacé : à rembourser à la main.'));
+
+            return;
+        }
         if ($facture->stripe_paiement_id === $intentionId) {
             $this->payer($facture);
 
@@ -1283,6 +1289,10 @@ final class AbonnementSaas
         $facture->refresh();
         $suspens = $facture->metadonnees['demande_en_suspens'] ?? null;
         if ($facture->statut !== 'a_payer' || ! is_array($suspens)) {
+            return;
+        }
+        // Compte effacé : plus rien à reprendre (28.10.2026)
+        if ($facture instanceof FactureProprietaire && $facture->user_id === null) {
             return;
         }
         if (CarbonImmutable::parse((string) ($suspens['le'] ?? 'now'))->isAfter(now()->subMinute())) {

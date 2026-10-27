@@ -20,7 +20,14 @@ class CompteRevueApple
             return null;
         }
 
-        return mb_strtolower(trim($email)) === $adresse ? $code : null;
+        // ASCII seulement : un caractère comme le signe Kelvin, qui devient
+        // « k » en minuscules, n'ouvre pas le code fixe (28.10.2026)
+        $email = trim($email);
+        if (preg_match('/[^\x20-\x7E]/', $email) === 1) {
+            return null;
+        }
+
+        return strtolower($email) === $adresse ? $code : null;
     }
 
     /** `$email` est l'adresse de revue, avec un réglage valable : aucun e-mail ne lui part. */

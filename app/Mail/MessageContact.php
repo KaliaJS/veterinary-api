@@ -22,6 +22,7 @@ class MessageContact extends Mailable
         public string $nom,
         public string $email,
         public string $texte,
+        public ?string $compte = null,
     ) {}
 
     public function envelope(): Envelope

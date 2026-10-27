@@ -262,8 +262,9 @@ Route::prefix('v1')->group(function (): void {
         // Compteurs à part (3e paramètre) : sinon ils partagent celui du groupe,
         // et quelques semaines du calendrier suffiraient à bloquer la demande
         // D'abord le code qui prouve l'adresse (captcha), puis la demande avec ce code
-        // Formulaire de contact du site (27.10.2026) : Turnstile, limité par adresse IP
-        Route::post('contact', [ContactController::class, 'envoyer'])->middleware('throttle:contact');
+        // Formulaire de contact du site (27.10.2026) : Turnstile ; limité dans le
+        // contrôleur, seulement pour un message accepté (28.10.2026)
+        Route::post('contact', [ContactController::class, 'envoyer']);
         Route::post('demandes/code', [CliniqueProprietaireController::class, 'codeSansCompte'])->middleware(['throttle:5,1,demandes-code', 'throttle:code-email']);
         Route::post('demandes', [CliniqueProprietaireController::class, 'deposerSansCompte'])->middleware('throttle:5,1,demandes');
         // Son suivi par le lien des e-mails, et le choix d'un horaire proposé

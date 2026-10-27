@@ -35,6 +35,11 @@ class AccesEmployeController extends Controller
 
         $this->authorize('rendreAcces', $fiche);
 
+        // Compte supprimé par son titulaire (trace sans connexion, 28.10.2026)
+        if ($fiche->user?->efface_le !== null) {
+            throw ValidationException::withMessages(['acces' => 'Ce compte a été supprimé : son accès ne peut pas être rétabli.']);
+        }
+
         $organisation = app(ContexteClinique::class)->clinique()->societe->organisation;
 
         if ($fiche->acces_suspendu && $organisation->limiteEmployesAtteinte()) {

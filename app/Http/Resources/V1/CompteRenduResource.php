@@ -25,11 +25,12 @@ class CompteRenduResource extends JsonResource
             'user_id' => $this->user_id,
             'redige_le' => $this->updated_at,
             'signe_le' => $this->signe_le,
-            'signe_par' => $this->signataire?->user?->name,
+            // Le nom de la fiche d'équipe (un ancien membre devenu trace ne garde que son prénom)
+            'signe_par' => $this->signataire->nom ?? null,
             'complements' => $this->whenLoaded('complements', fn () => $this->complements->map(fn (CompteRenduComplement $c) => [
                 'id' => $c->id,
                 'texte' => $c->texte,
-                'signe_par' => $c->signataire?->user?->name,
+                'signe_par' => $c->signataire->nom ?? null,
                 'signe_le' => $c->created_at,
             ])->values()),
             'versions' => $this->whenCounted('versions'),

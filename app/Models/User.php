@@ -45,6 +45,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'suppression_demandee_le' => 'datetime',
+            'efface_le' => 'datetime',
             'password' => 'hashed',
             'periode_debut' => 'date',
             'periode_fin' => 'date',

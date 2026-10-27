@@ -110,10 +110,16 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     /** @var list<string> Clients supprimés (compte effacé) */
     public array $clientsSupprimes = [];
 
+    /** Appelé juste après la suppression du client (une connexion qui arrive à cet instant) */
+    public ?\Closure $pendantSuppressionClient = null;
+
     public function supprimerClient(string $client): void
     {
         if ($this->panne) {
             throw new ErreurPaiement($this->panne, 'api_error');
+        }
+        if ($this->pendantSuppressionClient) {
+            ($this->pendantSuppressionClient)();
         }
         $this->clientsSupprimes[] = $client;
         unset($this->clients[$client]);
