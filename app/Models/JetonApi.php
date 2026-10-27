@@ -19,15 +19,12 @@ class JetonApi extends PersonalAccessToken
 {
     protected $table = 'personal_access_tokens';
 
-    /** Une session dure au plus ce nombre de jours, rafraîchissements compris */
-    public const int SESSION_MAX_JOURS = 30;
-
     protected function casts(): array
     {
         return [...parent::casts(), 'session_depuis' => 'datetime'];
     }
 
-    /** Début de la session (la connexion d'origine). */
+    /** Début de la session (la connexion d'origine), gardé à titre d'information : une connexion n'a plus de limite totale (27.10.2026). */
     public function debutSession(): Carbon
     {
         return $this->session_depuis ?? $this->created_at ?? now();

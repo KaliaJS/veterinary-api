@@ -49,7 +49,6 @@ class InscriptionCliniqueController extends Controller
         }
         /** @var JetonApi $ancien */
         $ancien = $user->currentAccessToken();
-        $emetteur->exigerSessionEnCours($ancien);
         $employe = $inscription->inscrire($user, $request->validated());
 
         $jeton = $emetteur->emettrePour($user, new Rattachement($employe, $employe->cliniques->sole()), $ancien->name);

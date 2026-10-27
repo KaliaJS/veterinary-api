@@ -310,7 +310,8 @@ class AuthentificationTest extends TestCase
 
         $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk();
 
-        $this->travel((int) config('sanctum.expiration') + 1)->minutes();
+        // Trente jours sans s'en servir (27.10.2026)
+        $this->travel((int) config('sanctum.inactivite') + 1)->minutes();
 
         $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertUnauthorized();
     }

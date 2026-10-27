@@ -368,7 +368,7 @@ class InscriptionCliniqueTest extends TestCase
             ->assertJsonPath('errors.inscription.0', 'Votre clinique « Cabinet du Lac » attend encore sa vérification.');
     }
 
-    /** Inscrire une clinique ne remet pas la session à neuf, ni ne la prolonge au-delà de trente jours (24.10.2026). */
+    /** Inscrire une clinique garde le début de la session (24.10.2026). */
     public function test_l_inscription_garde_le_debut_de_la_session(): void
     {
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
@@ -377,12 +377,6 @@ class InscriptionCliniqueTest extends TestCase
 
         $this->postJson('/api/v1/inscription-clinique', $this->inscription(), $this->enTetes($jeton))->assertCreated();
         $this->assertTrue($user->tokens()->sole()->session_depuis->equalTo($debut));
-
-        // Une session de plus de trente jours : refusée, rien n'est créé
-        ['user' => $ancien, 'jeton' => $jetonAncien] = $this->proprietaireAvecJeton();
-        DB::table('personal_access_tokens')->where('tokenable_id', $ancien->id)->update(['session_depuis' => now()->subDays(31)]);
-        $this->postJson('/api/v1/inscription-clinique', $this->inscription(['prenom' => 'Paul', 'nom' => 'Martin']), $this->enTetes($jetonAncien))->assertUnauthorized();
-        $this->assertDatabaseMissing('organisations', ['inscrite_par' => $ancien->id]);
     }
 
     /** Inconnu de MedReg : refusé comme au profil, rien n'est créé (24.10.2026). */

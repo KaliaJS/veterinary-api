@@ -82,14 +82,6 @@ class JetonsRevoquesTest extends TestCase
         $this->assertSame(0, $compteAutre->tokens()->count());
     }
 
-    public function test_une_session_ne_se_prolonge_pas_au_dela_de_trente_jours(): void
-    {
-        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
-        DB::table('personal_access_tokens')->update(['session_depuis' => now()->subDays(31)]);
-
-        $this->postJson('/api/v1/auth/rafraichir', [], $this->enTetes($jeton))->assertUnauthorized();
-    }
-
     public function test_un_rafraichissement_garde_le_debut_de_la_session(): void
     {
         ['jeton' => $jeton, 'user' => $user] = $this->employeAvecJeton($this->clinique);
@@ -102,8 +94,8 @@ class JetonsRevoquesTest extends TestCase
         $this->assertTrue($user->tokens()->sole()->session_depuis->equalTo($debut));
     }
 
-    /** Changer de clinique (même la sienne) ne remet pas la session à neuf. */
-    public function test_changer_de_clinique_ne_prolonge_pas_la_session(): void
+    /** Changer de clinique (même la sienne) garde le début de la session. */
+    public function test_changer_de_clinique_garde_le_debut_de_la_session(): void
     {
         ['jeton' => $jeton, 'user' => $user] = $this->employeAvecJeton($this->clinique);
         $debut = now()->subDays(10)->startOfSecond();
@@ -111,9 +103,6 @@ class JetonsRevoquesTest extends TestCase
 
         $neuf = $this->postJson('/api/v1/auth/clinique', ['clinique_id' => $this->clinique->id], $this->enTetes($jeton))->assertOk()->json('data.token');
         $this->assertTrue($user->tokens()->sole()->session_depuis->equalTo($debut));
-
-        DB::table('personal_access_tokens')->where('tokenable_id', $user->id)->update(['session_depuis' => now()->subDays(31)]);
-        $this->postJson('/api/v1/auth/clinique', ['clinique_id' => $this->clinique->id], $this->enTetes($neuf))->assertUnauthorized();
-        $this->assertSame(0, $user->tokens()->count());
+        $this->assertNotSame($jeton, $neuf);
     }
 }

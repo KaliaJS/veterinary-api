@@ -74,7 +74,7 @@ class JetonMontreTest extends TestCase
         $this->getJson('/api/v1/patients', $this->enTetes($montre))->assertForbidden();
     }
 
-    /** La durée absolue d'une session vaut aussi pour la montre. */
+    /** Le jeton de montre garde le début de la session de l'iPhone. */
     public function test_le_jeton_de_montre_garde_le_debut_de_la_session(): void
     {
         ['jeton' => $jeton, 'user' => $user] = $this->employeAvecJeton();
@@ -84,15 +84,6 @@ class JetonMontreTest extends TestCase
         $this->postJson('/api/v1/auth/montre', [], $this->enTetes($jeton))->assertOk();
 
         $this->assertTrue(JetonApi::query()->whereMorphedTo('tokenable', $user)->where('name', 'montre')->sole()->debutSession()->equalTo($debut));
-    }
-
-    public function test_une_session_trop_ancienne_ne_donne_pas_de_jeton_de_montre(): void
-    {
-        ['jeton' => $jeton, 'user' => $user] = $this->employeAvecJeton();
-        DB::table('personal_access_tokens')->update(['session_depuis' => now()->subDays(31)]);
-
-        $this->postJson('/api/v1/auth/montre', [], $this->enTetes($jeton))->assertUnauthorized();
-        $this->assertSame(0, $user->tokens()->where('name', 'montre')->count());
     }
 
     public function test_sans_jeton_pas_de_jeton_de_montre(): void

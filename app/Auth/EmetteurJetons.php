@@ -6,7 +6,6 @@ use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\JetonApi;
 use App\Models\User;
-use Illuminate\Auth\AuthenticationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -80,8 +79,6 @@ class EmetteurJetons
      */
     public function rafraichir(User $user, JetonApi $jetonCourant): array
     {
-        $this->exigerSessionEnCours($jetonCourant);
-
         $resultat = $jetonCourant->clinique_id === null
             ? ['jeton' => $this->emettreSansClinique($user, $jetonCourant->name), 'employe' => null]
             : $this->emettre($user, $jetonCourant->clinique_id, $jetonCourant->name);
@@ -103,8 +100,6 @@ class EmetteurJetons
      */
     public function emettrePourMontre(User $user, JetonApi $jetonCourant): array
     {
-        $this->exigerSessionEnCours($jetonCourant);
-
         $resultat = $jetonCourant->clinique_id === null
             ? ['jeton' => $this->emettreSansClinique($user, self::APPAREIL_MONTRE), 'employe' => null]
             : $this->emettre($user, $jetonCourant->clinique_id, self::APPAREIL_MONTRE);
@@ -129,29 +124,12 @@ class EmetteurJetons
      */
     public function changerClinique(User $user, JetonApi $jetonCourant, int $cliniqueId): array
     {
-        $this->exigerSessionEnCours($jetonCourant);
         $resultat = $this->emettre($user, $cliniqueId, $jetonCourant->name);
 
         $this->garderLaSession($resultat['jeton'], $jetonCourant);
         $jetonCourant->delete();
 
         return $resultat;
-    }
-
-    /**
-     * Durée absolue : une session ne se prolonge pas indéfiniment, ni par
-     * un rafraîchissement, ni par un changement de clinique, ni par une
-     * inscription de clinique (24.10.2026).
-     *
-     * @throws AuthenticationException
-     */
-    public function exigerSessionEnCours(JetonApi $jetonCourant): void
-    {
-        if ($jetonCourant->debutSession()->lt(now()->subDays(JetonApi::SESSION_MAX_JOURS))) {
-            $jetonCourant->delete();
-
-            throw new AuthenticationException('Session expirée : reconnectez-vous.');
-        }
     }
 
     /** Le jeton neuf garde le début de la session de l'ancien. */
@@ -162,7 +140,7 @@ class EmetteurJetons
 
     public function expireLe(): Carbon
     {
-        return now()->addMinutes((int) config('sanctum.expiration'));
+        return now()->addMinutes((int) config('sanctum.inactivite'));
     }
 
     /**

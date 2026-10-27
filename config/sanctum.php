@@ -51,7 +51,14 @@ return [
     |
     */
 
-    'expiration' => (int) env('SANCTUM_TOKEN_EXPIRATION', 60 * 24),
+    // Pas de durée comptée depuis la création : la fin de chaque jeton
+    // (`expires_at`) est repoussée à l'usage (ProlongerConnexion)
+    'expiration' => null,
+
+    // Une connexion reste valable tant qu'on s'en sert au moins une fois
+    // pendant ce nombre de minutes, sans limite totale (décision de Jim,
+    // 27.10.2026) : 30 jours
+    'inactivite' => (int) env('SANCTUM_TOKEN_INACTIVITE', 60 * 24 * 30),
 
     /*
     |--------------------------------------------------------------------------
