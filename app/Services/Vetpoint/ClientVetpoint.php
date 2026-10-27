@@ -38,8 +38,9 @@ class ClientVetpoint
         }
         $fournisseurs = [];
         foreach ($liste as $fournisseur) {
-            if (is_array($fournisseur) && isset($fournisseur['supplierId'])) {
-                $fournisseurs[(string) $fournisseur['supplierId']] = (string) ($fournisseur['name'] ?? '');
+            // Un fournisseur aux champs de forme inattendue est ignoré
+            if (is_array($fournisseur) && isset($fournisseur['supplierId'], $fournisseur['name']) && is_scalar($fournisseur['supplierId']) && is_scalar($fournisseur['name'])) {
+                $fournisseurs[(string) $fournisseur['supplierId']] = (string) $fournisseur['name'];
             }
         }
 
@@ -84,13 +85,20 @@ class ClientVetpoint
                 $lot,
             )));
             foreach ($lignes as $ligne) {
-                if (is_array($ligne) && ($ligne['status'] ?? null) === 'OK' && isset($ligne['productId'], $ligne['totalPrice']) && is_scalar($ligne['productId']) && is_numeric($ligne['totalPrice'])) {
-                    $prix[(string) $ligne['productId']] = (float) $ligne['totalPrice'];
+                $montant = is_array($ligne) ? self::nombre($ligne['totalPrice'] ?? null) : null;
+                if ($montant !== null && ($ligne['status'] ?? null) === 'OK' && isset($ligne['productId']) && is_scalar($ligne['productId'])) {
+                    $prix[(string) $ligne['productId']] = $montant;
                 }
             }
         }
 
         return $prix;
+    }
+
+    /** Un montant lisible et fini (1e400 ou « n/a » : aucun). */
+    public static function nombre(mixed $valeur): ?float
+    {
+        return is_numeric($valeur) && is_finite((float) $valeur) ? (float) $valeur : null;
     }
 
     /**
@@ -115,7 +123,8 @@ class ClientVetpoint
         if ($reponse->status() === 403) {
             throw new VetpointCgv;
         }
-        if ($reponse->status() === 404 && $introuvableVide) {
+        // « Product not found » seulement : une page 404 (adresse fausse) est une panne
+        if ($reponse->status() === 404 && $introuvableVide && is_array($reponse->json()) && stripos((string) ($reponse->json()['errorMessage'] ?? ''), 'not found') !== false) {
             return [];
         }
         if ($reponse->status() === 429) {

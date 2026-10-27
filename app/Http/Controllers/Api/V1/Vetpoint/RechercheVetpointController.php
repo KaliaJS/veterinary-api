@@ -11,6 +11,7 @@ use App\Services\Vetpoint\VetpointCgv;
 use App\Services\Vetpoint\VetpointCleRefusee;
 use App\Services\Vetpoint\VetpointIndisponible;
 use App\Services\Vetpoint\VetpointLimite;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -44,11 +45,19 @@ class RechercheVetpointController extends Controller
         // fait 2 : 20 recherches par minute pour la clinique, toutes personnes
         // confondues. Seules les vraies recherches comptent (une requête
         // refusée plus haut ne bloque pas les collègues)
-        $compteur = 'vetpoint-recherches:'.$connexion->clinique_id;
-        abort_if(RateLimiter::tooManyAttempts($compteur, self::RECHERCHES_PAR_MINUTE), 429, 'Trop de recherches Vetpoint pour la clinique : réessayez dans une minute.');
-        RateLimiter::hit($compteur, 60);
+        // Clé illisible (clé de chiffrement du serveur changée) : à recoller
+        try {
+            $cle = $connexion->cle;
+        } catch (DecryptException) {
+            abort(409, 'La clé Vetpoint de la clinique est illisible : collez-la à nouveau dans Réglages, Fournisseurs.');
+        }
 
-        $client = ClientVetpoint::pour($connexion->cle);
+        // Compté d'un coup (incrément atomique) : des recherches simultanées
+        // ne passent pas toutes à la 20e
+        $compteur = 'vetpoint-recherches:'.$connexion->clinique_id;
+        abort_if(RateLimiter::hit($compteur, 60) > self::RECHERCHES_PAR_MINUTE, 429, 'Trop de recherches Vetpoint pour la clinique : réessayez dans une minute.');
+
+        $client = ClientVetpoint::pour($cle);
 
         try {
             $produits = $client->rechercher($texte);
@@ -95,7 +104,7 @@ class RechercheVetpointController extends Controller
                     'contenu' => is_numeric($produit['anzahl'] ?? null) && (float) $produit['anzahl'] > 0 ? trim($produit['anzahl'].' '.($texte('einheitVerkauf') ?? '')) : null,
                     'stupefiant' => (bool) ($produit['betaeubungsmittel'] ?? false),
                     'ean' => $texte('barcode'),
-                    'prix_catalogue' => is_numeric($produit['listPrice'] ?? null) ? (float) $produit['listPrice'] : null,
+                    'prix_catalogue' => ClientVetpoint::nombre($produit['listPrice'] ?? null),
                     'prix_clinique' => $prix[$id] ?? null,
                     'produit' => $relie ? ['id' => $relie->id, 'nom' => $relie->nom] : null,
                 ];

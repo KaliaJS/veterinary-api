@@ -558,4 +558,72 @@ class VetpointTest extends TestCase
         $this->putJson('/api/v1/vetpoint/connexion', ['cle' => self::CLE], $entetes)->assertStatus(429)
             ->assertJsonPath('message', 'Trop d’essais de clé Vetpoint : réessayez dans une minute.');
     }
+
+    /** Un fournisseur au nom de forme inattendue : ignoré, la clé s'enregistre et la recherche marche. */
+    public function test_un_fournisseur_aux_champs_inattendus_est_ignore(): void
+    {
+        Http::fake([
+            self::URL.'/v1/supplier' => Http::response(['suppliers' => [
+                ['supplierId' => '913', 'name' => ['de' => 'Provet AG']],
+                ['supplierId' => ['123'], 'name' => 'Zoetis'],
+                ['supplierId' => '110', 'name' => 'Arovet AG'],
+            ]]),
+            self::URL.'/v1/product/query=*' => Http::response(['products' => [$this->produitVetpoint('913-1', ['supplierId' => '110'])]]),
+            self::URL.'/v1/product/calculatePrices' => Http::response([]),
+        ]);
+        $entetes = $this->admin();
+
+        $this->putJson('/api/v1/vetpoint/connexion', ['cle' => self::CLE], $entetes)->assertOk();
+        $this->getJson('/api/v1/vetpoint/produits?q=inflacam', $entetes)->assertOk()->assertJsonPath('data.0.fournisseur', 'Arovet AG');
+    }
+
+    /** Un nombre démesuré (1e400) : pas de prix, jamais une erreur 500. */
+    public function test_un_nombre_demesure_n_est_jamais_une_erreur_500(): void
+    {
+        $this->relier();
+        Http::fake([
+            self::URL.'/v1/supplier' => Http::response(['suppliers' => []]),
+            self::URL.'/v1/product/query=*' => Http::response('{"products":[{"productId":"913-1","name":"X","listPrice":1e400}]}', 200, ['Content-Type' => 'application/json']),
+            self::URL.'/v1/product/calculatePrices' => Http::response('[{"productId":"913-1","quantity":1,"totalPrice":"1e400","status":"OK"}]', 200, ['Content-Type' => 'application/json']),
+        ]);
+
+        $this->getJson('/api/v1/vetpoint/produits?q=inflacam', $this->admin())->assertOk()
+            ->assertJsonPath('data.0.prix_catalogue', null)
+            ->assertJsonPath('data.0.prix_clinique', null);
+    }
+
+    /** Une clé devenue illisible (clé de chiffrement du serveur changée) : la recollez, jamais une erreur 500. */
+    public function test_une_cle_illisible_demande_de_la_recoller(): void
+    {
+        $this->relier();
+        DB::table('connexions_vetpoint')->update(['cle' => 'pas-un-chiffre-valable']);
+        $entetes = $this->admin();
+
+        $this->getJson('/api/v1/vetpoint/produits?q=inflacam', $entetes)->assertStatus(409)
+            ->assertJsonPath('message', 'La clé Vetpoint de la clinique est illisible : collez-la à nouveau dans Réglages, Fournisseurs.');
+        $this->getJson('/api/v1/vetpoint/connexion', $entetes)->assertOk()->assertJsonPath('data.connectee', true)->assertJsonPath('data.cle_fin', null);
+    }
+
+    /** Un 404 en page HTML sur une recherche Swissmedic (adresse fausse) : une panne, pas « aucun résultat ». */
+    public function test_un_404_sans_produit_introuvable_est_une_panne(): void
+    {
+        $this->relier();
+        Http::fake([self::URL.'/*' => Http::response('<html>Not Found</html>', 404)]);
+
+        $this->getJson('/api/v1/vetpoint/produits?q=062533-01-003', $this->admin())->assertStatus(503);
+    }
+
+    /** Les requêtes sans clé ne consomment pas le compteur : la clé collée, la recherche marche aussitôt. */
+    public function test_les_recherches_sans_cle_ne_comptent_pas(): void
+    {
+        $this->fauxVetpoint([$this->produitVetpoint()]);
+        $entetes = $this->admin();
+
+        foreach (range(1, 25) as $i) {
+            $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $entetes)->assertStatus(409);
+        }
+        $this->relier();
+
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $entetes)->assertOk();
+    }
 }
