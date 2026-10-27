@@ -13,11 +13,13 @@ use Illuminate\Database\Eloquent\Builder;
  * compte tant que `plateforme.acces_sur_invitation` est vrai. Une adresse
  * de la liste de la plateforme, une adresse invitée dans l'équipe d'une
  * clinique admise (vérifiée par la plateforme) ou une adresse sur une
- * fiche client d'une clinique admise. Les comptes qui existent déjà ne
- * passent jamais par ici.
+ * fiche client d'une clinique admise, ou l'adresse de revue d'Apple. Les
+ * comptes qui existent déjà ne passent jamais par ici.
  */
 class AdressesInvitees
 {
+    public function __construct(private CompteRevueApple $revue) {}
+
     public function estFerme(): bool
     {
         return (bool) config('plateforme.acces_sur_invitation');
@@ -26,6 +28,11 @@ class AdressesInvitees
     public function peutCreerUnCompte(string $email): bool
     {
         if (! $this->estFerme()) {
+            return true;
+        }
+
+        // L'adresse de revue d'Apple, quand son code est réglé
+        if ($this->revue->codePour($email) !== null) {
             return true;
         }
 

@@ -39,7 +39,7 @@ class CodeEmail
      */
     private const int ESSAIS_JOUR = 20;
 
-    public function __construct(private CreationCompte $comptes, private AdressesInvitees $invitees) {}
+    public function __construct(private CreationCompte $comptes, private AdressesInvitees $invitees, private CompteRevueApple $revue) {}
 
     /**
      * Compte connu ou non : le code part vers l'adresse donnée. Avec
@@ -49,8 +49,10 @@ class CodeEmail
      */
     public function envoyer(string $email, bool $lienConnexion = true): void
     {
-        // Huit chiffres (23.10.2026) : cent fois plus long à deviner que six
-        $code = (string) random_int(10000000, 99999999);
+        // Huit chiffres (23.10.2026) : cent fois plus long à deviner que six.
+        // L'adresse de revue d'Apple a son code fixe (27.10.2026)
+        $codeRevue = $this->revue->codePour($email);
+        $code = $codeRevue ?? (string) random_int(10000000, 99999999);
 
         // Le même travail pour toute adresse, invitée ou non (27.10.2026) :
         // ni le compteur d'essais ni le temps de réponse ne disent qui est
@@ -59,6 +61,11 @@ class CodeEmail
         Cache::put($this->cle($email), Hash::make($code), now()->addMinutes(self::VALIDITE_MINUTES));
         // Un code neuf, cinq essais neufs (les envois restent limités par adresse)
         RateLimiter::clear($this->limiteur($email));
+
+        // Personne ne lit la boîte de l'adresse de revue : aucun e-mail
+        if ($codeRevue !== null) {
+            return;
+        }
 
         $user = User::where('email', $email)->first();
 

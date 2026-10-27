@@ -37,6 +37,14 @@ return [
     // de l'ouverture
     'acces_sur_invitation' => (bool) env('ACCES_SUR_INVITATION', true),
 
+    // Compte de revue d'Apple (TestFlight externe, 27.10.2026) : l'adresse
+    // se connecte avec ce code fixe de 8 chiffres (secret), sans e-mail, même
+    // pendant l'accès sur invitation. Vide ou mal formé : rien ne change
+    'revue_apple' => [
+        'email' => env('REVUE_APPLE_EMAIL'),
+        'code' => env('REVUE_APPLE_CODE'),
+    ],
+
     // Fonctions en essai (Laravel Pennant, 27.10.2026) : nom => libellé
     // montré dans l'écran Plateforme. Une fonction ajoutée ici s'active
     // ensuite pour un compte, une organisation ou tout le monde ; ses
