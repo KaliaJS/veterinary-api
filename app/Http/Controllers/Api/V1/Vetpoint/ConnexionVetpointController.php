@@ -34,8 +34,11 @@ class ConnexionVetpointController extends Controller
     {
         $request->merge(['cle' => trim((string) $request->input('cle'))]);
         $cle = $request->validate([
-            'cle' => ['required', 'string', 'min:10', 'max:200'],
+            // Caractères visibles seulement : un caractère invisible ne peut
+            // pas partir dans un en-tête HTTP
+            'cle' => ['required', 'string', 'min:10', 'max:200', 'regex:/^[\x21-\x7E]+$/'],
         ], [
+            'cle.regex' => 'Cette clé contient des caractères inattendus : copiez-la à nouveau depuis votre profil Vetpoint.',
             'cle.required' => 'Collez la clé générée dans votre profil Vetpoint.',
             'cle.min' => 'Cette clé est trop courte : copiez-la en entier depuis votre profil Vetpoint.',
         ])['cle'];

@@ -198,14 +198,12 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('espace-commandes', fn (Request $request): Limit => Limit::perHour(10)->by('commandes:'.$parCompte($request)));
         RateLimiter::for('espace-achats', fn (Request $request): Limit => Limit::perHour(30)->by('achats:'.$parCompte($request)));
 
-        // Recherche Vetpoint (27.10.2026) : Vetpoint accepte 50 appels par
-        // minute et par clé, une recherche en fait 2. Par clinique (sa clé),
-        // toutes personnes confondues, avec un message en français
-        // La clinique est lue sur le jeton : le limiteur passe avant le
-        // contexte clinique, qui n'est pas encore posé
-        RateLimiter::for('vetpoint', fn (Request $request): Limit => Limit::perMinute(20)
-            ->by('vetpoint:'.($request->user()?->currentAccessToken()->clinique_id ?? 'aucune'))
-            ->response(fn () => response()->json(['message' => 'Trop de recherches Vetpoint pour la clinique : réessayez dans une minute.'], 429)));
+        // Clé Vetpoint (27.10.2026) : 10 essais par minute et par compte, avec
+        // un message en français. Les recherches, elles, sont comptées par
+        // clinique dans RechercheVetpointController (vraies recherches seules)
+        RateLimiter::for('vetpoint-cle', fn (Request $request): Limit => Limit::perMinute(10)
+            ->by('vetpoint-cle:'.$parCompte($request))
+            ->response(fn () => response()->json(['message' => 'Trop d’essais de clé Vetpoint : réessayez dans une minute.'], 429)));
 
         // Enregistrements des consultations : chaque partie part chez
         // Deepgram, payée ; par compte (24.10.2026). Une partie arrive en

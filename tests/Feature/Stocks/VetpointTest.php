@@ -448,4 +448,114 @@ class VetpointTest extends TestCase
 
         $this->assertArrayNotHasKey('cle', ConnexionVetpoint::query()->sole()->toArray());
     }
+
+    // ---------- Vérification suivante (27.10.2026) ----------
+
+    /** La recherche et le calcul de prix partent avec la clé de la clinique du jeton, pas celle d'une autre. */
+    public function test_la_recherche_et_le_prix_partent_avec_la_cle_de_sa_clinique(): void
+    {
+        $this->fauxVetpoint([$this->produitVetpoint()]);
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        ConnexionVetpoint::query()->create(['clinique_id' => $soeur->id, 'cle' => 'CLEDELASOEUR0000000000000ZZ99', 'verifiee_le' => now()]);
+        $this->relier();
+
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $this->admin())->assertOk();
+
+        $cles = collect(Http::recorded())->map(fn ($paire) => $paire[0]->header('X-Api-Key')[0] ?? null)->unique()->values()->all();
+        $this->assertSame([self::CLE], $cles);
+        Http::assertSent(fn (Request $requete): bool => str_contains($requete->url(), 'calculatePrices') && $requete->header('X-Api-Key') === [self::CLE]);
+    }
+
+    /** Seul un prix calculé (statut OK, nombre) compte ; « n/a » ou un refus de calcul : pas de prix. */
+    public function test_seul_un_prix_calcule_est_montre(): void
+    {
+        $this->relier();
+        Http::fake([
+            self::URL.'/v1/supplier' => Http::response(['suppliers' => []]),
+            self::URL.'/v1/product/query=*' => Http::response(['products' => [$this->produitVetpoint('913-1'), $this->produitVetpoint('913-2'), $this->produitVetpoint('913-3')]]),
+            self::URL.'/v1/product/calculatePrices' => Http::response([
+                ['productId' => '913-1', 'quantity' => 1, 'totalPrice' => 10.5, 'status' => 'OK'],
+                ['productId' => '913-2', 'quantity' => 1, 'totalPrice' => 'n/a', 'status' => 'OK'],
+                ['productId' => '913-3', 'quantity' => 1, 'totalPrice' => 12, 'status' => 'NOT_AVAILABLE'],
+            ]),
+        ]);
+
+        $reponse = $this->getJson('/api/v1/vetpoint/produits?q=inflacam', $this->admin())->assertOk();
+
+        $this->assertSame([10.5, null, null], array_column($reponse->json('data'), 'prix_clinique'));
+    }
+
+    /**
+     * Le compteur de la clinique ne compte que les vraies recherches envoyées à
+     * Vetpoint : un employé suspendu ou sans droit, une recherche trop courte
+     * ne bloquent pas ses collègues.
+     */
+    public function test_les_requetes_refusees_ne_comptent_pas_dans_la_limite_de_la_clinique(): void
+    {
+        $this->fauxVetpoint([$this->produitVetpoint()]);
+        $this->relier();
+        ['employe' => $sansDroit, 'jeton' => $jetonSansDroit] = $this->administrateurAvecJeton($this->clinique);
+        DerogationPermission::create(['employe_id' => $sansDroit->id, 'domaine' => DomainePermission::Stocks, 'est_accordee' => false]);
+        $collegue = $this->admin();
+
+        foreach (range(1, 25) as $i) {
+            $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $this->enTetes($jetonSansDroit))->assertForbidden();
+            $this->getJson('/api/v1/vetpoint/produits?q=m', $collegue)->assertUnprocessable();
+        }
+
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $collegue)->assertOk();
+    }
+
+    /** Un 404 sur une recherche par nom (adresse de Vetpoint fausse ou déplacée) : une panne, pas « aucun résultat ». */
+    public function test_un_404_sur_une_recherche_par_nom_est_une_panne(): void
+    {
+        $this->relier();
+        Http::fake([self::URL.'/*' => Http::response('<html>Not Found</html>', 404)]);
+
+        $this->getJson('/api/v1/vetpoint/produits?q=meloxicam', $this->admin())->assertStatus(503);
+    }
+
+    /** Un nom ou un identifiant de forme inattendue (objet au lieu de texte) : le produit est ignoré, jamais une erreur. */
+    public function test_un_produit_aux_champs_inattendus_est_ignore(): void
+    {
+        $this->relier();
+        Http::fake([
+            self::URL.'/v1/supplier' => Http::response(['suppliers' => []]),
+            self::URL.'/v1/product/query=*' => Http::response(['products' => [
+                $this->produitVetpoint('913-1', ['name' => ['de' => 'Inflacam']]),
+                $this->produitVetpoint('913-2'),
+                $this->produitVetpoint('913-3', ['productId' => ['913-3']]),
+            ]]),
+            self::URL.'/v1/product/calculatePrices' => Http::response([]),
+        ]);
+
+        $reponse = $this->getJson('/api/v1/vetpoint/produits?q=inflacam', $this->admin())->assertOk();
+
+        $this->assertSame(['913-1', '913-2'], array_column($reponse->json('data'), 'id'));
+        $reponse->assertJsonPath('data.0.nom', '');
+    }
+
+    /** Une clé avec un caractère invisible : refusée avec un message, jamais une erreur 500. */
+    public function test_une_cle_avec_un_caractere_invisible_est_refusee(): void
+    {
+        Http::fake();
+
+        $this->putJson('/api/v1/vetpoint/connexion', ['cle' => 'ABCDEFGHIJKLMNOP'], $this->admin())
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['cle' => 'Cette clé contient des caractères inattendus : copiez-la à nouveau depuis votre profil Vetpoint.']);
+        Http::assertNothingSent();
+    }
+
+    /** Trop d'essais de clé : un message en français. */
+    public function test_trop_d_essais_de_cle_le_disent_en_francais(): void
+    {
+        Http::fake([self::URL.'/*' => Http::response([], 401)]);
+        $entetes = $this->admin();
+
+        foreach (range(1, 10) as $i) {
+            $this->putJson('/api/v1/vetpoint/connexion', ['cle' => self::CLE], $entetes)->assertUnprocessable();
+        }
+        $this->putJson('/api/v1/vetpoint/connexion', ['cle' => self::CLE], $entetes)->assertStatus(429)
+            ->assertJsonPath('message', 'Trop d’essais de clé Vetpoint : réessayez dans une minute.');
+    }
 }

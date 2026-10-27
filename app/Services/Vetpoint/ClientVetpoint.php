@@ -53,16 +53,19 @@ class ClientVetpoint
      */
     public function rechercher(string $texte): array
     {
-        $chemin = preg_match('/^\d{5,6}-\d{2}-\d{3}$/', $texte) === 1
+        $parSwissmedic = preg_match('/^\d{5,6}-\d{2}-\d{3}$/', $texte) === 1;
+        $chemin = $parSwissmedic
             ? '/v1/product/swissmedic='.rawurlencode($texte)
             : '/v1/product/query='.rawurlencode($texte);
-        $reponse = $this->appeler(fn (PendingRequest $http): Response => $http->get($chemin), introuvableVide: true);
+        // 404 : « Product not found » pour un numéro Swissmedic inconnu ; sur une
+        // recherche par nom, c'est une adresse fausse, donc une panne
+        $reponse = $this->appeler(fn (PendingRequest $http): Response => $http->get($chemin), introuvableVide: $parSwissmedic);
         $produits = array_key_exists('products', $reponse) ? $reponse['products'] : (array_is_list($reponse) ? $reponse : []);
         if (! is_array($produits)) {
             throw new VetpointIndisponible;
         }
 
-        return array_values(array_filter($produits, fn (mixed $produit): bool => is_array($produit) && isset($produit['productId'])));
+        return array_values(array_filter($produits, fn (mixed $produit): bool => is_array($produit) && isset($produit['productId']) && is_scalar($produit['productId'])));
     }
 
     /**
@@ -81,7 +84,7 @@ class ClientVetpoint
                 $lot,
             )));
             foreach ($lignes as $ligne) {
-                if (is_array($ligne) && ($ligne['status'] ?? null) === 'OK' && isset($ligne['productId'], $ligne['totalPrice'])) {
+                if (is_array($ligne) && ($ligne['status'] ?? null) === 'OK' && isset($ligne['productId'], $ligne['totalPrice']) && is_scalar($ligne['productId']) && is_numeric($ligne['totalPrice'])) {
                     $prix[(string) $ligne['productId']] = (float) $ligne['totalPrice'];
                 }
             }

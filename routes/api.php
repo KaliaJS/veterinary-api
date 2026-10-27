@@ -684,10 +684,10 @@ Route::prefix('v1')->group(function (): void {
         Route::prefix('vetpoint')->group(function (): void {
             Route::middleware('can:organisation')->group(function (): void {
                 Route::get('connexion', [ConnexionVetpointController::class, 'show']);
-                Route::put('connexion', [ConnexionVetpointController::class, 'update'])->middleware('throttle:10,1');
+                Route::put('connexion', [ConnexionVetpointController::class, 'update'])->middleware('throttle:vetpoint-cle');
                 Route::delete('connexion', [ConnexionVetpointController::class, 'destroy']);
             });
-            Route::get('produits', RechercheVetpointController::class)->middleware(['can:stocks', 'throttle:vetpoint']);
+            Route::get('produits', RechercheVetpointController::class)->middleware('can:stocks');
         });
 
         Route::middleware('can:stocks')->prefix('stocks')->group(function (): void {

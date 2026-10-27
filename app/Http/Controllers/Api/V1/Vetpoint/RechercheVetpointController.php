@@ -14,6 +14,7 @@ use App\Services\Vetpoint\VetpointLimite;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * Recherche Vetpoint (Stock, 27.10.2026) : par nom ou numéro Swissmedic,
@@ -24,6 +25,8 @@ use Illuminate\Support\Facades\Cache;
 class RechercheVetpointController extends Controller
 {
     private const int RESULTATS_MAX = 20;
+
+    private const int RECHERCHES_PAR_MINUTE = 20;
 
     public function __invoke(Request $request, ContexteClinique $contexte): JsonResponse
     {
@@ -36,6 +39,15 @@ class RechercheVetpointController extends Controller
 
         $connexion = ConnexionVetpoint::query()->where('clinique_id', $contexte->cliniqueId())->first();
         abort_if($connexion === null, 409, 'Vetpoint n’est pas relié à cette clinique : collez sa clé dans Réglages, Fournisseurs.');
+
+        // Vetpoint accepte 50 appels par minute et par clé, une recherche en
+        // fait 2 : 20 recherches par minute pour la clinique, toutes personnes
+        // confondues. Seules les vraies recherches comptent (une requête
+        // refusée plus haut ne bloque pas les collègues)
+        $compteur = 'vetpoint-recherches:'.$connexion->clinique_id;
+        abort_if(RateLimiter::tooManyAttempts($compteur, self::RECHERCHES_PAR_MINUTE), 429, 'Trop de recherches Vetpoint pour la clinique : réessayez dans une minute.');
+        RateLimiter::hit($compteur, 60);
+
         $client = ClientVetpoint::pour($connexion->cle);
 
         try {
@@ -68,20 +80,22 @@ class RechercheVetpointController extends Controller
             'data' => array_map(function (array $produit) use ($prix, $fournisseurs, $relies): array {
                 $id = (string) $produit['productId'];
                 $relie = $relies->get($id);
+                // Un champ de forme inattendue (objet au lieu de texte) : vide
+                $texte = fn (string $champ): ?string => isset($produit[$champ]) && is_scalar($produit[$champ]) ? (string) $produit[$champ] : null;
 
                 return [
                     'id' => $id,
-                    'nom' => (string) ($produit['name'] ?? ''),
-                    'swissmedic' => $produit['swissmedicNumber'] ?? null,
-                    'fournisseur' => $fournisseurs[(string) ($produit['supplierId'] ?? '')] ?? null,
+                    'nom' => $texte('name') ?? '',
+                    'swissmedic' => $texte('swissmedicNumber'),
+                    'fournisseur' => $fournisseurs[$texte('supplierId') ?? ''] ?? null,
                     'disponible' => (bool) ($produit['available'] ?? false),
-                    'peremption' => $produit['expirationDate'] ?? null,
-                    'categorie_remise' => $produit['abgabekategorie'] ?? null,
+                    'peremption' => $texte('expirationDate'),
+                    'categorie_remise' => $texte('abgabekategorie'),
                     // Vetpoint met parfois 0, sans unité : rien à montrer
-                    'contenu' => (float) ($produit['anzahl'] ?? 0) > 0 ? trim($produit['anzahl'].' '.($produit['einheitVerkauf'] ?? '')) : null,
+                    'contenu' => is_numeric($produit['anzahl'] ?? null) && (float) $produit['anzahl'] > 0 ? trim($produit['anzahl'].' '.($texte('einheitVerkauf') ?? '')) : null,
                     'stupefiant' => (bool) ($produit['betaeubungsmittel'] ?? false),
-                    'ean' => $produit['barcode'] ?? null,
-                    'prix_catalogue' => isset($produit['listPrice']) ? (float) $produit['listPrice'] : null,
+                    'ean' => $texte('barcode'),
+                    'prix_catalogue' => is_numeric($produit['listPrice'] ?? null) ? (float) $produit['listPrice'] : null,
                     'prix_clinique' => $prix[$id] ?? null,
                     'produit' => $relie ? ['id' => $relie->id, 'nom' => $relie->nom] : null,
                 ];
