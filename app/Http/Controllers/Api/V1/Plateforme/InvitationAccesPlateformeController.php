@@ -15,7 +15,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
-use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
+use Throwable;
 
 /**
  * Accès sur invitation (espace Plateforme, 27.10.2026) : la liste des
@@ -65,11 +65,13 @@ class InvitationAccesPlateformeController extends Controller
         // Un envoi raté ne laisse pas une invitation sans e-mail : on la
         // retire, et l'on réessaie simplement (hors transaction : la base
         // n'attend pas le serveur d'e-mails)
+        // Toute raison compte : serveur d'e-mails, adresse refusée par la
+        // bibliothèque d'envoi, réglage faux. La cause est journalisée d'abord
         try {
             Mail::to($invitation->email)->send(new InvitationAccesEnvoyee);
-        } catch (TransportExceptionInterface $e) {
-            $invitation->delete();
+        } catch (Throwable $e) {
             report($e);
+            $invitation->delete();
             abort(503, 'L’e-mail d’invitation n’a pas pu partir : réessayez dans un moment.');
         }
 

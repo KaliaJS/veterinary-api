@@ -6,6 +6,7 @@ use App\Mail\InvitationAccesEnvoyee;
 use App\Models\InvitationAcces;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
+use Throwable;
 
 /**
  * Accès sur invitation (27.10.2026) : invite une adresse sans passer par
@@ -33,9 +34,18 @@ class InviterPlateforme extends Command
             return self::SUCCESS;
         }
 
-        InvitationAcces::query()->create(['email' => $email, 'note' => $this->option('note')]);
+        $invitation = InvitationAcces::query()->create(['email' => $email, 'note' => $this->option('note')]);
         if ($this->option('prevenir')) {
-            Mail::to($email)->send(new InvitationAccesEnvoyee);
+            // Comme l'écran : un e-mail qui ne part pas ne laisse rien
+            try {
+                Mail::to($email)->send(new InvitationAccesEnvoyee);
+            } catch (Throwable $e) {
+                report($e);
+                $invitation->delete();
+                $this->error('L’e-mail n’a pas pu partir : rien n’est gardé. ('.$e->getMessage().')');
+
+                return self::FAILURE;
+            }
         }
         $this->info('Invitation ajoutée pour '.$email.($this->option('prevenir') ? ', e-mail envoyé.' : '.'));
 

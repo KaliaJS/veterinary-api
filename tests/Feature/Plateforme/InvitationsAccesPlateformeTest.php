@@ -6,8 +6,10 @@ use App\Mail\InvitationAccesEnvoyee;
 use App\Models\InvitationAcces;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\Mailer\Exception\TransportException;
+use Symfony\Component\Mime\Exception\RfcComplianceException;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -61,6 +63,35 @@ class InvitationsAccesPlateformeTest extends TestCase
             ->assertJsonPath('message', 'L’e-mail d’invitation n’a pas pu partir : réessayez dans un moment.');
 
         $this->assertSame(0, InvitationAcces::query()->count());
+    }
+
+    /** Une adresse que la bibliothèque d'envoi refuse (RFC) : même garantie, rien n'est gardé. */
+    public function test_un_envoi_refuse_pour_une_autre_raison_ne_garde_pas_l_invitation(): void
+    {
+        [, $entetes] = $this->moderateur();
+        Mail::shouldReceive('to')->andReturnSelf();
+        Mail::shouldReceive('send')->andThrow(new RfcComplianceException('Email "marie(note)@lac.ch" does not comply with addr-spec of RFC 2822.'));
+
+        $this->postJson('/api/v1/plateforme/invitations', ['email' => 'marie(note)@lac.ch'], $entetes)->assertStatus(503);
+
+        $this->assertSame(0, InvitationAcces::query()->count());
+    }
+
+    /** Deux modérateurs, la même adresse au même instant : la seconde est refusée proprement. */
+    public function test_une_invitation_simultanee_de_la_meme_adresse_est_refusee_proprement(): void
+    {
+        Mail::fake();
+        [, $entetes] = $this->moderateur();
+        // L'autre modérateur l'enregistre entre la validation et la création
+        InvitationAcces::creating(function (InvitationAcces $invitation): void {
+            DB::table('invitations_acces')->insertOrIgnore(['email' => $invitation->email, 'created_at' => now(), 'updated_at' => now()]);
+        });
+
+        $this->postJson('/api/v1/plateforme/invitations', ['email' => 'marie@lac.ch'], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors(['email' => 'Cette adresse est déjà invitée.']);
+
+        $this->assertSame(1, InvitationAcces::query()->count());
+        Mail::assertNothingSent();
     }
 
     public function test_une_adresse_deja_invitee_ou_qui_a_un_compte_est_refusee(): void
@@ -133,6 +164,18 @@ class InvitationsAccesPlateformeTest extends TestCase
 
         $this->assertSame(1, InvitationAcces::query()->where('email', 'jim@meteora.systems')->where('note', 'Premier compte')->count());
         Mail::assertNothingSent();
+    }
+
+    public function test_la_commande_ne_garde_rien_si_l_email_ne_part_pas(): void
+    {
+        Mail::shouldReceive('to')->andReturnSelf();
+        Mail::shouldReceive('send')->andThrow(new TransportException('Resend injoignable'));
+
+        $this->artisan('plateforme:inviter', ['email' => 'marie@lac.ch', '--prevenir' => true])
+            ->assertFailed()
+            ->expectsOutputToContain('n’a pas pu partir');
+
+        $this->assertSame(0, InvitationAcces::query()->count());
     }
 
     public function test_la_commande_previent_par_email_sur_demande(): void
