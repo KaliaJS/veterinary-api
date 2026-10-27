@@ -118,4 +118,21 @@ class PasserelleAbonnementStripeTest extends TestCase
         $this->assertSame(['pi_recent', 'pi_ancien'], array_column($trouves, 'id'));
         $this->assertSame('reussi', $trouves[0]['statut']);
     }
+
+    /** Compte effacé (27.10.2026) : le client est supprimé chez Stripe ; déjà supprimé, rien à faire ; une panne remonte. */
+    public function test_supprimer_un_client_le_supprime_chez_stripe_et_tolere_un_client_deja_parti(): void
+    {
+        $stripe = new PasserelleAbonnementStripe(new StripeClient('sk_test_faux'));
+        $this->http
+            ->repondre(['id' => 'cus_paul', 'object' => 'customer', 'deleted' => true])
+            ->echouer(404, 'invalid_request_error', 'resource_missing', 'No such customer: cus_parti')
+            ->echouer(500, 'api_error', null);
+
+        $stripe->supprimerClient('cus_paul');
+        $stripe->supprimerClient('cus_parti');
+
+        $this->assertSame(['methode' => 'delete', 'chemin' => '/v1/customers/cus_paul'], array_intersect_key($this->http->requetes[0], ['methode' => 1, 'chemin' => 1]));
+        $this->expectException(ErreurPaiement::class);
+        $stripe->supprimerClient('cus_panne');
+    }
 }

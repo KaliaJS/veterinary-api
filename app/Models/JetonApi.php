@@ -19,6 +19,13 @@ class JetonApi extends PersonalAccessToken
 {
     protected $table = 'personal_access_tokens';
 
+    /**
+     * Jeton qui vient d'annuler une demande de suppression du compte (la
+     * connexion qui l'émet) : la réponse de connexion le dit une fois.
+     * Pas une colonne, seulement sur le jeton tout juste émis.
+     */
+    public bool $suppressionAnnulee = false;
+
     protected function casts(): array
     {
         return [...parent::casts(), 'session_depuis' => 'datetime'];

@@ -67,6 +67,17 @@ class PasserelleAbonnementStripe implements PasserelleAbonnement
         $this->appel(fn () => $this->client->paymentMethods->detach($moyen));
     }
 
+    public function supprimerClient(string $client): void
+    {
+        try {
+            $this->appel(fn () => $this->client->customers->delete($client));
+        } catch (ErreurPaiement $e) {
+            if ($e->codeStripe !== 'resource_missing') {
+                throw $e;
+            }
+        }
+    }
+
     public function prelever(string $client, string $moyen, int $centimes, string $libelle, array $metadonnees, bool $horsSession, string $cleIdempotence): array
     {
         $creer = fn (bool $horsSession) => $this->client->paymentIntents->create([

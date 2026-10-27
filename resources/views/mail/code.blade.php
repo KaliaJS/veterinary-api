@@ -10,6 +10,10 @@
 @php
     $wordmark = $message->embed(resource_path('mail/wordmark.png'));
     $police = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
+    // Textes réglables (suppression du compte, 27.10.2026) ; par défaut, la connexion
+    $titre ??= 'Votre code de connexion';
+    $consigne ??= 'Saisissez ce code dans Veterinary pour continuer.';
+    $avertissement ??= 'Vous n’êtes pas à l’origine de cette demande ? Ignorez cet e-mail : personne ne peut se connecter sans ce code.';
 @endphp
 <!DOCTYPE html>
 <html lang="fr">
@@ -46,12 +50,12 @@
                             <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                                 <tr>
                                     <td class="titre" align="center" style="font-family:{{ $police }}; font-size:26px; line-height:32px; font-weight:700; letter-spacing:-0.4px; color:#ffffff;">
-                                        Votre code de connexion
+                                        {{ $titre }}
                                     </td>
                                 </tr>
                                 <tr>
                                     <td align="center" style="padding:12px 8px 0; font-family:{{ $police }}; font-size:15px; line-height:23px; color:#a39cb4;">
-                                        Saisissez ce code dans Veterinary pour continuer.
+                                        {{ $consigne }}
                                     </td>
                                 </tr>
 
@@ -108,7 +112,7 @@
                                         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                                             <tr>
                                                 <td style="border-top:1px solid #27232f; padding-top:22px; font-family:{{ $police }}; font-size:13px; line-height:20px; color:#7d7690; text-align:center;">
-                                                    Vous n’êtes pas à l’origine de cette demande ? Ignorez cet e-mail : personne ne peut se connecter sans ce code.
+                                                    {{ $avertissement }}
                                                 </td>
                                             </tr>
                                         </table>

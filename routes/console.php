@@ -1,5 +1,6 @@
 <?php
 
+use App\Services\Comptes\SuppressionCompte;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -33,6 +34,8 @@ Schedule::command('abonnements:renouveler')->hourly()->withoutOverlapping(50)->o
 Schedule::command('abonnements:verifier-paiements')->everyMinute()->withoutOverlapping(2)->onOneServer();
 Schedule::command('inscriptions:reessayer')->hourly()->withoutOverlapping(50)->onOneServer();
 Schedule::command('transcriptions:purger')->dailyAt('03:30')->timezone('Europe/Zurich')->withoutOverlapping(120)->onOneServer();
+// Comptes dont la suppression a été demandée il y a 30 jours (27.10.2026)
+Schedule::command('comptes:effacer')->dailyAt(SuppressionCompte::HEURE_EFFACEMENT)->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 // Point du matin sur le stock (seuils, péremptions), avant l'ouverture des cliniques
 Schedule::command('alertes:stock')->dailyAt('07:00')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 

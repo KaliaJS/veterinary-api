@@ -61,6 +61,7 @@ use App\Http\Controllers\Api\V1\Espace\MessageProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\PlaneteController;
 use App\Http\Controllers\Api\V1\Espace\ReglagesProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\RendezVousProprietaireController;
+use App\Http\Controllers\Api\V1\Espace\SuppressionCompteController;
 use App\Http\Controllers\Api\V1\Espace\VerificationEmailController;
 use App\Http\Controllers\Api\V1\Espace\VeterinairePublicController;
 use App\Http\Controllers\Api\V1\ExamenImagerieController;
@@ -308,6 +309,9 @@ Route::prefix('v1')->group(function (): void {
         Route::get('notifications', [ReglagesProprietaireController::class, 'notifications']);
         Route::post('notifications/lues', [ReglagesProprietaireController::class, 'marquerLues']);
         Route::get('export', [ReglagesProprietaireController::class, 'export']);
+        // Suppression du compte (App Store, 27.10.2026) : code par e-mail, effacé 30 jours après
+        Route::post('compte/suppression/code', [SuppressionCompteController::class, 'code'])->middleware('throttle:code-email');
+        Route::post('compte/suppression', [SuppressionCompteController::class, 'demander']);
         // Offre du propriétaire : Gratuit, ou Plus (d'autres planètes)
         Route::get('abonnement', [AbonnementProprietaireController::class, 'afficher']);
         Route::post('abonnement/carte/intention', [AbonnementProprietaireController::class, 'intentionCarte'])->middleware('throttle:espace-achats');

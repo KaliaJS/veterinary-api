@@ -100,8 +100,23 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
 
     public function detacherMoyenPaiement(string $moyen): void
     {
+        if ($this->panne) {
+            throw new ErreurPaiement($this->panne, 'api_error');
+        }
         $this->detachees[] = $moyen;
         unset($this->cartes[$moyen]);
+    }
+
+    /** @var list<string> Clients supprimés (compte effacé) */
+    public array $clientsSupprimes = [];
+
+    public function supprimerClient(string $client): void
+    {
+        if ($this->panne) {
+            throw new ErreurPaiement($this->panne, 'api_error');
+        }
+        $this->clientsSupprimes[] = $client;
+        unset($this->clients[$client]);
     }
 
     public function prelever(string $client, string $moyen, int $centimes, string $libelle, array $metadonnees, bool $horsSession, string $cleIdempotence): array

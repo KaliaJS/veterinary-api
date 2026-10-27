@@ -6,6 +6,7 @@ use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\JetonApi;
 use App\Models\User;
+use App\Services\Comptes\SuppressionCompte;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
@@ -59,7 +60,7 @@ class EmetteurJetons
         $modele = $jeton->accessToken;
         $modele->forceFill(['clinique_id' => $rattachement->clinique->id])->save();
 
-        return $jeton;
+        return $this->annulerSuppression($user, $jeton);
     }
 
     /**
@@ -68,7 +69,23 @@ class EmetteurJetons
      */
     public function emettreSansClinique(User $user, string $nomAppareil = 'api'): NewAccessToken
     {
-        return $user->createToken($nomAppareil, ['*'], $this->expireLe());
+        return $this->annulerSuppression($user, $user->createToken($nomAppareil, ['*'], $this->expireLe()));
+    }
+
+    /**
+     * Se reconnecter pendant les 30 jours annule la suppression demandée du
+     * compte (27.10.2026). La demande ferme toutes les sessions : un jeton
+     * neuf vient donc toujours d'une connexion (code ou passkey).
+     */
+    private function annulerSuppression(User $user, NewAccessToken $jeton): NewAccessToken
+    {
+        if (app(SuppressionCompte::class)->annuler($user)) {
+            /** @var JetonApi $modele */
+            $modele = $jeton->accessToken;
+            $modele->suppressionAnnulee = true;
+        }
+
+        return $jeton;
     }
 
     /**

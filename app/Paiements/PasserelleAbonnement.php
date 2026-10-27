@@ -30,6 +30,13 @@ interface PasserelleAbonnement
     public function detacherMoyenPaiement(string $moyen): void;
 
     /**
+     * Supprime le client chez le prestataire (compte effacé, 27.10.2026) :
+     * ses cartes partent avec lui ; paiements et factures restent chez le
+     * prestataire pour la comptabilité. Un client déjà supprimé : rien à faire.
+     */
+    public function supprimerClient(string $client): void;
+
+    /**
      * Prélève la carte enregistrée. Hors session (renouvellement), le client
      * n'est pas là ; sinon il paie à l'instant et peut confirmer auprès de sa
      * banque si elle le demande (`action_requise`, avec le secret à passer à
