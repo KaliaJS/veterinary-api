@@ -11,7 +11,6 @@ use App\Services\Vetpoint\VetpointCgv;
 use App\Services\Vetpoint\VetpointCleRefusee;
 use App\Services\Vetpoint\VetpointIndisponible;
 use App\Services\Vetpoint\VetpointLimite;
-use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -46,11 +45,8 @@ class RechercheVetpointController extends Controller
         // confondues. Seules les vraies recherches comptent (une requête
         // refusée plus haut ne bloque pas les collègues)
         // Clé illisible (clé de chiffrement du serveur changée) : à recoller
-        try {
-            $cle = $connexion->cle;
-        } catch (DecryptException) {
-            abort(409, 'La clé Vetpoint de la clinique est illisible : collez-la à nouveau dans Réglages, Fournisseurs.');
-        }
+        $cle = $connexion->cleEnClair();
+        abort_if($cle === null, 409, 'La clé Vetpoint de la clinique est illisible : collez-la à nouveau dans Réglages, Fournisseurs.');
 
         // Compté d'un coup (incrément atomique) : des recherches simultanées
         // ne passent pas toutes à la 20e

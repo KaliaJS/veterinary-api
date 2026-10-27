@@ -10,7 +10,6 @@ use App\Services\Vetpoint\VetpointCgv;
 use App\Services\Vetpoint\VetpointCleRefusee;
 use App\Services\Vetpoint\VetpointIndisponible;
 use App\Services\Vetpoint\VetpointLimite;
-use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -90,11 +89,8 @@ class ConnexionVetpointController extends Controller
         $connexion = ConnexionVetpoint::query()->where('clinique_id', $this->cliniqueId())->first();
         // Clé illisible (clé de chiffrement du serveur changée) : sans fin
         // affichée, l'écran invite à la retirer et la recoller
-        try {
-            $fin = $connexion ? mb_substr($connexion->cle, -4) : null;
-        } catch (DecryptException) {
-            $fin = null;
-        }
+        $cle = $connexion?->cleEnClair();
+        $fin = $cle !== null ? mb_substr($cle, -4) : null;
 
         return response()->json(['data' => [
             'connectee' => $connexion !== null,
