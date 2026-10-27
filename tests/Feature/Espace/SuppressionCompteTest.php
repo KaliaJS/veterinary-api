@@ -5,6 +5,7 @@ namespace Tests\Feature\Espace;
 use App\Auth\EmetteurJetons;
 use App\Models\Client;
 use App\Models\Clinique;
+use App\Models\CompteRendu;
 use App\Models\DemandeRendezVous;
 use App\Models\DemandeRenouvellementOrdonnance;
 use App\Models\Document;
@@ -13,6 +14,7 @@ use App\Models\Facture;
 use App\Models\FactureProprietaire;
 use App\Models\MessageClientele;
 use App\Models\Ordonnance;
+use App\Models\Passkey;
 use App\Models\Patient;
 use App\Models\Societe;
 use App\Models\User;
@@ -21,6 +23,7 @@ use App\Notifications\CodeSuppressionCompte;
 use App\Paiements\PasserelleAbonnement;
 use App\Services\Comptes\SuppressionCompte;
 use Carbon\CarbonImmutable;
+use Database\Factories\PasskeyFactory;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -388,5 +391,109 @@ class SuppressionCompteTest extends TestCase
         $this->postJson('/api/v1/espace/compte/suppression/code', [], $this->enTetes($jeton))->assertStatus(202)->assertJsonPath('data.envoye', false);
         $this->app['auth']->forgetGuards();
         $this->postJson('/api/v1/espace/compte/suppression/code', [], $this->enTetes($autre))->assertStatus(202)->assertJsonPath('data.envoye', true);
+    }
+
+    /** Un ancien membre d'équipe : la clinique a mis fin à son accès. */
+    private function ancienMembre(array $attributs = []): array
+    {
+        $compte = $this->proprietaireAvecJeton(['name' => 'Rachel Solal', 'email' => 'rachel@exemple.ch', 'gln' => '7601000000001', ...$attributs]);
+        $fiche = Employe::factory()->create(['user_id' => $compte['user']->id, 'nom' => 'Rachel Solal', 'acces_suspendu' => true]);
+
+        return [...$compte, 'fiche' => $fiche];
+    }
+
+    public function test_un_ancien_membre_d_equipe_peut_supprimer_son_compte(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->ancienMembre();
+
+        $this->demander($jeton, $user);
+
+        $this->assertNotNull($user->refresh()->suppression_demandee_le);
+    }
+
+    /**
+     * Décision de Jim (27.10.2026) : le compte devient une trace sans
+     * connexion qui ne garde que le prénom ; la fiche d'équipe et chaque
+     * pièce signée restent liées à cette trace.
+     */
+    public function test_l_ancien_membre_devient_une_trace_sans_connexion_qui_ne_garde_que_le_prenom(): void
+    {
+        ['user' => $user, 'jeton' => $jeton, 'fiche' => $fiche] = $this->ancienMembre();
+        $compteRendu = CompteRendu::factory()->create(['user_id' => $user->id]);
+        $facture = Facture::factory()->create(['cree_par_id' => $user->id]);
+        PasskeyFactory::new()->create(['user_id' => $user->id]);
+        $this->demander($jeton, $user);
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
+        $trace = User::query()->find($user->id);
+        $this->assertNotNull($trace, 'La trace reste');
+        $this->assertSame('Rachel', $trace->name);
+        $this->assertNotSame('rachel@exemple.ch', $trace->email);
+        $this->assertNull($trace->gln);
+        $this->assertNull($trace->email_verified_at);
+        $this->assertNull($trace->suppression_demandee_le);
+        $this->assertSame(0, $trace->tokens()->count());
+        $this->assertFalse(Passkey::query()->where('user_id', $user->id)->exists());
+        // La fiche d'équipe et les pièces signées gardent leur auteur
+        $this->assertSame($user->id, Employe::withoutGlobalScopes()->find($fiche->id)?->user_id);
+        $this->assertSame($user->id, CompteRendu::withoutGlobalScopes()->find($compteRendu->id)?->user_id);
+        $this->assertSame($user->id, Facture::withoutGlobalScopes()->find($facture->id)?->cree_par_id);
+        // La nuit suivante ne la reprend pas
+        $this->artisan('comptes:effacer')->assertSuccessful();
+        $this->assertTrue(User::query()->whereKey($user->id)->exists());
+    }
+
+    /** La trace ne se connecte plus : son ancienne adresse ouvre un compte neuf, vide. */
+    public function test_la_trace_ne_se_connecte_plus(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->ancienMembre();
+        $this->demander($jeton, $user);
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+        $this->app['auth']->forgetGuards();
+
+        $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'rachel@exemple.ch'])->assertStatus(202);
+        $code = null;
+        Notification::assertSentOnDemand(CodeEmailNotification::class, function ($notification) use (&$code): bool {
+            $code = $notification->code;
+
+            return true;
+        });
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => 'rachel@exemple.ch', 'code' => $code])->assertSuccessful();
+
+        $neuf = User::query()->where('email', 'rachel@exemple.ch')->first();
+        $this->assertNotNull($neuf);
+        $this->assertNotSame($user->id, $neuf->id);
+    }
+
+    /** Côté propriétaire, comme un compte effacé : fiche client détachée, animaux gérés seul effacés. */
+    public function test_la_trace_n_est_plus_liee_a_ses_fiches_de_proprietaire(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->ancienMembre();
+        $carte = Client::factory()->create(['user_id' => $user->id]);
+        $seul = Patient::factory()->create(['client_id' => null, 'organisation_id' => null, 'proprietaire_id' => $user->id]);
+        $this->demander($jeton, $user);
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
+        $this->assertDetache(Client::withoutGlobalScopes()->find($carte->id), 'user_id');
+        $this->assertFalse(Patient::withoutGlobalScopes()->whereKey($seul->id)->exists());
+    }
+
+    /** Réembauché entre-temps (accès rendu) : la demande tombe, rien n'est touché. */
+    public function test_un_membre_redevenu_actif_n_est_pas_efface(): void
+    {
+        ['user' => $user, 'jeton' => $jeton, 'fiche' => $fiche] = $this->ancienMembre();
+        $this->demander($jeton, $user);
+        $fiche->forceFill(['acces_suspendu' => false])->save();
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
+        $this->assertSame('Rachel Solal', $user->refresh()->name);
+        $this->assertNull($user->suppression_demandee_le);
     }
 }

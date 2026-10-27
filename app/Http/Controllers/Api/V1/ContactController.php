@@ -20,11 +20,15 @@ class ContactController extends Controller
 {
     public function envoyer(Request $request, Turnstile $captcha): JsonResponse
     {
+        // Connecté (jeton valable) : sans Turnstile, que l'app iPhone ne peut
+        // pas afficher ; ses envois sont limités par compte (décision de Jim)
+        $connecte = $request->user('sanctum') !== null;
+
         $donnees = $request->validate([
             'nom' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', 'max:190'],
             'message' => ['required', 'string', 'min:10', 'max:5000'],
-            'captcha' => ['required', 'string', 'max:4096'],
+            'captcha' => [$connecte ? 'nullable' : 'required', 'string', 'max:4096'],
         ], [
             // L'API n'a pas de traductions : chaque message en français
             'nom.required' => 'Indiquez votre nom.',
@@ -38,7 +42,7 @@ class ContactController extends Controller
             'captcha.required' => 'Cochez la vérification anti-robot.',
         ]);
 
-        if (! $captcha->verifier($donnees['captcha'], $request->ip())) {
+        if (! $connecte && ! $captcha->verifier($donnees['captcha'], $request->ip())) {
             throw ValidationException::withMessages(['captcha' => 'La vérification anti-robot n’a pas abouti : réessayez.']);
         }
 

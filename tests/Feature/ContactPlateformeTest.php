@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use App\Auth\EmetteurJetons;
 use App\Mail\MessageContact;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -138,5 +140,38 @@ class ContactPlateformeTest extends TestCase
             return $mail->nom === 'Paul De : faux@pirate.ch'
                 && count(array_filter($lignes, fn ($ligne) => str_starts_with($ligne, 'De :'))) === 1;
         });
+    }
+
+    /** Décision de Jim (27.10.2026) : une personne connectée écrit sans Turnstile (l'app iPhone ne peut pas l'afficher). */
+    public function test_une_personne_connectee_ecrit_sans_turnstile(): void
+    {
+        $user = User::factory()->create(['name' => 'Paul Rochat', 'email' => 'paul@exemple.ch']);
+        $jeton = app(EmetteurJetons::class)->emettreSansClinique($user)->plainTextToken;
+
+        $this->postJson('/api/v1/public/contact', $this->message(['captcha' => null]), ['Authorization' => 'Bearer '.$jeton])->assertStatus(202);
+
+        Mail::assertSent(MessageContact::class, fn (MessageContact $mail) => $mail->hasReplyTo('paul@exemple.ch'));
+    }
+
+    /** Ses envois sont limités par compte, quelle que soit son adresse IP. */
+    public function test_les_envois_d_une_personne_connectee_sont_limites_par_compte(): void
+    {
+        $jeton = app(EmetteurJetons::class)->emettreSansClinique(User::factory()->create())->plainTextToken;
+
+        foreach (range(1, 5) as $envoi) {
+            $this->postJson('/api/v1/public/contact', $this->message(['captcha' => null]), ['Authorization' => 'Bearer '.$jeton, 'REMOTE_ADDR' => '203.0.113.'.$envoi])->assertStatus(202);
+        }
+
+        $this->postJson('/api/v1/public/contact', $this->message(['captcha' => null]), ['Authorization' => 'Bearer '.$jeton, 'REMOTE_ADDR' => '203.0.113.99'])
+            ->assertStatus(429)->assertJsonPath('message', 'Trop de messages envoyés : réessayez dans une heure.');
+    }
+
+    /** Un jeton faux ou expiré ne dispense pas de Turnstile. */
+    public function test_un_jeton_invalide_ne_dispense_pas_de_turnstile(): void
+    {
+        $this->postJson('/api/v1/public/contact', $this->message(['captcha' => null]), ['Authorization' => 'Bearer 1|faux'])
+            ->assertUnprocessable()->assertJsonValidationErrors('captcha');
+
+        Mail::assertNothingSent();
     }
 }

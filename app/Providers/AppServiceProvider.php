@@ -210,13 +210,18 @@ class AppServiceProvider extends ServiceProvider
                 ->response(fn () => response()->json(['message' => 'Trop de codes demandés aujourd’hui : réessayez demain.'], 429)),
         ]);
 
-        // Formulaire de contact du site (27.10.2026) : par adresse IP, sans compte
-        RateLimiter::for('contact', fn (Request $request): array => [
-            Limit::perHour(5)->by('contact:'.$request->ip())
-                ->response(fn () => response()->json(['message' => 'Trop de messages envoyés : réessayez dans une heure.'], 429)),
-            Limit::perDay(20)->by('contact-jour:'.$request->ip())
-                ->response(fn () => response()->json(['message' => 'Trop de messages envoyés aujourd’hui : réessayez demain.'], 429)),
-        ]);
+        // Formulaire de contact du site (27.10.2026) : par adresse IP sans
+        // compte, par compte une fois connecté (sans Turnstile alors)
+        RateLimiter::for('contact', function (Request $request): array {
+            $cle = ($compte = $request->user('sanctum')?->getAuthIdentifier()) !== null ? 'compte:'.$compte : 'ip:'.$request->ip();
+
+            return [
+                Limit::perHour(5)->by('contact:'.$cle)
+                    ->response(fn () => response()->json(['message' => 'Trop de messages envoyés : réessayez dans une heure.'], 429)),
+                Limit::perDay(20)->by('contact-jour:'.$cle)
+                    ->response(fn () => response()->json(['message' => 'Trop de messages envoyés aujourd’hui : réessayez demain.'], 429)),
+            ];
+        });
 
         RateLimiter::for('vetpoint-cle', fn (Request $request): Limit => Limit::perMinute(10)
             ->by('vetpoint-cle:'.$parCompte($request))
