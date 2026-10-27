@@ -128,6 +128,7 @@ class AccesSurInvitationTest extends TestCase
         InvitationAcces::query()->create(['email' => 'marie@lac.ch']);
         User::factory()->create(['email' => 'paul@exemple.ch']);
         $reponses = [];
+        $couts = [];
 
         foreach (['marie@lac.ch', 'paul@exemple.ch', 'inconnu@exemple.ch'] as $email) {
             foreach (range(1, 5) as $essai) {
@@ -135,12 +136,16 @@ class AccesSurInvitationTest extends TestCase
             }
             $this->demanderCode($email)->assertStatus(202);
             $this->assertTrue(Cache::has('auth:code-email:'.hash('sha256', $email)), $email);
+            // Le même hachage, au même coût : le même temps de calcul
+            $couts[$email] = password_get_info((string) Cache::get('auth:code-email:'.hash('sha256', $email)))['options'];
             $reponses[$email] = $this->verifier($email, '00000000')->json('errors.code');
         }
 
         $this->assertSame(['Code invalide ou expiré.'], $reponses['marie@lac.ch']);
         $this->assertSame($reponses['marie@lac.ch'], $reponses['paul@exemple.ch']);
         $this->assertSame($reponses['marie@lac.ch'], $reponses['inconnu@exemple.ch']);
+        $this->assertSame($couts['marie@lac.ch'], $couts['paul@exemple.ch']);
+        $this->assertSame($couts['marie@lac.ch'], $couts['inconnu@exemple.ch']);
     }
 
     public function test_une_adresse_de_la_liste_cree_son_compte(): void

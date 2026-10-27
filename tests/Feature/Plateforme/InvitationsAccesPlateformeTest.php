@@ -129,7 +129,7 @@ class InvitationsAccesPlateformeTest extends TestCase
         Mail::fake();
 
         $this->artisan('plateforme:inviter', ['email' => 'Jim@Meteora.systems', '--note' => 'Premier compte'])->assertSuccessful();
-        $this->artisan('plateforme:inviter', ['email' => 'jim@meteora.systems'])->assertSuccessful()->expectsOutputToContain('déjà invitée');
+        $this->artisan('plateforme:inviter', ['email' => 'jim@meteora.systems'])->assertSuccessful()->expectsOutputToContain('déjà une invitation');
 
         $this->assertSame(1, InvitationAcces::query()->where('email', 'jim@meteora.systems')->where('note', 'Premier compte')->count());
         Mail::assertNothingSent();

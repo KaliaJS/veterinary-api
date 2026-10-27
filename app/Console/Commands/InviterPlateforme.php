@@ -28,7 +28,7 @@ class InviterPlateforme extends Command
         }
 
         if (InvitationAcces::query()->where('email', $email)->exists()) {
-            $this->info($email.' est déjà invitée.');
+            $this->info('Cette adresse a déjà une invitation : '.$email.'.');
 
             return self::SUCCESS;
         }
@@ -37,7 +37,7 @@ class InviterPlateforme extends Command
         if ($this->option('prevenir')) {
             Mail::to($email)->send(new InvitationAccesEnvoyee);
         }
-        $this->info($email.' est invitée'.($this->option('prevenir') ? ' et prévenue par e-mail.' : '.'));
+        $this->info('Invitation ajoutée pour '.$email.($this->option('prevenir') ? ', e-mail envoyé.' : '.'));
 
         return self::SUCCESS;
     }

@@ -7,6 +7,7 @@ use App\Mail\InvitationAccesEnvoyee;
 use App\Models\InvitationAcces;
 use App\Models\User;
 use Closure;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -50,20 +51,24 @@ class InvitationAccesPlateformeController extends Controller
             'email.unique' => 'Cette adresse est déjà invitée.',
         ]);
 
-        // L'e-mail part avant que l'invitation ne soit gardée : un envoi raté
-        // ne laisse pas une invitation sans e-mail, on réessaie simplement
+        // Deux modérateurs, la même adresse au même instant : l'index unique tranche
         try {
-            $invitation = DB::transaction(function () use ($request, $donnees): InvitationAcces {
-                $invitation = InvitationAcces::query()->create([
-                    'email' => $donnees['email'],
-                    'note' => $donnees['note'] ?? null,
-                    'invitee_par' => $request->user()->id,
-                ]);
-                Mail::to($invitation->email)->send(new InvitationAccesEnvoyee);
+            $invitation = InvitationAcces::query()->create([
+                'email' => $donnees['email'],
+                'note' => $donnees['note'] ?? null,
+                'invitee_par' => $request->user()->id,
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages(['email' => 'Cette adresse est déjà invitée.']);
+        }
 
-                return $invitation;
-            });
+        // Un envoi raté ne laisse pas une invitation sans e-mail : on la
+        // retire, et l'on réessaie simplement (hors transaction : la base
+        // n'attend pas le serveur d'e-mails)
+        try {
+            Mail::to($invitation->email)->send(new InvitationAccesEnvoyee);
         } catch (TransportExceptionInterface $e) {
+            $invitation->delete();
             report($e);
             abort(503, 'L’e-mail d’invitation n’a pas pu partir : réessayez dans un moment.');
         }
