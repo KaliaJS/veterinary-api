@@ -145,6 +145,9 @@ use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
 use App\Http\Controllers\Api\V1\VaccinCatalogueController;
 use App\Http\Controllers\Api\V1\VenteComptoirController;
+use App\Http\Controllers\Api\V1\Vetpoint\ConnexionVetpointController;
+use App\Http\Controllers\Api\V1\Vetpoint\ProduitVetpointController;
+use App\Http\Controllers\Api\V1\Vetpoint\RechercheVetpointController;
 use App\Http\Controllers\Api\V1\VisiteController;
 use App\Http\Controllers\Api\V1\VitrineController;
 use Illuminate\Support\Facades\Route;
@@ -676,8 +679,21 @@ Route::prefix('v1')->group(function (): void {
         // clinique : la lecture montre la ventilation de toutes les
         // cliniques, les écritures (ajustements, réceptions, lots) ne
         // touchent que la clinique du jeton.
+        // Vetpoint (27.10.2026) : la clé de la clinique (droit Organisation)
+        // et la recherche au prix de la clinique (droit Stocks)
+        Route::prefix('vetpoint')->group(function (): void {
+            Route::middleware('can:organisation')->group(function (): void {
+                Route::get('connexion', [ConnexionVetpointController::class, 'show']);
+                Route::put('connexion', [ConnexionVetpointController::class, 'update'])->middleware('throttle:10,1');
+                Route::delete('connexion', [ConnexionVetpointController::class, 'destroy']);
+            });
+            Route::get('produits', RechercheVetpointController::class)->middleware(['can:stocks', 'throttle:30,1']);
+        });
+
         Route::middleware('can:stocks')->prefix('stocks')->group(function (): void {
             Route::get('produits', [ProduitController::class, 'index']);
+            Route::post('produits/{produit}/vetpoint', [ProduitVetpointController::class, 'store']);
+            Route::delete('produits/{produit}/vetpoint', [ProduitVetpointController::class, 'destroy']);
             Route::post('produits', [ProduitController::class, 'store']);
             Route::get('produits/{produit}', [ProduitController::class, 'show']);
             Route::post('produits/{produit}/ajuster', AjustementStockController::class);

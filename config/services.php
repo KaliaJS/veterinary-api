@@ -32,6 +32,15 @@ return [
     // Terminal (lecteurs « smart », pilotés par le serveur) et TWINT via
     // Stripe. Clés de test en local ; le secret de webhook vient du
     // Dashboard (ou de `stripe listen`).
+    // Vetpoint, interface REST des logiciels de cabinet (27.10.2026) : test
+    // par défaut ; en production https://www.vetpoint.ch/api/tapsw et
+    // https://www.vetpoint.ch/ecommerce/control/profile. La clé est celle de
+    // chaque clinique (Réglages), jamais ici
+    'vetpoint' => [
+        'url' => env('VETPOINT_URL', 'https://test.vetpoint.ch/api/tapsw'),
+        'profil' => env('VETPOINT_PROFIL_URL', 'https://test.vetpoint.ch/ecommerce/control/profile'),
+    ],
+
     'stripe' => [
         'key' => env('STRIPE_KEY'),
         'secret' => env('STRIPE_SECRET'),

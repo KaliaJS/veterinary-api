@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Catalogue de NIVEAU ORGANISATION : la fiche est partagée entre les
@@ -61,6 +62,16 @@ class Produit extends Model
     public function organisation(): BelongsTo
     {
         return $this->belongsTo(Organisation::class);
+    }
+
+    /**
+     * Le produit Vetpoint relié (27.10.2026), un au plus.
+     *
+     * @return HasOne<ProduitVetpoint, $this>
+     */
+    public function vetpoint(): HasOne
+    {
+        return $this->hasOne(ProduitVetpoint::class);
     }
 
     /** @return HasMany<Stock, $this> */

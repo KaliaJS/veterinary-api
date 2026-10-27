@@ -37,6 +37,12 @@ class ProduitResource extends JsonResource
             'ean' => $this->ean,
             'promo_pct' => $this->promo_pct,
             'est_vedette' => $this->est_vedette,
+            // Produit Vetpoint relié (27.10.2026) ; null : aucun
+            'vetpoint' => $this->whenLoaded('vetpoint', fn (): ?array => $this->vetpoint ? [
+                'id' => $this->vetpoint->vetpoint_id,
+                'nom' => $this->vetpoint->nom,
+                'swissmedic' => $this->vetpoint->swissmedic,
+            ] : null),
             'stocks' => $this->whenLoaded(
                 'stocks',
                 fn () => $this->stocks

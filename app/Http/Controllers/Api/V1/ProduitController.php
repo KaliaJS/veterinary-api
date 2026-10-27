@@ -26,7 +26,7 @@ class ProduitController extends Controller
         $this->authorize('viewAny', Produit::class);
 
         $produits = Produit::query()
-            ->with(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
+            ->with(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint'])
             ->when($request->enum('categorie', CategorieProduit::class), fn (Builder $requete, CategorieProduit $categorie) => $requete->where('categorie', $categorie))
             ->when($request->filled('q'), function (Builder $requete) use ($request): void {
                 $terme = '%'.$request->string('q')->trim()->lower().'%';
@@ -70,7 +70,7 @@ class ProduitController extends Controller
         }
 
         return new ProduitResource(
-            $produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique')]),
+            $produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint']),
         );
     }
 
@@ -79,7 +79,7 @@ class ProduitController extends Controller
         $this->authorize('view', $produit);
 
         return new ProduitResource(
-            $produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique')]),
+            $produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint']),
         );
     }
 
