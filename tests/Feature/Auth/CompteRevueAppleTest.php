@@ -4,7 +4,9 @@ namespace Tests\Feature\Auth;
 
 use App\Mail\AccesSurInvitation;
 use App\Models\User;
+use App\Notifications\CodeEmailNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
@@ -82,6 +84,25 @@ class CompteRevueAppleTest extends TestCase
 
             // Non invitée : « sur invitation » au lieu d'un code, comme toute adresse
             Mail::assertSent(AccesSurInvitation::class);
+        }
+    }
+
+    /** Hors accès sur invitation, sans réglage valable : un code tiré au hasard arrive par e-mail, comme pour toute adresse. */
+    public function test_sans_reglage_valable_l_adresse_recoit_un_code_par_email(): void
+    {
+        config(['plateforme.acces_sur_invitation' => false]);
+
+        foreach ([null, '1234', 'abcdefgh'] as $code) {
+            config(['plateforme.revue_apple.code' => $code]);
+            Notification::fake();
+
+            $this->demander(self::ADRESSE);
+
+            Notification::assertSentOnDemand(
+                CodeEmailNotification::class,
+                fn (CodeEmailNotification $notification, array $canaux, AnonymousNotifiable $destinataire): bool => $destinataire->routes['mail'] === self::ADRESSE
+                    && preg_match('/^\d{8}$/', $notification->code) === 1,
+            );
         }
     }
 
