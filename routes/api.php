@@ -147,6 +147,7 @@ use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
 use App\Http\Controllers\Api\V1\VaccinCatalogueController;
 use App\Http\Controllers\Api\V1\VenteComptoirController;
+use App\Http\Controllers\Api\V1\Vetpoint\CommandeVetpointController;
 use App\Http\Controllers\Api\V1\Vetpoint\ConnexionVetpointController;
 use App\Http\Controllers\Api\V1\Vetpoint\ProduitVetpointController;
 use App\Http\Controllers\Api\V1\Vetpoint\RechercheVetpointController;
@@ -714,6 +715,10 @@ Route::prefix('v1')->group(function (): void {
             // l'organisation (livraison à une clinique sœur possible).
             Route::post('commandes/{commande}/envoyer', [CommandeFournisseurController::class, 'envoyer'])->whereNumber('commande');
             Route::post('commandes/{commande}/receptionner', [CommandeFournisseurController::class, 'receptionner'])->whereNumber('commande');
+            // Vetpoint, étapes 3 et 4 (28.10.2026) : adresses, envoi, détail chez Vetpoint
+            Route::get('commandes/{commande}/vetpoint/adresses', [CommandeVetpointController::class, 'adresses'])->whereNumber('commande');
+            Route::post('commandes/{commande}/vetpoint', [CommandeVetpointController::class, 'envoyer'])->whereNumber('commande');
+            Route::get('commandes/{commande}/vetpoint', [CommandeVetpointController::class, 'detail'])->whereNumber('commande');
             Route::delete('commandes/{commande}', [CommandeFournisseurController::class, 'destroy'])->whereNumber('commande');
             // Lignes d'un brouillon, avant envoi.
             Route::post('commandes/{commande}/lignes', [CommandeFournisseurLigneController::class, 'store'])->whereNumber('commande');

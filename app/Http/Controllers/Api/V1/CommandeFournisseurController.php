@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Enums\DomainePermission;
 use App\Enums\PieceNumerotee;
 use App\Enums\StatutCommandeFournisseur;
+use App\Http\Controllers\Api\V1\Vetpoint\CommandeVetpointController;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Stocks\EnregistrerCommandeFournisseurRequest;
 use App\Http\Resources\V1\CommandeFournisseurResource;
@@ -16,12 +17,18 @@ use App\Models\Produit;
 use App\Services\GestionnaireStock;
 use App\Services\Numeroteur;
 use App\Services\RegistreStupefiants;
+use App\Services\Vetpoint\ClientVetpoint;
+use App\Services\Vetpoint\VetpointCgv;
+use App\Services\Vetpoint\VetpointCleRefusee;
+use App\Services\Vetpoint\VetpointIndisponible;
+use App\Services\Vetpoint\VetpointLimite;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
  * Bons de commande fournisseurs de l'ORGANISATION : la clinique de
@@ -165,8 +172,25 @@ class CommandeFournisseurController extends Controller
 
         $this->authorize('update', $commande);
 
+        // Passée par Vetpoint : prix réels et péremptions lus chez lui (28.10.2026).
+        // Vetpoint injoignable : le stock entre quand même, avec les prix de la commande
+        $vetpoint = null;
+        $parLigne = collect();
+        if ($commande->vetpoint_commande_id !== null) {
+            try {
+                $detail = CommandeVetpointController::clientDe($commande->clinique_id)->commande($commande->vetpoint_commande_id);
+                $parLigne = collect(CommandeVetpointController::lignesDetaillees($commande, $detail))->filter(fn (array $ligne) => $ligne['ligne_id'] !== null)->keyBy('ligne_id');
+                $vetpoint = ['lu' => true, 'message' => null];
+            } catch (VetpointCleRefusee|VetpointCgv|VetpointLimite|VetpointIndisponible) {
+                $vetpoint = ['lu' => false, 'message' => 'Vetpoint ne répond pas : le stock est entré avec les prix de la commande, sans les prix réels ni les péremptions de Vetpoint.'];
+            } catch (HttpException $e) {
+                // Clé absente ou illisible : même chose, avec la raison
+                $vetpoint = ['lu' => false, 'message' => $e->getMessage().' Le stock est entré avec les prix de la commande.'];
+            }
+        }
+
         // Sous verrou : une commande n'entre jamais deux fois en stock
-        $commande = DB::transaction(function () use ($request, $commande): CommandeFournisseur {
+        $commande = DB::transaction(function () use ($request, $commande, $parLigne): CommandeFournisseur {
             $commande = CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
 
             if ($commande->statut !== StatutCommandeFournisseur::Envoyee) {
@@ -179,6 +203,14 @@ class CommandeFournisseurController extends Controller
             ]);
 
             foreach ($commande->lignes()->with('produit')->get() as $ligne) {
+                // Le prix réel de Vetpoint : sur la ligne et comme coût du produit
+                $reel = $parLigne->get($ligne->id);
+                if ($reel !== null && $reel['prix_unitaire'] !== null) {
+                    $ligne->forceFill(['cout' => $reel['prix_unitaire']])->save();
+                    $ligne->produit->forceFill(['cout' => $reel['prix_unitaire']])->save();
+                }
+                $peremption = $reel !== null ? ClientVetpoint::peremption($reel['peremption']) : null;
+
                 // Un stupéfiant entre par le registre, signé par qui réceptionne,
                 // avec le droit des stupéfiants ; le stock le suit (24.10.2026)
                 if ($ligne->produit->est_stupefiant) {
@@ -195,14 +227,15 @@ class CommandeFournisseurController extends Controller
                     );
                 }
 
-                if ($ligne->produit->peremption_le !== null) {
+                if ($peremption !== null || $ligne->produit->peremption_le !== null) {
                     // Lot de la clinique de livraison, qui peut être
-                    // une clinique sœur : hors événements du trait.
+                    // une clinique sœur : hors événements du trait. La
+                    // péremption de Vetpoint, sinon celle du produit
                     Lot::withoutEvents(fn (): Lot => Lot::create([
                         'produit_id' => $ligne->produit_id,
                         'clinique_id' => $commande->clinique_id,
                         'numero_lot' => 'LOT '.substr($commande->numero, -3).'-'.substr($ligne->produit->reference, -2),
-                        'peremption_le' => $ligne->produit->peremption_le,
+                        'peremption_le' => $peremption ?? $ligne->produit->peremption_le,
                         'quantite' => $ligne->quantite,
                     ]));
                 }
@@ -211,7 +244,9 @@ class CommandeFournisseurController extends Controller
             return $commande;
         });
 
-        return new CommandeFournisseurResource($commande->load('lignes'));
+        $ressource = new CommandeFournisseurResource($commande->load('lignes'));
+
+        return $vetpoint === null ? $ressource : $ressource->additional(['vetpoint' => $vetpoint]);
     }
 
     public function destroy(int $commande): Response

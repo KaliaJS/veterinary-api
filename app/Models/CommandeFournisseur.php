@@ -34,6 +34,8 @@ class CommandeFournisseur extends Model
         return [
             'statut' => StatutCommandeFournisseur::class,
             'envoyee_le' => 'datetime',
+            'vetpoint_envoi_le' => 'datetime',
+            'vetpoint_date_souhaitee' => 'date',
             'receptionnee_le' => 'datetime',
         ];
     }

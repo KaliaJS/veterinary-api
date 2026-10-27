@@ -95,6 +95,97 @@ class ClientVetpoint
         return $prix;
     }
 
+    /**
+     * Adresses de livraison du compte Vetpoint de la clinique (les seules
+     * permises pour les médicaments).
+     *
+     * @return list<array{id: string, libelle: string, par_defaut: bool}>
+     */
+    public function adressesLivraison(): array
+    {
+        $liste = $this->appeler(fn (PendingRequest $http): Response => $http->get('/v1/shipping-address'));
+        $adresses = [];
+        foreach (array_is_list($liste) ? $liste : [] as $adresse) {
+            if (! is_array($adresse) || ! isset($adresse['shippingAddressId']) || ! is_scalar($adresse['shippingAddressId'])) {
+                continue;
+            }
+            $champ = fn (string $nom): string => is_scalar($adresse[$nom] ?? null) ? trim((string) $adresse[$nom]) : '';
+            $nom = $champ('company') !== '' ? $champ('company') : trim($champ('firstName').' '.$champ('lastName'));
+            $adresses[] = [
+                'id' => (string) $adresse['shippingAddressId'],
+                'libelle' => implode(', ', array_filter([$nom, $champ('address1'), $champ('address2'), trim($champ('postalCode').' '.$champ('city'))])),
+                'par_defaut' => ($adresse['defaultShippingAddress'] ?? false) === true,
+            ];
+        }
+
+        return $adresses;
+    }
+
+    /**
+     * Envoie une commande, en une fois (tout ou rien chez Vetpoint). Rend son
+     * numéro Vetpoint. Un refus (400, 404, 422) : VetpointRefus, rien n'est
+     * parti ; une panne : on ne sait pas, à retrouver avant de renvoyer.
+     *
+     * @param  array<string, mixed>  $commande
+     */
+    public function commander(array $commande): string
+    {
+        $reponse = $this->requete(fn (PendingRequest $http): Response => $http->post('/v1/order', $commande));
+        if (in_array($reponse->status(), [400, 404, 422], true)) {
+            throw VetpointRefus::depuis($reponse);
+        }
+        if ($reponse->failed()) {
+            throw new VetpointIndisponible;
+        }
+        // « Order ID » : en texte, en chaîne JSON ou dans un objet
+        $json = $reponse->json();
+        $numero = match (true) {
+            is_array($json) && is_scalar($json['orderId'] ?? null) => (string) $json['orderId'],
+            is_scalar($json) => (string) $json,
+            default => trim($reponse->body(), " \n\r\t\""),
+        };
+        if ($numero === '' || mb_strlen($numero) > 40) {
+            throw new VetpointIndisponible;
+        }
+
+        return $numero;
+    }
+
+    /**
+     * Commandes passées entre deux dates (incluses).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function commandes(string $du, string $au): array
+    {
+        $liste = $this->appeler(fn (PendingRequest $http): Response => $http->get('/v1/order', ['fromDate' => $du, 'thruDate' => $au]));
+
+        // Sans commande : `{}` plutôt qu'une liste vide
+        return array_values(array_filter(array_is_list($liste) ? $liste : [], 'is_array'));
+    }
+
+    /** @return array<string, mixed> */
+    public function commande(string $numero): array
+    {
+        return $this->appeler(fn (PendingRequest $http): Response => $http->get('/v1/order/'.rawurlencode($numero)));
+    }
+
+    /** Premier jour du mois de péremption (format des lots), d'une date de Vetpoint de forme connue. */
+    public static function peremption(mixed $valeur): ?string
+    {
+        if (! is_string($valeur) || trim($valeur) === '') {
+            return null;
+        }
+        $valeur = trim($valeur);
+        foreach (['/^(\d{4})-(\d{2})(?:-\d{2})?/' => [1, 2], '/^\d{2}\.(\d{2})\.(\d{4})$/' => [2, 1], '/^(\d{2})\.(\d{4})$/' => [2, 1], '/^(\d{2})\/(\d{4})$/' => [2, 1]] as $forme => [$annee, $mois]) {
+            if (preg_match($forme, $valeur, $m) === 1 && checkdate((int) $m[$mois], 1, (int) $m[$annee])) {
+                return sprintf('%04d-%02d-01', (int) $m[$annee], (int) $m[$mois]);
+            }
+        }
+
+        return null;
+    }
+
     /** Un montant lisible et fini (1e400 ou « n/a » : aucun). */
     public static function nombre(mixed $valeur): ?float
     {
@@ -106,6 +197,29 @@ class ClientVetpoint
      * @return array<array-key, mixed>
      */
     private function appeler(callable $appel, bool $introuvableVide = false): array
+    {
+        $reponse = $this->requete($appel);
+
+        // « Product not found » seulement (OpenAPI) : une page 404, un « Not
+        // Found » générique ou un message d'une autre forme sont une panne
+        $message = is_array($reponse->json()) ? ($reponse->json()['errorMessage'] ?? null) : null;
+        if ($reponse->status() === 404 && $introuvableVide && is_string($message) && strcasecmp(trim($message), 'Product not found') === 0) {
+            return [];
+        }
+        if ($reponse->failed() || ! is_array($reponse->json())) {
+            throw new VetpointIndisponible;
+        }
+
+        return $reponse->json();
+    }
+
+    /**
+     * L'appel, avec les refus communs : clé (401), conditions (403), limite
+     * (429), serveur injoignable.
+     *
+     * @param  callable(PendingRequest): Response  $appel
+     */
+    private function requete(callable $appel): Response
     {
         try {
             $reponse = $appel(Http::baseUrl(rtrim((string) config('services.vetpoint.url'), '/'))
@@ -123,19 +237,10 @@ class ClientVetpoint
         if ($reponse->status() === 403) {
             throw new VetpointCgv;
         }
-        // « Product not found » seulement (OpenAPI) : une page 404, un « Not
-        // Found » générique ou un message d'une autre forme sont une panne
-        $message = is_array($reponse->json()) ? ($reponse->json()['errorMessage'] ?? null) : null;
-        if ($reponse->status() === 404 && $introuvableVide && is_string($message) && strcasecmp(trim($message), 'Product not found') === 0) {
-            return [];
-        }
         if ($reponse->status() === 429) {
             throw new VetpointLimite;
         }
-        if ($reponse->failed() || ! is_array($reponse->json())) {
-            throw new VetpointIndisponible;
-        }
 
-        return $reponse->json();
+        return $reponse;
     }
 }

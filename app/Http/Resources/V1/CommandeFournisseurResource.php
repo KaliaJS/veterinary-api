@@ -23,6 +23,13 @@ class CommandeFournisseurResource extends JsonResource
             'statut' => $this->statut,
             'envoyee_le' => $this->envoyee_le,
             'receptionnee_le' => $this->receptionnee_le,
+            // Envoyée (ou en route) par Vetpoint (28.10.2026)
+            'vetpoint' => $this->vetpoint_commande_id !== null || $this->vetpoint_envoi_le !== null ? [
+                'numero' => $this->vetpoint_commande_id,
+                'livraison' => $this->vetpoint_livraison,
+                'date_souhaitee' => $this->vetpoint_date_souhaitee?->toDateString(),
+                'envoi_en_cours' => $this->vetpoint_commande_id === null,
+            ] : null,
             'lignes' => $this->whenLoaded(
                 'lignes',
                 fn () => $this->lignes->map(fn (CommandeFournisseurLigne $ligne): array => [
