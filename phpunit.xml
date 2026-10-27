@@ -27,6 +27,7 @@
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
         <env name="ANNUAIRE_CACHE_SECONDES" value="0"/>
+        <env name="ACCES_SUR_INVITATION" value="false" force="true"/>
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>

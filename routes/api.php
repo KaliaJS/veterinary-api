@@ -105,6 +105,8 @@ use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PhotoCliniqueController;
 use App\Http\Controllers\Api\V1\PhotoEmployeController;
 use App\Http\Controllers\Api\V1\PhotoPatientController;
+use App\Http\Controllers\Api\V1\Plateforme\FonctionEssaiPlateformeController;
+use App\Http\Controllers\Api\V1\Plateforme\InvitationAccesPlateformeController;
 use App\Http\Controllers\Api\V1\Plateforme\OrganisationPlateformeController;
 use App\Http\Controllers\Api\V1\Plateforme\VeterinairePlateformeController;
 use App\Http\Controllers\Api\V1\PremiersPasController;
@@ -205,6 +207,14 @@ Route::prefix('v1')->group(function (): void {
         Route::get('organisations', [OrganisationPlateformeController::class, 'index']);
         Route::post('organisations/{organisation}/valider', [OrganisationPlateformeController::class, 'valider'])->whereNumber('organisation');
         Route::post('organisations/{organisation}/refuser', [OrganisationPlateformeController::class, 'refuser'])->whereNumber('organisation');
+        // Accès sur invitation (27.10.2026)
+        Route::get('invitations', [InvitationAccesPlateformeController::class, 'index']);
+        Route::post('invitations', [InvitationAccesPlateformeController::class, 'store'])->middleware('throttle:30,1');
+        Route::delete('invitations/{invitation}', [InvitationAccesPlateformeController::class, 'destroy'])->whereNumber('invitation');
+        // Fonctions en essai (Laravel Pennant, 27.10.2026)
+        Route::get('fonctions', [FonctionEssaiPlateformeController::class, 'index']);
+        Route::post('fonctions/{nom}/activer', [FonctionEssaiPlateformeController::class, 'activer']);
+        Route::post('fonctions/{nom}/retirer', [FonctionEssaiPlateformeController::class, 'retirer']);
     });
 
     // Invitation à rejoindre une équipe : tout compte connecté, avec ou

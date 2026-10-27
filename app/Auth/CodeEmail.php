@@ -2,10 +2,12 @@
 
 namespace App\Auth;
 
+use App\Mail\AccesSurInvitation;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
@@ -37,7 +39,7 @@ class CodeEmail
      */
     private const int ESSAIS_JOUR = 20;
 
-    public function __construct(private CreationCompte $comptes) {}
+    public function __construct(private CreationCompte $comptes, private AdressesInvitees $invitees) {}
 
     /**
      * Compte connu ou non : le code part vers l'adresse donnée. Avec
@@ -47,6 +49,15 @@ class CodeEmail
      */
     public function envoyer(string $email, bool $lienConnexion = true): void
     {
+        // Accès sur invitation (27.10.2026) : une adresse sans compte et non
+        // invitée reçoit « sur invitation » au lieu d'un code ; la réponse de
+        // l'écran reste la même, rien ne dit qui est invité
+        if (! User::where('email', $email)->exists() && ! $this->invitees->peutCreerUnCompte($email)) {
+            Mail::to(mb_strtolower(trim($email)))->send(new AccesSurInvitation);
+
+            return;
+        }
+
         // Huit chiffres (23.10.2026) : cent fois plus long à deviner que six
         $code = (string) random_int(10000000, 99999999);
 
@@ -105,7 +116,15 @@ class CodeEmail
             ]);
         }
 
-        $user = User::where('email', $email)->first() ?? $this->comptes->creer($email);
+        $user = User::where('email', $email)->first();
+        if ($user === null) {
+            // Un code obtenu avant la fermeture ne crée pas de compte après
+            if (! $this->invitees->peutCreerUnCompte($email)) {
+                throw ValidationException::withMessages(['code' => 'Code invalide ou expiré.']);
+            }
+            $user = $this->comptes->creer($email);
+            $this->invitees->marquerUtilisee($email);
+        }
 
         // Un modérateur de la plateforme qui a une passkey ne se connecte
         // qu'avec elle (23.10.2026) : son compte voit toutes les cliniques

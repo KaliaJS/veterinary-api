@@ -10,6 +10,7 @@ use App\Models\CliniqueService;
 use App\Models\Employe;
 use App\Models\JetonApi;
 use App\Models\User;
+use App\Services\Plateforme\FonctionsEssai;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -78,6 +79,13 @@ class SessionResource extends JsonResource
             'permissions' => $this->permissions ?? ($this->employe ? app(CalculateurPermissions::class)->pour(
                 $this->employe->loadMissing(['role', 'derogations']),
             ) : []),
+            // Fonctions en essai actives pour la personne, l'organisation de
+            // la clinique du jeton ou tout le monde (27.10.2026) : l'app cache
+            // le reste, l'API le refuse (`fonction:nom`)
+            'fonctions' => app(FonctionsEssai::class)->actives(
+                $this->user,
+                $this->employe ? app(FonctionsEssai::class)->organisationDuJeton($this->jeton) : null,
+            ),
         ];
     }
 

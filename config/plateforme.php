@@ -30,4 +30,18 @@ return [
     // visite ne recalcule pas toutes les cliniques (23.10.2026). 0 : jamais
     'annuaire_cache_secondes' => (int) env('ANNUAIRE_CACHE_SECONDES', 60),
 
+    // Accès sur invitation (décision de Jim, 27.10.2026) : tant que c'est
+    // vrai, seules les adresses invitées créent un compte (liste de la
+    // plateforme, équipe ou fiche client d'une clinique vérifiée). Fermé
+    // par défaut : un oubli au déploiement n'ouvre rien. À false le jour
+    // de l'ouverture
+    'acces_sur_invitation' => (bool) env('ACCES_SUR_INVITATION', true),
+
+    // Fonctions en essai (Laravel Pennant, 27.10.2026) : nom => libellé
+    // montré dans l'écran Plateforme. Une fonction ajoutée ici s'active
+    // ensuite pour un compte, une organisation ou tout le monde ; ses
+    // routes prennent le middleware `fonction:nom`, l'app la teste par
+    // `auth.aFonction('nom')`. Retirée d'ici le jour où elle sort d'essai
+    'fonctions_essai' => [],
+
 ];
