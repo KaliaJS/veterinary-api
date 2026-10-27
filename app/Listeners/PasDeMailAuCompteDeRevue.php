@@ -21,6 +21,7 @@ class PasDeMailAuCompteDeRevue
     public function handle(MessageSending $evenement): ?bool
     {
         $message = $evenement->message;
+        $retiree = false;
 
         foreach (['To' => $message->getTo(), 'Cc' => $message->getCc(), 'Bcc' => $message->getBcc()] as $entete => $adresses) {
             $gardees = array_values(array_filter($adresses, fn (Address $adresse) => ! $this->revue->estAdresseDeRevue($adresse->getAddress())));
@@ -31,10 +32,16 @@ class PasDeMailAuCompteDeRevue
             if ($entete === 'To' && $gardees === []) {
                 return false;
             }
+            $retiree = true;
             // Plus personne en copie : l'en-tête part, plutôt que de rester vide
             $gardees === []
                 ? $message->getHeaders()->remove($entete)
                 : $message->getHeaders()->get($entete)?->setBody($gardees);
+        }
+
+        // Elle seule en copie, sans destinataire principal : plus personne, rien ne part
+        if ($retiree && $message->getTo() === [] && $message->getCc() === [] && $message->getBcc() === []) {
+            return false;
         }
 
         return null;

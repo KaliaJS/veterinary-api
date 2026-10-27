@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Listeners\LogoDansLesMails;
 use App\Mail\AccesSurInvitation;
 use App\Notifications\CodeEmailNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -85,7 +86,20 @@ class CompteRevueAppleMailsTest extends TestCase
     {
         Mail::to('paul@exemple.ch')->send(new AccesSurInvitation);
 
-        $this->assertCount(1, $this->envoyes());
+        $envoyes = $this->envoyes();
+        $this->assertCount(1, $envoyes);
+        // Le garde laisse passer les autres listeners : le logo reste joint
+        $logo = array_filter($envoyes[0]->getAttachments(), fn ($partie) => $partie->getContentId() === LogoDansLesMails::CID);
+        $this->assertCount(1, $logo);
+    }
+
+    /** Sans destinataire principal, l'adresse de revue seule en copie : rien ne part (et rien ne plante). */
+    public function test_sans_destinataire_principal_l_adresse_de_revue_seule_en_copie_ne_recoit_rien(): void
+    {
+        Mail::bcc(self::ADRESSE)->send(new AccesSurInvitation);
+        Mail::cc([['email' => 'Revue@Veterinary.app', 'name' => 'Revue']])->send(new AccesSurInvitation);
+
+        $this->assertSame([], $this->envoyes());
     }
 
     /** Sans réglage valable, l'adresse de revue est une adresse comme les autres. */
