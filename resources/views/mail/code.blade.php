@@ -3,6 +3,9 @@
     Identité de la modale de connexion du site : fond nuit, carte vitrée,
     wordmark manuscrit en dégradé, cadre au liseré dégradé. HTML d'e-mail :
     tableaux et styles en ligne ; images intégrées (CID), pas de SVG.
+    Mail de macOS en sombre (27.10.2026) : la taille du wordmark va dans
+    le style (il ignore l'attribut width), et le bouton n'est jamais en
+    blanc pur (#ffffff), qu'il assombrit sans éclaircir le texte.
 --}}
 @php
     $wordmark = $message->embed(resource_path('mail/wordmark.png'));
@@ -33,7 +36,7 @@
                     {{-- Marque --}}
                     <tr>
                         <td align="center" style="padding-bottom:26px;">
-                            <img src="{{ $wordmark }}" width="168" height="43" alt="veterinary" style="display:block; border:0;">
+                            <img src="{{ $wordmark }}" width="168" height="43" alt="veterinary" style="display:block; border:0; width:168px; max-width:168px; height:43px;">
                         </td>
                     </tr>
 
@@ -86,7 +89,7 @@
                                         <td align="center" style="padding:18px 0 4px;">
                                             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                                                 <tr>
-                                                    <td class="bouton" align="center" bgcolor="#ffffff" style="background-color:#ffffff; border-radius:999px;">
+                                                    <td class="bouton" align="center" bgcolor="#fbfaff" style="background-color:#fbfaff; border-radius:999px;">
                                                         <a href="{{ $lien }}" target="_blank" style="display:inline-block; padding:14px 30px; font-family:{{ $police }}; font-size:15px; line-height:20px; font-weight:700; color:#13111b; text-decoration:none; border-radius:999px;">Me connecter en un clic</a>
                                                     </td>
                                                 </tr>
