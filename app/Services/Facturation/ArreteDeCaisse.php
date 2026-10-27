@@ -91,7 +91,8 @@ class ArreteDeCaisse
         // gardé au Z (apport) ; ce qui n'est ni déposé ni en fond se justifie
         $alerte = $depot > $comptees + 0.005 ? 'Le dépôt ne dépasse jamais les espèces comptées.' : null;
         $nonVentile = max(0.0, round($comptees - $depot - $nouveauFond, 2));
-        $apportCoffre = max(0.0, round($depot + $nouveauFond - $comptees, 2));
+        // Un dépôt plus grand que compté n'a pas d'apport : il est refusé tel quel
+        $apportCoffre = $alerte === null ? max(0.0, round($depot + $nouveauFond - $comptees, 2)) : 0.0;
         // Une seule règle, pour l'aperçu et pour le Z : un écart, (paiements
         // intégrés) une carte ou un TWINT saisi à la main, ou des espèces ni
         // déposées ni dans le fond ; tous dits quand plusieurs coexistent
@@ -102,7 +103,7 @@ class ArreteDeCaisse
             // Tout déposé et le fond refait depuis le coffre : accepté avec une
             // note (décision de Jim, 27.10.2026) ; un fond complété sans dépôt,
             // sans note
-            'apport_coffre' => $alerte === null && $depot > 0.005 && $apportCoffre >= 0.005,
+            'apport_coffre' => $depot > 0.005 && $apportCoffre >= 0.005,
         ]));
 
         return [

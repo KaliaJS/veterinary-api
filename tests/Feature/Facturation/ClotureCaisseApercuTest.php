@@ -454,4 +454,78 @@ class ClotureCaisseApercuTest extends TestCase
             ->assertJsonPath('data.especes_comptees', 11.5)
             ->assertJsonPath('data.ecart', 0);
     }
+
+    /** Fond 200, 300 encaissés, 480 comptés (écart −20), une carte saisie sans terminal, 400 déposés et 200 en fond (120 du coffre) : les trois motifs, l'apport en dernier. */
+    public function test_l_apport_du_coffre_vient_apres_les_autres_motifs(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+        $this->facturePayee(MoyenPaiement::Tpe, 85, aLaMain: true);
+
+        $this->apercu(['fond' => 200, 'comptage' => [10000 => 4, 2000 => 4], 'nouveau_fond' => 200, 'depot' => 400])
+            ->assertJsonPath('data.apport_coffre', 120)
+            ->assertJsonPath('data.motifs_justification', ['ecart', 'sans_terminal', 'apport_coffre']);
+    }
+
+    /** 480 comptés (écart −20), 600 déposés, sans note : le dépôt trop grand est dit, pas la note. */
+    public function test_un_depot_trop_grand_est_dit_avant_la_note(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 200, 'comptage' => [10000 => 4, 2000 => 4], 'nouveau_fond' => 200, 'depot' => 600], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['depot' => 'Le dépôt ne dépasse jamais les espèces comptées.'])
+            ->assertJsonMissingValidationErrors('note');
+    }
+
+    /** 500 comptés, 600 déposés : l'alerte seule, ni apport ni motif « coffre » (aucune note ne rattrape ce dépôt). */
+    public function test_un_depot_trop_grand_ne_sert_pas_d_apport(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+
+        $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 200, 'depot' => 600])
+            ->assertJsonPath('data.alerte_depot', 'Le dépôt ne dépasse jamais les espèces comptées.')
+            ->assertJsonPath('data.apport_coffre', 0)
+            ->assertJsonPath('data.motifs_justification', []);
+    }
+
+    /** Deux cartes saisies sans terminal : le message est au pluriel. */
+    public function test_le_message_des_saisies_sans_terminal_est_au_pluriel(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 100);
+        $this->facturePayee(MoyenPaiement::Tpe, 85, aLaMain: true);
+        $this->facturePayee(MoyenPaiement::Twint, 40, aLaMain: true);
+
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 0, 'comptage' => [10000 => 1], 'nouveau_fond' => 0], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['note' => '2 paiements par carte ou TWINT ont été saisis sans terminal : justifiez-les dans la note.']);
+    }
+
+    /** 500 comptés, 250 déposés, 200 en fond : aucun apport (jamais −50), 50 non ventilés, à l'aperçu comme au Z. */
+    public function test_l_apport_n_est_jamais_negatif(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+        $donnees = ['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 200, 'depot' => 250];
+
+        $this->apercu($donnees)->assertJsonPath('data.apport_coffre', 0);
+        $this->postJson('/api/v1/facturation/clotures-caisse', [...$donnees, 'note' => 'Monnaie gardée.'], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.apport_coffre', 0)
+            ->assertJsonPath('data.non_ventile', 50);
+    }
+
+    /** Au centime : 500.01 déposés pour 500 comptés, refusé ; 0.01 du coffre avec un dépôt, note demandée ; un dépôt de 0.01 compte comme un dépôt. */
+    public function test_les_seuils_se_jouent_au_centime(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+
+        $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 0, 'depot' => 500.01])
+            ->assertJsonPath('data.alerte_depot', 'Le dépôt ne dépasse jamais les espèces comptées.');
+        $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 200.01, 'depot' => 300])
+            ->assertJsonPath('data.alerte_depot', null)
+            ->assertJsonPath('data.apport_coffre', 0.01)
+            ->assertJsonPath('data.motifs_justification', ['apport_coffre']);
+        $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 600, 'depot' => 0.01])
+            ->assertJsonPath('data.motifs_justification', ['apport_coffre']);
+        $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 600, 'depot' => 0])
+            ->assertJsonPath('data.motifs_justification', []);
+    }
 }
