@@ -94,16 +94,16 @@ class ArreteDeCaisse
         // Un dépôt plus grand que compté n'a pas d'apport : il est refusé tel quel
         $apportCoffre = $alerte === null ? max(0.0, round($depot + $nouveauFond - $comptees, 2)) : 0.0;
         // Une seule règle, pour l'aperçu et pour le Z : un écart, (paiements
-        // intégrés) une carte ou un TWINT saisi à la main, ou des espèces ni
-        // déposées ni dans le fond ; tous dits quand plusieurs coexistent
+        // intégrés) une carte ou un TWINT saisi à la main, des espèces ni
+        // déposées ni dans le fond, ou de l'argent venu du coffre ; tous dits
+        // quand plusieurs coexistent
         $motifs = array_keys(array_filter([
             'ecart' => abs($ecart) >= 0.005,
             'sans_terminal' => $modeIntegre && $sansTerminalTotal > 0,
             'non_ventile' => $nonVentile >= 0.005,
-            // Tout déposé et le fond refait depuis le coffre : accepté avec une
-            // note (décision de Jim, 27.10.2026) ; un fond complété sans dépôt,
-            // sans note
-            'apport_coffre' => $depot > 0.005 && $apportCoffre >= 0.005,
+            // Le fond refait ou complété avec l'argent du coffre, avec ou sans
+            // dépôt : accepté avec une note (décisions de Jim, 27.10.2026)
+            'apport_coffre' => $apportCoffre >= 0.005,
         ]));
 
         return [

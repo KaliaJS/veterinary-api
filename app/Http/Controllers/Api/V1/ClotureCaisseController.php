@@ -119,7 +119,7 @@ class ClotureCaisseController extends Controller
 
             // La même règle que l'aperçu : un écart, une carte ou un TWINT saisi
             // à la main (paiements intégrés), des espèces ni déposées ni en
-            // fond, un fond refait depuis le coffre après un dépôt
+            // fond, de l'argent venu du coffre dans le nouveau fond
             $note = trim((string) ($donnees['note'] ?? ''));
             if ($arrete['justification_requise'] && $note === '') {
                 $saisiesALaMain = $arrete['sans_terminal'];

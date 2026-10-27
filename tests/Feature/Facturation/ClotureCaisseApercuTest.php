@@ -370,21 +370,35 @@ class ClotureCaisseApercuTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['depot' => 'Le dépôt ne dépasse jamais les espèces comptées.']);
     }
 
-    /** 100 comptés et un nouveau fond de 200 sans dépôt : le fond est complété (coffre), accepté. */
-    public function test_un_fond_complete_sans_depot_est_accepte(): void
+    /** 100 comptés et un nouveau fond de 200 sans dépôt : le fond est complété par le coffre, note demandée aussi (décision de Jim, 27.10.2026), le Z garde les 100 venus du coffre. */
+    public function test_un_fond_complete_sans_depot_demande_aussi_une_note(): void
     {
         $this->facturePayee(MoyenPaiement::Especes, 50);
+        $donnees = ['fond' => 50, 'comptage' => [10000 => 1], 'nouveau_fond' => 200, 'depot' => 0];
 
         $this->apercu(['fond' => 50, 'comptage' => [10000 => 1], 'nouveau_fond' => 200])
             ->assertJsonPath('data.alerte_depot', null)
             ->assertJsonPath('data.non_ventile', 0)
             ->assertJsonPath('data.apport_coffre', 100)
-            ->assertJsonPath('data.justification_requise', false);
+            ->assertJsonPath('data.motifs_justification', ['apport_coffre'])
+            ->assertJsonPath('data.justification_requise', true);
+        $this->postJson('/api/v1/facturation/clotures-caisse', $donnees, $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['note' => 'CHF 100.00 ajoutés au nouveau fond depuis le coffre : indiquez-le dans la note.']);
         // Le Z enregistré sert 0 non ventilé, jamais −100, et les 100 venus du coffre
-        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 50, 'comptage' => [10000 => 1], 'nouveau_fond' => 200, 'depot' => 0], $this->enTetes($this->jeton))
+        $this->postJson('/api/v1/facturation/clotures-caisse', [...$donnees, 'note' => 'Fond complété depuis le coffre.'], $this->enTetes($this->jeton))
             ->assertCreated()
             ->assertJsonPath('data.non_ventile', 0)
             ->assertJsonPath('data.apport_coffre', 100);
+    }
+
+    /** Une faute de frappe (nouveau fond 5000 pour 500 comptés, sans dépôt) se voit le soir même : 4500 du coffre, note demandée. */
+    public function test_un_nouveau_fond_demesure_demande_une_note_le_soir_meme(): void
+    {
+        $this->facturePayee(MoyenPaiement::Especes, 300);
+
+        $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 5000])
+            ->assertJsonPath('data.apport_coffre', 4500)
+            ->assertJsonPath('data.motifs_justification', ['apport_coffre']);
     }
 
     /** 500 comptés, 200 de fond, 250 déposés : 50 ni déposés ni dans le fond, à expliquer dans la note. */
@@ -512,7 +526,7 @@ class ClotureCaisseApercuTest extends TestCase
             ->assertJsonPath('data.non_ventile', 50);
     }
 
-    /** Au centime : 500.01 déposés pour 500 comptés, refusé ; 0.01 du coffre avec un dépôt, note demandée ; un dépôt de 0.01 compte comme un dépôt. */
+    /** Au centime : 500.01 déposés pour 500 comptés, refusé ; 0.01 du coffre, avec ou sans dépôt, note demandée ; moins d'un centime, rien. */
     public function test_les_seuils_se_jouent_au_centime(): void
     {
         $this->facturePayee(MoyenPaiement::Especes, 300);
@@ -523,9 +537,11 @@ class ClotureCaisseApercuTest extends TestCase
             ->assertJsonPath('data.alerte_depot', null)
             ->assertJsonPath('data.apport_coffre', 0.01)
             ->assertJsonPath('data.motifs_justification', ['apport_coffre']);
-        $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 600, 'depot' => 0.01])
+        $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 500.01, 'depot' => 0])
+            ->assertJsonPath('data.apport_coffre', 0.01)
             ->assertJsonPath('data.motifs_justification', ['apport_coffre']);
-        $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 600, 'depot' => 0])
+        $this->apercu(['fond' => 200, 'comptage' => [10000 => 5], 'nouveau_fond' => 500.004, 'depot' => 0])
+            ->assertJsonPath('data.apport_coffre', 0)
             ->assertJsonPath('data.motifs_justification', []);
     }
 }
