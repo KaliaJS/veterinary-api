@@ -137,14 +137,19 @@ class ClientVetpoint
         if ($reponse->failed()) {
             throw new VetpointIndisponible;
         }
-        // « Order ID » : en texte, en chaîne JSON ou dans un objet
-        $json = $reponse->json();
+        // « Order ID » : en texte, en chaîne JSON ou dans `{orderId}`. Toute
+        // autre forme ({"id":…}, [], null) n'en donne pas : la commande est
+        // peut-être partie, l'essai suivant la cherche par sa note
+        $corps = trim($reponse->body());
+        $json = json_decode($corps, true);
         $numero = match (true) {
-            is_array($json) && is_scalar($json['orderId'] ?? null) => (string) $json['orderId'],
-            is_scalar($json) => (string) $json,
-            default => trim($reponse->body(), " \n\r\t\""),
+            json_last_error() !== JSON_ERROR_NONE => $corps,
+            is_string($json) || is_int($json) => (string) $json,
+            is_array($json) && (is_string($json['orderId'] ?? null) || is_int($json['orderId'] ?? null)) => (string) $json['orderId'],
+            default => '',
         };
-        if ($numero === '' || mb_strlen($numero) > 40) {
+        $numero = trim($numero);
+        if ($numero === '' || mb_strlen($numero) > 40 || preg_match('/[\p{Cc}\s"{}\[\]]/u', $numero) === 1) {
             throw new VetpointIndisponible;
         }
 

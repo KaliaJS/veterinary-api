@@ -51,6 +51,14 @@ class VetpointCommandeTest extends TestCase
 
     private ?array $detail = null;
 
+    private ?int $rechercheRefusee = null;
+
+    /** Vetpoint ne rend pas la note interne des lignes dans GET /v1/order */
+    private bool $sansNote = false;
+
+    /** Corps JSON de la réponse 200 à un envoi (forme inattendue) */
+    private ?string $reponseEnvoi = null;
+
     /** Numéros des brouillons : le premier est BC-2026-042 */
     private int $prochainNumero = 42;
 
@@ -81,6 +89,9 @@ class VetpointCommandeTest extends TestCase
                     ['shippingAddressId' => 'A2', 'company' => 'Clinique des Deux Rives', 'address1' => 'Chemin Vert 4', 'postalCode' => '1004', 'city' => 'Lausanne', 'defaultShippingAddress' => true],
                 ]);
             }
+            if ($chemin === '/v1/order' && $requete->method() === 'GET' && $this->rechercheRefusee !== null) {
+                return Http::response(['errorMessage' => 'refus'], $this->rechercheRefusee);
+            }
             if ($chemin === '/v1/order' && $requete->method() === 'GET') {
                 // Sans commande, Vetpoint répond `{}` (lu sur le serveur de test)
                 return $this->commandesVetpoint === [] ? Http::response('{}', 200, ['Content-Type' => 'application/json']) : Http::response($this->commandesVetpoint);
@@ -91,11 +102,11 @@ class VetpointCommandeTest extends TestCase
                 }
                 if ($this->envoiPerdu) {
                     // Vetpoint l'a reçue, mais la réponse se perd en route
-                    $this->commandesVetpoint[] = ['orderId' => 'V-7001', 'orderDate' => now()->toIso8601String(), 'orderItems' => array_map(fn (array $ligne) => ['productId' => $ligne['productId'], 'quantity' => $ligne['quantity'], 'orderNote' => $ligne['orderNote'] ?? null], $requete->data()['orderItems'] ?? [])];
+                    $this->commandesVetpoint[] = ['orderId' => 'V-7001', 'orderDate' => now()->toIso8601String(), 'orderItems' => array_map(fn (array $ligne) => ['productId' => $ligne['productId'], 'quantity' => $ligne['quantity'], 'orderNote' => $this->sansNote ? null : ($ligne['orderNote'] ?? null)], $requete->data()['orderItems'] ?? [])];
                     throw new ConnectionException('Délai dépassé');
                 }
 
-                return Http::response('V-7001');
+                return $this->reponseEnvoi !== null ? Http::response($this->reponseEnvoi, 200, ['Content-Type' => 'application/json']) : Http::response('V-7001');
             }
             if (str_starts_with($chemin, '/v1/order/')) {
                 return $this->detail === null ? Http::response(['errorMessage' => 'Server Error'], 500) : Http::response($this->detail);
@@ -349,5 +360,172 @@ class VetpointCommandeTest extends TestCase
 
         $this->assertSame('10.00', (string) $commande->lignes()->first()->cout);
         $this->assertSame('2027-01-01', Lot::query()->where('produit_id', $produit->id)->sole()->peremption_le->toDateString());
+    }
+
+    /* ——— 2e passe (28.10.2026) ——— */
+
+    /** Réponse perdue, puis la recherche refusée (trop d'appels) : la commande n'est jamais renvoyée sans avoir été cherchée. */
+    public function test_une_recherche_refusee_apres_une_reponse_perdue_ne_libere_pas_la_commande(): void
+    {
+        $commande = $this->brouillon();
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+
+        foreach ([429, 401, 403] as $statut) {
+            $this->travel(2)->minutes();
+            $this->rechercheRefusee = $statut;
+            $this->envoyer($commande)->assertStatus($statut === 429 ? 429 : 409);
+        }
+        $this->travel(2)->minutes();
+        $this->rechercheRefusee = null;
+        $this->envoyer($commande)->assertOk()->assertJsonPath('data.vetpoint.numero', 'V-7001');
+
+        $this->assertCount(1, $this->envois());
+    }
+
+    /** Réponse 200 sans numéro lisible : rien n'est gardé de faux ; l'essai suivant retrouve la commande chez Vetpoint. */
+    public function test_une_reponse_d_envoi_sans_numero_lisible_ne_garde_rien_de_faux(): void
+    {
+        foreach (['{"id":"X1"}', '[]', 'null', '{"orderId":null}'] as $corps) {
+            $commande = $this->brouillon();
+            $this->reponseEnvoi = $corps;
+
+            $this->envoyer($commande)->assertStatus(503);
+
+            $this->assertNull($commande->refresh()->vetpoint_commande_id, $corps);
+            $this->assertSame(StatutCommandeFournisseur::Brouillon, $commande->statut);
+        }
+    }
+
+    /** Sans note interne rendue par Vetpoint : la commande se reconnaît à ses produits, ses quantités et son heure. */
+    public function test_sans_note_la_commande_se_retrouve_par_ses_produits_et_son_heure(): void
+    {
+        $commande = $this->brouillon(['913-306334' => 'Rimadyl 50 mg', '913-111111' => 'Metacam 1.5']);
+        $this->sansNote = true;
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+
+        $this->travel(2)->minutes();
+        $this->envoyer($commande)->assertOk()->assertJsonPath('data.vetpoint.numero', 'V-7001');
+
+        $this->assertCount(1, $this->envois());
+    }
+
+    /** La recherche couvre depuis la création du brouillon : un essai tardif en panne ne fait pas oublier le premier envoi. */
+    public function test_la_recherche_couvre_depuis_la_creation_du_brouillon(): void
+    {
+        $commande = $this->brouillon();
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+
+        // Trois jours plus tard, un essai dont la recherche tombe en panne, puis un dernier essai
+        $this->travel(3)->days();
+        $this->rechercheRefusee = 500;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->rechercheRefusee = null;
+        $this->travel(2)->minutes();
+        $this->envoyer($commande)->assertOk();
+
+        $this->assertCount(1, $this->envois());
+        $recherches = array_values(array_filter($this->appels, fn (array $a) => $a['methode'] === 'GET' && $a['chemin'] === '/v1/order'));
+        $this->assertSame('2026-10-27', end($recherches)['corps']['fromDate']);
+    }
+
+    /** Une clinique sœur qui a sa clé : la commande qu'elle reçoit part avec sa clé à elle. */
+    public function test_une_commande_livree_a_une_clinique_soeur_part_avec_la_cle_de_la_soeur(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        ConnexionVetpoint::withoutGlobalScopes()->create(['clinique_id' => $soeur->id, 'cle' => self::CLE, 'verifiee_le' => now()]);
+        $commande = $this->brouillon();
+        $commande->forceFill(['clinique_id' => $soeur->id])->save();
+
+        $this->refus = ['statut' => 422, 'corps' => ['errorTyoe' => '4002', 'errorMessage' => 'invalid']];
+        $this->envoyer($commande)->assertUnprocessable();
+        $this->assertNull($commande->refresh()->vetpoint_envoi_le);
+        $this->refus = null;
+
+        $this->envoyer($commande)->assertOk()->assertJsonPath('data.vetpoint.numero', 'V-7001');
+        $this->assertSame(StatutCommandeFournisseur::Envoyee, $commande->refresh()->statut);
+    }
+
+    public function test_les_refus_sans_code_ou_en_allemand_restent_justes(): void
+    {
+        $cas = [
+            [400, ['errorMessage' => 'Invalid date format'], 'Vetpoint a refusé la commande. Son message : « Invalid date format ».'],
+            [422, ['errorMessage' => "Das Produkt 'Hill's i/d 2 kg' hat eine Mindestbestellmenge von 3"], 'Le produit « Hill\'s i/d 2 kg » se commande par 3 au moins.'],
+            [422, ['errorMessage' => 'Lieferung 2026 nicht möglich'], 'Vetpoint a refusé la commande. Son message : « Lieferung 2026 nicht möglich ».'],
+            [422, ['errorTyoe' => '1064', 'errorMessage' => 'express'], 'Pas de date souhaitée en express : la livraison est la plus rapide possible.'],
+            [422, ['errorTyoe' => '4001', 'errorMessage' => 'no address'], 'Choisissez une adresse de livraison.'],
+            [422, ['errorTyoe' => '1066', 'errorMessage' => 'postal code'], 'L’adresse de livraison est incomplète chez Vetpoint.'],
+        ];
+        foreach ($cas as [$statut, $corps, $message]) {
+            $commande = $this->brouillon();
+            $this->refus = ['statut' => $statut, 'corps' => $corps];
+
+            $this->assertSame($message, $this->envoyer($commande)->json('errors.vetpoint.0'));
+        }
+    }
+
+    /** La date souhaitée part avec le décalage horaire de la clinique. */
+    public function test_la_date_souhaitee_part_avec_le_decalage_horaire_de_la_clinique(): void
+    {
+        $commande = $this->brouillon();
+
+        $this->envoyer($commande, ['adresse_id' => 'A2', 'livraison' => 'standard', 'date_souhaitee' => '2026-11-03'])->assertOk();
+
+        // Midi : le jour reste le même quel que soit le fuseau où Vetpoint le lit
+        $this->assertSame('2026-11-03T12:00:00+01:00', $this->envois()[0]['corps']['desiredDeliveryDate']);
+    }
+
+    /** Vetpoint ne donne encore aucun prix (ou un prix nul) : rien n'est repris, et la réponse le dit. */
+    public function test_sans_prix_reels_rien_n_est_repris_et_la_reponse_le_dit(): void
+    {
+        $commande = $this->envoyee();
+        $this->detail['orderItems'][0]['unitPrice'] = 0;
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->entetes)
+            ->assertOk()->assertJsonPath('data.reception_vetpoint.lu', true)->assertJsonPath('data.reception_vetpoint.prix_repris', 0);
+
+        $this->assertSame('10.00', (string) $commande->lignes()->first()->cout);
+    }
+
+    /** Un envoi par Vetpoint en suspens : ni envoi classique ni suppression, pour ne pas commander deux fois. */
+    public function test_un_envoi_vetpoint_en_suspens_bloque_l_envoi_classique_et_la_suppression(): void
+    {
+        $commande = $this->brouillon();
+        $commande->forceFill(['vetpoint_envoi_le' => now()->subMinutes(5)])->save();
+        $message = 'Cette commande est peut-être déjà partie par Vetpoint : renvoyez-la par Vetpoint, elle y sera retrouvée sans doublon.';
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/envoyer", [], $this->entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors(['statut' => $message]);
+        $this->deleteJson("/api/v1/stocks/commandes/{$commande->id}", [], $this->entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors(['statut' => $message]);
+        $ligne = $commande->lignes()->first();
+        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}/lignes/{$ligne->id}", ['quantite' => 9], $this->entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors(['statut' => $message]);
+        $this->assertSame(StatutCommandeFournisseur::Brouillon, $commande->refresh()->statut);
+        $this->assertSame(4, (int) $ligne->refresh()->quantite);
+    }
+
+    /** Deux articles du catalogue reliés au même produit Vetpoint : chacun prend son prix réel. */
+    public function test_deux_articles_relies_au_meme_produit_vetpoint_prennent_chacun_leur_prix(): void
+    {
+        $commande = $this->brouillon(['913-306334' => 'Rimadyl 50 mg']);
+        $organisation = $this->clinique->societe->organisation_id;
+        $autre = Produit::factory()->create(['organisation_id' => $organisation, 'nom' => 'Rimadyl (stock 2)', 'cout' => 10]);
+        ProduitVetpoint::query()->create(['produit_id' => $autre->id, 'vetpoint_id' => '913-306334', 'nom' => 'Rimadyl 50 mg']);
+        CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $commande->id, 'produit_id' => $autre->id, 'quantite' => 2, 'cout' => 10]);
+        $this->envoyer($commande)->assertOk();
+        $this->detail = ['orderId' => 'V-7001', 'orderItems' => [
+            ['productId' => '913-306334', 'quantity' => 4, 'unitPrice' => 12.35, 'expirationDate' => '2027-05-31'],
+            ['productId' => '913-306334', 'quantity' => 2, 'unitPrice' => 12.35, 'expirationDate' => '2027-06-30'],
+        ]];
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->entetes)->assertOk();
+
+        $this->assertSame(['12.35', '12.35'], $commande->lignes()->orderBy('id')->pluck('cout')->map(fn ($c) => (string) $c)->all());
     }
 }

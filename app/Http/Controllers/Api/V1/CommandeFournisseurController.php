@@ -157,10 +157,21 @@ class CommandeFournisseurController extends Controller
             throw ValidationException::withMessages(['lignes' => 'Ajoutez au moins une ligne avant d’envoyer.']);
         }
 
-        $commande->update([
-            'statut' => StatutCommandeFournisseur::Envoyee,
-            'envoyee_le' => now(),
-        ]);
+        // Sous verrou, comme l'envoi par Vetpoint : un envoi par Vetpoint en
+        // suspens (réponse perdue) empêche l'envoi classique
+        $commande = DB::transaction(function () use ($commande): CommandeFournisseur {
+            $verrouillee = CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
+            if ($verrouillee->statut !== StatutCommandeFournisseur::Brouillon) {
+                throw ValidationException::withMessages(['statut' => 'Seul un brouillon s’envoie.']);
+            }
+            CommandeVetpointController::exigerHorsEnvoiEnSuspens($verrouillee);
+            $verrouillee->update([
+                'statut' => StatutCommandeFournisseur::Envoyee,
+                'envoyee_le' => now(),
+            ]);
+
+            return $verrouillee;
+        });
 
         return new CommandeFournisseurResource($commande->load('lignes'));
     }
@@ -181,6 +192,15 @@ class CommandeFournisseurController extends Controller
                 $detail = CommandeVetpointController::clientDe($commande->clinique_id)->commande($commande->vetpoint_commande_id);
                 $parLigne = collect(CommandeVetpointController::lignesDetaillees($commande, $detail))->filter(fn (array $ligne) => $ligne['ligne_id'] !== null)->keyBy('ligne_id');
                 $vetpoint = ['lu' => true, 'message' => null];
+                // Un prix nul ou négatif n'est pas un prix réel : pas repris
+                $repris = $parLigne->filter(fn (array $ligne): bool => ($ligne['prix_unitaire'] ?? 0) > 0)->count();
+                $total = $commande->lignes()->count();
+                $vetpoint['prix_repris'] = $repris;
+                $vetpoint['message'] = match (true) {
+                    $repris === 0 => 'Vetpoint ne donne pas encore les prix réels : le stock est entré avec les prix de la commande.',
+                    $repris < $total => 'Prix réels de Vetpoint repris pour '.$repris.' '.($repris > 1 ? 'lignes' : 'ligne').' sur '.$total.' ; les autres gardent le prix de la commande.',
+                    default => null,
+                };
             } catch (VetpointCleRefusee|VetpointCgv|VetpointLimite|VetpointIndisponible) {
                 $vetpoint = ['lu' => false, 'message' => 'Vetpoint ne répond pas : le stock est entré avec les prix de la commande, sans les prix réels ni les péremptions de Vetpoint.'];
             } catch (HttpException $e) {
@@ -205,7 +225,7 @@ class CommandeFournisseurController extends Controller
             foreach ($commande->lignes()->with('produit')->get() as $ligne) {
                 // Le prix réel de Vetpoint : sur la ligne et comme coût du produit
                 $reel = $parLigne->get($ligne->id);
-                if ($reel !== null && $reel['prix_unitaire'] !== null) {
+                if ($reel !== null && $reel['prix_unitaire'] !== null && $reel['prix_unitaire'] > 0) {
                     $ligne->forceFill(['cout' => $reel['prix_unitaire']])->save();
                     $ligne->produit->forceFill(['cout' => $reel['prix_unitaire']])->save();
                 }
@@ -260,6 +280,7 @@ class CommandeFournisseurController extends Controller
                 'statut' => 'Une commande réceptionnée a fait bouger le stock, elle ne se supprime plus.',
             ]);
         }
+        CommandeVetpointController::exigerHorsEnvoiEnSuspens($commande);
 
         $commande->delete();
 

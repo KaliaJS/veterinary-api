@@ -27,21 +27,32 @@ class VetpointRefus extends RuntimeException
     public static function depuis(Response $reponse): self
     {
         $corps = is_array($reponse->json()) ? $reponse->json() : [];
-        $texte = is_scalar($corps['errorMessage'] ?? null) ? trim((string) $corps['errorMessage']) : trim((string) $reponse->body());
-        // Le code arrive dans « errorTyoe » (sic) ou dans le message
-        $type = is_scalar($corps['errorTyoe'] ?? null) ? (string) $corps['errorTyoe'] : '';
-        $code = preg_match('/\b(\d{4})\b/', $type.' '.$texte, $trouve) === 1 ? $trouve[1] : null;
+        $texte = match (true) {
+            is_scalar($corps['errorMessage'] ?? null) => trim((string) $corps['errorMessage']),
+            is_array($reponse->json()) => '',
+            default => trim((string) $reponse->body()),
+        };
+        // Le code arrive dans « errorTyoe » (sic), sinon en tête du message :
+        // un nombre au milieu du texte (une année) n'en est pas un
+        $type = is_scalar($corps['errorTyoe'] ?? null) ? trim((string) $corps['errorTyoe']) : '';
+        $code = match (true) {
+            preg_match('/^\d{4}$/', $type) === 1 => $type,
+            preg_match('/^(\d{4})\b/', $texte, $trouve) === 1 => $trouve[1],
+            default => null,
+        };
 
-        // « Das Produkt 'xyz' hat eine Mindestbestellmenge von x »
+        // « Das Produkt 'xyz' hat eine Mindestbestellmenge von x » : le nom
+        // va jusqu'à la dernière apostrophe (« Hill's »)
         if ($code === '1122' || preg_match('/Mindestbestellmenge/i', $texte) === 1) {
-            return new self(preg_match("/Produkt\\s+'(.+?)'.*?Mindestbestellmenge\\s+von\\s+(\\d+)/iu", $texte, $m) === 1
+            return new self(preg_match("/Produkt\\s+'(.+)'\\s+hat\\s+eine\\s+Mindestbestellmenge\\s+von\\s+(\\d+)/iu", $texte, $m) === 1
                 ? "Le produit « {$m[1]} » se commande par {$m[2]} au moins."
                 : 'Un produit est en dessous de sa quantité minimale de commande chez Vetpoint.');
         }
         if ($code !== null && isset(self::MESSAGES[$code])) {
             return new self(self::MESSAGES[$code]);
         }
-        if ($reponse->status() === 400 || strcasecmp($texte, 'Product not found') === 0) {
+        // 400 : « Product not found » (OpenAPI) ; un autre message est rendu tel quel
+        if (($reponse->status() === 400 && $texte === '') || strcasecmp($texte, 'Product not found') === 0) {
             return new self('Un produit de la commande est introuvable chez Vetpoint : vérifiez ses liens.');
         }
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\StatutCommandeFournisseur;
+use App\Http\Controllers\Api\V1\Vetpoint\CommandeVetpointController;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Stocks\EnregistrerLigneCommandeRequest;
 use App\Http\Requests\V1\Stocks\ModifierLigneCommandeRequest;
@@ -72,6 +73,7 @@ class CommandeFournisseurLigneController extends Controller
                 'statut' => 'Seules les lignes d’un brouillon se modifient.',
             ]);
         }
+        CommandeVetpointController::exigerHorsEnvoiEnSuspens($commande);
 
         return $commande;
     }
