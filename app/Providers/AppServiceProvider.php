@@ -201,6 +201,14 @@ class AppServiceProvider extends ServiceProvider
         // Clé Vetpoint (27.10.2026) : 10 essais par minute et par compte, avec
         // un message en français. Les recherches, elles, sont comptées par
         // clinique dans RechercheVetpointController (vraies recherches seules)
+        // Formulaire de contact du site (27.10.2026) : par adresse IP, sans compte
+        RateLimiter::for('contact', fn (Request $request): array => [
+            Limit::perHour(5)->by('contact:'.$request->ip())
+                ->response(fn () => response()->json(['message' => 'Trop de messages envoyés : réessayez dans une heure.'], 429)),
+            Limit::perDay(20)->by('contact-jour:'.$request->ip())
+                ->response(fn () => response()->json(['message' => 'Trop de messages envoyés aujourd’hui : réessayez demain.'], 429)),
+        ]);
+
         RateLimiter::for('vetpoint-cle', fn (Request $request): Limit => Limit::perMinute(10)
             ->by('vetpoint-cle:'.$parCompte($request))
             ->response(fn () => response()->json(['message' => 'Trop d’essais de clé Vetpoint : réessayez dans une minute.'], 429)));
