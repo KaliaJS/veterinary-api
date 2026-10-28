@@ -48,7 +48,7 @@ class ReglagesProprietaireController extends Controller
             $preferences->forceFill(['rappels_choisis_le' => now()])->save();
         }
         // Rappels par e-mail réactivés : un désabonnement par le lien d'un e-mail est levé aussi
-        if ($request->validated('rappels_email') === true) {
+        if ($request->has('rappels_email') && $request->boolean('rappels_email')) {
             Client::withoutGlobalScopes()->where('user_id', $contexte->user()->id)->update(['rappels_email' => true]);
         }
 

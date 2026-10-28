@@ -356,6 +356,18 @@ class RappelsEmailTest extends TestCase
         Mail::assertSent(RappelVaccin::class, 1);
     }
 
+    /** Réabonné avec « 1 » (formulaire, appel à la main) : le désabonnement de la fiche est levé aussi */
+    public function test_reabonnement_en_1_leve_aussi_le_desabonnement(): void
+    {
+        ['user' => $user, 'jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $this->client->forceFill(['user_id' => $user->id])->save();
+        $this->post(URL::signedRoute('rappels.desabonner', ['client' => $this->client->id]))->assertOk();
+
+        $this->putJson('/api/v1/espace/preferences', ['rappels_email' => '1'], $this->enTetes($jetonProprietaire))->assertOk();
+
+        $this->assertTrue((bool) $this->client->refresh()->rappels_email);
+    }
+
     /** Une organisation fermée (abonnement terminé, vérification refusée) n'envoie plus de rappels. */
     public function test_une_organisation_fermee_n_envoie_pas(): void
     {

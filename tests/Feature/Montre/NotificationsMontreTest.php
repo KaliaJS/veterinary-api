@@ -181,14 +181,14 @@ class NotificationsMontreTest extends TestCase
         $this->assertSame([], $this->envois);
     }
 
-    /** Une rafale (10 rendez-vous glissés l'un après l'autre) : un seul réveil, 15 s après le premier, qui voit tout */
-    public function test_une_rafale_ne_fait_qu_un_reveil_differe_de_15_secondes(): void
+    /** Une rafale dans les 15 s (10 rendez-vous glissés coup sur coup) : un seul réveil, 15 s après le premier ; au-delà, un réveil toutes les 15 s au plus */
+    public function test_une_rafale_dans_les_15_secondes_ne_fait_qu_un_reveil_differe(): void
     {
         Queue::fake([PrevenirMontres::class]);
 
         for ($i = 0; $i < 10; $i++) {
             RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
-            $this->travel(5)->seconds();
+            $this->travel(1)->seconds();
         }
 
         Queue::assertPushed(PrevenirMontres::class, 1);
@@ -196,5 +196,37 @@ class NotificationsMontreTest extends TestCase
             && CarbonImmutable::parse('2026-11-05 09:00', 'Europe/Zurich')->diffInSeconds($tache->delay) >= 15
             // Le verrou tient jusqu'à l'envoi : il dure plus que la pause
             && $tache->uniqueFor > 15);
+    }
+
+    /** La même montre reprise par un autre compte : elle passe à ce compte, l'ancien ne la réveille plus */
+    public function test_une_montre_reprise_par_un_autre_compte_passe_a_ce_compte(): void
+    {
+        ['jeton' => $autre, 'user' => $collegue] = $this->employeAvecJeton($this->clinique);
+        $this->postJson('/api/v1/auth/appareil', ['jeton' => str_repeat('ab', 32), 'environnement' => 'sandbox', 'plateforme' => 'watchos'], $this->enTetes($this->jeton))->assertNoContent();
+
+        $this->postJson('/api/v1/auth/appareil', ['jeton' => str_repeat('ab', 32), 'environnement' => 'sandbox', 'plateforme' => 'watchos'], $this->enTetes($autre))->assertNoContent();
+
+        $this->assertSame([$collegue->id], AppareilNotification::query()->pluck('user_id')->all());
+    }
+
+    /** Un iPhone inscrit n'est pas réveillé pour la journée de la montre */
+    public function test_un_iphone_n_est_pas_reveille(): void
+    {
+        AppareilNotification::query()->create(['user_id' => $this->userId, 'jeton' => str_repeat('cd', 32), 'environnement' => 'sandbox', 'plateforme' => 'ios']);
+
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+
+        $this->assertSame([], $this->envois);
+    }
+
+    /** La montre déconnectée n'est plus réveillée (aucune donnée ne passait, mais rien à faire) */
+    public function test_la_montre_deconnectee_n_est_plus_reveillee(): void
+    {
+        $montre = $this->postJson('/api/v1/auth/montre', [], $this->enTetes($this->jeton))->assertOk()->json('data.token');
+        $this->postJson('/api/v1/auth/appareil', ['jeton' => str_repeat('ab', 32), 'environnement' => 'sandbox', 'plateforme' => 'watchos'], $this->enTetes($montre))->assertNoContent();
+
+        $this->postJson('/api/v1/auth/deconnexion', [], $this->enTetes($montre))->assertNoContent();
+
+        $this->assertSame(0, AppareilNotification::query()->count());
     }
 }

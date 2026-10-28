@@ -3,6 +3,7 @@
 namespace App\Services\Notifications;
 
 use Illuminate\Support\Facades\Cache;
+use Pushok\ApnsResponseInterface;
 use Pushok\AuthProvider\Token;
 use Pushok\Client;
 use Pushok\Notification;
@@ -71,8 +72,20 @@ class ApnsPushok implements CanalApns
         }
         $client->addNotifications(array_map(fn (string $jeton): Notification => (new Notification($payload, $jeton))->setLowPriority(), $jetons));
 
+        return $this->lireReponses($client->push(), $sujet);
+    }
+
+    /**
+     * Les réponses d'Apple : les jetons morts (à oublier) ; une signature
+     * refusée est oubliée, refaite au prochain envoi ; le reste au journal.
+     *
+     * @param  iterable<ApnsResponseInterface>  $reponses
+     * @return list<string>
+     */
+    public function lireReponses(iterable $reponses, string $sujet): array
+    {
         $morts = [];
-        foreach ($client->push() as $reponse) {
+        foreach ($reponses as $reponse) {
             if (in_array($reponse->getErrorReason(), self::JETON_MORT, true) || $reponse->getStatusCode() === 410) {
                 $morts[] = $reponse->getDeviceToken();
             } elseif (in_array($reponse->getErrorReason(), self::SIGNATURE_REFUSEE, true)) {

@@ -7,6 +7,7 @@ use App\Auth\EmetteurJetons;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\JetonEmisResource;
 use App\Http\Resources\V1\SessionResource;
+use App\Models\AppareilNotification;
 use App\Models\JetonApi;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -64,6 +65,10 @@ class SessionController extends Controller
         /** @var JetonApi $jeton */
         $jeton = $request->user()->currentAccessToken();
         $jeton->delete();
+        // La montre déconnectée n'est plus réveillée par Apple (28.10.2026)
+        if ($jeton->name === EmetteurJetons::APPAREIL_MONTRE) {
+            AppareilNotification::query()->where('user_id', $request->user()->id)->where('plateforme', 'watchos')->delete();
+        }
 
         return response()->noContent();
     }
