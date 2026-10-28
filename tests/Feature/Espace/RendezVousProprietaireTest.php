@@ -172,6 +172,23 @@ class RendezVousProprietaireTest extends TestCase
         $this->assertCount(3, array_unique(array_map(fn (array $c): string => substr($c['debut'], 0, 10), $creneaux)));
     }
 
+    /** Un rendez-vous annulé libère son créneau aussi pour la réservation en ligne (RDV annulés dans la grille, 28.10.2026). */
+    public function test_un_rendez_vous_annule_laisse_son_creneau_libre_en_ligne(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-26 07:00', 'Europe/Zurich'));
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $clinique = Clinique::factory()->dansLAnnuaire()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id]);
+        $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+        // Toute la journée prise, puis annulée
+        RendezVous::factory()->create(['clinique_id' => $clinique->id, 'ligne_planning_id' => $ligne->id, 'status' => StatutRendezVous::Annule,
+            'starts_at' => CarbonImmutable::parse('2026-10-26 07:00', 'Europe/Zurich')->utc(), 'ends_at' => CarbonImmutable::parse('2026-10-26 20:00', 'Europe/Zurich')->utc()]);
+
+        $premier = $this->getJson('/api/v1/espace/cliniques', $this->enTetes($jeton))->assertOk()->json('data.0.creneaux.0.debut');
+
+        $this->assertSame('2026-10-26 08:00', CarbonImmutable::parse($premier)->setTimezone('Europe/Zurich')->format('Y-m-d H:i'));
+    }
+
     public function test_apres_le_changement_d_heure_le_premier_creneau_reste_a_8h00_a_zurich(): void
     {
         // Samedi 24 octobre 2026 à 16 h : fermé, dimanche aussi ; la nuit
