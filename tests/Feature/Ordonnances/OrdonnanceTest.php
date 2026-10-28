@@ -12,6 +12,7 @@ use App\Models\Patient;
 use App\Models\Produit;
 use App\Models\Stock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -281,6 +282,29 @@ class OrdonnanceTest extends TestCase
         $this->postJson("/api/v1/ordonnances/{$ordonnance->id}/cloturer", [], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['statut' => 'Cette ordonnance est déjà clôturée.']);
+    }
+
+    /**
+     * Décision de Jim (28.10.2026) : une ordonnance close ne se rouvre pas,
+     * on en refait une. Aucune route ne la rend active ; la renouveler ou
+     * l'annuler est refusé.
+     */
+    public function test_une_ordonnance_close_ne_se_rouvre_pas(): void
+    {
+        $ordonnance = Ordonnance::factory()->create(['clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id, 'renouvellements' => 2]);
+        $this->postJson("/api/v1/ordonnances/{$ordonnance->id}/cloturer", [], $this->enTetes($this->jeton))->assertOk();
+
+        $this->postJson("/api/v1/ordonnances/{$ordonnance->id}/renouveler", [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $routes = collect(Route::getRoutes()->getRoutes())
+            ->filter(fn ($route): bool => str_starts_with($route->uri(), 'api/v1/ordonnances/{ordonnance}'))
+            ->map(fn ($route): string => implode('|', array_diff($route->methods(), ['HEAD'])).' '.$route->uri())->sort()->values()->all();
+        $this->assertSame([
+            'DELETE api/v1/ordonnances/{ordonnance}',
+            'GET api/v1/ordonnances/{ordonnance}',
+            'POST api/v1/ordonnances/{ordonnance}/cloturer',
+            'POST api/v1/ordonnances/{ordonnance}/renouveler',
+        ], $routes);
+        $this->assertSame(StatutOrdonnance::Cloturee, $ordonnance->fresh()->statut);
     }
 
     public function test_le_registre_filtre_par_statut_et_par_recherche(): void
