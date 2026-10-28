@@ -3,10 +3,12 @@
 namespace Tests\Feature\Auth;
 
 use App\Auth\EmetteurJetons;
+use App\Events\AccesCoupe;
 use App\Models\Clinique;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -128,5 +130,32 @@ class JetonsRevoquesTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-11 06:15', 'Europe/Zurich'));
         $this->artisan('equipe:fermer-contrats')->assertSuccessful();
         $this->assertTrue((bool) $employe->refresh()->acces_suspendu);
+    }
+
+    /** Décision de Jim (28.10.2026) : le suspendu perd l'accès aussitôt ; son onglet ouvert l'apprend sur son canal */
+    public function test_la_suspension_previent_aussitot_les_ecrans_ouverts_de_la_personne(): void
+    {
+        ['employe' => $employe, 'user' => $user] = $this->employeAvecJeton($this->clinique);
+        Event::fake([AccesCoupe::class]);
+
+        $this->postJson("/api/v1/equipe/employes/{$employe->id}/suspendre", [], $this->enTetes($this->jetonAdministrateur))->assertOk();
+
+        Event::assertDispatched(AccesCoupe::class, fn (AccesCoupe $e): bool => $e->broadcastOn()[0]->name === 'private-utilisateur.'.$user->id
+            && $e->broadcastAs() === 'acces.coupe'
+            && $e->broadcastWith()['cliniques'] === [$this->clinique->id]);
+    }
+
+    /** Retiré de la clinique ouverte : même chose, pour cette clinique seulement */
+    public function test_le_retrait_d_une_clinique_previent_pour_cette_clinique(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        ['employe' => $employe, 'user' => $user] = $this->employeAvecJeton($this->clinique);
+        $employe->cliniques()->syncWithoutDetaching([$soeur->id]);
+        Event::fake([AccesCoupe::class]);
+
+        $this->putJson("/api/v1/equipe/employes/{$employe->id}/cliniques", ['cliniques' => [$this->clinique->id]], $this->enTetes($this->jetonAdministrateur))->assertOk();
+
+        Event::assertDispatched(AccesCoupe::class, fn (AccesCoupe $e): bool => $e->broadcastOn()[0]->name === 'private-utilisateur.'.$user->id
+            && $e->broadcastWith()['cliniques'] === [$soeur->id]);
     }
 }

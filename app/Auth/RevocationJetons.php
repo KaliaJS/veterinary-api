@@ -2,9 +2,11 @@
 
 namespace App\Auth;
 
+use App\Events\AccesCoupe;
 use App\Models\Employe;
 use App\Models\JetonApi;
 use App\Models\User;
+use App\Support\TempsReel;
 
 /**
  * Révocation des jetons (23.10.2026) : la porte se ferme déjà à la
@@ -21,11 +23,17 @@ class RevocationJetons
             ? [$cliniqueId]
             : $employe->organisation->cliniques()->pluck('cliniques.id')->all();
 
-        return JetonApi::query()
+        $revoques = JetonApi::query()
             ->where('tokenable_type', $employe->user->getMorphClass())
             ->where('tokenable_id', $employe->user_id)
             ->whereIn('clinique_id', $cliniques)
             ->delete();
+        // Ses écrans ouverts l'apprennent aussitôt (décision de Jim, 28.10.2026)
+        $userId = (int) $employe->user_id;
+        $liste = array_values(array_map('intval', $cliniques));
+        TempsReel::diffuser(fn () => AccesCoupe::dispatch($userId, $liste));
+
+        return $revoques;
     }
 
     /** Tous les jetons du compte, sauf celui de la requête en cours. */
