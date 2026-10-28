@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Mail\InvitationAccesEnvoyee;
 use App\Models\InvitationAcces;
 use App\Models\User;
+use App\Rules\AdresseSansAccent;
 use Closure;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
@@ -36,7 +37,7 @@ class InvitationAccesPlateformeController extends Controller
         $request->merge(['email' => mb_strtolower(trim((string) $request->input('email')))]);
         $donnees = $request->validate([
             'email' => [
-                'required', 'email', 'max:190',
+                'required', 'email', 'max:190', new AdresseSansAccent,
                 'unique:invitations_acces,email',
                 function (string $attribut, mixed $email, Closure $refuser): void {
                     if (User::query()->whereRaw('lower(email) = ?', [$email])->exists()) {

@@ -4,6 +4,7 @@ namespace App\Http\Requests\V1\Equipe;
 
 use App\Enums\StatutContrat;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
+use App\Rules\AdresseSansAccent;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -32,7 +33,7 @@ class EmbaucherEmployeRequest extends FormRequest
             'contrat' => ['sometimes', 'string', 'max:100'],
             'contrat_statut' => ['required', Rule::enum(StatutContrat::class)],
             'tel' => ['nullable', 'string', 'max:30'],
-            'email' => ['nullable', 'email', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255', new AdresseSansAccent],
             'conges_droit' => ['sometimes', 'integer', 'between:0,60'],
             'toutes_les_cliniques' => ['sometimes', 'boolean'],
             'cliniques' => ['required_unless:toutes_les_cliniques,true', 'array', 'min:1'],

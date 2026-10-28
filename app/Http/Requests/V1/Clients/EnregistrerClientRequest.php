@@ -3,6 +3,7 @@
 namespace App\Http\Requests\V1\Clients;
 
 use App\Enums\Civilite;
+use App\Rules\AdresseSansAccent;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -20,7 +21,7 @@ class EnregistrerClientRequest extends FormRequest
             'prenom' => ['required', 'string', 'max:255'],
             'nom' => ['required', 'string', 'max:255'],
             'tel' => ['nullable', 'string', 'max:255'],
-            'email' => ['nullable', 'email', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255', new AdresseSansAccent],
             'rue' => ['nullable', 'string', 'max:255'],
             'npa' => ['nullable', 'digits:4'],
             'localite' => ['nullable', 'string', 'max:255'],

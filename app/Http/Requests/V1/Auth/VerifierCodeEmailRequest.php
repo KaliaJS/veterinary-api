@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\V1\Auth;
 
+use App\Rules\AdresseSansAccent;
 use Illuminate\Foundation\Http\FormRequest;
 
 class VerifierCodeEmailRequest extends FormRequest
@@ -10,7 +11,7 @@ class VerifierCodeEmailRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => ['required', 'email'],
+            'email' => ['required', 'email', new AdresseSansAccent],
             'code' => ['required', 'digits:8'],
             'clinique_id' => ['sometimes', 'integer'],
             'appareil' => ['sometimes', 'string', 'max:100'],

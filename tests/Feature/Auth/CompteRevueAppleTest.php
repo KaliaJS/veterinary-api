@@ -3,15 +3,18 @@
 namespace Tests\Feature\Auth;
 
 use App\Auth\AdressesInvitees;
+use App\Auth\CodeEmail;
 use App\Auth\CompteRevueApple;
 use App\Mail\AccesSurInvitation;
 use App\Mail\EssaisCompteRevue;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
+use App\Rules\AdresseSansAccent;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 /**
@@ -195,10 +198,19 @@ class CompteRevueAppleTest extends TestCase
         $kelvin = "\u{212A}iosque@veterinary.app";
 
         $this->demander('kiosque@veterinary.app');
-        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $kelvin, 'code' => self::CODE])->assertUnprocessable();
+        // Refusée à la porte (adresse sans accent ni caractère spécial, 28.10.2026)
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $kelvin, 'code' => self::CODE])
+            ->assertUnprocessable()->assertJsonValidationErrors(['email' => AdresseSansAccent::MESSAGE]);
+        $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => $kelvin])->assertUnprocessable();
+        // Et derrière la porte : jamais le code fixe, jamais rien de rangé à sa place
+        app(CodeEmail::class)->envoyer($kelvin);
+        try {
+            app(CodeEmail::class)->controler($kelvin, self::CODE);
+            $this->fail('La graphie voisine a passé le contrôle.');
+        } catch (ValidationException) {
+        }
 
-        // Une demande sous la graphie voisine n'efface pas le code fixe : l'adresse elle-même se connecte toujours
-        $this->demander($kelvin);
+        // L'adresse elle-même se connecte toujours
         $this->postJson('/api/v1/auth/code-email/verifier', ['email' => 'kiosque@veterinary.app', 'code' => self::CODE])->assertSuccessful();
         Notification::assertNothingSent();
     }
@@ -225,9 +237,13 @@ class CompteRevueAppleTest extends TestCase
         config(['plateforme.alerte_email' => 'alerte@exemple.ch', 'plateforme.revue_apple.email' => 'kiosque@veterinary.app']);
         $kelvin = "\u{212A}iosque@veterinary.app";
 
-        $this->demander($kelvin);
+        // Refusée à la porte ; derrière, ses codes faux comptent quand même
+        app(CodeEmail::class)->envoyer($kelvin);
         foreach (range(1, 5) as $essai) {
-            $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $kelvin, 'code' => '11111111'])->assertUnprocessable();
+            try {
+                app(CodeEmail::class)->controler($kelvin, '11111111');
+            } catch (ValidationException) {
+            }
         }
 
         Mail::assertSent(EssaisCompteRevue::class, 1);

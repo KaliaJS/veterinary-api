@@ -3,6 +3,7 @@
 namespace App\Http\Requests\V1\Clients;
 
 use App\Enums\Civilite;
+use App\Rules\AdresseSansAccent;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -16,7 +17,7 @@ class ModifierClientRequest extends FormRequest
             'prenom' => ['sometimes', 'string', 'max:255'],
             'nom' => ['sometimes', 'string', 'max:255'],
             'tel' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'email' => ['sometimes', 'nullable', 'email', 'max:255'],
+            'email' => ['sometimes', 'nullable', 'email', 'max:255', new AdresseSansAccent],
             'rue' => ['sometimes', 'nullable', 'string', 'max:255'],
             'npa' => ['sometimes', 'nullable', 'digits:4'],
             'localite' => ['sometimes', 'nullable', 'string', 'max:255'],

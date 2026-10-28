@@ -73,9 +73,20 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Limite d'un groupe de routes (`throttle:60,1`…) : le message de
         // Laravel est en anglais, l'app et la montre l'affichent (28.10.2026)
-        $exceptions->render(fn (ThrottleRequestsException $e, Request $request) => $request->is('api/*')
-            ? response()->json(['message' => 'Trop de requêtes : réessayez dans une minute.'], 429, $e->getHeaders())
-            : null);
+        // La durée dite est celle de la limite (Retry-After)
+        $exceptions->render(function (ThrottleRequestsException $e, Request $request) {
+            if (! $request->is('api/*')) {
+                return null;
+            }
+            $secondes = (int) ($e->getHeaders()['Retry-After'] ?? 60);
+            $quand = match (true) {
+                $secondes <= 60 => 'dans une minute',
+                $secondes < 3600 => 'dans '.(int) ceil($secondes / 60).' minutes',
+                default => 'plus tard',
+            };
+
+            return response()->json(['message' => 'Trop de requêtes : réessayez '.$quand.'.'], 429, $e->getHeaders());
+        });
 
         // Refus du prestataire de paiement non rattrapé : un 422 avec son
         // message traduit, jamais un 500 (il reste noté au journal)

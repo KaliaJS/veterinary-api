@@ -39,12 +39,23 @@ class TachesPlanifieesTest extends TestCase
     /** Toutes les 10 minutes ou chaque heure : le verrou d'une tâche tuée tombe avant le passage suivant. */
     public function test_une_tache_frequente_libere_son_verrou_avant_le_passage_suivant(): void
     {
-        $frequences = ['*/10 * * * *' => 10, '0 * * * *' => 60];
+        $frequences = ['*/10 * * * *' => 10];
         foreach ($this->taches() as $tache) {
-            if (isset($frequences[$tache->expression])) {
-                $this->assertLessThan($frequences[$tache->expression], $tache->expiresAt, (string) $tache->command);
+            // Chaque heure, à n'importe quelle minute
+            $frequence = $frequences[$tache->expression] ?? (preg_match('/^\d{1,2} \* \* \* \*$/', $tache->expression) === 1 ? 60 : null);
+            if ($frequence !== null) {
+                $this->assertLessThan($frequence, $tache->expiresAt, (string) $tache->command);
             }
         }
+    }
+
+    /** Fin de contrat : chaque heure, pour suivre la nuit de chaque clinique, à son fuseau (28.10.2026). */
+    public function test_la_fermeture_des_contrats_tourne_chaque_heure(): void
+    {
+        $taches = array_values(array_filter($this->taches(), fn (Event $tache): bool => str_contains((string) $tache->command, 'equipe:fermer-contrats')));
+
+        $this->assertCount(1, $taches);
+        $this->assertMatchesRegularExpression('/^\d{1,2} \* \* \* \*$/', $taches[0]->expression);
     }
 
     /** Chaque minute (vérification des paiements Stripe) : après un arrêt brutal, le verrou tombe en 2 minutes au plus. */

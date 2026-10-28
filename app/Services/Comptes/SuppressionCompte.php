@@ -51,7 +51,9 @@ class SuppressionCompte
     /** Titres sautés pour garder le prénom d'une trace */
     private const array TITRES = [
         'dr', 'dre', 'docteur', 'docteure', 'pr', 'pre', 'prof', 'professeur', 'professeure', 'pd',
-        'med', 'méd', 'vet', 'vét', 'dmv', 'phd', 'dipl', 'm', 'mme', 'mlle', 'me', 'mr', 'mrs', 'ms',
+        'med', 'méd', 'vet', 'vét', 'dmv', 'dvm', 'phd', 'dipl', 'm', 'mme', 'mlle', 'me', 'mr', 'mrs', 'ms',
+        // Tessin (Dott.ssa, Dr.ssa, Prof.ssa), Suisse alémanique, honoris causa (h.c.)
+        'dott', 'ssa', 'tierarzt', 'tierärztin', 'tierarztin', 'h', 'c',
     ];
 
     public function __construct(

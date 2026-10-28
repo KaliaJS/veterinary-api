@@ -739,7 +739,12 @@ class SuppressionCompteTest extends TestCase
     /** Titres suisses et allemands, seuls ou en suite : Prof., PD, Dr. med. vet., Dr.med.vet. */
     public function test_le_prenom_de_la_trace_saute_une_suite_de_titres(): void
     {
-        foreach (['Prof. Rachel Solal', 'Dr. med. vet. Rachel Solal', 'PD Dr. Rachel Solal', 'Dr.med.vet. Rachel Solal', 'Prof. Dr. méd. vét. Rachel Solal'] as $nom) {
+        foreach ([
+            'Prof. Rachel Solal', 'Dr. med. vet. Rachel Solal', 'PD Dr. Rachel Solal', 'Dr.med.vet. Rachel Solal', 'Prof. Dr. méd. vét. Rachel Solal',
+            // Tessin, Suisse alémanique, titres anglais et honoris causa
+            'Dott.ssa Rachel Solal', 'Dott. Rachel Solal', 'Dr.ssa Rachel Solal', 'Prof.ssa Rachel Solal',
+            'Dipl. Tierärztin Rachel Solal', 'Tierarzt Rachel Solal', 'DVM Rachel Solal', 'Dr. h.c. Rachel Solal',
+        ] as $nom) {
             ['user' => $user, 'jeton' => $jeton] = $this->ancienMembre(['name' => $nom, 'email' => Str::lower(Str::random(8)).'@exemple.ch', 'gln' => null]);
             $this->demander($jeton, $user);
             $this->travel(31)->days();
@@ -831,6 +836,25 @@ class SuppressionCompteTest extends TestCase
         $this->assertFalse(User::query()->whereKey($user->id)->exists());
         $this->assertSame('annulee', $facture->refresh()->statut);
         Exceptions::assertReported(ErreurPaiement::class);
+    }
+
+    /** Clé Stripe refusée à l'annulation du prélèvement : le compte attend aussi, rien n'est effacé ni signalé comme introuvable. */
+    public function test_une_cle_refusee_a_l_annulation_du_prelevement_fait_attendre_le_compte(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $client = $this->stripe->creerClient('Paul', 'paul@exemple.ch', []);
+        $intention = $this->stripe->prelever($client, $this->stripe->carteConfirmee($client), 1200, 'Plus', [], false, 'cle-refus');
+        FactureProprietaire::query()->forceCreate([
+            'user_id' => $user->id, 'numero' => 'P-2026-0013', 'emise_le' => '2026-10-01', 'libelle' => 'Veterinary Plus', 'montant' => 12,
+            'statut' => 'a_payer', 'stripe_paiement_id' => $intention['id'],
+        ]);
+        $this->demander($jeton, $user);
+        $this->stripe->cleRefusee = true;
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer');
+
+        $this->assertTrue(User::query()->whereKey($user->id)->exists());
     }
 
     /** Stripe en panne passagère à l'annulation : le compte attend la nuit suivante, rien n'est effacé. */

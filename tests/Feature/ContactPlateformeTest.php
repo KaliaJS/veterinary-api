@@ -5,7 +5,9 @@ namespace Tests\Feature;
 use App\Auth\EmetteurJetons;
 use App\Mail\MessageContact;
 use App\Models\User;
+use App\Support\CleIp;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
@@ -199,11 +201,11 @@ class ContactPlateformeTest extends TestCase
         }
 
         Mail::assertSent(MessageContact::class, 3);
-        Mail::assertSent(MessageContact::class, function (MessageContact $mail): bool {
+        // Chacun des trois messages, pas un seul d'entre eux
+        foreach (Mail::sent(MessageContact::class) as $mail) {
             $lignes = preg_split('/\R/u', $mail->render());
-
-            return count(array_filter($lignes, fn ($ligne) => str_starts_with($ligne, 'De :'))) === 1;
-        });
+            $this->assertCount(1, array_filter($lignes, fn ($ligne) => str_starts_with($ligne, 'De :')));
+        }
     }
 
     public function test_un_nom_vide_apres_nettoyage_est_refuse(): void
@@ -321,5 +323,26 @@ class ContactPlateformeTest extends TestCase
         $this->postJson('/api/v1/public/contact', $this->message())
             ->assertStatus(429)
             ->assertJsonPath('message', 'Trop de requêtes : réessayez dans une minute.');
+    }
+
+    /** Une IPv4 écrite en IPv6 sous une autre forme (hexadécimale, zéros écrits) reste cette IPv4. */
+    public function test_les_autres_ecritures_d_une_ipv4_en_ipv6_restent_cette_ipv4(): void
+    {
+        foreach (['::ffff:cb00:7105', '0:0:0:0:0:ffff:203.0.113.5', '::FFFF:203.0.113.5'] as $ecriture) {
+            $requete = Request::create('/', 'GET', server: ['REMOTE_ADDR' => $ecriture]);
+
+            $this->assertSame('203.0.113.5', CleIp::de($requete), $ecriture);
+        }
+    }
+
+    /** Une limite plus longue qu'une minute dit sa vraie durée. */
+    public function test_le_refus_d_une_limite_dit_sa_vraie_duree(): void
+    {
+        foreach (range(1, 3) as $n) {
+            $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'paul@exemple.ch'])->assertStatus(202);
+        }
+
+        $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'paul@exemple.ch'])
+            ->assertStatus(429)->assertJsonPath('message', 'Trop de requêtes : réessayez dans 15 minutes.');
     }
 }

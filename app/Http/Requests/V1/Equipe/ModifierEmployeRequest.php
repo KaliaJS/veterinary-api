@@ -4,6 +4,7 @@ namespace App\Http\Requests\V1\Equipe;
 
 use App\Enums\StatutContrat;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
+use App\Rules\AdresseSansAccent;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -23,7 +24,7 @@ class ModifierEmployeRequest extends FormRequest
             'contrat_statut' => ['sometimes', Rule::enum(StatutContrat::class)],
             'salaire_mensuel' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:99999'],
             'tel' => ['sometimes', 'nullable', 'string', 'max:30'],
-            'email' => ['sometimes', 'nullable', 'email', 'max:255'],
+            'email' => ['sometimes', 'nullable', 'email', 'max:255', new AdresseSansAccent],
             'conges_droit' => ['sometimes', 'integer', 'between:0,60'],
             'conges_pris' => ['sometimes', 'integer', 'between:0,60'],
         ];

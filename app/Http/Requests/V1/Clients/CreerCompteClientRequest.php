@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\V1\Clients;
 
+use App\Rules\AdresseSansAccent;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -15,7 +16,7 @@ class CreerCompteClientRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => ['sometimes', 'nullable', 'email', 'max:255'],
+            'email' => ['sometimes', 'nullable', 'email', 'max:255', new AdresseSansAccent],
         ];
     }
 }

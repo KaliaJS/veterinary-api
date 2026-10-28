@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Auth\VerifierPasskeyRequest;
 use App\Http\Resources\V1\ChoixCliniqueResource;
 use App\Http\Resources\V1\JetonEmisResource;
+use App\Rules\AdresseSansAccent;
 use App\Services\PasskeyAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,7 +26,7 @@ class PasskeyConnexionController extends Controller
     public function options(Request $request, PasskeyAuthService $service): JsonResponse
     {
         $request->validate([
-            'email' => ['sometimes', 'email'],
+            'email' => ['sometimes', 'email', new AdresseSansAccent],
             // App iPhone : passkeys du domaine public du site, par iOS
             'plateforme' => ['nullable', 'in:ios'],
         ]);

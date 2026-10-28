@@ -20,7 +20,7 @@ class EssaisCompteRevue extends Mailable
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: 'Compte de revue : cinq codes faux de suite');
+        return new Envelope(subject: 'Compte de revue : cinq codes faux aujourd’hui');
     }
 
     public function content(): Content

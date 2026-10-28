@@ -131,7 +131,8 @@ class CodeEmail
             // comptés sur la journée, tous codes confondus ; au cinquième, la
             // plateforme le sait (28.10.2026)
             if ($this->revue->ressemble($email)) {
-                app(AlerteCompteRevue::class)->compterEssaiFaux(mb_strtolower(trim($email)));
+                // L'adresse telle que tapée : une graphie voisine se voit
+                app(AlerteCompteRevue::class)->compterEssaiFaux(trim($email));
             }
             if ($essais >= self::ESSAIS_MAX && ! $sosie) {
                 Cache::forget($this->cle($email));

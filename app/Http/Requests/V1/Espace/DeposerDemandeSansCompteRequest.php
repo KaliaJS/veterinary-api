@@ -4,6 +4,7 @@ namespace App\Http\Requests\V1\Espace;
 
 use App\Enums\Espece;
 use App\Models\Clinique;
+use App\Rules\AdresseSansAccent;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
@@ -26,7 +27,7 @@ class DeposerDemandeSansCompteRequest extends DeposerDemandeRendezVousRequest
             'espece' => ['required', Rule::enum(Espece::class)],
             'motif' => ['required', 'string', 'max:120'],
             'nom_proprietaire' => ['required', 'string', 'max:120'],
-            'email' => ['required', 'email', 'max:190'],
+            'email' => ['required', 'email', 'max:190', new AdresseSansAccent],
             'telephone' => ['required', 'string', 'max:40', 'regex:/^\+?[0-9 ().\/-]{8,}$/'],
             // Le code reçu à cette adresse (public/demandes/code) : elle est prouvée
             'code' => ['required', 'digits:6'],

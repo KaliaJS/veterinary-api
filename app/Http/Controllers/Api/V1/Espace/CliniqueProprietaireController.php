@@ -25,6 +25,7 @@ use App\Models\SiteWeb;
 use App\Models\SpecialiteVeterinaire;
 use App\Models\User;
 use App\Paiements\ErreurPaiement;
+use App\Rules\AdresseSansAccent;
 use App\Services\CalculateurCreneaux;
 use App\Services\Captcha\Turnstile;
 use App\Services\CodeDemandePublique;
@@ -237,7 +238,7 @@ class CliniqueProprietaireController extends Controller
     {
         $donnees = $request->validate([
             'clinique_id' => ['required', 'integer'],
-            'email' => ['required', 'email', 'max:190'],
+            'email' => ['required', 'email', 'max:190', new AdresseSansAccent],
             'captcha' => ['required', 'string', 'max:4096'],
         ], [
             'captcha.required' => 'Cochez la vérification anti-robot.',

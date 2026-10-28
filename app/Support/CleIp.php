@@ -18,13 +18,16 @@ final class CleIp
         if (! filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
             return $ip;
         }
-        // Une adresse IPv4 écrite en IPv6 (::ffff:a.b.c.d) reste une IPv4
-        if (preg_match('/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i', $ip, $v4) === 1) {
-            return $v4[1];
+        $octets = inet_pton($ip);
+        if ($octets === false) {
+            return $ip;
+        }
+        // Une adresse IPv4 écrite en IPv6 (::ffff:a.b.c.d, en hexadécimal ou
+        // zéros écrits) reste cette IPv4 : lue sur ses octets, pas son écriture
+        if (substr($octets, 0, 12) === str_repeat("\0", 10)."\xff\xff") {
+            return (string) inet_ntop(substr($octets, 12));
         }
 
-        $octets = inet_pton($ip);
-
-        return $octets === false ? $ip : inet_ntop(substr($octets, 0, 8).str_repeat("\0", 8)).'/64';
+        return inet_ntop(substr($octets, 0, 8).str_repeat("\0", 8)).'/64';
     }
 }
