@@ -57,6 +57,9 @@ class VetpointRefus extends RuntimeException
             return new self('Un produit de la commande est introuvable chez Vetpoint : vérifiez ses liens.');
         }
 
-        return new self($texte === '' ? 'Vetpoint a refusé la commande.' : 'Vetpoint a refusé la commande. Son message : « '.mb_substr($texte, 0, 300).' ».');
+        // Une page HTML (un proxy) n'est pas un message de Vetpoint
+        $html = preg_match('/^\s*</', $texte) === 1;
+
+        return new self($texte === '' || $html ? 'Vetpoint a refusé la commande.' : 'Vetpoint a refusé la commande. Son message : « '.mb_substr($texte, 0, 300).' ».');
     }
 }

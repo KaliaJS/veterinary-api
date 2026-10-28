@@ -166,8 +166,18 @@ class ClientVetpoint
     {
         $liste = $this->appeler(fn (PendingRequest $http): Response => $http->get('/v1/order', ['fromDate' => $du, 'thruDate' => $au]));
 
-        // Sans commande : `{}` plutôt qu'une liste vide
-        return array_values(array_filter(array_is_list($liste) ? $liste : [], 'is_array'));
+        // Sans commande : `{}` plutôt qu'une liste vide. Une liste enveloppée
+        // (`{"orders": [...]}`, comme les produits) se lit aussi ; toute
+        // autre forme est une panne : rien ne doit repartir à l'aveugle
+        if ($liste === [] || array_is_list($liste)) {
+            return array_values(array_filter($liste, 'is_array'));
+        }
+        $listes = array_values(array_filter($liste, fn (mixed $valeur): bool => is_array($valeur) && array_is_list($valeur)));
+        if (count($listes) !== 1) {
+            throw new VetpointIndisponible;
+        }
+
+        return array_values(array_filter($listes[0], 'is_array'));
     }
 
     /** @return array<string, mixed> */

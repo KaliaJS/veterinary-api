@@ -63,6 +63,9 @@ class VetpointCommandeTest extends TestCase
 
     private bool $panneAvantVetpoint = false;
 
+    /** Forme de la liste des commandes rendue par Vetpoint (corps JSON) */
+    private ?\Closure $listeCommandes = null;
+
     /** Un autre onglet agit pendant que Vetpoint lit les adresses */
     private ?\Closure $pendantLesAdresses = null;
 
@@ -106,6 +109,10 @@ class VetpointCommandeTest extends TestCase
             }
             if ($chemin === '/v1/order' && $requete->method() === 'GET') {
                 // Sans commande, Vetpoint répond `{}` (lu sur le serveur de test)
+                if ($this->listeCommandes !== null) {
+                    return Http::response(($this->listeCommandes)($this->commandesVetpoint), 200, ['Content-Type' => 'application/json']);
+                }
+
                 return $this->commandesVetpoint === [] ? Http::response('{}', 200, ['Content-Type' => 'application/json']) : Http::response($this->commandesVetpoint);
             }
             if ($chemin === '/v1/order' && $requete->method() === 'POST') {
@@ -429,10 +436,13 @@ class VetpointCommandeTest extends TestCase
         $this->envoyer($commande)->assertStatus(503);
         $this->panneAvantVetpoint = false;
 
+        // Des commandes dans la fenêtre, aucune note : Vetpoint ne dit pas si
+        // la nôtre est partie. Ni prise pour une autre, ni renvoyée à l'aveugle
         $this->travel(2)->minutes();
-        $this->envoyer($commande)->assertOk()->assertJsonPath('data.vetpoint.numero', 'V-7001');
+        $this->envoyer($commande)->assertStatus(409);
 
-        $this->assertCount(2, $this->envois(), 'L’essai en panne, puis le vrai envoi');
+        $this->assertCount(1, $this->envois(), 'Seul l’essai en panne');
+        $this->assertNull($commande->refresh()->vetpoint_commande_id);
     }
 
     /** Même sans aucune note rendue par Vetpoint : pas de commande devinée à ses produits. */
@@ -449,11 +459,11 @@ class VetpointCommandeTest extends TestCase
         $this->panneAvantVetpoint = false;
 
         $this->travel(2)->minutes();
-        $this->envoyer($seconde)->assertOk();
+        $this->envoyer($seconde)->assertStatus(409);
 
-        // Envoi perdu de la première, panne de la seconde, puis la seconde
-        // repart vraiment chez Vetpoint : pas confondue avec la première
-        $this->assertCount(3, $this->envois());
+        // La seconde n'est ni confondue avec la première, ni renvoyée à l'aveugle
+        $this->assertCount(2, $this->envois());
+        $this->assertNull($seconde->refresh()->vetpoint_commande_id);
     }
 
     /** La recherche couvre depuis la création du brouillon : un essai tardif en panne ne fait pas oublier le premier envoi. */
@@ -645,5 +655,185 @@ class VetpointCommandeTest extends TestCase
             $this->envoyer($commande, ['adresse_id' => $adresse, 'livraison' => 'standard'])
                 ->assertUnprocessable()->assertJsonValidationErrors(['adresse_id' => 'Choisissez une adresse de livraison du compte Vetpoint de la clinique.']);
         }
+    }
+
+    /* ——— 4e passe (28.10.2026) ——— */
+
+    /** Une liste enveloppée ({"orders": [...]}) se lit comme une liste : la commande perdue est retrouvée, pas renvoyée. */
+    public function test_une_liste_de_commandes_enveloppee_se_lit(): void
+    {
+        $this->listeCommandes = fn (array $commandes): string => json_encode(['orders' => $commandes]);
+        $commande = $this->brouillon();
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+
+        $this->travel(2)->minutes();
+        $this->envoyer($commande)->assertOk()->assertJsonPath('data.vetpoint.numero', 'V-7001');
+
+        $this->assertCount(1, $this->envois());
+    }
+
+    /** Une réponse de forme inconnue, ou des commandes sans note rendue : rien ne repart, la commande reste en suspens. */
+    public function test_une_liste_illisible_ou_sans_note_ne_fait_jamais_repartir_la_commande(): void
+    {
+        foreach ([
+            fn (array $commandes): string => json_encode(['total' => 1]),
+            fn (array $commandes): string => json_encode(['data' => ['items' => $commandes]]),
+        ] as $forme) {
+            $this->listeCommandes = $forme;
+            $commande = $this->brouillon();
+            $this->envoiPerdu = true;
+            $this->envoyer($commande)->assertStatus(503);
+            $this->envoiPerdu = false;
+            $avant = count($this->envois());
+
+            $this->travel(2)->minutes();
+            $this->envoyer($commande)->assertStatus(503);
+
+            $this->assertCount($avant, $this->envois());
+            $this->assertNotNull($commande->refresh()->vetpoint_envoi_le);
+        }
+
+        // Des commandes rendues, mais aucune ligne ne porte de note : Vetpoint ne dit pas laquelle est la nôtre
+        $this->listeCommandes = null;
+        $this->commandesVetpoint = [];
+        $this->sansNote = true;
+        $commande = $this->brouillon();
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+        $avant = count($this->envois());
+        $this->travel(2)->minutes();
+
+        $this->envoyer($commande)->assertStatus(409)
+            ->assertJsonPath('message', 'Vetpoint ne dit pas si cette commande est déjà partie : vérifiez sur vetpoint.ch, puis abandonnez l’envoi par Vetpoint si elle n’y est pas.');
+        $this->assertCount($avant, $this->envois());
+    }
+
+    /** Envoi en suspens : l'abandon (après vérification sur vetpoint.ch) rend le brouillon. */
+    public function test_l_envoi_en_suspens_s_abandonne(): void
+    {
+        $commande = $this->brouillon();
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+
+        // Tout de suite : elle part peut-être en ce moment
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/vetpoint/abandonner", [], $this->entetes)->assertStatus(409);
+        $this->travel(2)->minutes();
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/vetpoint/abandonner", [], $this->entetes)
+            ->assertOk()->assertJsonPath('data.vetpoint', null)->assertJsonPath('data.statut', 'draft');
+
+        $this->assertNull($commande->refresh()->vetpoint_envoi_le);
+        $this->deleteJson("/api/v1/stocks/commandes/{$commande->id}", [], $this->entetes)->assertNoContent();
+    }
+
+    /** Pendant une reprise, des lignes changées ne rendent pas la commande : elle reste en suspens. */
+    public function test_des_lignes_changees_pendant_une_reprise_gardent_la_commande_en_suspens(): void
+    {
+        $commande = $this->brouillon();
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+        $this->travel(2)->minutes();
+        $this->pendantLesAdresses = fn () => ProduitVetpoint::query()->delete();
+
+        $this->envoyer($commande)->assertUnprocessable();
+
+        $this->assertNotNull($commande->refresh()->vetpoint_envoi_le);
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/envoyer", [], $this->entetes)->assertUnprocessable();
+    }
+
+    /** La clinique de livraison changée pendant la lecture des adresses : rien ne part avec la clé de l'autre clinique. */
+    public function test_la_clinique_changee_pendant_l_envoi_n_envoie_rien(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $commande = $this->brouillon();
+        $this->pendantLesAdresses = fn () => CommandeFournisseur::query()->withoutGlobalScopes()->whereKey($commande->id)->update(['clinique_id' => $soeur->id]);
+
+        $this->envoyer($commande)->assertStatus(409);
+
+        $this->assertSame([], $this->envois());
+        $this->assertNull($commande->refresh()->vetpoint_envoi_le);
+    }
+
+    /** La clinique de livraison ne se change pas pendant un envoi en suspens. */
+    public function test_la_destination_ne_se_change_pas_pendant_un_envoi_en_suspens(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $commande = $this->brouillon();
+        $commande->forceFill(['vetpoint_envoi_le' => now()->subMinutes(5)])->save();
+
+        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}", ['clinique_id' => $soeur->id], $this->entetes)->assertUnprocessable();
+
+        $this->assertSame($this->clinique->id, $commande->refresh()->clinique_id);
+    }
+
+    /** Un numéro déjà gardé par une autre commande n'est jamais repris. */
+    public function test_un_numero_deja_garde_n_est_jamais_repris(): void
+    {
+        $autre = $this->brouillon();
+        $autre->forceFill(['vetpoint_commande_id' => 'V-7001', 'statut' => StatutCommandeFournisseur::Envoyee])->save();
+        $commande = $this->brouillon();
+        // Même note (numéro réutilisé ailleurs) que la commande perdue, numéro déjà pris
+        $this->commandesVetpoint = [['orderId' => 'V-7001', 'orderDate' => now()->toIso8601String(), 'orderItems' => [['productId' => '913-306334', 'quantity' => 4, 'orderNote' => 'Veterinary '.$commande->numero]]]];
+        $commande->forceFill(['vetpoint_envoi_le' => now()->subMinutes(5)])->save();
+
+        $this->envoyer($commande)->assertOk();
+
+        $this->assertCount(1, $this->envois());
+    }
+
+    /** Un refus 404 en page HTML (un proxy) n'est pas recopié tel quel. */
+    public function test_un_refus_en_page_html_n_est_pas_recopie(): void
+    {
+        $commande = $this->brouillon();
+        $this->refus = ['statut' => 404, 'corps' => '<html><body><h1>404 Not Found</h1></body></html>'];
+
+        $this->assertSame('Vetpoint a refusé la commande.', $this->envoyer($commande)->json('errors.vetpoint.0'));
+    }
+
+    public function test_les_autres_codes_d_adresse_et_le_400_sans_message(): void
+    {
+        foreach ([[422, ['errorTyoe' => '1065'], 'L’adresse de livraison est incomplète chez Vetpoint.'], [422, ['errorTyoe' => '1067'], 'L’adresse de livraison est incomplète chez Vetpoint.'], [422, ['errorTyoe' => '1068'], 'L’adresse de livraison est incomplète chez Vetpoint.'], [400, ['statusCode' => 400], 'Un produit de la commande est introuvable chez Vetpoint : vérifiez ses liens.']] as [$statut, $corps, $message]) {
+            $commande = $this->brouillon();
+            $this->refus = ['statut' => $statut, 'corps' => $corps];
+
+            $this->assertSame($message, $this->envoyer($commande)->json('errors.vetpoint.0'));
+        }
+    }
+
+    /** Envoi en cours (en suspens) : la ressource le dit. */
+    public function test_la_ressource_dit_l_envoi_en_suspens(): void
+    {
+        $commande = $this->brouillon();
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+
+        $this->getJson('/api/v1/stocks/commandes', $this->entetes)->assertOk()
+            ->assertJsonPath('data.0.vetpoint.envoi_en_cours', true)->assertJsonPath('data.0.vetpoint.numero', null);
+    }
+
+    /** Un article délié après l'envoi garde son prix réel à la réception (le lien est gardé sur la ligne). */
+    public function test_un_article_delie_apres_l_envoi_garde_son_prix_reel(): void
+    {
+        $commande = $this->envoyee();
+        ProduitVetpoint::query()->delete();
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->entetes)->assertOk()
+            ->assertJsonPath('data.reception_vetpoint.prix_repris', 1);
+
+        $this->assertSame('12.35', (string) $commande->lignes()->first()->cout);
+    }
+
+    /** Prix repris mais aucune péremption donnée : la réponse le dit (les lots prennent celle du catalogue). */
+    public function test_sans_peremption_de_vetpoint_la_reponse_le_dit(): void
+    {
+        $commande = $this->envoyee();
+        unset($this->detail['orderItems'][0]['expirationDate']);
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->entetes)->assertOk()
+            ->assertJsonPath('data.reception_vetpoint.message', 'Prix réels de Vetpoint repris ; Vetpoint ne donne pas encore les péremptions : les lots prennent celle du catalogue.');
     }
 }

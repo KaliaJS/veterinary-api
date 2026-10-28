@@ -200,6 +200,8 @@ class CommandeFournisseurController extends Controller
                 $vetpoint['message'] = match (true) {
                     $repris === 0 => 'Vetpoint ne donne pas encore les prix réels : le stock est entré avec les prix de la commande.',
                     $repris < $total => 'Prix réels de Vetpoint repris pour '.$repris.' '.($repris > 1 ? 'lignes' : 'ligne').' sur '.$total.' ; les autres gardent le prix de la commande.',
+                    // Les prix, mais pas encore les péremptions
+                    $parLigne->every(fn (array $ligne): bool => ClientVetpoint::peremption($ligne['peremption']) === null) => 'Prix réels de Vetpoint repris ; Vetpoint ne donne pas encore les péremptions : les lots prennent celle du catalogue.',
                     default => null,
                 };
             } catch (VetpointCleRefusee|VetpointCgv|VetpointLimite|VetpointIndisponible) {
@@ -299,14 +301,17 @@ class CommandeFournisseurController extends Controller
 
         $this->authorize('delete', $commande);
 
-        if ($commande->statut === StatutCommandeFournisseur::Receptionnee) {
-            throw ValidationException::withMessages([
-                'statut' => 'Une commande réceptionnée a fait bouger le stock, elle ne se supprime plus.',
-            ]);
-        }
-        CommandeVetpointController::exigerHorsEnvoiEnSuspens($commande);
-
-        $commande->delete();
+        // Sous verrou, comme l'envoi par Vetpoint : jamais supprimée pendant qu'elle part
+        DB::transaction(function () use ($commande): void {
+            $verrouillee = CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
+            if ($verrouillee->statut === StatutCommandeFournisseur::Receptionnee) {
+                throw ValidationException::withMessages([
+                    'statut' => 'Une commande réceptionnée a fait bouger le stock, elle ne se supprime plus.',
+                ]);
+            }
+            CommandeVetpointController::exigerHorsEnvoiEnSuspens($verrouillee);
+            $verrouillee->delete();
+        });
 
         return response()->noContent();
     }
