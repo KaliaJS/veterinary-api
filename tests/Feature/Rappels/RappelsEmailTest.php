@@ -135,8 +135,8 @@ class RappelsEmailTest extends TestCase
     {
         $debut = CarbonImmutable::parse('2026-11-09 14:30', 'Europe/Zurich')->utc();
         RendezVous::factory()->pourPatient($this->patient)->create(['clinique_id' => $this->clinique->id, 'type' => TypeRendezVous::Controle, 'starts_at' => $debut, 'ends_at' => $debut->addMinutes(20), 'note_accueil' => 'Client difficile']);
-        // Une consultation ordinaire n'est pas un contrôle
-        RendezVous::factory()->pourPatient($this->patient)->create(['clinique_id' => $this->clinique->id, 'type' => TypeRendezVous::Consultation, 'starts_at' => $debut->addDay(), 'ends_at' => $debut->addDay()->addMinutes(20)]);
+        // Une consultation ordinaire n'est pas un contrôle (le même jour, donc dans le délai)
+        RendezVous::factory()->pourPatient($this->patient)->create(['clinique_id' => $this->clinique->id, 'type' => TypeRendezVous::Consultation, 'starts_at' => $debut->addHours(2), 'ends_at' => $debut->addHours(2)->addMinutes(20)]);
 
         $this->envoyer();
         $this->envoyer();
@@ -699,5 +699,19 @@ class RappelsEmailTest extends TestCase
 
         Mail::assertSent(RappelControle::class, fn (RappelControle $mail) => str_contains($mail->render(), 'rappels/desabonner/'.$this->client->id)
             && str_contains($mail->render(), 'Ne plus recevoir les rappels'));
+    }
+
+    /** Case 5 : la journée commence à 8 h, à l'heure de la clinique. */
+    public function test_rien_ne_part_avant_huit_heures(): void
+    {
+        $this->vaccin('2026-11-09');
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 07:05', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertNothingSent();
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 08:05', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertSent(RappelVaccin::class, 1);
     }
 }
