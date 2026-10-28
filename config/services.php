@@ -126,7 +126,7 @@ return [
     // Jim (Laravel Cloud), jamais affichée
     'apns' => [
         'key_id' => env('APNS_KEY_ID'),
-        'team_id' => env('APNS_TEAM_ID'),
+        'team_id' => env('APNS_TEAM_ID', '9M257CNL34'),
         'cle_base64' => env('APNS_PRIVATE_KEY_BASE64'),
     ],
 

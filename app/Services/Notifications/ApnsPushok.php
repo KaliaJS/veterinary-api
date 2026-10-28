@@ -2,6 +2,7 @@
 
 namespace App\Services\Notifications;
 
+use Illuminate\Support\Facades\Cache;
 use Pushok\AuthProvider\Token;
 use Pushok\Client;
 use Pushok\Notification;
@@ -18,20 +19,49 @@ class ApnsPushok implements CanalApns
     /** Refus définitifs d'Apple : le jeton ne sert plus */
     private const array JETON_MORT = ['BadDeviceToken', 'Unregistered', 'DeviceTokenNotForTopic'];
 
-    public function envoyer(array $jetons, string $environnement, string $sujet, array $contenu): array
+    /** Le jeton signé refusé par Apple : il est refait au prochain envoi */
+    private const array SIGNATURE_REFUSEE = ['ExpiredProviderToken', 'InvalidProviderToken'];
+
+    /**
+     * Le jeton signé, gardé 40 minutes : Apple refuse qu'on le change plus
+     * d'une fois toutes les 20 minutes (TooManyProviderTokenUpdates) et
+     * l'accepte une heure. Clé illisible : signalée au journal, sans elle.
+     */
+    public function autorisation(string $sujet): ?Token
     {
         $c = config('services.apns');
         $cle = base64_decode((string) $c['cle_base64'], true);
-        if ($jetons === [] || $cle === false || $cle === '') {
-            return [];
+        if ($cle === false || ! str_contains($cle, 'PRIVATE KEY')) {
+            report(new \RuntimeException('APNs : clé illisible, APNS_PRIVATE_KEY_BASE64 doit être le fichier .p8 encodé en base64.'));
+
+            return null;
         }
-        $auth = Token::create([
+        $options = [
             'key_id' => $c['key_id'],
             'team_id' => $c['team_id'],
             'app_bundle_id' => $sujet,
             'private_key_content' => $cle,
             'private_key_secret' => null,
-        ]);
+        ];
+        $signe = Cache::remember($this->cleCache($sujet), now()->addMinutes(40), fn (): string => Token::create($options)->get());
+
+        return Token::useExisting($signe, $options);
+    }
+
+    private function cleCache(string $sujet): string
+    {
+        return 'apns:signature:'.config('services.apns.key_id').':'.$sujet;
+    }
+
+    public function envoyer(array $jetons, string $environnement, string $sujet, array $contenu): array
+    {
+        if ($jetons === []) {
+            return [];
+        }
+        $auth = $this->autorisation($sujet);
+        if ($auth === null) {
+            return [];
+        }
         $client = new Client($auth, $environnement === 'production');
         $payload = Payload::create()->setContentAvailability(true)->setPushType('background');
         foreach ($contenu as $champ => $valeur) {
@@ -45,6 +75,9 @@ class ApnsPushok implements CanalApns
         foreach ($client->push() as $reponse) {
             if (in_array($reponse->getErrorReason(), self::JETON_MORT, true) || $reponse->getStatusCode() === 410) {
                 $morts[] = $reponse->getDeviceToken();
+            } elseif (in_array($reponse->getErrorReason(), self::SIGNATURE_REFUSEE, true)) {
+                Cache::forget($this->cleCache($sujet));
+                report(new \RuntimeException('APNs : signature refusée ('.$reponse->getErrorReason().'), refaite au prochain envoi.'));
             } elseif ($reponse->getStatusCode() !== 200) {
                 report(new \RuntimeException('APNs : '.$reponse->getStatusCode().' '.$reponse->getErrorReason()));
             }

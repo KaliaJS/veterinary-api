@@ -2,12 +2,16 @@
 
 namespace Tests\Feature\Montre;
 
+use App\Enums\StatutRendezVous;
+use App\Jobs\PrevenirMontres;
 use App\Models\AppareilNotification;
 use App\Models\Clinique;
+use App\Models\Employe;
 use App\Models\RendezVous;
 use App\Services\Notifications\CanalApns;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -116,5 +120,81 @@ class NotificationsMontreTest extends TestCase
         RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
 
         $this->assertSame([], $this->envois);
+    }
+
+    private function montre(): void
+    {
+        AppareilNotification::query()->create(['user_id' => $this->userId, 'jeton' => str_repeat('ab', 32), 'environnement' => 'sandbox', 'plateforme' => 'watchos']);
+    }
+
+    /** Déplacé, annulé, modifié, supprimé : chaque changement prévient aussi, pas seulement la prise */
+    public function test_deplace_annule_modifie_ou_supprime_previent_aussi(): void
+    {
+        $this->montre();
+        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
+
+        foreach ([
+            'déplacé' => fn () => $rendezVous->update(['starts_at' => now()->addHours(3), 'ends_at' => now()->addHours(3)->addMinutes(20)]),
+            'annulé' => fn () => $rendezVous->update(['status' => StatutRendezVous::Annule]),
+            'modifié' => fn () => $rendezVous->update(['reason' => 'Vaccin et contrôle']),
+            'supprimé' => fn () => $rendezVous->delete(),
+        ] as $geste => $faire) {
+            $this->envois = [];
+            $faire();
+            $this->assertCount(1, $this->envois, "Rendez-vous $geste : la montre doit être prévenue");
+        }
+    }
+
+    /** Déplacé de « dans 2 h » à « dans 10 jours » : il quitte la journée, la montre est prévenue */
+    public function test_un_rendez_vous_qui_quitte_la_journee_previent_aussi(): void
+    {
+        $this->montre();
+        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
+        $this->envois = [];
+
+        $rendezVous->update(['starts_at' => now()->addDays(10), 'ends_at' => now()->addDays(10)->addMinutes(20)]);
+
+        $this->assertCount(1, $this->envois);
+    }
+
+    /** Un rendez-vous du jour à 07:30, annulé à 20:00 : la montre montre toute la journée, elle est prévenue */
+    public function test_un_rendez_vous_du_matin_annule_le_soir_previent_aussi(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-05 20:00', 'Europe/Zurich'));
+        // 07:30 à Zurich, 12 h 30 plus tôt
+        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->subMinutes(750), 'ends_at' => now()->subMinutes(730)]);
+        $this->montre();
+
+        $rendezVous->update(['status' => StatutRendezVous::Annule]);
+
+        $this->assertCount(1, $this->envois);
+    }
+
+    /** Un employé suspendu ne reçoit plus rien */
+    public function test_un_employe_suspendu_n_est_pas_prevenu(): void
+    {
+        $this->montre();
+        Employe::withoutGlobalScopes()->where('user_id', $this->userId)->update(['acces_suspendu' => true]);
+
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+
+        $this->assertSame([], $this->envois);
+    }
+
+    /** Une rafale (10 rendez-vous glissés l'un après l'autre) : un seul réveil, 15 s après le premier, qui voit tout */
+    public function test_une_rafale_ne_fait_qu_un_reveil_differe_de_15_secondes(): void
+    {
+        Queue::fake([PrevenirMontres::class]);
+
+        for ($i = 0; $i < 10; $i++) {
+            RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
+            $this->travel(5)->seconds();
+        }
+
+        Queue::assertPushed(PrevenirMontres::class, 1);
+        Queue::assertPushed(PrevenirMontres::class, fn (PrevenirMontres $tache): bool => $tache->delay instanceof \DateTimeInterface
+            && CarbonImmutable::parse('2026-11-05 09:00', 'Europe/Zurich')->diffInSeconds($tache->delay) >= 15
+            // Le verrou tient jusqu'à l'envoi : il dure plus que la pause
+            && $tache->uniqueFor > 15);
     }
 }

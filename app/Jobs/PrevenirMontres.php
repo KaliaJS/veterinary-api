@@ -14,8 +14,9 @@ use Illuminate\Queue\InteractsWithQueue;
 /**
  * La journée de la clinique a changé (28.10.2026) : les montres de son
  * équipe reçoivent d'Apple une notification invisible et relisent leur
- * journée. Une seule fois par clinique toutes les 15 secondes : une
- * rafale de changements (un planning réorganisé) ne fait qu'un réveil.
+ * journée. Le réveil part 15 secondes après le premier changement ; les
+ * changements de ces 15 secondes s'y joignent (le verrou tient jusqu'à
+ * l'envoi) : un planning réorganisé ne fait qu'un réveil, qui voit tout.
  */
 class PrevenirMontres implements ShouldBeUnique, ShouldQueue
 {
@@ -25,7 +26,11 @@ class PrevenirMontres implements ShouldBeUnique, ShouldQueue
 
     public const string SUJET_MONTRE = 'ch.veterinary.client.watchkitapp';
 
-    public int $uniqueFor = 15;
+    /** La pause avant l'envoi, en secondes */
+    public const int PAUSE = 15;
+
+    /** Plus long que la pause : le verrou ne tombe qu'à l'envoi (ou après une minute, si la file est arrêtée) */
+    public int $uniqueFor = 60;
 
     public function __construct(public int $cliniqueId) {}
 

@@ -62,14 +62,15 @@ class RendezVous extends Model
 
     /**
      * Les montres de l'équipe relisent leur journée (APNs, 28.10.2026) quand
-     * le rendez-vous touche les deux prochains jours, avant ou après le
-     * changement ; une fois la transaction validée.
+     * le rendez-vous touche la journée (depuis 24 h : la montre montre tout
+     * le jour) ou les deux prochains jours, avant ou après le changement ;
+     * une fois la transaction validée, après la pause de PrevenirMontres.
      */
     public function reveillerLesMontres(): void
     {
-        $proche = fn (mixed $moment): bool => $moment !== null && CarbonImmutable::parse($moment)->between(now()->subHours(12), now()->addHours(48));
+        $proche = fn (mixed $moment): bool => $moment !== null && CarbonImmutable::parse($moment)->between(now()->subDay(), now()->addHours(48));
         if ($proche($this->starts_at) || $proche($this->getPrevious()['starts_at'] ?? null)) {
-            PrevenirMontres::dispatch((int) $this->clinique_id)->afterCommit();
+            PrevenirMontres::dispatch((int) $this->clinique_id)->delay(now()->addSeconds(PrevenirMontres::PAUSE))->afterCommit();
         }
     }
 
