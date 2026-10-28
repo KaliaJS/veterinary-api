@@ -1358,7 +1358,7 @@ en tête par les gestes réels : c'est la préfiguration de
 |---|---|---|
 | `n` | string unique | « BC-2026-031 » — séquence |
 | `sup` | string → FK fournisseur | |
-| `dest` | FK → clinique | Clinique de livraison |
+| `dest` | FK → clinique | Clinique qui commande et reçoit (celle du jeton, 28.10.2026) |
 | `st` | enum | `draft` (brouillon) → `sent` (envoyée) → `rec` (réceptionnée) |
 | `date`, `eta`, `recAt` | libellés en démo | En base : `envoyee_le`, `receptionnee_le` datetimes |
 | `lines` | table enfant | `{ prodId (FK), q, cost (prix d'achat) }` |

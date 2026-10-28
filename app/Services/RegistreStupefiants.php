@@ -27,8 +27,8 @@ class RegistreStupefiants
             ]);
         }
 
-        // La clinique de livraison peut être une clinique sœur : posée ici,
-        // hors des événements qui imposent celle du jeton
+        // La clinique visée peut être une clinique sœur (ajustement de son
+        // stock) : posée ici, hors des événements qui imposent celle du jeton
         $mouvement = MouvementStupefiant::withoutEvents(fn (): MouvementStupefiant => MouvementStupefiant::create([
             'clinique_id' => $cliniqueId,
             'produit_id' => $produit->id,

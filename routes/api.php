@@ -714,8 +714,8 @@ Route::prefix('v1')->group(function (): void {
             Route::get('commandes', [CommandeFournisseurController::class, 'index']);
             Route::post('commandes', [CommandeFournisseurController::class, 'store']);
             Route::post('commandes/generer', [CommandeFournisseurController::class, 'generer']);
-            // Commandes résolues sans binding : toutes cliniques de
-            // l'organisation (livraison à une clinique sœur possible).
+            // Commandes de la clinique du jeton seulement (on commande depuis
+            // la clinique, 28.10.2026) ; une autre clinique répond 404.
             Route::post('commandes/{commande}/envoyer', [CommandeFournisseurController::class, 'envoyer'])->whereNumber('commande');
             Route::post('commandes/{commande}/receptionner', [CommandeFournisseurController::class, 'receptionner'])->whereNumber('commande');
             // Vetpoint, étapes 3 et 4 (28.10.2026) : adresses, envoi, détail chez Vetpoint

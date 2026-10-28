@@ -16,7 +16,7 @@ use Tests\TestCase;
 
 /**
  * Cycle d'un bon de commande : brouillon → envoyée → réceptionnée. La
- * réception incrémente le stock de la clinique de livraison, trace les
+ * réception incrémente le stock de la clinique qui commande, trace les
  * mouvements et crée un lot par article périssable ; la génération
  * automatique regroupe le stock bas par fournisseur.
  */

@@ -497,8 +497,28 @@ class VetpointCommandeTest extends TestCase
 
         $this->envoyer($commande)->assertNotFound();
         $this->getJson("/api/v1/stocks/commandes/{$commande->id}/vetpoint/adresses", $this->entetes)->assertNotFound();
+        // Ni abandonnée d'ici quand son envoi est en suspens, ni lue chez Vetpoint une fois partie
+        $commande->forceFill(['vetpoint_envoi_le' => now()->subMinutes(5)])->save();
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/vetpoint/abandonner", [], $this->entetes)->assertNotFound();
+        $this->assertNotNull($commande->refresh()->vetpoint_envoi_le);
+        $partie = $this->brouillon();
+        $partie->forceFill(['clinique_id' => $soeur->id, 'statut' => StatutCommandeFournisseur::Envoyee, 'vetpoint_commande_id' => 'V-7009'])->save();
+        $this->getJson("/api/v1/stocks/commandes/{$partie->id}/vetpoint", $this->entetes)->assertNotFound();
 
         $this->assertSame([], $this->appels);
+    }
+
+    /** Deux cliniques reliées à Vetpoint : l'envoi part avec la clé de la clinique ouverte, jamais celle de la sœur (même plus récente). */
+    public function test_avec_deux_cliniques_reliees_l_envoi_part_avec_la_cle_de_la_clinique_ouverte(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $this->travelTo(now()->addMinute());
+        ConnexionVetpoint::withoutGlobalScopes()->create(['clinique_id' => $soeur->id, 'cle' => self::CLE_SOEUR, 'verifiee_le' => now()]);
+
+        $this->envoyer($this->brouillon())->assertOk();
+
+        $this->assertNotSame([], $this->appels);
+        $this->assertSame([self::CLE], array_values(array_unique(array_column($this->appels, 'cle'))));
     }
 
     public function test_les_refus_sans_code_ou_en_allemand_restent_justes(): void

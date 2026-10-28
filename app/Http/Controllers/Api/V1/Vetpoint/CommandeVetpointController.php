@@ -284,9 +284,9 @@ class CommandeVetpointController extends Controller
     }
 
     /**
-     * Le client Vetpoint de la clinique, ou un refus clair. Une
-     * clinique sœur commande avec sa propre clé : la commande, déjà bornée à
-     * l'organisation, dit laquelle (hors scope de la clinique du jeton).
+     * Le client Vetpoint de la clinique, ou un refus clair. La commande
+     * est celle de la clinique du jeton : c'est sa clé qui part, jamais
+     * celle d'une clinique sœur.
      */
     public static function clientDe(int $cliniqueId): ClientVetpoint
     {
