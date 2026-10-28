@@ -203,7 +203,9 @@ class LimitesConnexionTest extends TestCase
         $code = $this->envoyerEtRecupererLeCode($jim);
 
         $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $jim->email, 'code' => $code])
-            ->assertUnprocessable()->assertJsonValidationErrors('code');
+            ->assertUnprocessable()->assertJsonValidationErrors('code')
+            // Option A de Jim (28.10.2026) : la fenêtre reconnaît le cas et mène à la passkey
+            ->assertJsonValidationErrors('passkey');
     }
 
     /** Décision de Jim (24.10.2026) : un administrateur de clinique qui a une passkey garde la connexion par code. */

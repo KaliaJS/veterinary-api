@@ -156,9 +156,9 @@ class CodeEmail
         // Un modérateur de la plateforme qui a une passkey ne se connecte
         // qu'avec elle (23.10.2026) : son compte voit toutes les cliniques
         if (! $parLaSession && $user->est_moderateur && $user->passkeys()->exists()) {
-            throw ValidationException::withMessages([
-                'code' => 'Ce compte se connecte avec sa passkey. Appareil perdu ? Écrivez à l’équipe de Veterinary.',
-            ]);
+            // `passkey` : la fenêtre de connexion mène alors à la passkey (option A de Jim, 28.10.2026)
+            $message = 'Ce compte se connecte avec sa passkey. Appareil perdu ? Écrivez à l’équipe de Veterinary.';
+            throw ValidationException::withMessages(['code' => $message, 'passkey' => $message]);
         }
 
         // Un code reçu et saisi prouve l'adresse, y compris pour un compte
