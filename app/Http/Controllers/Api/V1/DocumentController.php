@@ -15,8 +15,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Dossier documentaire : certificats, consentements, comptes rendus
- * PDF « archivés au dossier ». Métadonnées seulement pour l'instant —
- * jamais de suppression (l'archive fait foi).
+ * PDF « archivés au dossier ». Un PDF peut s'y joindre (28.10.2026), gardé
+ * tel quel sur le disque privé : le rapport ou le compte rendu d'un
+ * confrère. Jamais de suppression (l'archive fait foi).
  */
 class DocumentController extends Controller
 {
@@ -37,16 +38,34 @@ class DocumentController extends Controller
         $this->authorize('update', $patient);
 
         $donnees = $request->validated();
+        $fichier = $request->file('fichier');
+        unset($donnees['fichier']);
+
+        $piece = [];
+        if ($fichier !== null) {
+            $chemin = Storage::disk('prive')->putFileAs('documents/'.$patient->organisation_id, $fichier, Str::uuid().'.pdf');
+            abort_if($chemin === false, 500, 'Le PDF n’a pas pu être enregistré : réessayez.');
+            $piece = [
+                'chemin' => $chemin,
+                'nom_fichier' => mb_substr($fichier->getClientOriginalName(), 0, 255),
+                'taille_octets' => $fichier->getSize(),
+                // Le rapport d'un confrère : montré au propriétaire seulement si la clinique le partage
+                'visible_proprietaire' => $request->boolean('visible_proprietaire'),
+            ];
+        }
 
         $document = $patient->documents()->create([
             ...$donnees,
+            ...$piece,
             // Le signataire est la personne connectée, jamais un nom saisi
-            // (affiché dans l'espace du propriétaire), 24.10.2026
-            'signataire' => app(ContexteClinique::class)->employe()?->nom,
+            // (affiché dans l'espace du propriétaire), 24.10.2026 ; un PDF
+            // ajouté n'est pas signé par elle : on garde qui l'a ajouté
+            'signataire' => $fichier === null ? app(ContexteClinique::class)->employe()?->nom : null,
+            'ajoute_par' => $request->user()?->id,
             'etabli_le' => $donnees['etabli_le'] ?? aujourdhui()->toDateString(),
         ]);
 
-        return new DocumentResource($document);
+        return new DocumentResource($document->refresh());
     }
 
     /**

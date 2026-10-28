@@ -271,13 +271,17 @@ class Organisation extends Model
     }
 
     /**
-     * Le stockage utilisé (décision de Jim, 28.10.2026) : les DICOM gardés
-     * pour ses cliniques, en direct et à l'octet près, plus les autres
-     * fichiers (photos, logo, consentements) comptés chaque nuit.
+     * Le stockage utilisé (décision de Jim, 28.10.2026) : les DICOM et les
+     * PDF du dossier, en direct et à l'octet près, plus les autres fichiers
+     * (photos, logo, consentements) comptés chaque nuit.
      */
     public function stockageOctets(): int
     {
-        return (int) $this->stockage_autres_octets + (int) ClicheDicom::query()
+        $pdf = (int) Document::query()->withoutGlobalScopes()
+            ->whereHas('patient', fn (Builder $patient) => $patient->withoutGlobalScopes()->where('organisation_id', $this->id))
+            ->sum('taille_octets');
+
+        return (int) $this->stockage_autres_octets + $pdf + (int) ClicheDicom::query()
             ->join('examens_imagerie', 'examens_imagerie.id', '=', 'cliches_dicom.examen_imagerie_id')
             ->join('cliniques', 'cliniques.id', '=', 'examens_imagerie.clinique_id')
             ->join('societes', 'societes.id', '=', 'cliniques.societe_id')

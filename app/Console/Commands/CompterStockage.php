@@ -39,8 +39,9 @@ class CompterStockage extends Command
                         }
                     }
                 }
-                // Consentements signés : rangés par intervention, rattachés par le dossier de l'animal
-                Document::query()->withoutGlobalScopes()->whereNotNull('chemin')
+                // Consentements signés : rangés par intervention, rattachés par le
+                // dossier de l'animal ; les PDF ajoutés se comptent en direct
+                Document::query()->withoutGlobalScopes()->whereNotNull('chemin')->whereNull('taille_octets')
                     ->whereHas('patient', fn ($patient) => $patient->withoutGlobalScopes()->where('organisation_id', $organisation->id))
                     ->pluck('chemin')
                     ->each(function (string $chemin) use ($disque, &$octets): void {

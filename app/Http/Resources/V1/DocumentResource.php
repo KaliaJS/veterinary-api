@@ -24,6 +24,9 @@ class DocumentResource extends JsonResource
             'signataire' => $this->signataire,
             'etabli_le' => $this->etabli_le->toDateString(),
             'a_fichier' => $this->chemin !== null,
+            'nom_fichier' => $this->nom_fichier,
+            'taille_octets' => $this->taille_octets,
+            'visible_proprietaire' => $this->visible_proprietaire,
         ];
     }
 }

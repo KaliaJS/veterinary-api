@@ -264,6 +264,8 @@ class DocumentsProprietaire
         return Document::query()
             ->with('patient')
             ->whereIn('patient_id', $patientIds)
+            // Le rapport d'un confrère ajouté au dossier : seulement s'il est partagé (28.10.2026)
+            ->where('visible_proprietaire', true)
             ->orderByDesc('etabli_le')
             ->get()
             ->map(fn (Document $d): array => [
