@@ -8,6 +8,7 @@ use App\Mail\LienVisio;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Patient;
+use App\Models\Role;
 use App\Models\SessionTeleconsultation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
@@ -209,5 +210,61 @@ class VisioWebRtcTest extends TestCase
         $this->assertSame($premier, $second);
         $this->assertSame(hash('sha256', $premier), $this->session->refresh()->jeton_client);
         $this->assertStringNotContainsString($premier, (string) json_encode($this->getJson("/api/v1/tele/sessions/{$this->session->id}", $this->enTetes($this->jeton))->json()));
+    }
+
+    /* ---------- Deuxième passe (28.10.2026) : propriétés de sécurité prouvées ---------- */
+
+    private function autreSession(): SessionTeleconsultation
+    {
+        $patient = Patient::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'client_id' => $this->session->patient->client_id]);
+        $id = $this->postJson('/api/v1/tele/sessions', ['patient_id' => $patient->id, 'motif' => 'Autre'], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
+
+        return SessionTeleconsultation::withoutGlobalScopes()->findOrFail($id);
+    }
+
+    public function test_le_lien_d_une_session_n_ouvre_pas_le_canal_d_une_autre(): void
+    {
+        $this->avecReverb();
+        $jeton = $this->lien();
+        $autre = $this->autreSession();
+
+        $this->postJson("/api/v1/public/visio/{$jeton}/canal", ['socket_id' => '1234.5678', 'channel_name' => 'private-visio.'.$autre->id])->assertForbidden();
+    }
+
+    public function test_le_canal_de_la_session_demande_le_droit_planning(): void
+    {
+        $this->avecReverb();
+        ['employe' => $employe, 'jeton' => $sansPlanning] = $this->employeAvecJeton($this->clinique);
+        $role = Role::withoutGlobalScope('organisation')->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Stocks seulement', 'domaines' => ['stocks']]);
+        $employe->update(['role_id' => $role->id]);
+
+        $this->postJson('/api/v1/broadcasting/auth', ['socket_id' => '1234.5678', 'channel_name' => 'private-visio.'.$this->session->id], $this->enTetes($sansPlanning))->assertForbidden();
+    }
+
+    public function test_une_reference_ne_se_relit_pas_depuis_une_autre_session(): void
+    {
+        Event::fake([SignalVisio::class]);
+        $this->signalVeterinaire('offre', ['type' => 'offer', 'sdp' => str_repeat('a=x'.PHP_EOL, 3000)])->assertAccepted();
+        $reference = null;
+        Event::assertDispatched(SignalVisio::class, function (SignalVisio $e) use (&$reference): bool {
+            $reference = $e->broadcastWith()['reference'] ?? null;
+
+            return $reference !== null;
+        });
+        $autre = $this->autreSession();
+        $jetonAutre = basename((string) parse_url($this->postJson("/api/v1/tele/sessions/{$autre->id}/lien", [], $this->enTetes($this->jeton))->json('data.url'), PHP_URL_PATH));
+
+        $this->getJson("/api/v1/public/visio/{$jetonAutre}/signaux/{$reference}")->assertNotFound();
+    }
+
+    public function test_le_canal_public_se_ferme_avec_l_appel_et_refuse_un_socket_malforme(): void
+    {
+        $this->avecReverb();
+        $jeton = $this->lien();
+        $canal = 'private-visio.'.$this->session->id;
+
+        $this->postJson("/api/v1/public/visio/{$jeton}/canal", ['socket_id' => 'pas-un-socket', 'channel_name' => $canal])->assertForbidden();
+        $this->session->forceFill(['terminee_le' => now()])->save();
+        $this->postJson("/api/v1/public/visio/{$jeton}/canal", ['socket_id' => '1234.5678', 'channel_name' => $canal])->assertStatus(410);
     }
 }

@@ -57,7 +57,9 @@ class VisioPubliqueController extends Controller
     public function canal(Request $request, string $jeton): mixed
     {
         $session = $this->joignable($jeton);
-        abort_unless($request->input('channel_name') === 'private-visio.'.$session->id && is_string($request->input('socket_id')), 403);
+        // Le seul canal de sa session ; un identifiant de connexion malformé est refusé, pas une erreur
+        abort_unless($request->input('channel_name') === 'private-visio.'.$session->id
+            && preg_match('/\A\d+\.\d+\z/', (string) $request->input('socket_id')) === 1, 403);
 
         return Broadcast::driver()->validAuthenticationResponse($request, true);
     }
