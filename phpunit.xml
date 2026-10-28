@@ -53,6 +53,9 @@
         <env name="AWS_ACCESS_KEY_ID" value="" force="true"/>
         <env name="AWS_SECRET_ACCESS_KEY" value="" force="true"/>
         <env name="MAIL_PASSWORD" value="" force="true"/>
+        <!-- TURN de Cloudflare : jamais la clé du .env (STUN seul dans les essais) -->
+        <env name="CLOUDFLARE_TURN_KEY_ID" value="" force="true"/>
+        <env name="CLOUDFLARE_TURN_API_TOKEN" value="" force="true"/>
         <!-- Twilio : des clés d'essai, jamais celles du .env (aucun SMS réel) -->
         <env name="TWILIO_ACCOUNT_SID" value="AC-essai" force="true"/>
         <env name="TWILIO_API_KEY" value="SK-essai" force="true"/>

@@ -333,4 +333,18 @@ class TransfertAppelTest extends TestCase
         // Ceux d'un autre ne se lisent pas
         $this->assertSame([], $this->getJson('/api/v1/tele/transferts', $this->enTetes($this->accueil))->assertOk()->json('data'));
     }
+
+    /** Mes transferts : un appel de plus de 12 h ne se reprend plus ; sans le droit Planning, rien ne se lit */
+    public function test_mes_transferts_ecartent_les_appels_trop_anciens_et_demandent_le_planning(): void
+    {
+        $this->postJson($this->url('transferer'), ['employe_id' => $this->employeVeto->id], $this->enTetes($this->accueil))->assertOk();
+        $this->session->forceFill(['demarre_le' => now()->subHours(13)])->save();
+
+        $this->assertSame([], $this->getJson('/api/v1/tele/transferts', $this->enTetes($this->veto))->assertOk()->json('data'));
+
+        app(ContexteClinique::class)->oublier();
+        ['jeton' => $compta, 'employe' => $employeCompta] = $this->employeAvecJeton($this->clinique, ['nom' => 'Compta']);
+        $employeCompta->update(['role_id' => Role::withoutGlobalScope('organisation')->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Compta', 'domaines' => ['facturation']])->id]);
+        $this->getJson('/api/v1/tele/transferts', $this->enTetes($compta))->assertForbidden();
+    }
 }
