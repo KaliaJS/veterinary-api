@@ -153,6 +153,29 @@ class DocumentsPdfTest extends TestCase
         $this->assertSame(0, $autre->stockageOctets());
     }
 
+    /** 25 Mo pile passent : la limite annoncée est la vraie */
+    public function test_un_pdf_de_25_mo_pile_passe(): void
+    {
+        $contenu = str_pad(self::PDF, 25 * 1024 * 1024, ' ');
+
+        $this->ajouter(['nom' => 'Scanner complet', 'fichier' => UploadedFile::fake()->createWithContent('scanner.pdf', $contenu)])
+            ->assertCreated()->assertJsonPath('data.taille_octets', 25 * 1024 * 1024);
+    }
+
+    /** Un consentement (image de la signature), même visible dans la liste, ne se télécharge pas depuis l'espace : seuls les PDF ajoutés */
+    public function test_un_consentement_ne_se_telecharge_pas_depuis_l_espace(): void
+    {
+        ['user' => $user, 'jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $this->client->update(['user_id' => $user->id]);
+        Storage::disk('prive')->put('consentements/1-x.png', "\x89PNG signature");
+        $consentement = Document::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Consentement', 'chemin' => 'consentements/1-x.png', 'taille_octets' => 15]);
+
+        $ligne = collect($this->getJson('/api/v1/espace/documents', $this->enTetes($jetonProprietaire))->assertOk()->json('data'))->firstWhere('id', $consentement->id);
+        $this->assertNotNull($ligne);
+        $this->assertFalse($ligne['fichier']);
+        $this->get("/api/v1/espace/documents/{$consentement->id}/fichier", $this->enTetes($jetonProprietaire))->assertNotFound();
+    }
+
     /** Un consentement signé compte dès sa signature, sans attendre la nuit */
     public function test_un_consentement_signe_a_sa_taille(): void
     {

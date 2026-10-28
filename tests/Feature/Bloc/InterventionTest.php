@@ -261,6 +261,8 @@ class InterventionTest extends TestCase
         $this->assertSame('Mme Pineau', $document->signataire);
         $this->assertStringStartsWith("\x89PNG", Storage::disk('prive')->get($document->chemin));
         $this->assertNotNull($intervention->consentement_recueilli_par_id);
+        // Compté dans le stockage dès sa signature, à sa taille réelle (28.10.2026)
+        $this->assertSame(strlen(Storage::disk('prive')->get($document->chemin)), $document->taille_octets);
 
         // Il se télécharge depuis le dossier, par sa route privée
         $this->getJson("/api/v1/patients/{$this->patient->id}/documents", $this->jeton())

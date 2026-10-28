@@ -7,8 +7,13 @@ use App\Models\Clinique;
 use App\Models\Document;
 use App\Models\Organisation;
 use App\Models\Patient;
+use Illuminate\Filesystem\FilesystemAdapter as IlluminateFilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use League\Flysystem\DirectoryListing;
+use League\Flysystem\Filesystem;
+use League\Flysystem\FilesystemAdapter;
+use RuntimeException;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -48,6 +53,37 @@ class StockageOrganisationTest extends TestCase
 
         $this->assertSame(15000, Organisation::query()->findOrFail($org)->stockageOctets());
         $this->getJson('/api/v1/organisation', $this->enTetes($admin))->assertOk()->assertJsonPath('data.usage.stockage_octets', 15000);
+    }
+
+    /** Le stockage d'une organisation en panne : elle garde le chiffre de la veille, les suivantes sont comptées */
+    public function test_une_panne_ne_bloque_pas_les_organisations_suivantes(): void
+    {
+        $faux = Storage::fake('prive');
+        $enPanne = Organisation::factory()->create(['stockage_autres_octets' => 111]);
+        $suivante = Organisation::factory()->create();
+        $faux->put("photos-animaux/{$suivante->id}/a.webp", str_repeat('a', 500));
+        $driver = new class($faux->getAdapter(), $enPanne->id) extends Filesystem
+        {
+            public function __construct(FilesystemAdapter $adapter, private int $enPanne)
+            {
+                parent::__construct($adapter);
+            }
+
+            public function listContents(string $location, bool $deep = self::LIST_SHALLOW): DirectoryListing
+            {
+                if (str_ends_with($location, '/'.$this->enPanne)) {
+                    throw new RuntimeException('Stockage injoignable');
+                }
+
+                return parent::listContents($location, $deep);
+            }
+        };
+        Storage::set('prive', new IlluminateFilesystemAdapter($driver, $faux->getAdapter()));
+
+        $this->artisan('stockage:compter')->assertSuccessful();
+
+        $this->assertSame(111, $enPanne->refresh()->stockage_autres_octets);
+        $this->assertSame(500, $suivante->refresh()->stockage_autres_octets);
     }
 
     public function test_le_comptage_de_la_nuit_est_planifie(): void
