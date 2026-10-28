@@ -304,4 +304,16 @@ class RappelsSmsTest extends TestCase
         $this->assertStringContainsString('quota', mb_strtolower((string) RappelEnvoye::withoutGlobalScopes()->where('canal', 'sms')->sole()->erreur));
         $this->assertSame(99, CompteurMensuel::valeur('sms:'.$organisation->id));
     }
+
+    /** « À venir » dit par où chaque rappel partira */
+    public function test_a_venir_dit_par_ou_le_rappel_partira(): void
+    {
+        $this->smsActifs();
+        $this->client->update(['rappels_sms' => true]);
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+
+        $ligne = collect($this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->json('data.a_venir'))->firstWhere('patient.nom', 'Félix');
+
+        $this->assertSame(['email', 'sms'], $ligne['canaux']);
+    }
 }

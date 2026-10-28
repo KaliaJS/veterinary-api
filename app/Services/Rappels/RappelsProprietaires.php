@@ -160,7 +160,7 @@ class RappelsProprietaires
     /**
      * Prochains rappels de la clinique (45 jours) : ce qui partira, et quand.
      *
-     * @return list<array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, echeance_le: string, envoi_le: string, bloque: ?string}>
+     * @return list<array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string}>
      */
     public function aVenir(Clinique $clinique): array
     {
@@ -679,7 +679,7 @@ class RappelsProprietaires
      * @param  array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool, relance_noshow: bool, messages_recus: bool, messages_reponses_seulement: bool}  $reglages
      * @param  CarbonImmutable  $prochain  le prochain moment où un rappel peut partir
      * @param  CarbonImmutable  $dernier  le dernier moment où ce rappel a encore un sens
-     * @return array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, echeance_le: string, envoi_le: string, bloque: ?string}
+     * @return array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string}
      */
     private function ligneAVenir(Clinique $clinique, string $objet, string $libelle, Patient $patient, string $echeance, array $reglages, CarbonImmutable $prochain, CarbonImmutable $dernier): array
     {
@@ -694,6 +694,11 @@ class RappelsProprietaires
             'proprietaire' => $client ? self::nomDe($client) : null,
             'echeance_le' => $echeance,
             'envoi_le' => max($envoi, $aujourdhui)->toDateString(),
+            // Par où il partira (e-mail, SMS), dit à l'écran (28.10.2026)
+            'canaux' => $client === null ? [] : array_values(array_filter([
+                $reglages['email'] && filled($client->email) && $this->accepteLesRappels($client) ? 'email' : null,
+                $this->mobilePourSms($clinique, $client) !== null ? 'sms' : null,
+            ])),
             // Ce qui l'empêchera de partir, dit tel quel
             'bloque' => match (true) {
                 $patient->decede_le !== null => 'Animal décédé',
