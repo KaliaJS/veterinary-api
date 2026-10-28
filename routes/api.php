@@ -579,6 +579,7 @@ Route::prefix('v1')->group(function (): void {
 
             Route::post('devis/apercu', [DevisController::class, 'apercu']);
             Route::post('devis/{devis}/envoyer', [CycleDevisController::class, 'envoyer']);
+            Route::post('devis/{devis}/relancer', [CycleDevisController::class, 'relancer'])->middleware('throttle:30,1');
             Route::post('devis/{devis}/accepter', [CycleDevisController::class, 'accepter']);
             Route::post('devis/{devis}/refuser', [CycleDevisController::class, 'refuser']);
             Route::post('devis/{devis}/dupliquer', [CycleDevisController::class, 'dupliquer']);

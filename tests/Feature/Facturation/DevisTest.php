@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Facturation;
 
+use App\Mail\RelanceDevis;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Devis;
@@ -9,6 +10,7 @@ use App\Models\DevisLigne;
 use App\Models\Patient;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -121,6 +123,32 @@ class DevisTest extends TestCase
             ->assertJsonPath('data.statut', 'envoye')
             ->assertJsonPath('data.canal', 'portail')
             ->assertJsonPath('data.valide_jusquau', aujourdhui()->addDays(30)->toDateString());
+    }
+
+    /** Relance d'un devis envoyé : sur l'espace client, un e-mail part (une fois par jour au plus) ; un devis papier se relance par téléphone. */
+    public function test_la_relance_d_un_devis_previent_le_client(): void
+    {
+        Mail::fake();
+        $compte = User::factory()->create(['email' => 'lea@exemple.ch']);
+        $this->patient->client->update(['user_id' => $compte->id]);
+        $devis = $this->devis();
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/relancer", [], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Seul un devis envoyé, encore valable, se relance.']);
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/envoyer", [], $entetes)->assertOk();
+
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/relancer", [], $entetes)->assertOk()->assertJsonPath('data.relance', 'email');
+        Mail::assertSent(RelanceDevis::class, fn (RelanceDevis $mail) => $mail->hasTo('lea@exemple.ch') && $mail->devis->is($devis));
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/relancer", [], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors(['relance' => 'Ce devis a déjà été relancé aujourd’hui.']);
+        Mail::assertSent(RelanceDevis::class, 1);
+
+        $papier = $this->devis();
+        $this->patient->client->update(['user_id' => null]);
+        $this->postJson("/api/v1/facturation/devis/{$papier->id}/envoyer", [], $entetes)->assertOk();
+        $this->postJson("/api/v1/facturation/devis/{$papier->id}/relancer", [], $entetes)->assertOk()->assertJsonPath('data.relance', 'telephone');
+        Mail::assertSent(RelanceDevis::class, 1);
     }
 
     public function test_l_envoi_passe_au_papier_sans_compte_espace_client(): void

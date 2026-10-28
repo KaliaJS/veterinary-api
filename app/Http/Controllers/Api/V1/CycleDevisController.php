@@ -8,11 +8,16 @@ use App\Enums\PieceNumerotee;
 use App\Enums\StatutDevis;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\DevisResource;
+use App\Mail\RelanceDevis;
 use App\Models\Devis;
 use App\Services\Numeroteur;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Cycle de vie d'un devis (docs/data-model.md §7) : envoi (canal choisi
@@ -41,6 +46,37 @@ class CycleDevisController extends Controller
         ]);
 
         return new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe']));
+    }
+
+    /**
+     * Relance d'un devis envoyé et encore valable (28.10.2026) : sur
+     * l'espace client, un e-mail au propriétaire, une fois par jour au plus ;
+     * un devis papier se relance par téléphone (rien ne part).
+     */
+    public function relancer(Request $request, Devis $devis): JsonResponse
+    {
+        $this->authorize('update', $devis);
+
+        if ($devis->statut !== StatutDevis::Envoye || $devis->estExpire()) {
+            throw ValidationException::withMessages(['statut' => 'Seul un devis envoyé, encore valable, se relance.']);
+        }
+        $client = $devis->patient?->client()->with('user')->first();
+        $adresse = $devis->canal === CanalDevis::Portail ? ($client?->user?->email ?: $client?->email) : null;
+        if (! $adresse) {
+            return response()->json(['data' => ['relance' => 'telephone']]);
+        }
+        if (! Cache::add('devis-relance:'.$devis->id.':'.aujourdhui()->toDateString(), true, now()->addDays(2))) {
+            throw ValidationException::withMessages(['relance' => 'Ce devis a déjà été relancé aujourd’hui.']);
+        }
+        try {
+            Mail::to($adresse)->send(new RelanceDevis($devis->load(['clinique', 'patient'])));
+        } catch (Throwable $e) {
+            Cache::forget('devis-relance:'.$devis->id.':'.aujourdhui()->toDateString());
+            report($e);
+            abort(503, 'La relance n’est pas partie : réessayez dans quelques minutes.');
+        }
+
+        return response()->json(['data' => ['relance' => 'email']]);
     }
 
     public function accepter(Request $request, Devis $devis): DevisResource
