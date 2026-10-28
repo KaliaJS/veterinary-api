@@ -187,10 +187,14 @@ class AlertesClinique
         $alertes = [];
         $organisationId = $clinique->societe?->organisation_id;
 
+        // Stock bas par clinique (28.10.2026) : le stock de la clinique face au
+        // seuil, comme « Commander le stock bas » ; un article qu'elle ne tient
+        // pas n'est pas une alerte d'ici
         $sousSeuil = Produit::withoutGlobalScopes()
             ->where('organisation_id', $organisationId)
             ->where('seuil_alerte', '>', 0)
-            ->withSum(['stocks as stock_total' => fn ($requete) => $requete->withoutGlobalScopes()], 'quantite')
+            ->whereHas('stocks', fn ($requete) => $requete->withoutGlobalScopes()->where('clinique_id', $clinique->id))
+            ->withSum(['stocks as stock_total' => fn ($requete) => $requete->withoutGlobalScopes()->where('clinique_id', $clinique->id)], 'quantite')
             ->orderBy('nom')
             ->get()
             ->filter(fn (Produit $produit) => (int) $produit->stock_total <= $produit->seuil_alerte)

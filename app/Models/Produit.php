@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\CategorieProduit;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Support\TempsReel;
 use Database\Factories\ProduitFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -34,6 +35,16 @@ class Produit extends Model
         'est_stupefiant' => false,
         'est_vedette' => false,
     ];
+
+    protected static function booted(): void
+    {
+        // Alertes en temps réel (28.10.2026) : un seuil change pour toute l'organisation
+        static::updated(function (Produit $produit): void {
+            if ($produit->wasChanged('seuil_alerte')) {
+                TempsReel::alertesDeLOrganisation((int) $produit->organisation_id);
+            }
+        });
+    }
 
     protected $fillable = [
         'organisation_id', 'nom', 'categorie', 'reference', 'prix', 'cout',

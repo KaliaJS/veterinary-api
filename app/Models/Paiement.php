@@ -32,6 +32,10 @@ class Paiement extends Model
             if ($paiement->wasChanged(['statut', 'erreur', 'url_twint', 'terminal_paiement_id'])) {
                 TempsReel::diffuser(fn () => PaiementMisAJour::dispatch($paiement->fresh() ?? $paiement));
             }
+            // Litige, remboursement : les alertes de paiement de la clinique changent
+            if ($paiement->wasChanged('statut')) {
+                TempsReel::alertes((int) $paiement->clinique_id);
+            }
         });
     }
 

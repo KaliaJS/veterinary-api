@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\AppartientAUneClinique;
+use App\Support\TempsReel;
 use Database\Factories\StockFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -18,6 +19,13 @@ class Stock extends Model
 {
     /** @use HasFactory<StockFactory> */
     use AppartientAUneClinique, HasFactory;
+
+    protected static function booted(): void
+    {
+        // Alertes en temps réel (28.10.2026) : le stock de la clinique a changé
+        static::saved(fn (Stock $stock) => TempsReel::alertes((int) $stock->clinique_id));
+        static::deleted(fn (Stock $stock) => TempsReel::alertes((int) $stock->clinique_id));
+    }
 
     protected $fillable = ['produit_id', 'clinique_id', 'quantite'];
 

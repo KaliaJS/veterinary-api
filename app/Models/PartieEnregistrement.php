@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\StatutPartie;
+use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -15,6 +16,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class PartieEnregistrement extends Model
 {
     protected $table = 'parties_enregistrement';
+
+    protected static function booted(): void
+    {
+        // Alertes en temps réel (28.10.2026) : la consommation de la transcription a changé
+        static::updated(function (PartieEnregistrement $partie): void {
+            if ($partie->wasChanged(['duree_secondes', 'statut'])) {
+                TempsReel::alertesDeLOrganisation($partie->enregistrement()->withoutGlobalScopes()->value('organisation_id'));
+            }
+        });
+    }
 
     protected $fillable = [
         'enregistrement_consultation_id', 'numero', 'statut', 'format', 'morceaux', 'fichier',

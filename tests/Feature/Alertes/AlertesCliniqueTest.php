@@ -94,6 +94,22 @@ class AlertesCliniqueTest extends TestCase
             ->assertJsonPath('data.alertes.0.niveau', 'urgent');
     }
 
+    /** Stock bas par clinique (28.10.2026) : l'alerte compare le stock de la clinique à son seuil, comme « Commander le stock bas ». */
+    public function test_l_alerte_de_stock_bas_compte_le_stock_de_la_clinique(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $rimadyl = $this->produit('Rimadyl 50 mg', 2, 10);
+        Stock::factory()->create(['produit_id' => $rimadyl->id, 'clinique_id' => $soeur->id, 'quantite' => 40]);
+        // Tenu seulement par la sœur, en rupture là-bas : pas une alerte d'ici
+        $metacam = Produit::factory()->create(['organisation_id' => $this->organisation->id, 'nom' => 'Metacam', 'seuil_alerte' => 5]);
+        Stock::factory()->create(['produit_id' => $metacam->id, 'clinique_id' => $soeur->id, 'quantite' => 0]);
+
+        $this->getJson('/api/v1/alertes', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.alertes.0.titre', '1 produit sous le seuil')
+            ->assertJsonPath('data.alertes.0.detail', 'Rimadyl 50 mg (2)');
+    }
+
     public function test_la_consommation_ne_se_voit_qu_avec_le_domaine_organisation(): void
     {
         $this->organisation->forceFill(['plafond_diagnostic' => 1000])->save();

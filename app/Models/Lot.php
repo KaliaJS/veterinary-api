@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\AppartientAUneClinique;
+use App\Support\TempsReel;
 use Database\Factories\LotFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -17,6 +18,13 @@ class Lot extends Model
 {
     /** @use HasFactory<LotFactory> */
     use AppartientAUneClinique, HasFactory;
+
+    protected static function booted(): void
+    {
+        // Alertes en temps réel (28.10.2026) : les lots de la clinique ont changé
+        static::saved(fn (Lot $lot) => TempsReel::alertes((int) $lot->clinique_id));
+        static::deleted(fn (Lot $lot) => TempsReel::alertes((int) $lot->clinique_id));
+    }
 
     protected $fillable = ['produit_id', 'clinique_id', 'numero_lot', 'peremption_le', 'quantite'];
 

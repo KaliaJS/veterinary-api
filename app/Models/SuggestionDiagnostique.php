@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\StatutSuggestionDiagnostique;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -21,6 +22,16 @@ class SuggestionDiagnostique extends Model
     use AppartientAUneOrganisation;
 
     protected $table = 'suggestions_diagnostiques';
+
+    protected static function booted(): void
+    {
+        // Alertes en temps réel (28.10.2026) : la consommation du diagnostic a changé
+        static::saved(function (SuggestionDiagnostique $suggestion): void {
+            if ($suggestion->wasRecentlyCreated || $suggestion->wasChanged('montant_centimes')) {
+                TempsReel::alertesDeLOrganisation((int) $suggestion->organisation_id);
+            }
+        });
+    }
 
     protected $fillable = [
         'organisation_id', 'clinique_id', 'rendez_vous_id', 'user_id', 'statut', 'soap', 'avec_transcription',

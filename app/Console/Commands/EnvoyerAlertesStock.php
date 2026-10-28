@@ -8,6 +8,7 @@ use App\Mail\AlertesStockClinique;
 use App\Models\Clinique;
 use App\Services\Alertes\AlertesClinique;
 use App\Services\Alertes\DestinatairesAlertes;
+use App\Support\TempsReel;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
 
@@ -28,6 +29,8 @@ class EnvoyerAlertesStock extends Command
         $envoyes = 0;
 
         Clinique::withoutGlobalScopes()->ouvertes()->with('societe.organisation')->each(function (Clinique $clinique) use ($alertes, $lecteurs, &$envoyes): void {
+            // Un jour nouveau (lots qui périment, période qui change) : les écrans relisent
+            TempsReel::alertes($clinique->id);
             $stock = $alertes->stock($clinique);
             if ($stock === []) {
                 return;
