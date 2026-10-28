@@ -153,6 +153,8 @@ use App\Http\Controllers\Api\V1\Vetpoint\CommandeVetpointController;
 use App\Http\Controllers\Api\V1\Vetpoint\ConnexionVetpointController;
 use App\Http\Controllers\Api\V1\Vetpoint\ProduitVetpointController;
 use App\Http\Controllers\Api\V1\Vetpoint\RechercheVetpointController;
+use App\Http\Controllers\Api\V1\VisioController;
+use App\Http\Controllers\Api\V1\VisioPubliqueController;
 use App\Http\Controllers\Api\V1\VisiteController;
 use App\Http\Controllers\Api\V1\VitrineController;
 use Illuminate\Support\Facades\Route;
@@ -285,6 +287,15 @@ Route::prefix('v1')->group(function (): void {
         Route::get('photos/{fichier}', [PhotoEmployeController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('employe.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
         Route::get('photos-animaux/{fichier}', [PhotoPatientController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('patient.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
         Route::get('photos-cliniques/{fichier}', [PhotoCliniqueController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+(?:-\\d+)?\\.[a-z]+')->name('clinique.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
+        // Appel vidéo du client par le lien de son e-mail (WebRTC, 28.10.2026) ;
+        // la mise en relation échange quelques dizaines de messages par appel
+        Route::prefix('visio/{jeton}')->where(['jeton' => '[A-Za-z0-9]{48}'])->group(function (): void {
+            Route::get('/', [VisioPubliqueController::class, 'afficher']);
+            Route::get('ice', [VisioPubliqueController::class, 'ice'])->middleware('throttle:30,1,visio-ice');
+            Route::post('canal', [VisioPubliqueController::class, 'canal']);
+            Route::post('signal', [VisioPubliqueController::class, 'signal'])->withoutMiddleware('throttle:60,1')->middleware('throttle:300,1,visio-signal');
+            Route::get('signaux/{reference}', [VisioPubliqueController::class, 'lireSignal'])->whereUuid('reference');
+        });
         Route::get('sites/{slug}/logo', [SitePublicController::class, 'logo'])->where('slug', '[a-z0-9-]+')->name('site.logo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
     });
 
@@ -841,6 +852,11 @@ Route::prefix('v1')->group(function (): void {
             Route::post('sessions', [SessionTeleconsultationController::class, 'store']);
             Route::get('sessions/{session}', [SessionTeleconsultationController::class, 'show']);
             Route::post('sessions/{session}/terminer', FinTeleconsultationController::class);
+            // Appel vidéo maison en WebRTC (28.10.2026) : lien du client, serveurs ICE, mise en relation
+            Route::post('sessions/{session}/lien', [VisioController::class, 'lien'])->middleware('throttle:10,1,visio-lien');
+            Route::get('sessions/{session}/ice', [VisioController::class, 'ice'])->middleware('throttle:30,1,visio-ice');
+            Route::post('sessions/{session}/signal', [VisioController::class, 'signal']);
+            Route::get('sessions/{session}/signaux/{reference}', [VisioController::class, 'lireSignal'])->whereUuid('reference');
         });
 
         // Boutique — domaine stocks (arbitrage : l'ASV la tient, c'est

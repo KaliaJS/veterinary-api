@@ -7,6 +7,7 @@ use Database\Factories\SessionTeleconsultationFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 /**
  * Session de téléconsultation — PAR CLINIQUE, dossier maître de
@@ -31,8 +32,13 @@ class SessionTeleconsultation extends Model
     protected $fillable = [
         'clinique_id', 'rendez_vous_id', 'patient_id', 'motif',
         'demarre_le', 'demarre_par_id', 'terminee_le', 'duree_secondes',
-        'cloture_rendez_vous',
+        'cloture_rendez_vous', 'lien_envoye_le',
     ];
+
+    protected $hidden = ['jeton_client', 'jeton_client_chiffre'];
+
+    /** Le lien du client ne sert plus passé ce délai, même sans « Terminer » (onglet fermé) */
+    public const int HEURES_LIEN = 12;
 
     protected function casts(): array
     {
@@ -41,6 +47,8 @@ class SessionTeleconsultation extends Model
             'terminee_le' => 'datetime',
             'duree_secondes' => 'integer',
             'cloture_rendez_vous' => 'boolean',
+            'lien_envoye_le' => 'datetime',
+            'jeton_client_chiffre' => 'encrypted',
         ];
     }
 
@@ -72,5 +80,42 @@ class SessionTeleconsultation extends Model
     public function estTerminee(): bool
     {
         return $this->terminee_le !== null;
+    }
+
+    /** L'appel accepte encore la mise en relation (ni terminé, ni abandonné depuis des heures). */
+    public function estJoignable(): bool
+    {
+        return ! $this->estTerminee() && $this->demarre_le->greaterThan(now()->subHours(self::HEURES_LIEN));
+    }
+
+    /**
+     * Le lien secret du client (28.10.2026) : créé une fois, le même à
+     * chaque envoi ; seule son empreinte sert à retrouver la session.
+     */
+    public function jetonClient(): string
+    {
+        if ($this->jeton_client_chiffre) {
+            return $this->jeton_client_chiffre;
+        }
+        $clair = Str::random(48);
+        $this->forceFill(['jeton_client' => self::empreinte($clair), 'jeton_client_chiffre' => $clair])->save();
+
+        return $clair;
+    }
+
+    public function lienClient(): string
+    {
+        return rtrim((string) config('app.frontend_url'), '/').'/visio/'.$this->jetonClient();
+    }
+
+    public static function empreinte(string $clair): string
+    {
+        return hash('sha256', $clair);
+    }
+
+    /** La session d'un lien, hors de toute clinique (le client n'a pas de compte). */
+    public static function parJeton(string $clair): self
+    {
+        return self::withoutGlobalScopes()->where('jeton_client', self::empreinte($clair))->firstOrFail();
     }
 }

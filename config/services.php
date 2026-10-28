@@ -120,4 +120,12 @@ return [
         ],
     ],
 
+    // Téléconsultation (WebRTC, 28.10.2026) : serveurs TURN de Cloudflare,
+    // identifiants temporaires créés par l'API ; sans clé, STUN seulement
+    'cloudflare_turn' => [
+        'key_id' => env('CLOUDFLARE_TURN_KEY_ID'),
+        'api_token' => env('CLOUDFLARE_TURN_API_TOKEN'),
+        'ttl' => (int) env('CLOUDFLARE_TURN_TTL', 3600),
+    ],
+
 ];

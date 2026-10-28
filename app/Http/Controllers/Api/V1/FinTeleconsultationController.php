@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\StatutRendezVous;
+use App\Events\SignalVisio;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Tele\TerminerSessionRequest;
 use App\Http\Resources\V1\FactureResource;
@@ -11,6 +12,7 @@ use App\Models\Facture;
 use App\Models\SessionTeleconsultation;
 use App\Services\CreationFacture;
 use App\Services\ProjectionPlanningTele;
+use App\Support\TempsReel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -66,6 +68,9 @@ class FinTeleconsultationController extends Controller
 
             return $this->creationFacture->depuisRendezVous($rendezVous, $request->user());
         });
+
+        // La page du client l'apprend aussitôt (appel vidéo WebRTC, 28.10.2026)
+        TempsReel::diffuser(fn () => SignalVisio::dispatch($session->id, 'veterinaire', 'fin', []));
 
         $resource = new SessionTeleconsultationResource($session->load(SessionTeleconsultationController::relations()));
 

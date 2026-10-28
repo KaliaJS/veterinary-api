@@ -2,6 +2,7 @@
 
 use App\Auth\ContexteClinique;
 use App\Enums\DomainePermission;
+use App\Models\SessionTeleconsultation;
 use App\Models\User;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Gate;
@@ -18,6 +19,9 @@ use Illuminate\Support\Facades\Gate;
  * - organisation.{id}.facturation : le droit Organisation, même fermée
  *   (c'est là qu'on paie l'abonnement) ; les factures de l'abonnement.
  * - utilisateur.{id} : le compte lui-même (propriétaire) ; ses factures Plus.
+ * - visio.{id} : la mise en relation d'un appel vidéo (WebRTC) ; le personnel
+ *   de la clinique de la session avec le droit Planning, et le client par
+ *   le lien de son e-mail (autorisé à part, VisioPubliqueController).
  */
 $deLaClinique = function (string $id): bool {
     $contexte = app(ContexteClinique::class);
@@ -39,3 +43,11 @@ Broadcast::channel('organisation.{id}.facturation', function (User $user, string
 }, ['guards' => ['sanctum']]);
 
 Broadcast::channel('utilisateur.{id}', fn (User $user, string $id): bool => ctype_digit($id) && (string) $user->id === $id, ['guards' => ['sanctum']]);
+
+Broadcast::channel('visio.{id}', function (User $user, string $id) use ($deLaClinique): bool {
+    $cliniqueId = app(ContexteClinique::class)->cliniqueId();
+
+    return ctype_digit($id) && $cliniqueId !== null && $deLaClinique((string) $cliniqueId)
+        && Gate::forUser($user)->allows(DomainePermission::Planning->value)
+        && SessionTeleconsultation::withoutGlobalScopes()->whereKey((int) $id)->where('clinique_id', $cliniqueId)->exists();
+}, ['guards' => ['sanctum']]);

@@ -37,6 +37,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // Désabonnement en un clic depuis la messagerie (lien signé, RFC 8058)
         $middleware->validateCsrfTokens(except: ['rappels/desabonner/*']);
 
+        // Mise en relation d'un appel vidéo (28.10.2026) : la description de
+        // session (SDP) passe telle quelle, son dernier saut de ligne compris
+        $signalVisio = fn (Request $request): bool => $request->is('api/v1/tele/sessions/*/signal', 'api/v1/public/visio/*/signal');
+        $middleware->trimStrings(except: [$signalVisio]);
+        $middleware->convertEmptyStringsToNull(except: [$signalVisio]);
+
         // L'adresse du client derrière le répartiteur de charge (TRUSTED_PROXIES)
         $middleware->replace(TrustProxies::class, ProxiesDeConfiance::class);
 
