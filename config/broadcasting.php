@@ -43,6 +43,9 @@ return [
             ],
             'client_options' => [
                 // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html
+                // Reverb muet : la diffusion abandonne vite, le geste n'attend pas (28.10.2026)
+                'connect_timeout' => 2,
+                'timeout' => 3,
             ],
         ],
 

@@ -9,6 +9,7 @@ use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
 use App\Models\LignePlanning;
 use App\Models\Role;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -117,5 +118,35 @@ class PlanningTempsReelTest extends TestCase
 
         $this->postJson('/api/v1/broadcasting/auth', $canal, $this->enTetes($this->jeton))->assertOk();
         $this->postJson('/api/v1/broadcasting/auth', $canal, $this->enTetes($sansPlanning))->assertForbidden();
+    }
+
+    /** Deuxième passe (28.10.2026) : un rendez-vous déplacé est diffusé à sa nouvelle heure. */
+    public function test_un_rendez_vous_deplace_est_diffuse(): void
+    {
+        $id = $this->creer();
+        Event::fake([RendezVousMisAJour::class]);
+        $nouveau = aujourdhui()->addDay()->setTime(14, 0);
+
+        $this->postJson("/api/v1/rendez-vous/{$id}/deplacer", ['starts_at' => $nouveau->toISOString()], $this->enTetes($this->jeton))->assertOk();
+
+        Event::assertDispatched(RendezVousMisAJour::class, fn (RendezVousMisAJour $e): bool => $e->broadcastWith()['id'] === $id
+            && CarbonImmutable::parse($e->broadcastWith()['starts_at'])->equalTo($nouveau));
+    }
+
+    /** Deuxième passe (28.10.2026) : un rendez-vous annulé est diffusé annulé. */
+    public function test_un_rendez_vous_annule_est_diffuse(): void
+    {
+        $id = $this->creer();
+        Event::fake([RendezVousMisAJour::class]);
+
+        $this->postJson("/api/v1/rendez-vous/{$id}/annuler", ['motif' => 'Empêchement'], $this->enTetes($this->jeton))->assertOk();
+
+        Event::assertDispatched(RendezVousMisAJour::class, fn (RendezVousMisAJour $e): bool => $e->broadcastWith()['id'] === $id && $e->broadcastWith()['status'] === 'annule');
+    }
+
+    /** Les messages entre navigateurs (« whisper ») sont refusés : tout passe par l'API. */
+    public function test_reverb_refuse_les_messages_entre_clients(): void
+    {
+        $this->assertSame('none', config('reverb.apps.apps.0.accept_client_events_from'));
     }
 }

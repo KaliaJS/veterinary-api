@@ -204,4 +204,17 @@ class CanauxEtPaiementsTest extends TestCase
 
         Event::assertDispatchedTimes(PaiementMisAJour::class, 1);
     }
+
+    /**
+     * Deuxième passe (28.10.2026) : un Reverb muet (adresse qui ne répond
+     * pas) ne fait pas attendre un geste 10 secondes par message ; la
+     * diffusion abandonne vite, le geste est enregistré.
+     */
+    public function test_un_reverb_muet_n_attend_que_quelques_secondes(): void
+    {
+        $options = config('broadcasting.connections.reverb.client_options');
+
+        $this->assertLessThanOrEqual(2, $options['connect_timeout'] ?? 10);
+        $this->assertLessThanOrEqual(3, $options['timeout'] ?? 30);
+    }
 }
