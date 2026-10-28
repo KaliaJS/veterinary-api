@@ -33,6 +33,10 @@ class ReglagesProprietaireController extends Controller
     {
         $preferences = PreferencesProprietaire::pour($contexte->user());
         $preferences->update($request->validated());
+        // Les rappels choisis : la ligne « Vos rappels » de sa configuration est faite
+        if ($request->has('rappels_email') || $request->has('rappels_sms')) {
+            $preferences->forceFill(['rappels_choisis_le' => now()])->save();
+        }
         // Rappels par e-mail réactivés : un désabonnement par le lien d'un e-mail est levé aussi
         if ($request->validated('rappels_email') === true) {
             Client::withoutGlobalScopes()->where('user_id', $contexte->user()->id)->update(['rappels_email' => true]);

@@ -29,7 +29,14 @@ class CoordonneesProprietaireController extends Controller
         $user = $contexte->user();
 
         DB::transaction(function () use ($donnees, $contexte, $user): void {
-            $user->forceFill(['name' => trim($donnees['prenom'].' '.$donnees['nom'])])->save();
+            // Gardées sur le compte aussi : avant toute fiche de clinique (28.10.2026)
+            $user->forceFill([
+                'name' => trim($donnees['prenom'].' '.$donnees['nom']),
+                'tel' => $donnees['tel'] ?? null,
+                'rue' => $donnees['rue'] ?? null,
+                'npa' => $donnees['npa'] ?? null,
+                'localite' => $donnees['localite'] ?? null,
+            ])->save();
 
             $contexte->clients()->each(fn (Client $fiche) => $fiche->update([
                 'prenom' => $donnees['prenom'],
@@ -53,11 +60,11 @@ class CoordonneesProprietaireController extends Controller
         return [
             'prenom' => $fiche->prenom ?? $user->prenom(),
             'nom' => $fiche->nom ?? $user->nomFamille(),
-            'tel' => $fiche?->tel,
+            'tel' => $fiche->tel ?? $user->tel,
             'email' => $user->email,
-            'rue' => $fiche?->rue,
-            'npa' => $fiche?->npa,
-            'localite' => $fiche?->localite,
+            'rue' => $fiche->rue ?? $user->rue,
+            'npa' => $fiche->npa ?? $user->npa,
+            'localite' => $fiche->localite ?? $user->localite,
             'nombre_fiches' => $contexte->clients()->count(),
         ];
     }

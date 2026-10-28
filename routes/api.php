@@ -55,6 +55,7 @@ use App\Http\Controllers\Api\V1\Espace\AnimalController;
 use App\Http\Controllers\Api\V1\Espace\AppStoreController;
 use App\Http\Controllers\Api\V1\Espace\BoutiqueProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\CliniqueProprietaireController;
+use App\Http\Controllers\Api\V1\Espace\ConfigurationProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\CoordonneesProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\DemandeProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\DemandePubliqueController;
@@ -324,6 +325,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('messages', [MessageProprietaireController::class, 'envoyer'])->middleware('throttle:espace-messages');
         Route::get('coordonnees', [CoordonneesProprietaireController::class, 'afficher']);
         Route::get('preferences', [ReglagesProprietaireController::class, 'preferences']);
+        // « Terminer la configuration » du propriétaire (28.10.2026)
+        Route::get('configuration', [ConfigurationProprietaireController::class, 'afficher']);
+        Route::put('configuration', [ConfigurationProprietaireController::class, 'modifier']);
         Route::put('preferences', [ReglagesProprietaireController::class, 'modifierPreferences']);
         Route::get('appareils', [ReglagesProprietaireController::class, 'appareils']);
         Route::post('appareils/deconnecter-autres', [ReglagesProprietaireController::class, 'deconnecterAutres']);
