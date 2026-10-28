@@ -262,10 +262,7 @@ class Organisation extends Model
             $problemes[] = "{$patients} patients (max {$limites['patients']})";
         }
 
-        $stockage = round($this->stockageOctets() / 1e9, 1);
-        if ($limites['stockage_go'] !== null && $stockage > $limites['stockage_go'] + $this->quota_extra_stockage_go) {
-            $problemes[] = "{$stockage} Go de stockage (max {$limites['stockage_go']} Go)";
-        }
+        // Le stockage n'est pas un critère : 1000 Go pour toutes les formules (décision de Jim, 28.10.2026)
 
         return $problemes;
     }

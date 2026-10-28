@@ -113,9 +113,9 @@ final class LecteurDicom
             'lignes' => isset($lu['lignes']) ? (int) $lu['lignes'] : null,
             'colonnes' => isset($lu['colonnes']) ? (int) $lu['colonnes'] : null,
             'syntaxe_transfert' => $syntaxe,
-            // Grand-boutiste (retiré de la norme) ou dégonflé : les pixels ne se
-            // vérifient pas, le fichier est refusé plutôt que pris à l'aveugle
-            'pixels' => $pixels && $lisible,
+            // Grand-boutiste (retiré de la norme) ou dégonflé : le jeu de données
+            // n'est pas lu, les pixels ne sont pas trouvés, le fichier est refusé
+            'pixels' => $pixels,
         ];
     }
 

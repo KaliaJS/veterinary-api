@@ -255,6 +255,9 @@ class DocumentsProprietaire
      * @param  list<int>  $patientIds
      * @return Collection<int, covariant array<string, mixed>>
      */
+    /** Où sont rangés les PDF ajoutés au dossier : le propriétaire les télécharge s'ils sont partagés */
+    public const string DOSSIER_PDF = 'documents/';
+
     private function documents(array $patientIds): Collection
     {
         if ($patientIds === []) {
@@ -275,6 +278,8 @@ class DocumentsProprietaire
                 'titre' => $d->nom.' ('.$d->patient->nom.')',
                 'sous_ligne' => mb_strtoupper(($d->signataire ? $d->signataire.' · ' : '').self::dateLongue($d->etabli_le)),
                 'pdf' => null,
+                // Un PDF ajouté par la clinique et partagé : téléchargeable (28.10.2026)
+                'fichier' => str_starts_with((string) $d->chemin, self::DOSSIER_PDF),
             ]);
     }
 

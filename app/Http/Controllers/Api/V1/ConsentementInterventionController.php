@@ -40,6 +40,8 @@ class ConsentementInterventionController extends Controller
                     'nom' => 'Consentement éclairé : '.$intervention->procedure,
                     'type' => 'consentement',
                     'chemin' => $chemin,
+                    // Compte dans le stockage dès la signature (28.10.2026)
+                    'taille_octets' => strlen((string) $request->signaturePng()),
                     'signataire' => trim((string) $request->validated('signataire')),
                     'etabli_le' => now($contexte->clinique()?->fuseau_horaire ?: 'Europe/Zurich')->toDateString(),
                 ]);

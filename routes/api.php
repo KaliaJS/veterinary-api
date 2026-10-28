@@ -330,6 +330,8 @@ Route::prefix('v1')->group(function (): void {
         Route::post('rendez-vous/{rendezVous}/reporter', [RendezVousProprietaireController::class, 'reporter'])->middleware('throttle:espace-demandes');
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
         Route::get('documents', [DocumentProprietaireController::class, 'index']);
+        // Un PDF que la clinique a partagé (28.10.2026)
+        Route::get('documents/{document}/fichier', [DocumentProprietaireController::class, 'fichier'])->whereNumber('document');
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
         Route::get('messages', [MessageProprietaireController::class, 'index']);
         Route::post('messages', [MessageProprietaireController::class, 'envoyer'])->middleware('throttle:espace-messages');

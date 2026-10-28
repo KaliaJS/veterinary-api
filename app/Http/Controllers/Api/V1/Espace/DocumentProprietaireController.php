@@ -8,11 +8,15 @@ use App\Enums\StatutDevis;
 use App\Enums\StatutOrdonnance;
 use App\Http\Controllers\Controller;
 use App\Models\Devis;
+use App\Models\Document;
 use App\Models\Ordonnance;
 use App\Services\DocumentsProprietaire;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Documents & factures du propriétaire : liste composée, signature
@@ -25,6 +29,22 @@ class DocumentProprietaireController extends Controller
     public function index(ContexteProprietaire $contexte, DocumentsProprietaire $documents): JsonResponse
     {
         return response()->json(['data' => $documents->lister($contexte)]);
+    }
+
+    /**
+     * Un PDF ajouté au dossier que la clinique a partagé (28.10.2026) : de
+     * ses animaux seulement, jamais un document interne.
+     */
+    public function fichier(ContexteProprietaire $contexte, int $document): StreamedResponse
+    {
+        $piece = Document::query()->withoutGlobalScopes()
+            ->whereIn('patient_id', $contexte->patientIds())
+            ->where('visible_proprietaire', true)
+            ->where('chemin', 'like', DocumentsProprietaire::DOSSIER_PDF.'%')
+            ->findOrFail($document);
+        abort_unless(Storage::disk('prive')->exists($piece->chemin), 404);
+
+        return Storage::disk('prive')->download($piece->chemin, Str::slug($piece->nom).'.pdf', ['Content-Type' => 'application/pdf']);
     }
 
     public function signerDevis(ContexteProprietaire $contexte, int $devisId): JsonResponse

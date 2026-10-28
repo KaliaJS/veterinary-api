@@ -70,8 +70,9 @@ class DocumentsPdfTest extends TestCase
     {
         $this->ajouter(['nom' => 'Photo', 'fichier' => UploadedFile::fake()->createWithContent('photo.pdf', 'pas un pdf du tout')])
             ->assertUnprocessable()->assertJsonValidationErrors('fichier');
-        $this->ajouter(['nom' => 'Énorme', 'fichier' => UploadedFile::fake()->create('enorme.pdf', 26 * 1024, 'application/pdf')])
-            ->assertUnprocessable()->assertJsonValidationErrors('fichier');
+        // Un vrai PDF (« %PDF- ») de 26 Mo : refusé pour sa taille
+        $this->ajouter(['nom' => 'Énorme', 'fichier' => UploadedFile::fake()->createWithContent('enorme.pdf', self::PDF.str_repeat(' ', 26 * 1024 * 1024))])
+            ->assertUnprocessable()->assertJsonValidationErrors(['fichier' => 'Ce PDF dépasse 25 Mo.']);
         $this->assertSame(0, Document::query()->count());
     }
 
@@ -110,5 +111,54 @@ class DocumentsPdfTest extends TestCase
         $id = $this->ajouter(['nom' => 'Rapport', 'fichier' => UploadedFile::fake()->createWithContent('r.pdf', self::PDF)])->json('data.id');
 
         $this->get("/api/v1/patients/{$this->patient->id}/documents/{$id}/fichier", $this->enTetes($etranger))->assertNotFound();
+    }
+
+    /** Partagé, le propriétaire l'ouvre depuis son espace ; non partagé, ni le titre ni le fichier */
+    public function test_le_proprietaire_telecharge_le_pdf_partage_et_seulement_lui(): void
+    {
+        ['user' => $user, 'jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $this->client->update(['user_id' => $user->id]);
+        $partage = $this->ajouter(['nom' => 'Compte rendu à remettre', 'visible_proprietaire' => '1', 'fichier' => UploadedFile::fake()->createWithContent('b.pdf', self::PDF)])->json('data.id');
+        $interne = $this->ajouter(['nom' => 'Rapport interne', 'fichier' => UploadedFile::fake()->createWithContent('a.pdf', self::PDF)])->json('data.id');
+
+        $ligne = collect($this->getJson('/api/v1/espace/documents', $this->enTetes($jetonProprietaire))->json('data'))->firstWhere('id', $partage);
+        $this->assertTrue($ligne['fichier']);
+        $fichier = $this->get("/api/v1/espace/documents/{$partage}/fichier", $this->enTetes($jetonProprietaire));
+        $fichier->assertOk();
+        $this->assertSame(self::PDF, $fichier->streamedContent());
+        $this->get("/api/v1/espace/documents/{$interne}/fichier", $this->enTetes($jetonProprietaire))->assertNotFound();
+
+        // Le document d'un autre propriétaire : jamais
+        ['jeton' => $autre] = $this->proprietaireAvecJeton();
+        $this->get("/api/v1/espace/documents/{$partage}/fichier", $this->enTetes($autre))->assertNotFound();
+    }
+
+    /** Le PDF ajouté : rangé par organisation, sans signataire (il n'est pas signé par qui l'ajoute), avec qui l'a ajouté */
+    public function test_le_pdf_ajoute_est_range_par_organisation_et_dit_qui_l_a_ajoute(): void
+    {
+        $id = $this->ajouter(['nom' => 'Rapport', 'fichier' => UploadedFile::fake()->createWithContent('r.pdf', self::PDF)])->json('data.id');
+
+        $document = Document::query()->findOrFail($id);
+        $this->assertStringStartsWith('documents/'.$this->clinique->societe->organisation_id.'/', $document->chemin);
+        $this->assertNull($document->signataire);
+        $this->assertNotNull($document->ajoute_par);
+    }
+
+    /** Le stockage d'une organisation ne compte que ses DICOM et ses PDF */
+    public function test_le_stockage_ne_compte_que_les_fichiers_de_l_organisation(): void
+    {
+        $autre = Organisation::factory()->create();
+        $this->ajouter(['nom' => 'Rapport', 'fichier' => UploadedFile::fake()->createWithContent('r.pdf', self::PDF)])->assertCreated();
+
+        $this->assertSame(0, $autre->stockageOctets());
+    }
+
+    /** Un consentement signé compte dès sa signature, sans attendre la nuit */
+    public function test_un_consentement_signe_a_sa_taille(): void
+    {
+        $document = Document::factory()->create(['patient_id' => $this->patient->id, 'chemin' => 'consentements/1-x.png', 'taille_octets' => 4321]);
+
+        $this->assertSame(4321, Organisation::query()->findOrFail($this->clinique->societe->organisation_id)->stockageOctets());
+        $this->assertNotNull($document);
     }
 }
