@@ -55,6 +55,8 @@ class Organisation extends Model
             'identite_avant_le' => 'date',
             'resilie_le' => 'date',
             'entrainement_consenti_le' => 'datetime',
+            'stockage_autres_octets' => 'integer',
+            'stockage_compte_le' => 'datetime',
             'periode_debut' => 'date',
             'periode_fin' => 'date',
             'prochaine_tentative_le' => 'datetime',
@@ -269,13 +271,13 @@ class Organisation extends Model
     }
 
     /**
-     * Le stockage utilisé (28.10.2026) : les radios d'origine gardées pour
-     * ses cliniques, à l'octet près (les autres fichiers n'ont pas encore
-     * de taille enregistrée).
+     * Le stockage utilisé (décision de Jim, 28.10.2026) : les DICOM gardés
+     * pour ses cliniques, en direct et à l'octet près, plus les autres
+     * fichiers (photos, logo, consentements) comptés chaque nuit.
      */
     public function stockageOctets(): int
     {
-        return (int) ClicheDicom::query()
+        return (int) $this->stockage_autres_octets + (int) ClicheDicom::query()
             ->join('examens_imagerie', 'examens_imagerie.id', '=', 'cliches_dicom.examen_imagerie_id')
             ->join('cliniques', 'cliniques.id', '=', 'examens_imagerie.clinique_id')
             ->join('societes', 'societes.id', '=', 'cliniques.societe_id')

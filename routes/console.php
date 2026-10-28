@@ -45,4 +45,6 @@ Schedule::command('alertes:stock')->dailyAt('07:00')->timezone('Europe/Zurich')-
 Schedule::command('equipe:fermer-contrats')->hourlyAt(15)->withoutOverlapping(50)->onOneServer();
 // Rappels par e-mail aux propriétaires, en journée à l'heure de chaque clinique (28.10.2026)
 Schedule::command('rappels:envoyer')->hourlyAt(5)->withoutOverlapping(50)->onOneServer();
+// Stockage des organisations hors DICOM (photos, logo, consentements), chaque nuit
+Schedule::command('stockage:compter')->dailyAt('02:40')->timezone('Europe/Zurich')->withoutOverlapping(120)->onOneServer();
 Schedule::command('sanctum:prune-expired --hours=48')->dailyAt('04:45')->withoutOverlapping(60)->onOneServer();
