@@ -82,10 +82,11 @@ class ApnsPushokTest extends TestCase
         $morts = (new ApnsPushok)->lireReponses([
             new Response(400, '', '{"reason":"BadDeviceToken"}', 'jeton-faux'),
             new Response(410, '', '{"reason":"Unregistered","timestamp":1}', 'jeton-parti'),
+            new Response(410, '', '{"reason":"ExpiredToken","timestamp":1}', 'jeton-expire'),
             new Response(200, '', '', 'jeton-bon'),
         ], 'ch.veterinary.client.watchkitapp');
 
-        $this->assertSame(['jeton-faux', 'jeton-parti'], $morts);
+        $this->assertSame(['jeton-faux', 'jeton-parti', 'jeton-expire'], $morts);
     }
 
     /** Une autre clé (APNS_KEY_ID changé) : son propre jeton signé, pas celui de l'ancienne */

@@ -363,6 +363,10 @@ class RappelsEmailTest extends TestCase
         $this->client->forceFill(['user_id' => $user->id])->save();
         $this->post(URL::signedRoute('rappels.desabonner', ['client' => $this->client->id]))->assertOk();
 
+        // « 0 » ne lève rien
+        $this->putJson('/api/v1/espace/preferences', ['rappels_email' => '0'], $this->enTetes($jetonProprietaire))->assertOk();
+        $this->assertFalse((bool) $this->client->refresh()->rappels_email);
+
         $this->putJson('/api/v1/espace/preferences', ['rappels_email' => '1'], $this->enTetes($jetonProprietaire))->assertOk();
 
         $this->assertTrue((bool) $this->client->refresh()->rappels_email);
