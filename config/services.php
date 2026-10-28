@@ -128,4 +128,13 @@ return [
         'ttl' => (int) env('CLOUDFLARE_TURN_TTL', 14400),
     ],
 
+    // SMS par Twilio (28.10.2026) : clé d'API (SK…) plutôt que le jeton
+    // maître ; expéditeur alphanumérique (11 caractères au plus), sans numéro
+    'twilio' => [
+        'account_sid' => env('TWILIO_ACCOUNT_SID'),
+        'api_key' => env('TWILIO_API_KEY'),
+        'api_secret' => env('TWILIO_API_SECRET'),
+        'expediteur' => env('TWILIO_EXPEDITEUR', 'Veterinary'),
+    ],
+
 ];
