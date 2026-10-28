@@ -18,15 +18,15 @@ return new class extends Migration
             ->join('societes', 'societes.id', '=', 'cliniques.societe_id')
             ->whereNull('messages_clientele.client_id')->whereNotNull('messages_clientele.user_id')
             ->select('messages_clientele.id', 'messages_clientele.user_id', 'societes.organisation_id')
-            ->orderBy('messages_clientele.id')
-            ->chunk(500, function ($messages): void {
+            // Par identifiant, pas par décalage : chaque page remplie sort du filtre
+            ->chunkById(500, function ($messages): void {
                 foreach ($messages as $message) {
                     $fiche = DB::table('clients')->where('user_id', $message->user_id)->where('organisation_id', $message->organisation_id)->orderBy('id')->value('id');
                     if ($fiche !== null) {
                         DB::table('messages_clientele')->where('id', $message->id)->update(['client_id' => $fiche]);
                     }
                 }
-            });
+            }, 'messages_clientele.id', 'id');
     }
 
     public function down(): void

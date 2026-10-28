@@ -35,7 +35,7 @@ class ReglagesProprietaireController extends Controller
     {
         // Les SMS « avec son mobile » : sans mobile, ils ne s'activent pas,
         // d'où qu'il les demande (configuration ou réglages)
-        if ($request->validated('rappels_sms') === true) {
+        if ($request->has('rappels_sms') && $request->boolean('rappels_sms')) {
             $fiche = $contexte->clients()->first();
             if (Telephone::mobile($fiche->tel ?? $contexte->user()->tel) === null) {
                 throw ValidationException::withMessages(['rappels_sms' => 'Indiquez d’abord votre numéro de mobile : les SMS partent vers un numéro en 07x, ou étranger avec son indicatif.']);

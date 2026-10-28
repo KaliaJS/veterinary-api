@@ -271,4 +271,20 @@ class RelanceNoShowTest extends TestCase
         Mail::assertSent(RelanceNoShow::class, fn (RelanceNoShow $mail): bool => $mail->lienReprise === $site->urlPublique()
             && str_contains($mail->render(), '/site/deux-rives'));
     }
+
+    /** Sans site publié ni place dans l'annuaire : le SMS de relance donne aussi le téléphone, pas un lien */
+    public function test_sans_page_publique_le_sms_donne_le_telephone(): void
+    {
+        $this->relanceActive();
+        $this->putJson('/api/v1/rappels/reglages', ['sms' => true], $this->enTetes($this->jeton))->assertOk();
+        $this->client->update(['rappels_sms' => true]);
+        $this->clinique->forceFill(['photo_chemin' => null])->save();
+
+        $this->soir();
+
+        $sms = array_values(array_filter($this->requetesTwilio, fn (array $r): bool => str_ends_with($r['url'], '/Messages.json')));
+        $this->assertCount(1, $sms);
+        $this->assertStringContainsString('Pour reprendre rendez-vous : 032 000 00 00.', $sms[0]['data']['Body']);
+        $this->assertStringNotContainsString('/cliniques/', $sms[0]['data']['Body']);
+    }
 }

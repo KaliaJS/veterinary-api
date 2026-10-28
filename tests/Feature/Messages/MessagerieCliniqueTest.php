@@ -11,6 +11,7 @@ use App\Models\PreferencesProprietaire;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -240,5 +241,29 @@ class MessagerieCliniqueTest extends TestCase
         $fil = collect($this->getJson('/api/v1/messages', $this->enTetes($this->accueil))->assertOk()->json('data'))->firstWhere('cle', 'u'.$this->proprietaire->id);
         $this->assertSame('Léa Martin', $fil['client']);
         $this->getJson('/api/v1/messages/u'.$this->proprietaire->id, $this->enTetes($this->accueil))->assertOk()->assertJsonPath('data.messages.0.texte', 'Message d’avant.');
+    }
+
+    /** Plus de 500 anciens messages : la migration les reprend tous (lecture par identifiant, pas par décalage) */
+    public function test_la_migration_reprend_tous_les_anciens_messages_au_dela_d_une_page(): void
+    {
+        $lignes = [];
+        for ($i = 0; $i < 600; $i++) {
+            $lignes[] = ['clinique_id' => $this->clinique->id, 'user_id' => $this->proprietaire->id, 'client_id' => null, 'auteur' => 'proprietaire', 'texte' => 'Ancien '.$i, 'created_at' => now(), 'updated_at' => now()];
+        }
+        DB::table('messages_clientele')->insert($lignes);
+
+        (require database_path('migrations/2026_10_28_000015_fiche_des_anciens_messages.php'))->up();
+
+        $this->assertSame(0, DB::table('messages_clientele')->whereNull('client_id')->count());
+    }
+
+    /** Resend en panne : la réponse est enregistrée et annoncée, l'employé ne voit pas d'erreur (pas de doublon en renvoyant) */
+    public function test_une_panne_de_l_e_mail_n_empeche_pas_la_reponse(): void
+    {
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('Resend en panne'));
+
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Passez cet après-midi.'], $this->enTetes($this->accueil))->assertCreated();
+
+        $this->assertSame(1, MessageClientele::query()->where('auteur', 'clinique')->count());
     }
 }

@@ -173,4 +173,14 @@ class ConfigurationProprietaireTest extends TestCase
 
         $this->assertNull($user->refresh()->tel);
     }
+
+    /** « 1 » ou « true » en texte valent oui : sans mobile, refusés aussi */
+    public function test_les_sms_demandes_en_1_sans_mobile_sont_refuses(): void
+    {
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+
+        $this->putJson('/api/v1/espace/preferences', ['rappels_sms' => 1], $this->enTetes($jeton))->assertUnprocessable();
+        $this->putJson('/api/v1/espace/preferences', ['rappels_sms' => '1'], $this->enTetes($jeton))->assertUnprocessable();
+        $this->getJson('/api/v1/espace/preferences', $this->enTetes($jeton))->assertOk()->assertJsonPath('data.rappels_sms', false);
+    }
 }

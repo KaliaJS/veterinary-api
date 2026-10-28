@@ -15,6 +15,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Messagerie de la clinique (décision de Jim, 28.10.2026) : les fils de
@@ -96,7 +97,12 @@ class MessagerieCliniqueController extends Controller
         // Par e-mail aussi, s'il ne l'a pas coupé (« Réponses de la clinique »)
         $proprietaire = $fiche->user;
         if ($proprietaire !== null && PreferencesProprietaire::query()->where('user_id', $userId)->value('reponses_clinique') !== false) {
-            Mail::to($proprietaire->email)->send(new ReponseClinique($message, $contexte->clinique()));
+            // Resend en panne : la réponse est enregistrée et annoncée, l'erreur va au journal
+            try {
+                Mail::to($proprietaire->email)->send(new ReponseClinique($message, $contexte->clinique()));
+            } catch (Throwable $e) {
+                report($e);
+            }
         }
 
         return response()->json(['data' => $this->message($message->load('employe'))], 201);
