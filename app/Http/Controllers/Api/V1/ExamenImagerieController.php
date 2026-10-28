@@ -112,6 +112,7 @@ class ExamenImagerieController extends Controller
             'signePar' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
             'cliches',
             'confirmations.auteur',
+            'confirmations.document',
         ];
     }
 }

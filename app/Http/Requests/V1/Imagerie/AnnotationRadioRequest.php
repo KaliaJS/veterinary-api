@@ -66,6 +66,8 @@ class AnnotationRadioRequest extends FormRequest
             'points.required' => 'Le dessin n’a pas de points.',
             'points.array' => 'Le dessin n’a pas de points.',
             'image.integer' => 'Ce fichier n’a pas autant d’images.',
+            'image.min' => 'Ce fichier n’a pas autant d’images.',
+            'note.max' => 'La note dépasse 2000 caractères.',
             'etiquette.required' => 'Choisissez une étiquette.',
             'certitude.required' => 'Choisissez « Sûr » ou « Suspect ».',
             'image.max' => 'Ce fichier n’a pas autant d’images.',

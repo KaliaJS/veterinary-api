@@ -20,6 +20,7 @@ class ConfirmationImagerieResource extends JsonResource
             'source' => $this->source,
             'constate_le' => $this->constate_le->toDateString(),
             'document_id' => $this->document_id,
+            'document' => $this->document_id === null ? null : ['id' => $this->document_id, 'nom' => $this->document?->nom],
             'note' => $this->note,
             'auteur' => $this->auteur_id === null ? null : ['id' => $this->auteur_id, 'nom' => $this->auteur?->name],
             'cree_le' => $this->created_at?->toIso8601String(),

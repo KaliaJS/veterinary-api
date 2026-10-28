@@ -24,7 +24,7 @@ class ConfirmationRadioController extends Controller
     {
         $this->authorize('view', $patient);
 
-        return ConfirmationImagerieResource::collection(RadiosDuDossier::examen($patient, $examen)->confirmations()->with('auteur')->get());
+        return ConfirmationImagerieResource::collection(RadiosDuDossier::examen($patient, $examen)->confirmations()->with(['auteur', 'document'])->get());
     }
 
     public function store(ConfirmationRadioRequest $request, Patient $patient, int $examen): JsonResponse
@@ -36,7 +36,7 @@ class ConfirmationRadioController extends Controller
         }
         $confirmation = RadiosDuDossier::examen($patient, $examen)->confirmations()->create([...$donnees, 'auteur_id' => $request->user()?->id]);
 
-        return (new ConfirmationImagerieResource($confirmation->load('auteur')))->response()->setStatusCode(201);
+        return (new ConfirmationImagerieResource($confirmation->load(['auteur', 'document'])))->response()->setStatusCode(201);
     }
 
     public function destroy(Patient $patient, int $examen, int $confirmation): Response

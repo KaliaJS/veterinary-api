@@ -20,7 +20,11 @@ final class LecteurDicom
 
     private const string IMPLICITE = '1.2.840.10008.1.2';
 
-    private const string GRAND_BOUTISTE = '1.2.840.10008.1.2.2';
+    /** Grand-boutiste (retiré de la norme) et dégonflé : le jeu de données ne se lit pas */
+    public const array SYNTAXES_ILLISIBLES = ['1.2.840.10008.1.2.2', '1.2.840.10008.1.2.1.99'];
+
+    /** Taille du fichier entier : des pixels annoncés plus longs que lui, c'est un fichier coupé */
+    private int $tailleFichier = 0;
 
     /** VR à longueur sur 4 octets (2 réservés avant) en VR explicite */
     private const array VR_LONGS = ['OB', 'OD', 'OF', 'OL', 'OV', 'OW', 'SQ', 'SV', 'UC', 'UN', 'UR', 'UT', 'UV'];
@@ -59,8 +63,10 @@ final class LecteurDicom
         }
         $octets = (string) fread($flux, self::LECTURE_MAX);
         fclose($flux);
+        $lecteur = new self;
+        $lecteur->tailleFichier = (int) @filesize($chemin);
 
-        return (new self)->analyser($octets);
+        return $lecteur->analyser($octets);
     }
 
     /** @return array<string, mixed>|null */
@@ -86,12 +92,15 @@ final class LecteurDicom
         $syntaxe = $lu['syntaxe_transfert'] ?? null;
         $explicite = $syntaxe !== self::IMPLICITE;
         // Grand-boutiste (retiré du standard) ou dégonflé : seul l'en-tête se lit
-        $lisible = $syntaxe !== self::GRAND_BOUTISTE && $syntaxe !== '1.2.840.10008.1.2.1.99';
+        $lisible = ! in_array($syntaxe, self::SYNTAXES_ILLISIBLES, true);
 
         while ($lisible && $this->pos + 8 <= strlen($this->octets)) {
             $etiquette = $this->etiquetteSuivante();
             if ($etiquette === '7FE00010') {
-                $pixels = true;
+                // Des pixels de longueur connue qui dépassent la fin du fichier : il est coupé
+                $longueur = $explicite ? $this->entier32($this->pos + 8) : $this->entier32($this->pos + 4);
+                $debut = $this->pos + ($explicite ? 12 : 8);
+                $pixels = $longueur === 0xFFFFFFFF || ($longueur !== null && $debut + $longueur <= $this->tailleFichier);
                 break;
             }
             $element = $this->element($explicite);

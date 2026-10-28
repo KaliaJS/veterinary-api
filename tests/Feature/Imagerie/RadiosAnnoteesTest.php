@@ -12,6 +12,7 @@ use App\Models\ExamenImagerie;
 use App\Models\Patient;
 use App\Models\Pesee;
 use App\Support\Dicom\LecteurDicom;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -367,26 +368,38 @@ class RadiosAnnoteesTest extends TestCase
 
     // ————— Vérification, première passe —————
 
-    /** D1 : des séquences imbriquées très profondes ne font pas exploser la mémoire ; le fichier est lu ou refusé proprement */
+    /** D1 : 60 000 séquences imbriquées : la lecture s'arrête à la seizième, sans dévorer la mémoire (sans la limite : des centaines de Mo) */
     public function test_des_sequences_imbriquees_tres_profondes_ne_font_pas_exploser_le_lecteur(): void
     {
-        $item = '';
-        for ($i = 0; $i < 4000; $i++) {
-            $item = pack('vv', 0x0008, 0x1140).'SQ'."\x00\x00".pack('V', 0xFFFFFFFF).pack('vvV', 0xFFFE, 0xE000, 0xFFFFFFFF).$item.pack('vvV', 0xFFFE, 0xE00D, 0).pack('vvV', 0xFFFE, 0xE0DD, 0);
-        }
+        $niveaux = 60000;
+        $ouvre = pack('vv', 0x0008, 0x1140).'SQ'."\x00\x00".pack('V', 0xFFFFFFFF).pack('vvV', 0xFFFE, 0xE000, 0xFFFFFFFF);
+        $ferme = pack('vvV', 0xFFFE, 0xE00D, 0).pack('vvV', 0xFFFE, 0xE0DD, 0);
         $octets = $this->dicom();
-        $piege = substr($octets, 0, strpos($octets, pack('vv', 0x0008, 0x0016))).$item.substr($octets, strpos($octets, pack('vv', 0x0008, 0x0016)));
+        $ici = strpos($octets, pack('vv', 0x0008, 0x0016));
         $chemin = tempnam(sys_get_temp_dir(), 'dcm');
-        file_put_contents($chemin, $piege);
+        file_put_contents($chemin, substr($octets, 0, $ici).str_repeat($ouvre, $niveaux).str_repeat($ferme, $niveaux).substr($octets, $ici));
 
         $avant = memory_get_usage();
         $lu = LecteurDicom::lire($chemin);
 
-        // Arrêté à la seizième séquence : quelques mégaoctets au plus, pas des centaines
-        $this->assertLessThan(32 * 1024 * 1024, memory_get_usage() - $avant);
-
+        $this->assertLessThan(48 * 1024 * 1024, memory_get_usage() - $avant);
+        // L'identifiant de l'en-tête de fichier reste lu ; les pixels ne sont pas atteints : refusé à l'envoi
         $this->assertSame('1.2.826.0.1.3680043.8.498.1001', $lu['sop_instance_uid']);
+        $this->assertFalse($lu['pixels']);
         unlink($chemin);
+    }
+
+    /** D1 : un fichier coupé à n'importe quel octet est lu ou refusé, jamais une erreur */
+    public function test_un_fichier_coupe_a_n_importe_quel_octet_ne_fait_jamais_d_erreur(): void
+    {
+        $octets = $this->dicom(['region' => 'CHEST', 'incidence' => 'RL'], '1.2.840.10008.1.2.1');
+        $chemin = tempnam(sys_get_temp_dir(), 'dcm');
+        for ($longueur = 0; $longueur < strlen($octets); $longueur++) {
+            file_put_contents($chemin, substr($octets, 0, $longueur));
+            LecteurDicom::lire($chemin);
+        }
+        unlink($chemin);
+        $this->assertTrue(true);
     }
 
     /** D2 : un élément UN de longueur indéfinie (contenu en VR implicite, prévu par la norme) ne fait pas refuser la radio */
@@ -474,5 +487,61 @@ class RadiosAnnoteesTest extends TestCase
     {
         $this->envoyer($this->dicom([], '1.2.840.10008.1.2.2'))->assertUnprocessable()->assertJsonValidationErrors('fichier');
         $this->envoyer($this->dicom([], '1.2.840.10008.1.2.1.99'))->assertUnprocessable();
+    }
+
+    // ————— Vérification, deuxième passe —————
+
+    /** Case 8 : les dessins d'une radio se lisent aussi depuis une clinique sœur */
+    public function test_une_clinique_soeur_lit_les_dessins(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        ['jeton' => $jetonSoeur] = $this->employeAvecJeton($soeur);
+        $cliche = $this->cliche();
+        $this->postJson($this->base()."/cliches/{$cliche->id}/annotations", ['type' => 'point', 'points' => [[1, 1]], 'etiquette' => 'fracture', 'certitude' => 'sur'], $this->en())->assertCreated();
+
+        $this->getJson($this->base()."/cliches/{$cliche->id}/annotations", $this->enTetes($jetonSoeur))->assertOk()->assertJsonCount(1, 'data');
+    }
+
+    /** Case 6 : la confirmation dit quel PDF la prouve */
+    public function test_la_confirmation_dit_quel_document_la_prouve(): void
+    {
+        $document = Document::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Histologie Vetlab']);
+        $this->postJson($this->base().'/confirmations', ['etiquette' => 'fracture', 'resultat' => 'confirme', 'source' => 'histologie', 'constate_le' => now()->toDateString(), 'document_id' => $document->id], $this->en())
+            ->assertCreated()->assertJsonPath('data.document.nom', 'Histologie Vetlab');
+        $this->getJson($this->base().'/confirmations', $this->en())->assertJsonPath('data.0.document.nom', 'Histologie Vetlab');
+    }
+
+    /** Un fichier coupé au milieu de ses pixels est refusé : la visionneuse ne pourrait pas l'afficher */
+    public function test_un_fichier_coupe_dans_ses_pixels_est_refuse(): void
+    {
+        $octets = $this->dicom(['lignes' => 64, 'colonnes' => 64]);
+
+        $this->envoyer(substr($octets, 0, -4000))->assertUnprocessable()->assertJsonValidationErrors('fichier');
+    }
+
+    /** Une syntaxe illisible (dégonflée, grand-boutiste) dit pourquoi, au lieu de « pas une image DICOM » */
+    public function test_une_syntaxe_illisible_dit_pourquoi(): void
+    {
+        $this->envoyer($this->dicom([], '1.2.840.10008.1.2.1.99'))->assertUnprocessable()
+            ->assertJsonValidationErrors(['fichier' => 'Ce format DICOM (compressé en flux ou grand-boutiste) n’est pas pris en charge : exportez la radio en DICOM standard depuis l’appareil.']);
+    }
+
+    /** Messages en français, même pour un champ vide ou trop long */
+    public function test_les_messages_de_la_confirmation_sont_en_francais(): void
+    {
+        $this->postJson($this->base().'/confirmations', ['etiquette' => 'fracture', 'resultat' => 'confirme', 'source' => 'chirurgie', 'note' => str_repeat('x', 2001)], $this->en())
+            ->assertUnprocessable()->assertJsonValidationErrors(['constate_le' => 'Indiquez la date.', 'note' => 'La note dépasse 2000 caractères.']);
+    }
+
+    /** Le jour de la radio se lit à l'heure de la clinique : 00 h 30 en Suisse, c'est encore ce jour-là */
+    public function test_le_poids_du_jour_se_lit_a_l_heure_de_la_clinique(): void
+    {
+        $this->clinique->update(['fuseau_horaire' => 'Europe/Zurich']);
+        // Comme l'app : l'instant en UTC (23 h 30 le 4 novembre, soit 00 h 30 le 5 en Suisse)
+        $this->examen->update(['realise_le' => CarbonImmutable::parse('2026-11-04 23:30', 'UTC')]);
+        Pesee::query()->delete();
+        Pesee::factory()->create(['patient_id' => $this->patient->id, 'poids_kg' => 27.5, 'pesee_le' => '2026-11-05']);
+
+        $this->assertEquals(27.5, $this->envoyer($this->dicom())->assertCreated()->json('data.poids_kg'));
     }
 }

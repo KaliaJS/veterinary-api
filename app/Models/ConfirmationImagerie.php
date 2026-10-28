@@ -30,6 +30,16 @@ class ConfirmationImagerie extends Model
         return $this->belongsTo(ExamenImagerie::class, 'examen_imagerie_id');
     }
 
+    /**
+     * Le PDF du dossier qui le prouve
+     *
+     * @return BelongsTo<Document, $this>
+     */
+    public function document(): BelongsTo
+    {
+        return $this->belongsTo(Document::class);
+    }
+
     /** @return BelongsTo<User, $this> */
     public function auteur(): BelongsTo
     {

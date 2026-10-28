@@ -25,7 +25,14 @@ class ConfirmationRadioRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'etiquette.required' => 'Choisissez un diagnostic.',
             'etiquette.in' => 'Choisissez une étiquette de la liste.',
+            'resultat.required' => 'Choisissez « Confirmé » ou « Infirmé ».',
+            'source.required' => 'Choisissez ce qui l’a confirmé.',
+            'constate_le.required' => 'Indiquez la date.',
+            'constate_le.date' => 'Cette date n’est pas valide.',
+            'document_id.integer' => 'Ce document n’est pas dans le dossier de cet animal.',
+            'note.max' => 'La note dépasse 2000 caractères.',
             'resultat.in' => 'Choisissez « Confirmé » ou « Infirmé ».',
             'source.in' => 'Choisissez une source de la liste.',
             'constate_le.before_or_equal' => 'La date ne peut pas être dans le futur.',

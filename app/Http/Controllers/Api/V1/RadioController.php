@@ -9,6 +9,7 @@ use App\Models\ClicheDicom;
 use App\Models\ExamenImagerie;
 use App\Models\Patient;
 use App\Support\Dicom\LecteurDicom;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -32,6 +33,9 @@ class RadioController extends Controller
 
         $fichier = $request->file('fichier');
         $lu = LecteurDicom::lire((string) $fichier->getRealPath());
+        if (in_array($lu['syntaxe_transfert'] ?? null, LecteurDicom::SYNTAXES_ILLISIBLES, true)) {
+            throw ValidationException::withMessages(['fichier' => 'Ce format DICOM (compressé en flux ou grand-boutiste) n’est pas pris en charge : exportez la radio en DICOM standard depuis l’appareil.']);
+        }
         if ($lu === null || $lu['sop_instance_uid'] === null || ! $lu['pixels']) {
             throw ValidationException::withMessages(['fichier' => 'Ce fichier n’est pas une image DICOM.']);
         }
@@ -54,6 +58,9 @@ class RadioController extends Controller
         }
 
         $patient = Patient::withoutGlobalScopes()->findOrFail($examen->patient_id);
+        // Le jour de la radio, à l'heure de la clinique (00 h 30 en Suisse est encore ce jour-là)
+        $fuseau = $examen->clinique()->withoutGlobalScopes()->value('fuseau_horaire') ?: 'Europe/Zurich';
+        $jour = CarbonImmutable::parse($examen->realise_le)->setTimezone($fuseau)->toDateString();
         $dossier = 'imagerie/'.$organisation.'/'.$examen->id;
         $nom = $lu['sop_instance_uid'].'.dcm';
         $chemin = Storage::disk('prive')->putFileAs($dossier, $fichier, $nom);
@@ -79,7 +86,7 @@ class RadioController extends Controller
             'espece' => $patient->espece->value,
             'race' => $patient->race,
             // La dernière pesée faite au plus tard le jour de la radio
-            'poids_kg' => $patient->pesees()->whereDate('pesee_le', '<=', $examen->realise_le)->orderByDesc('pesee_le')->orderByDesc('id')->value('poids_kg'),
+            'poids_kg' => $patient->pesees()->whereDate('pesee_le', '<=', $jour)->orderByDesc('pesee_le')->orderByDesc('id')->value('poids_kg'),
             'region' => $regions[mb_strtoupper((string) $lu['body_part'])] ?? null,
             'incidence' => $incidences[mb_strtoupper((string) $lu['view_position'])] ?? null,
             'reperes_dicom' => ['body_part' => $lu['body_part'], 'view_position' => $lu['view_position'], 'lateralite' => $lu['lateralite']],
