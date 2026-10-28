@@ -4,9 +4,11 @@ namespace Tests\Feature\Planning;
 
 use App\Models\Client;
 use App\Models\Clinique;
+use App\Models\DemandeRendezVous;
 use App\Models\LignePlanning;
 use App\Models\Patient;
 use App\Models\RendezVous;
+use App\Services\TraitementDemande;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -59,7 +61,16 @@ class NoteAccueilTest extends TestCase
 
     public function test_sans_note_le_rendez_vous_n_en_a_pas(): void
     {
-        $this->creer()->assertCreated()->assertJsonPath('data.note_accueil', null);
+        $this->creer()->assertCreated()->assertJsonStructure(['data' => ['note_accueil']])->assertJsonPath('data.note_accueil', null);
+    }
+
+    public function test_une_note_trop_longue_est_refusee_aussi_en_modification(): void
+    {
+        $id = $this->creer()->json('data.id');
+
+        $this->patchJson("/api/v1/rendez-vous/{$id}", ['note_accueil' => str_repeat('a', 1001)], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['note_accueil' => 'La note de l’accueil tient en 1000 caractères au plus.']);
     }
 
     public function test_la_note_se_modifie_et_s_efface_depuis_la_fiche(): void
@@ -86,11 +97,26 @@ class NoteAccueilTest extends TestCase
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
         $fiche = Client::factory()->create(['user_id' => $user->id]);
         $max = Patient::factory()->create(['client_id' => $fiche->id]);
-        RendezVous::factory()->pourPatient($max)->create(['starts_at' => now()->addDay(), 'ends_at' => now()->addDay()->addMinutes(20), 'note_accueil' => 'Client difficile']);
+        $rendezVous = RendezVous::factory()->pourPatient($max)->create(['starts_at' => now()->addDay(), 'ends_at' => now()->addDay()->addMinutes(20), 'note_accueil' => 'Client difficile']);
+        DemandeRendezVous::factory()->create(['user_id' => $user->id, 'client_id' => $fiche->id, 'patient_id' => $max->id, 'clinique_id' => $rendezVous->clinique_id, 'rendez_vous_id' => $rendezVous->id, 'statut' => 'acceptee', 'traitee_le' => now()]);
 
-        $reponse = $this->getJson('/api/v1/espace/rendez-vous', $this->enTetes($jeton))->assertOk();
+        // Partout où le propriétaire lit ses rendez-vous : liste, accueil (app et montre), demandes, export de ses données
+        foreach (['/api/v1/espace/rendez-vous', '/api/v1/espace/accueil', '/api/v1/espace/demandes', '/api/v1/espace/export'] as $adresse) {
+            $reponse = $this->getJson($adresse, $this->enTetes($jeton))->assertOk();
+            $this->assertStringNotContainsString('Client difficile', $reponse->getContent(), $adresse);
+            $this->assertStringNotContainsString('note_accueil', $reponse->getContent(), $adresse);
+        }
+    }
 
-        $this->assertStringNotContainsString('Client difficile', $reponse->getContent());
-        $this->assertStringNotContainsString('note_accueil', $reponse->getContent());
+    public function test_un_report_accepte_garde_la_note_du_rendez_vous_deplace(): void
+    {
+        $id = $this->creer(['note_accueil' => 'Chien craintif'])->json('data.id');
+        $demande = DemandeRendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'report_de_id' => $id, 'statut' => 'a_traiter', 'duree_minutes' => 30, 'patient_name' => 'Nala',
+        ]);
+
+        $nouveau = app(TraitementDemande::class)->accepter($demande, aujourdhui()->addDays(3)->setTime(9, 0)->toImmutable(), $this->ligne->id, null);
+
+        $this->assertSame('Chien craintif', $nouveau->note_accueil);
     }
 }

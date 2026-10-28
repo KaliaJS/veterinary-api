@@ -86,6 +86,10 @@ class TraitementDemande
                 $demande->acompteRetenu() > 0 ? DrapeauRendezVous::Acompte : null,
             ])),
             'reason' => $demande->reason,
+            // Un report garde la note de l'accueil du rendez-vous déplacé (28.10.2026)
+            'note_accueil' => $demande->report_de_id !== null
+                ? RendezVous::withoutGlobalScopes()->whereKey($demande->report_de_id)->value('note_accueil')
+                : null,
         ]);
         $attributs['client_id'] ??= $demande->client_id;
 
