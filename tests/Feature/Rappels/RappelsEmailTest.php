@@ -740,4 +740,21 @@ class RappelsEmailTest extends TestCase
         $this->envoyer();
         Mail::assertSent(RappelVaccin::class, 1);
     }
+
+    /** Une clinique qui avait coupé l'e-mail et les SMS avant la décision de Jim (28.10.2026) : ces anciennes valeurs n'ont plus d'effet nulle part */
+    public function test_les_anciens_reglages_de_canal_en_base_n_ont_plus_d_effet(): void
+    {
+        $this->clinique->forceFill(['rappels_email' => false, 'rappels_sms' => false])->save();
+        $vaccination = $this->vaccin('2026-11-09');
+
+        // « À venir » : l'e-mail partira, rien ne bloque
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+        $ligne = collect($this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->json('data.a_venir'))->firstWhere('patient.nom', $this->patient->nom);
+        $this->assertContains('email', $ligne['canaux']);
+        $this->assertNull($ligne['bloque']);
+
+        // « Rappeler le propriétaire » part par e-mail
+        $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations/{$vaccination->id}/rappel", [], $this->enTetes($this->jeton))->assertOk();
+        Mail::assertSent(RappelVaccin::class, 1);
+    }
 }
