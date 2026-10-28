@@ -836,4 +836,81 @@ class VetpointCommandeTest extends TestCase
         $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->entetes)->assertOk()
             ->assertJsonPath('data.reception_vetpoint.message', 'Prix réels de Vetpoint repris ; Vetpoint ne donne pas encore les péremptions : les lots prennent celle du catalogue.');
     }
+
+    /* ——— 5e passe (28.10.2026) ——— */
+
+    /** Notre note retrouvée, mais sans numéro lisible : rien ne repart (on sait qu'elle est partie). */
+    public function test_notre_note_sans_numero_lisible_ne_fait_pas_repartir(): void
+    {
+        $this->listeCommandes = fn (array $commandes): string => json_encode(array_map(function (array $c): array {
+            $c['id'] = $c['orderId'];
+            unset($c['orderId']);
+
+            return $c;
+        }, $commandes));
+        $commande = $this->brouillon();
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+        $avant = count($this->envois());
+
+        $this->travel(2)->minutes();
+        $this->envoyer($commande)->assertStatus(409);
+
+        $this->assertCount($avant, $this->envois());
+    }
+
+    /** Une note rendue avec une espace ou une casse différente reste la nôtre. */
+    public function test_une_note_rendue_un_peu_changee_reste_la_notre(): void
+    {
+        $this->listeCommandes = fn (array $commandes): string => json_encode(array_map(function (array $c): array {
+            $c['orderItems'] = array_map(fn (array $e): array => [...$e, 'orderNote' => '  '.mb_strtoupper((string) $e['orderNote']).' '], $c['orderItems']);
+
+            return $c;
+        }, $commandes));
+        $commande = $this->brouillon();
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+
+        $this->travel(2)->minutes();
+        $this->envoyer($commande)->assertOk()->assertJsonPath('data.vetpoint.numero', 'V-7001');
+
+        $this->assertCount(1, $this->envois());
+    }
+
+    /** Deux de nos commandes en suspens : chacune ne retrouve que la sienne. */
+    public function test_une_commande_ne_retrouve_que_la_sienne(): void
+    {
+        $premiere = $this->brouillon();
+        $this->envoiPerdu = true;
+        $this->envoyer($premiere)->assertStatus(503);
+        $this->envoiPerdu = false;
+        $seconde = $this->brouillon();
+        $this->panneAvantVetpoint = true;
+        $this->envoyer($seconde)->assertStatus(503);
+        $this->panneAvantVetpoint = false;
+        $avant = count($this->envois());
+
+        $this->travel(2)->minutes();
+        $this->envoyer($seconde)->assertOk();
+
+        // La seconde est repartie vraiment : la commande de la première n'est pas la sienne
+        $this->assertCount($avant + 1, $this->envois());
+    }
+
+    /** L'abandon : seulement un envoi en suspens de son organisation. */
+    public function test_l_abandon_ne_vaut_que_pour_un_envoi_en_suspens_de_son_organisation(): void
+    {
+        // Avant toute requête : ensuite, le contexte refuse d'écrire hors de son organisation
+        $autreClinique = Clinique::factory()->create();
+        $ailleurs = CommandeFournisseur::withoutEvents(fn () => CommandeFournisseur::factory()->create(['clinique_id' => $autreClinique->id, 'vetpoint_envoi_le' => now()->subMinutes(5)]));
+        $libre = $this->brouillon();
+        $this->postJson("/api/v1/stocks/commandes/{$libre->id}/vetpoint/abandonner", [], $this->entetes)->assertUnprocessable();
+        $envoyee = $this->envoyee();
+        $this->postJson("/api/v1/stocks/commandes/{$envoyee->id}/vetpoint/abandonner", [], $this->entetes)->assertUnprocessable();
+
+        $this->postJson("/api/v1/stocks/commandes/{$ailleurs->id}/vetpoint/abandonner", [], $this->entetes)->assertNotFound();
+        $this->assertNotNull($ailleurs->refresh()->vetpoint_envoi_le);
+    }
 }

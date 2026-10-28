@@ -319,17 +319,27 @@ class CommandeVetpointController extends Controller
     {
         $creee = CarbonImmutable::parse($commande->created_at ?? now());
         $commandes = $client->commandes($creee->subDay()->toDateString(), now()->addDay()->toDateString());
+        // Une note rendue avec des espaces ou une autre casse reste la nôtre
+        $normaliser = fn (mixed $texte): string => is_string($texte) ? mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $texte))) : '';
+        $cherchee = $normaliser($note);
         $notes = [];
         foreach ($commandes as $existante) {
             $numero = is_string($existante['orderId'] ?? null) || is_int($existante['orderId'] ?? null) ? trim((string) $existante['orderId']) : '';
             $elements = array_filter(is_array($existante['orderItems'] ?? null) ? $existante['orderItems'] : [], 'is_array');
             foreach ($elements as $element) {
-                if (is_string($element['orderNote'] ?? null) && trim($element['orderNote']) !== '') {
+                if ($normaliser($element['orderNote'] ?? null) !== '') {
                     $notes[] = $element['orderNote'];
                 }
             }
-            $notre = collect($elements)->contains(fn (array $element): bool => ($element['orderNote'] ?? null) === $note);
-            if ($notre && $numero !== '' && ! CommandeFournisseur::withoutGlobalScopes()->where('vetpoint_commande_id', $numero)->exists()) {
+            if (! collect($elements)->contains(fn (array $element): bool => $normaliser($element['orderNote'] ?? null) === $cherchee)) {
+                continue;
+            }
+            // La nôtre est là, sans numéro lisible : partie, mais on ne sait
+            // pas sous quel numéro. Surtout pas de renvoi
+            if ($numero === '') {
+                throw new VetpointIncertain;
+            }
+            if (! CommandeFournisseur::withoutGlobalScopes()->where('vetpoint_commande_id', $numero)->exists()) {
                 return $numero;
             }
         }
