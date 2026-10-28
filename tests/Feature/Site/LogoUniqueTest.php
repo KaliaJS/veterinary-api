@@ -5,6 +5,8 @@ namespace Tests\Feature\Site;
 use App\Auth\ContexteClinique;
 use App\Models\Clinique;
 use App\Models\Facture;
+use App\Models\Ordonnance;
+use App\Models\Patient;
 use Database\Factories\SiteWebFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -55,12 +57,23 @@ class LogoUniqueTest extends TestCase
     {
         app(ContexteClinique::class)->oublier();
         SiteWebFactory::new()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'logo_chemin' => 'sites/logos/essai.png']);
-        Facture::factory()->count(5)->create(['clinique_id' => $this->clinique->id]);
+        Ordonnance::factory()->count(5)->create(['clinique_id' => $this->clinique->id, 'patient_id' => Patient::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id])->id]);
 
         DB::enableQueryLog();
-        $this->getJson('/api/v1/facturation/factures', $this->enTetes($this->jeton))->assertOk();
+        // Les ordonnances servent leur en-tête (logo compris) : une lecture du site pour toutes
+        $this->getJson('/api/v1/ordonnances', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.0.en_tete.logo_url', fn ($url) => is_string($url));
         $lectures = collect(DB::getQueryLog())->filter(fn (array $q): bool => str_contains($q['query'], 'sites_web'))->count();
 
         $this->assertLessThanOrEqual(1, $lectures);
+    }
+
+    /** Le logo d'une autre organisation n'est jamais servi. */
+    public function test_le_logo_d_une_autre_organisation_n_est_pas_servi(): void
+    {
+        app(ContexteClinique::class)->oublier();
+        $autre = Clinique::factory()->create();
+        SiteWebFactory::new()->create(['organisation_id' => $autre->societe->organisation_id, 'slug' => 'autre', 'logo_chemin' => 'sites/logos/autre.png']);
+
+        $this->getJson('/api/v1/organisation/cliniques', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.0.logo_url', null);
     }
 }

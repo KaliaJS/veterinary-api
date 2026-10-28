@@ -35,7 +35,7 @@ class OrganisationCliniqueController extends Controller
     {
         $cliniques = $this->organisation()
             ->cliniques()
-            ->with(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique')->orderBy('id'), 'employes.congesAVenir', 'employes.cliniques', 'employes.user.specialites', 'services', 'especes'])
+            ->with(['societe', 'employes' => fn ($requete) => $requete->withoutGlobalScope('clinique')->orderBy('id'), 'employes.congesAVenir', 'employes.cliniques', 'employes.user.specialites', 'services', 'especes'])
             ->orderBy('cliniques.id')
             ->get();
 
@@ -112,6 +112,9 @@ class OrganisationCliniqueController extends Controller
             return $clinique;
         });
 
+        // La carte garde son nombre de patients (une clinique neuve : 0)
+        $clinique->setAttribute('patients_douze_mois', (int) ($this->patientsDesDouzeMois([$clinique->id])[$clinique->id] ?? 0));
+
         return new CliniqueResource($clinique->load(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'employes.congesAVenir', 'employes.cliniques', 'employes.user.specialites', 'services', 'especes']));
     }
 
@@ -136,6 +139,8 @@ class OrganisationCliniqueController extends Controller
             $donnees['stripe_location_id'] = null;
         }
         $fiche->update($donnees);
+
+        $fiche->setAttribute('patients_douze_mois', (int) ($this->patientsDesDouzeMois([$fiche->id])[$fiche->id] ?? 0));
 
         return new CliniqueResource($fiche->load(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'employes.congesAVenir', 'employes.cliniques', 'employes.user.specialites', 'services', 'especes']));
     }

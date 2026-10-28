@@ -39,6 +39,7 @@ class PatientsParCliniqueTest extends TestCase
         $facture($felix, $clinique, '-2 months');      // le même animal, compté une fois
         $facture($animal('Moka'), $clinique, '-3 months');
         $vu($animal('Ancien'), $clinique, '-13 months'); // hors des 12 mois
+        $facture($animal('Vieille facture'), $clinique, '-13 months'); // hors des 12 mois
         $vu($animal('Annulé'), $clinique, '-1 month', fn ($f) => $f->annule());
         $vu($felix, $soeur, '-1 week');                 // vu aussi dans la sœur
 
@@ -48,5 +49,20 @@ class PatientsParCliniqueTest extends TestCase
 
         $this->assertSame(2, $cartes[$clinique->id]['patients']);
         $this->assertSame(1, $cartes[$soeur->id]['patients']);
+    }
+
+    /** Modifier ou créer une clinique ne fait pas perdre son nombre de patients à la carte. */
+    public function test_la_clinique_modifiee_ou_creee_garde_son_nombre_de_patients(): void
+    {
+        $clinique = Clinique::factory()->create();
+        $organisation = $clinique->societe->organisation_id;
+        $client = Client::factory()->create(['organisation_id' => $organisation]);
+        $patient = Patient::factory()->create(['organisation_id' => $organisation, 'client_id' => $client->id]);
+        RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $clinique->id, 'starts_at' => now()->subMonth(), 'ends_at' => now()->subMonth()->addMinutes(20)]);
+        app(ContexteClinique::class)->oublier();
+        ['jeton' => $jeton] = $this->administrateurAvecJeton($clinique);
+
+        $this->patchJson("/api/v1/organisation/cliniques/{$clinique->id}", ['nom' => 'Deux Rives Centre'], $this->enTetes($jeton))
+            ->assertOk()->assertJsonPath('data.patients', 1);
     }
 }
