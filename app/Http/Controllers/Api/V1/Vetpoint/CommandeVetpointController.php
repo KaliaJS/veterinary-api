@@ -371,6 +371,12 @@ class CommandeVetpointController extends Controller
             if ($autreDesNotres || ($numero !== '' && CommandeFournisseur::withoutGlobalScopes()->where('vetpoint_commande_id', $numero)->exists())) {
                 continue;
             }
+            // Passée avant la création du brouillon (trois heures de marge pour
+            // une heure rendue sans fuseau) : ce n'est pas la nôtre
+            $passee = is_string($existante['orderDate'] ?? null) ? rescue(fn () => CarbonImmutable::parse($existante['orderDate'], 'Europe/Zurich'), null, false) : null;
+            if ($passee !== null && $passee->lessThan($creee->subHours(3))) {
+                continue;
+            }
             $recu = $elements
                 ->map(fn (array $e): string => (is_scalar($e['productId'] ?? null) ? (string) $e['productId'] : '').' × '.(is_numeric($e['quantity'] ?? null) ? (int) $e['quantity'] : -1))
                 ->sort()->values()->all();

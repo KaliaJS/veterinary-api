@@ -953,4 +953,39 @@ class VetpointCommandeTest extends TestCase
 
         $this->assertCount(1, $this->envois());
     }
+
+    /** Une commande de la fenêtre aux produits ou quantités différents ne bloque pas la reprise ; une d'avant le brouillon non plus. */
+    public function test_une_autre_commande_differente_ou_plus_ancienne_ne_bloque_pas_la_reprise(): void
+    {
+        $commande = $this->brouillon(['913-306334' => 'Rimadyl 50 mg', '913-111111' => 'Metacam 1.5']);
+        $this->commandesVetpoint = [
+            // Passée sur vetpoint.ch : même produits, autres quantités
+            ['orderId' => 'WEB-1', 'orderDate' => now()->toIso8601String(), 'orderItems' => [['productId' => '913-306334', 'quantity' => 2, 'orderNote' => null], ['productId' => '913-111111', 'quantity' => 4, 'orderNote' => null]]],
+            // Mêmes produits et quantités, mais la veille de la création du brouillon
+            ['orderId' => 'WEB-2', 'orderDate' => now()->subHours(20)->toIso8601String(), 'orderItems' => [['productId' => '913-111111', 'quantity' => 4, 'orderNote' => null], ['productId' => '913-306334', 'quantity' => 4, 'orderNote' => null]]],
+            // Une de nos commandes avec sa note : Vetpoint rend les notes
+            ['orderId' => 'V-6000', 'orderDate' => now()->toIso8601String(), 'orderItems' => [['productId' => '913-999999', 'quantity' => 1, 'orderNote' => 'Veterinary BC-2026-001']]],
+        ];
+        $commande->forceFill(['vetpoint_envoi_le' => now()->subMinutes(5)])->save();
+
+        $this->envoyer($commande)->assertOk();
+
+        $this->assertCount(1, $this->envois());
+    }
+
+    /** Mêmes produits et quantités, dans un autre ordre et après la création du brouillon : on fait vérifier. */
+    public function test_les_memes_lignes_dans_un_autre_ordre_font_verifier(): void
+    {
+        $commande = $this->brouillon(['913-306334' => 'Rimadyl 50 mg', '913-111111' => 'Metacam 1.5']);
+        $this->commandesVetpoint = [
+            ['orderId' => 'WEB-3', 'orderDate' => now()->addMinutes(2)->toIso8601String(), 'orderItems' => [['productId' => '913-111111', 'quantity' => 4, 'orderNote' => null], ['productId' => '913-306334', 'quantity' => 4, 'orderNote' => null]]],
+            ['orderId' => 'V-6000', 'orderDate' => now()->toIso8601String(), 'orderItems' => [['productId' => '913-999999', 'quantity' => 1, 'orderNote' => 'Veterinary BC-2026-001']]],
+        ];
+        $this->travel(5)->minutes();
+        $commande->forceFill(['vetpoint_envoi_le' => now()->subMinutes(2)])->save();
+
+        $this->envoyer($commande)->assertStatus(409);
+
+        $this->assertSame([], $this->envois());
+    }
 }
