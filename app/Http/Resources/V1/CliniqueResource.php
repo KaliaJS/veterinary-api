@@ -28,6 +28,8 @@ class CliniqueResource extends JsonResource
             'nom' => $this->nom,
             'raison_sociale' => $this->raison_sociale,
             'societe_id' => $this->societe_id,
+            // Écran Organisation : patients des 12 derniers mois (servi par la liste des cliniques)
+            'patients' => $this->when($this->resource->getAttribute('patients_douze_mois') !== null, fn (): int => (int) $this->resource->getAttribute('patients_douze_mois')),
             'rue' => $this->rue,
             'npa' => $this->npa,
             'ville' => $this->ville,

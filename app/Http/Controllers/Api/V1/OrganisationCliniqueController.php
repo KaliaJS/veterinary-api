@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\StatutFacture;
+use App\Enums\StatutRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Organisation\EnregistrerCliniqueRequest;
 use App\Http\Requests\V1\Organisation\ModifierCliniqueRequest;
@@ -37,7 +39,36 @@ class OrganisationCliniqueController extends Controller
             ->orderBy('cliniques.id')
             ->get();
 
+        $patients = $this->patientsDesDouzeMois($cliniques->pluck('id')->all());
+        $cliniques->each(fn (Clinique $clinique) => $clinique->setAttribute('patients_douze_mois', (int) ($patients[$clinique->id] ?? 0)));
+
         return CliniqueResource::collection($cliniques);
+    }
+
+    /**
+     * Patients de chaque clinique (décision de Jim, 28.10.2026, choix 2) :
+     * les animaux qui ont au moins un rendez-vous (ni annulé ni manqué) ou
+     * une facture (non annulée) dans la clinique sur les 12 derniers mois.
+     * Une requête pour toutes les cliniques.
+     *
+     * @param  list<int>  $ids
+     * @return array<int, int>
+     */
+    private function patientsDesDouzeMois(array $ids): array
+    {
+        $depuis = now()->subMonths(12);
+        $rendezVous = DB::table('rendez_vous')->select('clinique_id', 'patient_id')
+            ->whereIn('clinique_id', $ids)->whereNotNull('patient_id')
+            ->whereNotIn('status', [StatutRendezVous::Annule->value, StatutRendezVous::Noshow->value])
+            ->whereBetween('starts_at', [$depuis, now()]);
+        $factures = DB::table('factures')->select('clinique_id', 'patient_id')
+            ->whereIn('clinique_id', $ids)->whereNotNull('patient_id')
+            ->where('statut', '!=', StatutFacture::Annulee->value)
+            ->whereBetween('emise_le', [$depuis, now()]);
+
+        return DB::query()->fromSub($rendezVous->union($factures), 'vus')
+            ->groupBy('clinique_id')->selectRaw('clinique_id, count(distinct patient_id) as nombre')
+            ->pluck('nombre', 'clinique_id')->map(fn ($n): int => (int) $n)->all();
     }
 
     public function store(EnregistrerCliniqueRequest $request): CliniqueResource
