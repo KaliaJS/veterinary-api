@@ -110,6 +110,8 @@ class JournalFacturesTest extends TestCase
                 'societe' => 'Tests SA',
                 'ide' => 'CHE-123.456.789',
                 'tva' => true,
+                // Le logo du site web (un seul logo, 28.10.2026) : aucun ici
+                'logo_url' => null,
             ]);
     }
 

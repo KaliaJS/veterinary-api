@@ -23,6 +23,7 @@ use App\Services\Transcription\Redacteur;
 use App\Services\Transcription\RedacteurClaude;
 use App\Services\Transcription\Transcripteur;
 use App\Services\Transcription\TranscripteurDeepgram;
+use App\Support\LogosOrganisation;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Mail\Markdown;
@@ -42,6 +43,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Le logo de l'organisation, lu une fois par requête (pièces en liste)
+        $this->app->scoped(LogosOrganisation::class);
         $this->app->scoped(ContexteClinique::class);
         $this->app->scoped(ContexteProprietaire::class);
 

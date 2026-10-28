@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\ServiceClinique;
 use App\Models\Concerns\AUnePhoto;
+use App\Support\LogosOrganisation;
 use Database\Factories\CliniqueFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -138,7 +139,7 @@ class Clinique extends Model
      * ordonnances, registres) : son nom, son adresse, ses contacts et la
      * société qui facture, avec son numéro IDE (23.10.2026).
      *
-     * @return array{nom: string, adresse: string, contact: string, societe: ?string, ide: ?string, tva: bool}
+     * @return array{nom: string, adresse: string, contact: string, societe: ?string, ide: ?string, tva: bool, logo_url: ?string}
      */
     public function enTeteDocument(): array
     {
@@ -149,6 +150,8 @@ class Clinique extends Model
             'societe' => $this->societe?->nom,
             'ide' => $this->societe?->ide,
             'tva' => $this->societe?->assujettie_tva !== false,
+            // Un seul logo, celui du site web de l'organisation (28.10.2026)
+            'logo_url' => app(LogosOrganisation::class)->pour($this->societe?->organisation_id),
         ];
     }
 

@@ -8,6 +8,7 @@ use App\Models\Clinique;
 use App\Models\CliniqueEspece;
 use App\Models\CliniqueService;
 use App\Services\Photos\PhotosCliniques;
+use App\Support\LogosOrganisation;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -28,6 +29,8 @@ class CliniqueResource extends JsonResource
             'nom' => $this->nom,
             'raison_sociale' => $this->raison_sociale,
             'societe_id' => $this->societe_id,
+            // Un seul logo, celui du site web de l'organisation (28.10.2026)
+            'logo_url' => app(LogosOrganisation::class)->pour($this->societe?->organisation_id),
             // Écran Organisation : patients des 12 derniers mois (servi par la liste des cliniques)
             'patients' => $this->when($this->resource->getAttribute('patients_douze_mois') !== null, fn (): int => (int) $this->resource->getAttribute('patients_douze_mois')),
             'rue' => $this->rue,
