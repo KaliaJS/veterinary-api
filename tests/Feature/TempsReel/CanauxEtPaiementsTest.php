@@ -245,4 +245,26 @@ class CanauxEtPaiementsTest extends TestCase
         });
         $this->assertSame(2, $appels);
     }
+
+    /**
+     * Quatrième passe (28.10.2026) : dans le worker de file, chaque tâche
+     * repart d'un Reverb joignable ; une panne passée ne fait pas avaler
+     * l'annonce d'une transcription en erreur quelques secondes plus tard.
+     */
+    public function test_chaque_tache_de_la_file_retente_reverb(): void
+    {
+        config(['queue.default' => 'sync']);
+        TempsReel::diffuser(function (): void {
+            throw new \RuntimeException('Reverb redémarre');
+        });
+
+        // Une tâche suivante du worker : son annonce part
+        dispatch(function (): void {
+            TempsReel::diffuser(function (): void {
+                cache()->put('annonce-partie', true);
+            });
+        });
+
+        $this->assertTrue(cache()->get('annonce-partie', false));
+    }
 }

@@ -24,11 +24,13 @@ use App\Services\Transcription\RedacteurClaude;
 use App\Services\Transcription\Transcripteur;
 use App\Services\Transcription\TranscripteurDeepgram;
 use App\Support\LogosOrganisation;
+use App\Support\TempsReel;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Mail\Markdown;
 use Illuminate\Queue\Failed\FailedJobProviderInterface;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
@@ -91,6 +93,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Le disjoncteur de Reverb vit dans le processus : chaque tâche du
+        // worker repart d'un Reverb joignable (une panne passée n'avale pas
+        // l'annonce suivante, 28.10.2026)
+        Queue::before(fn () => TempsReel::reinitialiser());
+
         Sanctum::usePersonalAccessTokenModel(JetonApi::class);
         // Un jeton sans fin ne pourrait jamais expirer : refusé (27.10.2026)
         Sanctum::authenticateAccessTokensUsing(fn (JetonApi $jeton, bool $valide): bool => $valide && $jeton->expires_at !== null);

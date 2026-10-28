@@ -137,11 +137,15 @@ class CompteRenduController extends Controller
         // Relu et enregistré par le vétérinaire : le brouillon de
         // l'enregistrement est validé
         if ($request->validated('enregistrement_id')) {
-            EnregistrementConsultation::query()
+            $valide = EnregistrementConsultation::query()
                 ->whereKey($request->validated('enregistrement_id'))
                 ->where('rendez_vous_id', $rendezVous->id)
                 ->where('statut', StatutEnregistrement::Pret->value)
                 ->update(['statut' => StatutEnregistrement::Valide->value, 'valide_le' => now()]);
+            // Les autres postes l'apprennent (temps réel, 28.10.2026)
+            if ($valide === 1) {
+                EnregistrementConsultation::annoncer((int) $request->validated('enregistrement_id'));
+            }
         }
 
         return $compteRendu;

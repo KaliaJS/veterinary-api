@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Auth\RolesParDefaut;
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
+use App\Events\EnregistrementMisAJour;
 use App\Jobs\RedigerCompteRendu;
 use App\Jobs\TranscrirePartie;
 use App\Mail\AlerteTranscription;
@@ -536,6 +537,19 @@ class EnregistrementConsultationTest extends TestCase
 
         // Pause puis reprise avant validation : la même ; après validation : un nouvel enregistrement
         $this->assertNotSame($id, $this->demarrer()->assertCreated()->json('data.id'));
+    }
+
+    /** Temps réel (28.10.2026) : la validation du brouillon est annoncée aux autres postes. */
+    public function test_la_validation_du_brouillon_est_annoncee(): void
+    {
+        $id = $this->demarrer()->json('data.id');
+        $this->envoyer($id, 1, 'AUDIO');
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 1], $this->enTetes($this->jeton))->assertOk();
+        Event::fake([EnregistrementMisAJour::class]);
+
+        $this->putJson("/api/v1/rendez-vous/{$this->rendezVous->id}/compte-rendu", ['s' => 'Boiterie.', 'o' => null, 'a' => null, 'p' => null, 'enregistrement_id' => $id], $this->enTetes($this->jeton))->assertSuccessful();
+
+        Event::assertDispatched(EnregistrementMisAJour::class, fn (EnregistrementMisAJour $e): bool => $e->broadcastWith()['id'] === $id && $e->broadcastWith()['statut'] === 'valide');
     }
 
     public function test_reprendre_apres_le_brouillon_ajoute_une_partie(): void
