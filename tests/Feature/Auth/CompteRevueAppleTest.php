@@ -10,6 +10,7 @@ use App\Mail\EssaisCompteRevue;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
 use App\Rules\AdresseSansAccent;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Support\Facades\Mail;
@@ -174,6 +175,8 @@ class CompteRevueAppleTest extends TestCase
     /** Cinq essais faux sur l'adresse de revue : la plateforme est alertée (une fois par jour). */
     public function test_des_essais_faux_sur_l_adresse_de_revue_alertent_la_plateforme(): void
     {
+        // En pleine journée : lancé vers minuit, les 32 minutes du test changeraient de jour (une alerte par jour)
+        $this->travelTo(CarbonImmutable::parse('2026-11-05 10:00', 'Europe/Zurich'));
         config(['plateforme.alerte_email' => 'alerte@exemple.ch']);
 
         foreach (range(1, 2) as $tour) {
