@@ -267,4 +267,24 @@ class VisioWebRtcTest extends TestCase
         $this->session->forceFill(['terminee_le' => now()])->save();
         $this->postJson("/api/v1/public/visio/{$jeton}/canal", ['socket_id' => '1234.5678', 'channel_name' => $canal])->assertStatus(410);
     }
+
+    /** Quatrième passe (28.10.2026) : un appel terminé ne donne plus de serveurs ICE ni de lien (le poste qui reprend se ferme). */
+    public function test_un_appel_termine_ne_donne_ni_ice_ni_lien(): void
+    {
+        $this->session->forceFill(['terminee_le' => now()])->save();
+
+        $this->getJson("/api/v1/tele/sessions/{$this->session->id}/ice", $this->enTetes($this->jeton))->assertStatus(410);
+        $this->postJson("/api/v1/tele/sessions/{$this->session->id}/lien", [], $this->enTetes($this->jeton))->assertStatus(410);
+    }
+
+    /** Les identifiants TURN durent 4 h par défaut : plus long que l'appel le plus long (conseil de Cloudflare). */
+    public function test_les_identifiants_turn_durent_quatre_heures_par_defaut(): void
+    {
+        config(['services.cloudflare_turn.key_id' => 'cle-turn', 'services.cloudflare_turn.api_token' => 'jeton-turn']);
+        Http::fake(['rtc.live.cloudflare.com/*' => Http::response(['iceServers' => [['urls' => ['turn:turn.cloudflare.com:3478'], 'username' => 'u', 'credential' => 'c']]], 201)]);
+
+        $this->getJson("/api/v1/tele/sessions/{$this->session->id}/ice", $this->enTetes($this->jeton))->assertOk();
+
+        Http::assertSent(fn ($requete) => $requete['ttl'] === 14400);
+    }
 }
