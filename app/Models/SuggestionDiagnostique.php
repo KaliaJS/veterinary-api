@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\StatutSuggestionDiagnostique;
+use App\Events\DiagnosticMisAJour;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Model;
@@ -29,6 +30,14 @@ class SuggestionDiagnostique extends Model
         static::saved(function (SuggestionDiagnostique $suggestion): void {
             if ($suggestion->wasRecentlyCreated || $suggestion->wasChanged('montant_centimes')) {
                 TempsReel::alertesDeLOrganisation((int) $suggestion->organisation_id);
+            }
+        });
+        // Temps réel (28.10.2026) : la fiche suit la suggestion sans relire
+        static::saved(function (SuggestionDiagnostique $suggestion): void {
+            if ($suggestion->wasRecentlyCreated || $suggestion->wasChanged('statut')) {
+                TempsReel::diffuser(fn () => DiagnosticMisAJour::dispatch('clinique.'.$suggestion->clinique_id, [
+                    'id' => $suggestion->id, 'rendez_vous_id' => $suggestion->rendez_vous_id, 'statut' => $suggestion->statut->value,
+                ]));
             }
         });
     }

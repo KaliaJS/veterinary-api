@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Events\FactureAbonnementMisAJour;
+use App\Support\TempsReel;
 use Database\Factories\OrganisationFactureFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -21,6 +23,16 @@ class OrganisationFacture extends Model
     protected $attributes = [
         'quota_applique' => false,
     ];
+
+    protected static function booted(): void
+    {
+        // Temps réel (28.10.2026) : la page Facturation suit le paiement sans relire
+        static::saved(function (OrganisationFacture $facture): void {
+            if ($facture->wasRecentlyCreated || $facture->wasChanged(['statut', 'paye_le', 'metadonnees'])) {
+                TempsReel::diffuser(fn () => FactureAbonnementMisAJour::dispatch('organisation.'.$facture->organisation_id.'.facturation', ['id' => $facture->id]));
+            }
+        });
+    }
 
     protected $fillable = ['organisation_id', 'numero', 'emise_le', 'libelle', 'montant'];
 

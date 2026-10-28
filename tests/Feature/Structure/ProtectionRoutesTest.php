@@ -55,7 +55,6 @@ class ProtectionRoutesTest extends TestCase
         'PUT api/v1/alertes/reglages' => 'Réglages d’e-mails de la personne du jeton.',
         'GET api/v1/vaccins' => 'Catalogue Swissmedic, données publiques de la plateforme.',
         'GET api/v1/vaccins/gtin/{gtin}' => 'Catalogue Swissmedic, données publiques de la plateforme.',
-        'GET api/v1/broadcasting/auth' => 'Autorisation des canaux temps réel (Reverb) : chaque canal vérifie la clinique du jeton (routes/channels.php).',
         'GET api/v1/rappels/reglages' => 'Réglages des rappels de la clinique (oui ou non, délai) : lus par toute l’équipe, modifiés avec le droit organisation.',
     ];
 
@@ -111,6 +110,9 @@ class ProtectionRoutesTest extends TestCase
         $horsSession = $this->authentifiees()
             ->filter(fn (RouteLaravel $route) => $this->a($route, 'clinique:facultatif'))
             ->reject(fn (RouteLaravel $route) => str_starts_with($route->uri(), 'api/v1/auth/'))
+            // Autorisation des canaux temps réel (28.10.2026) : chaque canal fait ses
+            // vérifications (routes/channels.php, testées dans tests/Feature/TempsReel)
+            ->reject(fn (RouteLaravel $route) => $route->uri() === 'api/v1/broadcasting/auth')
             ->map(fn (RouteLaravel $route) => $this->nom($route));
 
         $this->assertSame([], $horsSession->values()->all(), 'clinique:facultatif sur une route de domaine.');

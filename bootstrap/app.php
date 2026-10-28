@@ -27,8 +27,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     // Temps réel (Reverb, 28.10.2026) : l'autorisation des canaux passe par
-    // le jeton Sanctum et le contexte de clinique, sous /api/v1
-    ->withBroadcasting(__DIR__.'/../routes/channels.php', ['prefix' => 'api/v1', 'middleware' => ['api', 'auth:sanctum', 'clinique', 'organisation.ouverte']])
+    // le jeton Sanctum, sous /api/v1 ; le contexte de clinique est facultatif
+    // (canal personnel d'un propriétaire), chaque canal fait ses vérifications
+    // (routes/channels.php), organisation ouverte comprise
+    ->withBroadcasting(__DIR__.'/../routes/channels.php', ['prefix' => 'api/v1', 'middleware' => ['api', 'auth:sanctum', 'clinique:facultatif']])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prependToGroup('api', ForcerReponseJson::class);
 

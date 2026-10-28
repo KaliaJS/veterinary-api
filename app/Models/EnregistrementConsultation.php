@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
+use App\Events\EnregistrementMisAJour;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -22,6 +24,18 @@ class EnregistrementConsultation extends Model
     use AppartientAUneOrganisation;
 
     protected $table = 'enregistrements_consultation';
+
+    protected static function booted(): void
+    {
+        // Temps réel (28.10.2026) : l'écran suit la transcription sans relire
+        static::saved(function (EnregistrementConsultation $enregistrement): void {
+            if ($enregistrement->wasRecentlyCreated || $enregistrement->wasChanged(['statut', 'erreur'])) {
+                TempsReel::diffuser(fn () => EnregistrementMisAJour::dispatch('clinique.'.$enregistrement->clinique_id, [
+                    'id' => $enregistrement->id, 'rendez_vous_id' => $enregistrement->rendez_vous_id, 'statut' => $enregistrement->statut->value,
+                ]));
+            }
+        });
+    }
 
     protected $fillable = [
         'organisation_id', 'clinique_id', 'rendez_vous_id', 'user_id', 'statut', 'erreur',
