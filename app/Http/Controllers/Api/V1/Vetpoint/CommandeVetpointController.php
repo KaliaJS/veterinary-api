@@ -33,6 +33,9 @@ use Illuminate\Validation\ValidationException;
  */
 class CommandeVetpointController extends Controller
 {
+    /** Commandes dont le détail se lit pour retrouver un envoi à la réponse perdue */
+    private const int DETAILS_MAX = 20;
+
     /** Un envoi plus récent que cela est peut-être encore en route : on attend */
     private const int ENVOI_EN_COURS_SECONDES = 60;
 
@@ -320,8 +323,18 @@ class CommandeVetpointController extends Controller
         $normaliser = fn (mixed $texte): string => is_string($texte) ? mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $texte))) : '';
         $cherchee = $normaliser($note);
         $notes = [];
+        // La liste ne rend que numéro et date (serveur de test, 28.10.2026) : la
+        // note des lignes se lit dans le détail de chaque commande de la période,
+        // peu nombreuses ; au-delà, on ne devine pas
+        $sansLignes = array_filter($commandes, fn (array $c): bool => ! is_array($c['orderItems'] ?? null));
+        if (count($sansLignes) > self::DETAILS_MAX) {
+            throw new VetpointIncertain;
+        }
         foreach ($commandes as $existante) {
             $numero = is_string($existante['orderId'] ?? null) || is_int($existante['orderId'] ?? null) ? trim((string) $existante['orderId']) : '';
+            if (! is_array($existante['orderItems'] ?? null) && $numero !== '') {
+                $existante = $client->commande($numero) + $existante;
+            }
             $elements = array_filter(is_array($existante['orderItems'] ?? null) ? $existante['orderItems'] : [], 'is_array');
             foreach ($elements as $element) {
                 if ($normaliser($element['orderNote'] ?? null) !== '') {

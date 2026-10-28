@@ -66,6 +66,13 @@ class VetpointCommandeTest extends TestCase
     /** Forme de la liste des commandes rendue par Vetpoint (corps JSON) */
     private ?\Closure $listeCommandes = null;
 
+    /**
+     * La forme réelle, lue sur le serveur de test le 28.10.2026 (commande
+     * d'essai 498212) : la liste ne rend que le numéro et la date ; le
+     * détail est enveloppé dans `order`, avec les lignes et leur note.
+     */
+    private bool $formeReelle = false;
+
     /** Un autre onglet agit pendant que Vetpoint lit les adresses */
     private ?\Closure $pendantLesAdresses = null;
 
@@ -113,6 +120,11 @@ class VetpointCommandeTest extends TestCase
                     return Http::response(($this->listeCommandes)($this->commandesVetpoint), 200, ['Content-Type' => 'application/json']);
                 }
 
+                if ($this->formeReelle) {
+                    return $this->commandesVetpoint === [] ? Http::response('{}', 200, ['Content-Type' => 'application/json'])
+                        : Http::response(array_map(fn (array $c): array => ['orderId' => $c['orderId'], 'orderDate' => $c['orderDate']], $this->commandesVetpoint));
+                }
+
                 return $this->commandesVetpoint === [] ? Http::response('{}', 200, ['Content-Type' => 'application/json']) : Http::response($this->commandesVetpoint);
             }
             if ($chemin === '/v1/order' && $requete->method() === 'POST') {
@@ -136,6 +148,13 @@ class VetpointCommandeTest extends TestCase
                 return Http::response('V-7001');
             }
             if (str_starts_with($chemin, '/v1/order/')) {
+                if ($this->formeReelle) {
+                    $numero = rawurldecode(substr($chemin, strlen('/v1/order/')));
+                    $commande = collect($this->commandesVetpoint)->firstWhere('orderId', $numero);
+
+                    return $commande === null ? Http::response(['errorMessage' => 'Not Found'], 404) : Http::response(['order' => $commande]);
+                }
+
                 return $this->detail === null ? Http::response(['errorMessage' => 'Server Error'], 500) : Http::response($this->detail);
             }
 
@@ -990,5 +1009,39 @@ class VetpointCommandeTest extends TestCase
         $this->envoyer($commande)->assertStatus(409);
 
         $this->assertSame([], $this->envois());
+    }
+
+    /** Commande d'essai du 28.10.2026 (498212) : le détail arrive enveloppé dans `order` ; ses lignes se lisent */
+    public function test_le_detail_enveloppe_dans_order_rend_ses_lignes(): void
+    {
+        $this->formeReelle = true;
+        $commande = $this->brouillon();
+        $this->envoyer($commande)->assertOk();
+        $this->commandesVetpoint[] = ['orderId' => 'V-7001', 'orderDate' => '2026-10-28T09:00:00.000Z', 'orderItems' => [
+            ['productId' => '913-306334', 'quantity' => 4, 'unitPrice' => 55.98, 'totalPrice' => 223.92, 'expirationDate' => '2027-03-31', 'orderNote' => 'Veterinary '.$commande->numero],
+        ]];
+
+        $this->getJson("/api/v1/stocks/commandes/{$commande->id}/vetpoint", $this->entetes)->assertOk()
+            ->assertJsonPath('data.date', '2026-10-28T09:00:00.000Z')
+            ->assertJsonPath('data.lignes.0.produit_vetpoint', '913-306334')
+            ->assertJsonPath('data.lignes.0.prix_total', 223.92)
+            ->assertJsonPath('data.lignes.0.peremption', '2027-03-31');
+    }
+
+    /** La liste ne rend pas les lignes (forme réelle) : la réponse perdue se retrouve par le détail, sans second envoi */
+    public function test_une_reponse_perdue_se_retrouve_par_le_detail_quand_la_liste_ne_rend_pas_les_lignes(): void
+    {
+        $this->formeReelle = true;
+        $commande = $this->brouillon();
+        // Une autre commande du jour, d'une autre origine
+        $this->commandesVetpoint[] = ['orderId' => 'V-6999', 'orderDate' => now()->toIso8601String(), 'orderItems' => [['productId' => '913-306334', 'quantity' => 4, 'orderNote' => 'passée sur vetpoint.ch']]];
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+        $this->travel(2)->minutes();
+
+        $this->envoyer($commande)->assertOk()->assertJsonPath('data.vetpoint.numero', 'V-7001');
+
+        $this->assertCount(1, $this->envois());
     }
 }

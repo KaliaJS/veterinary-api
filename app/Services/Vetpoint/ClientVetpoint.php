@@ -180,10 +180,18 @@ class ClientVetpoint
         return array_values(array_filter($listes[0], 'is_array'));
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Le détail d'une commande. Vetpoint l'enveloppe dans `order` (lu sur le
+     * serveur de test le 28.10.2026, commande d'essai 498212) ; une réponse
+     * sans enveloppe se lit aussi.
+     *
+     * @return array<string, mixed>
+     */
     public function commande(string $numero): array
     {
-        return $this->appeler(fn (PendingRequest $http): Response => $http->get('/v1/order/'.rawurlencode($numero)));
+        $reponse = $this->appeler(fn (PendingRequest $http): Response => $http->get('/v1/order/'.rawurlencode($numero)));
+
+        return is_array($reponse['order'] ?? null) ? $reponse['order'] : $reponse;
     }
 
     /** Premier jour du mois de péremption (format des lots), d'une date de Vetpoint de forme connue. */
