@@ -20,7 +20,7 @@ use Illuminate\Support\Collection;
 /**
  * Alertes de la clinique (23.10.2026), calculées à la demande, jamais
  * stockées : ce qui est vrai maintenant. Stock (domaine stocks) : produits
- * sous leur seuil (stock de toutes les cliniques de l'organisation), lots
+ * sous leur seuil dans le stock de la clinique (décision de Jim, 28.10.2026), lots
  * de la clinique périmés ou qui périment d'ici la fin du mois suivant.
  * Consommation (domaine organisation) : transcription et suggestions
  * diagnostiques à 80 % puis à 100 % de leur plafond. Paiement (domaine
