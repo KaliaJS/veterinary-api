@@ -23,7 +23,8 @@ class DevisFactory extends Factory
                 ->whereHas('societe', fn ($societe) => $societe->where('organisation_id', $attributs['organisation_id']))
                 ->orderBy('id')
                 ->value('id') ?? Clinique::factory()->create()->id,
-            'numero' => 'DV-'.now()->year.'-'.fake()->unique()->numerify('###'),
+            // Moitié haute : jamais le numéro que le compteur donne ensuite dans un test (1, 2, 3…)
+            'numero' => 'DV-'.now()->year.'-'.fake()->unique()->numberBetween(500, 999),
             'emis_le' => fake()->dateTimeBetween('-10 days'),
             'patient_id' => fn (array $attributes) => Patient::factory()->create([
                 'organisation_id' => $attributes['organisation_id'],

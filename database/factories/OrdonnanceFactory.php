@@ -19,7 +19,8 @@ class OrdonnanceFactory extends Factory
         return [
             'clinique_id' => Clinique::factory(),
             'organisation_id' => fn (array $attributes) => Clinique::find($attributes['clinique_id'])->societe->organisation_id,
-            'numero' => 'RX-'.now()->year.'-'.fake()->unique()->numerify('###'),
+            // Moitié haute : jamais le numéro que le compteur donne ensuite dans un test (1, 2, 3…)
+            'numero' => 'RX-'.now()->year.'-'.fake()->unique()->numberBetween(500, 999),
             'patient_id' => fn (array $attributes) => Patient::factory()->create([
                 'organisation_id' => $attributes['organisation_id'],
             ])->id,

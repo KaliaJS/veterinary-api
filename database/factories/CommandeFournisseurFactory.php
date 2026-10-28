@@ -16,7 +16,8 @@ class CommandeFournisseurFactory extends Factory
     {
         return [
             'clinique_id' => Clinique::factory(),
-            'numero' => 'BC-'.now()->year.'-'.fake()->unique()->numerify('###'),
+            // Moitié haute : jamais le numéro que le compteur donne ensuite dans un test (1, 2, 3…)
+            'numero' => 'BC-'.now()->year.'-'.fake()->unique()->numberBetween(500, 999),
             'fournisseur' => fake()->randomElement(['Vetopharm SA', 'Zoevet AG', 'NutriVet Sàrl']),
             'statut' => StatutCommandeFournisseur::Brouillon,
             'envoyee_le' => null,

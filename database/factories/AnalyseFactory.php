@@ -21,7 +21,8 @@ class AnalyseFactory extends Factory
         return [
             'clinique_id' => Clinique::factory(),
             'patient_id' => Patient::factory(),
-            'numero' => 'A-'.now()->format('y').'-'.str_pad((string) fake()->unique()->numberBetween(1, 9999), 4, '0', STR_PAD_LEFT),
+            // Moitié haute : jamais le numéro que le compteur donne ensuite dans un test (1, 2, 3…)
+            'numero' => 'A-'.now()->format('y').'-'.str_pad((string) fake()->unique()->numberBetween(5000, 9999), 4, '0', STR_PAD_LEFT),
             'statut' => StatutAnalyse::Attente,
             'priorite' => PrioriteAnalyse::Standard,
             'preleve_le' => fake()->dateTimeBetween('-2 days'),

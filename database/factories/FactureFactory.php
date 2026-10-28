@@ -18,7 +18,8 @@ class FactureFactory extends Factory
         return [
             'clinique_id' => Clinique::factory(),
             'organisation_id' => fn (array $attributes) => Clinique::find($attributes['clinique_id'])->societe->organisation_id,
-            'numero' => 'FC-'.now()->year.'-'.fake()->unique()->numerify('####'),
+            // Moitié haute : jamais le numéro que le compteur donne ensuite dans un test (1, 2, 3…)
+            'numero' => 'FC-'.now()->year.'-'.fake()->unique()->numberBetween(5000, 9999),
             'emise_le' => fake()->dateTimeBetween('-5 days'),
             'patient_name' => fake()->firstName(),
             'species' => fake()->randomElement(['CH', 'CT']),
