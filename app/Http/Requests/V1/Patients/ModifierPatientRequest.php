@@ -27,6 +27,7 @@ class ModifierPatientRequest extends FormRequest
             'decede_le' => ['sometimes', 'nullable', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             'est_sterilise' => ['sometimes', 'boolean'],
             'puce' => ['sometimes', 'nullable', 'string', 'max:32', new NumeroPuce],
+            'assurance' => ['sometimes', 'nullable', 'string', 'max:120'],
             'est_agressif' => ['sometimes', 'boolean'],
             'a_allergies' => ['sometimes', 'boolean'],
             'traitement_en_cours' => ['sometimes', 'nullable', 'string'],

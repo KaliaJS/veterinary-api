@@ -30,6 +30,8 @@ class EnregistrerPatientRequest extends FormRequest
             'ne_le' => ['nullable', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             'est_sterilise' => ['sometimes', 'boolean'],
             'puce' => ['nullable', 'string', 'max:32', new NumeroPuce],
+            // L'assurance de l'animal (28.10.2026)
+            'assurance' => ['nullable', 'string', 'max:120'],
             'est_agressif' => ['sometimes', 'boolean'],
             'a_allergies' => ['sometimes', 'boolean'],
             'traitement_en_cours' => ['nullable', 'string'],

@@ -35,6 +35,7 @@ class PatientResource extends JsonResource
             'decede_le' => $this->decede_le?->toDateString(),
             'est_sterilise' => $this->est_sterilise,
             'puce' => $this->puce,
+            'assurance' => $this->assurance,
             'photo_url' => $this->photoUrl(),
             'dette' => (float) $this->dette,
             'alertes' => $this->alertes(),
