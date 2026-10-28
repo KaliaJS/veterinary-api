@@ -27,8 +27,16 @@ trait GesteDeCaisse
     {
         if ($facture->statut !== StatutFacture::Due) {
             throw ValidationException::withMessages([
-                'facture' => 'Cette facture est déjà payée.',
+                'facture' => $facture->statut === StatutFacture::Annulee ? 'Cette vente a été annulée.' : 'Cette facture est déjà payée.',
             ]);
+        }
+    }
+
+    /** Le ticket du comptoir se paie ou s'annule depuis la boutique (28.10.2026). */
+    protected function assurerHorsComptoir(Facture $facture, string $message): void
+    {
+        if ($facture->vente_comptoir) {
+            throw ValidationException::withMessages(['facture' => $message]);
         }
     }
 }

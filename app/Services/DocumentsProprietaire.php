@@ -108,6 +108,8 @@ class DocumentsProprietaire
         return Facture::withoutGlobalScopes()
             ->with(['lignes', 'clinique'])
             ->whereIn('client_id', $clientIds)
+            // Une vente du comptoir annulée n'a jamais rien dû
+            ->where('statut', '!=', StatutFacture::Annulee)
             ->orderByDesc('emise_le')
             ->get()
             ->map(function (Facture $f): array {

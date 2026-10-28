@@ -35,9 +35,12 @@ class FactureLigneController extends Controller
 {
     use GesteDeCaisse;
 
+    private const string TICKET_FIGE = 'Le ticket du comptoir ne se modifie pas : annulez la vente et refaites-la.';
+
     public function store(AjouterLigneFactureRequest $request, Facture $facture): FactureResource
     {
         $this->authorize('update', $facture);
+        $this->assurerHorsComptoir($facture, self::TICKET_FIGE);
         $this->sansPaiementEnCours($facture);
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
@@ -145,6 +148,7 @@ class FactureLigneController extends Controller
      */
     private function ligneModifiable(Facture $facture, int $id): FactureLigne
     {
+        $this->assurerHorsComptoir($facture, self::TICKET_FIGE);
         $this->authorize('update', $facture);
         $this->sansPaiementEnCours($facture);
         $this->assurerCliniqueDEmission($facture);

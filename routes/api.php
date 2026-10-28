@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyConnexionController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
+use App\Http\Controllers\Api\V1\BoutiquePaiementController;
 use App\Http\Controllers\Api\V1\CarnetSanteController;
 use App\Http\Controllers\Api\V1\ChecklistInterventionController;
 use App\Http\Controllers\Api\V1\ClicheDicomController;
@@ -842,9 +843,17 @@ Route::prefix('v1')->group(function (): void {
 
         // Boutique — domaine stocks (arbitrage : l'ASV la tient, c'est
         // le stock de la clinique qui bouge). La vente comptoir crée sa
-        // facture payée comme effet système ; la remise d'une commande
+        // facture comme effet système, payée tout de suite en espèces ou
+        // sans paiement intégré, sinon au terminal ou par TWINT ; la remise d'une commande
         // en ligne sort le stock de la clinique de retrait.
         Route::middleware(['can:stocks', 'service:boutique'])->prefix('boutique')->group(function (): void {
+            // Vente du comptoir payée au terminal ou par TWINT, depuis la boutique (28.10.2026)
+            Route::get('terminaux', [BoutiquePaiementController::class, 'terminaux'])->middleware('throttle:stripe');
+            Route::post('ventes/{facture}/paiements', [BoutiquePaiementController::class, 'payer'])->middleware('throttle:stripe');
+            Route::post('ventes/{facture}/especes', [BoutiquePaiementController::class, 'especes'])->middleware('throttle:stripe');
+            Route::post('ventes/{facture}/annuler', [BoutiquePaiementController::class, 'annuler'])->middleware('throttle:stripe');
+            Route::get('paiements/{paiement}', [BoutiquePaiementController::class, 'afficher'])->middleware('throttle:stripe');
+            Route::post('paiements/{paiement}/annuler', [BoutiquePaiementController::class, 'annulerPaiement'])->middleware('throttle:stripe');
             Route::get('commandes', [CommandeBoutiqueController::class, 'index']);
             Route::post('commandes', [CommandeBoutiqueController::class, 'store']);
             Route::post('commandes/{commande}/preparer', [CommandeBoutiqueController::class, 'preparer']);

@@ -35,6 +35,9 @@ class FactureResource extends JsonResource
             'statut' => $this->statut,
             'moyen_paiement' => $this->moyen_paiement,
             'payee_le' => $this->payee_le,
+            // Vente du comptoir (28.10.2026) : payée ou annulée depuis la boutique
+            'vente_comptoir' => (bool) $this->vente_comptoir,
+            'annulee_le' => $this->annulee_le,
             'stock_sorti' => $this->stock_sorti,
             'cloture_caisse_id' => $this->cloture_caisse_id,
             // Qui a encaissé : une carte ou un TWINT saisi sans terminal se voit avec son auteur

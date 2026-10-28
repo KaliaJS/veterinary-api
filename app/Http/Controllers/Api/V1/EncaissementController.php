@@ -64,6 +64,7 @@ class EncaissementController extends Controller
     public function payerPlusTard(Request $request, Facture $facture): FactureResource
     {
         $this->authorize('update', $facture);
+        $this->assurerHorsComptoir($facture, 'Une vente du comptoir se paie ou s’annule, jamais plus tard.');
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
 

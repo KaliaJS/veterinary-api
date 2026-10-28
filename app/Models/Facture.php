@@ -60,6 +60,8 @@ class Facture extends Model
             'emise_le' => 'datetime',
             'species' => Espece::class,
             'statut' => StatutFacture::class,
+            'vente_comptoir' => 'boolean',
+            'annulee_le' => 'datetime',
             'moyen_paiement' => MoyenPaiement::class,
             'payee_le' => 'datetime',
             'stock_sorti' => 'boolean',

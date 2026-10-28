@@ -59,6 +59,7 @@ class VenteComptoirController extends Controller
             // Paiement intégré, carte ou TWINT (décision de Jim, 28.10.2026) :
             // la vente attend le terminal ou le QR TWINT, comme une facture ;
             // le stock sort au paiement réussi
+            $facture->forceFill(['vente_comptoir' => true])->save();
             $moyen = MoyenPaiement::from($donnees['moyen_paiement']);
             if ($moyen !== MoyenPaiement::Especes && app(ContexteClinique::class)->clinique()->encaisseAvecVeterinary()) {
                 return $facture;
