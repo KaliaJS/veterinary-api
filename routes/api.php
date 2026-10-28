@@ -145,6 +145,7 @@ use App\Http\Controllers\Api\V1\SuggestionDiagnostiqueController;
 use App\Http\Controllers\Api\V1\TerminalPaiementController;
 use App\Http\Controllers\Api\V1\TrameImagerieController;
 use App\Http\Controllers\Api\V1\TranscriptionController;
+use App\Http\Controllers\Api\V1\TransfertAppelController;
 use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
 use App\Http\Controllers\Api\V1\VaccinCatalogueController;
@@ -857,6 +858,11 @@ Route::prefix('v1')->group(function (): void {
             Route::get('sessions/{session}/ice', [VisioController::class, 'ice'])->middleware('throttle:30,1,visio-ice');
             Route::post('sessions/{session}/signal', [VisioController::class, 'signal']);
             Route::get('sessions/{session}/signaux/{reference}', [VisioController::class, 'lireSignal'])->whereUuid('reference');
+            // Transfert de l'appel à un collègue (28.10.2026)
+            Route::get('sessions/{session}/collegues', [TransfertAppelController::class, 'collegues']);
+            Route::post('sessions/{session}/transferer', [TransfertAppelController::class, 'transferer']);
+            Route::post('sessions/{session}/transfert/annuler', [TransfertAppelController::class, 'annuler']);
+            Route::post('sessions/{session}/prendre', [TransfertAppelController::class, 'prendre']);
         });
 
         // Boutique — domaine stocks (arbitrage : l'ASV la tient, c'est

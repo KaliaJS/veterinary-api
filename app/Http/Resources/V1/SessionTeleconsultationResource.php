@@ -40,6 +40,9 @@ class SessionTeleconsultationResource extends JsonResource
                 'id' => $this->demarrePar->id,
                 'nom' => $this->demarrePar->nom,
             ]),
+            // Qui mène l'appel, et le transfert en attente (28.10.2026)
+            'mene_par' => $this->whenLoaded('menePar', fn (): ?array => $this->menePar ? ['id' => $this->menePar->id, 'nom' => $this->menePar->nom] : null),
+            'transfert_vers' => $this->whenLoaded('transfertVers', fn (): ?array => $this->transfertVers ? ['id' => $this->transfertVers->id, 'nom' => $this->transfertVers->nom] : null),
         ];
     }
 }

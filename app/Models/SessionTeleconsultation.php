@@ -32,7 +32,7 @@ class SessionTeleconsultation extends Model
     protected $fillable = [
         'clinique_id', 'rendez_vous_id', 'patient_id', 'motif',
         'demarre_le', 'demarre_par_id', 'terminee_le', 'duree_secondes',
-        'cloture_rendez_vous', 'lien_envoye_le',
+        'cloture_rendez_vous', 'lien_envoye_le', 'mene_par_id', 'transfert_vers_id', 'transfert_demande_le',
     ];
 
     protected $hidden = ['jeton_client', 'jeton_client_chiffre'];
@@ -48,6 +48,7 @@ class SessionTeleconsultation extends Model
             'duree_secondes' => 'integer',
             'cloture_rendez_vous' => 'boolean',
             'lien_envoye_le' => 'datetime',
+            'transfert_demande_le' => 'datetime',
             'jeton_client_chiffre' => 'encrypted',
         ];
     }
@@ -75,6 +76,20 @@ class SessionTeleconsultation extends Model
     public function demarrePar(): BelongsTo
     {
         return $this->belongsTo(Employe::class, 'demarre_par_id');
+    }
+
+    /** Qui mène l'appel (celui qui l'a démarré, ou à qui il a été transféré).
+     * @return BelongsTo<Employe, $this> */
+    public function menePar(): BelongsTo
+    {
+        return $this->belongsTo(Employe::class, 'mene_par_id');
+    }
+
+    /** Le collègue à qui l'appel est transféré, tant qu'il ne l'a pas pris.
+     * @return BelongsTo<Employe, $this> */
+    public function transfertVers(): BelongsTo
+    {
+        return $this->belongsTo(Employe::class, 'transfert_vers_id');
     }
 
     public function estTerminee(): bool

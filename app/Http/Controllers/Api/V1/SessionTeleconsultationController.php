@@ -64,6 +64,7 @@ class SessionTeleconsultationController extends Controller
                 'motif' => $donnees['motif'] ?? $rendezVous->reason ?? 'Appel vidéo',
                 'demarre_le' => now(),
                 'demarre_par_id' => app(ContexteClinique::class)->employe()?->id,
+                'mene_par_id' => app(ContexteClinique::class)->employe()?->id,
             ]);
 
             $this->projection->demarrer($session, $request->user());
@@ -87,6 +88,8 @@ class SessionTeleconsultationController extends Controller
         return [
             'patient.client',
             'demarrePar' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
+            'menePar' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
+            'transfertVers' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
         ];
     }
 }
