@@ -14,7 +14,8 @@ class EnvoyerRappels extends Command
 
     public function handle(RappelsProprietaires $rappels): int
     {
-        $partis = $rappels->envoyerLesRappelsDus();
+        // Rappels dus, et relances des rendez-vous manqués (le soir même)
+        $partis = $rappels->envoyerLesRappelsDus() + $rappels->envoyerLesRelancesNoShow();
         $this->info($partis.' rappel'.($partis > 1 ? 's' : '').' envoyé'.($partis > 1 ? 's' : '').'.');
 
         return self::SUCCESS;

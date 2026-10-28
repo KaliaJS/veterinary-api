@@ -6,6 +6,7 @@ use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
 use App\Mail\RappelControle;
 use App\Mail\RappelVaccin;
+use App\Mail\RelanceNoShow;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Patient;
@@ -49,6 +50,9 @@ class RappelsProprietaires
     private const int HEURE_FIN = 20;
 
     private const int TENTATIVES_MAX = 3;
+
+    /** La relance d'un rendez-vous manqué part le soir même, dès 18 h (décision de Jim, 28.10.2026). */
+    private const int HEURE_RELANCE = 18;
 
     /** @var array<int, ?Clinique> */
     private array $cliniques = [];
@@ -459,6 +463,69 @@ class RappelsProprietaires
     }
 
     /**
+     * Relance après un rendez-vous manqué (décision de Jim, 28.10.2026) : le
+     * soir même, un lien pour reprendre rendez-vous, par chaque canal choisi
+     * par le client et permis par la clinique ; une seule fois.
+     */
+    public function envoyerLesRelancesNoShow(): int
+    {
+        $partis = 0;
+        $manques = RendezVous::withoutGlobalScopes()
+            ->with(['clinique' => fn ($q) => $q->withoutGlobalScopes(), 'patient' => fn ($q) => $q->withoutGlobalScopes(), 'patient.client' => fn ($q) => $q->withoutGlobalScopes()])
+            ->where('status', StatutRendezVous::Noshow)
+            ->whereNotNull('patient_id')
+            ->whereBetween('starts_at', [now()->subDay(), now()])
+            ->get();
+        foreach ($manques as $rendezVous) {
+            $clinique = $rendezVous->clinique;
+            $local = now()->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich');
+            if (! $clinique->relance_noshow || $local->hour < self::HEURE_RELANCE || $local->hour >= self::HEURE_FIN
+                || $rendezVous->starts_at->setTimezone($local->getTimezone())->toDateString() !== $local->toDateString()) {
+                continue;
+            }
+            $partis += $this->envoyerRelance($clinique, $rendezVous) ? 1 : 0;
+        }
+
+        return $partis;
+    }
+
+    public static function lienReprise(Clinique $clinique): string
+    {
+        return rtrim((string) config('app.frontend_url'), '/').'/cliniques/'.$clinique->id;
+    }
+
+    private function envoyerRelance(Clinique $clinique, RendezVous $rendezVous): bool
+    {
+        $patient = $rendezVous->patient;
+        $client = $patient?->client;
+        $ouverte = $this->organisationsOuvertes[$clinique->id] ??= (bool) $clinique->societe?->organisation?->estOuverte();
+        if (! $ouverte || $patient === null || $client === null || $patient->rappels_coupes || $patient->decede_le !== null) {
+            return false;
+        }
+        $jour = substr($this->momentLocal($rendezVous, $clinique), 0, 10);
+        $attributs = ['clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'client_id' => $client->id, 'objet' => 'noshow',
+            'rendez_vous_id' => $rendezVous->id, 'libelle' => 'Relance après une absence', 'echeance_le' => $jour];
+        $parti = false;
+        if (self::reglages($clinique)['email'] && filled($client->email) && $this->accepteLesRappels($client)) {
+            $rappel = $this->prendre(self::cle('noshow', $rendezVous->id, $jour, 'email'), [...$attributs, 'canal' => 'email']);
+            if ($rappel !== null) {
+                $this->expedier($rappel, $clinique, $client, null, $rendezVous);
+                $parti = $rappel->statut === 'envoye';
+            }
+        }
+        $mobile = $this->mobilePourSms($clinique, $client);
+        if ($mobile !== null) {
+            $rappel = $this->prendre(self::cle('noshow', $rendezVous->id, $jour, 'sms'), [...$attributs, 'canal' => 'sms']);
+            if ($rappel !== null) {
+                $this->expedierSms($rappel, $clinique, $mobile, $clinique->nom.' : '.$patient->nom.' n’a pas pu venir aujourd’hui. Reprenez rendez-vous : '.self::lienReprise($clinique));
+                $parti = $parti || $rappel->statut === 'envoye';
+            }
+        }
+
+        return $parti;
+    }
+
+    /**
      * Prend l'envoi avant d'envoyer (clé unique) : deux exécutions en même
      * temps n'envoient jamais deux fois. Un échec se reprend trois fois ; un
      * envoi resté « en cours » plus d'une heure (exécution interrompue) aussi.
@@ -488,9 +555,11 @@ class RappelsProprietaires
         $rappel->adresse = $client->email;
         $rappel->tentatives = (int) $rappel->tentatives + 1;
         try {
-            Mail::to($client->email)->send($vaccination !== null
-                ? new RappelVaccin($vaccination, $clinique, $client, $lien)
-                : new RappelControle($rendezVous, $clinique, $client, $lien));
+            Mail::to($client->email)->send(match (true) {
+                $vaccination !== null => new RappelVaccin($vaccination, $clinique, $client, $lien),
+                $rappel->objet === 'noshow' => new RelanceNoShow($rendezVous, $clinique, $client, $lien, self::lienReprise($clinique)),
+                default => new RappelControle($rendezVous, $clinique, $client, $lien),
+            });
             $rappel->fill(['statut' => 'envoye', 'erreur' => null, 'envoye_le' => now()]);
         } catch (Throwable $e) {
             report($e);
