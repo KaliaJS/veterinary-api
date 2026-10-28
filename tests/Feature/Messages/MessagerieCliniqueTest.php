@@ -3,13 +3,16 @@
 namespace Tests\Feature\Messages;
 
 use App\Events\MessagesChangent;
+use App\Mail\ReponseClinique;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\MessageClientele;
+use App\Models\PreferencesProprietaire;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -56,6 +59,8 @@ class MessagerieCliniqueTest extends TestCase
 
         $this->assertCount(1, $fils);
         $this->assertSame($this->proprietaire->id, $fils[0]['user_id']);
+        $this->assertSame('u'.$this->proprietaire->id, $fils[0]['cle']);
+        $this->assertTrue($fils[0]['peut_repondre']);
         $this->assertSame('Léa Martin', $fils[0]['client']);
         $this->assertSame(1, $fils[0]['non_lus']);
         $this->assertSame('Félix tousse depuis hier.', $fils[0]['dernier']['texte']);
@@ -66,12 +71,12 @@ class MessagerieCliniqueTest extends TestCase
         $this->ecrireCommeProprietaire('Félix tousse depuis hier.');
         Event::fake([MessagesChangent::class]);
 
-        $this->getJson("/api/v1/messages/{$this->proprietaire->id}", $this->enTetes($this->accueil))->assertOk()
+        $this->getJson("/api/v1/messages/u{$this->proprietaire->id}", $this->enTetes($this->accueil))->assertOk()
             ->assertJsonPath('data.messages.0.texte', 'Félix tousse depuis hier.')
             ->assertJsonPath('data.messages.0.auteur', 'proprietaire');
         $this->assertNotNull(MessageClientele::query()->where('auteur', 'proprietaire')->sole()->lu_le);
 
-        $this->postJson("/api/v1/messages/{$this->proprietaire->id}", ['texte' => 'Passez cet après-midi, nous la regardons.'], $this->enTetes($this->accueil))
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Passez cet après-midi, nous la regardons.'], $this->enTetes($this->accueil))
             ->assertCreated()->assertJsonPath('data.auteur', 'clinique')->assertJsonPath('data.signature', 'Julie Muller');
 
         // Le propriétaire le voit dans son espace
@@ -93,12 +98,12 @@ class MessagerieCliniqueTest extends TestCase
 
     public function test_la_clinique_ouvre_un_fil_avec_un_client_qui_a_un_compte_seulement(): void
     {
-        $this->postJson("/api/v1/messages/{$this->proprietaire->id}", ['texte' => 'Le vaccin de Félix arrive à échéance.'], $this->enTetes($this->accueil))->assertCreated();
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Le vaccin de Félix arrive à échéance.'], $this->enTetes($this->accueil))->assertCreated();
 
         // Un compte qui n'est pas client de l'organisation : refusé
         $autre = User::factory()->create();
-        $this->postJson("/api/v1/messages/{$autre->id}", ['texte' => 'Bonjour'], $this->enTetes($this->accueil))->assertNotFound();
-        $this->getJson("/api/v1/messages/{$autre->id}", $this->enTetes($this->accueil))->assertNotFound();
+        $this->postJson("/api/v1/messages/u{$autre->id}", ['texte' => 'Bonjour'], $this->enTetes($this->accueil))->assertNotFound();
+        $this->getJson("/api/v1/messages/u{$autre->id}", $this->enTetes($this->accueil))->assertNotFound();
     }
 
     public function test_sans_le_droit_patients_la_messagerie_est_fermee(): void
@@ -134,7 +139,7 @@ class MessagerieCliniqueTest extends TestCase
         // Aucun fil ouvert : pas de nouveau message spontané
         $this->postJson('/api/v1/espace/messages', ['clinique_id' => $this->clinique->id, 'texte' => 'Bonjour'], $this->enTetes($this->jetonProprietaire))->assertUnprocessable();
 
-        $this->postJson("/api/v1/messages/{$this->proprietaire->id}", ['texte' => 'Comment va Félix ?'], $this->enTetes($this->accueil))->assertCreated();
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Comment va Félix ?'], $this->enTetes($this->accueil))->assertCreated();
         $this->getJson('/api/v1/espace/messages', $this->enTetes($this->jetonProprietaire))->assertJsonPath('data.cliniques.0.peut_ecrire', true);
         $this->ecrireCommeProprietaire('Il va mieux, merci.');
     }
@@ -154,5 +159,50 @@ class MessagerieCliniqueTest extends TestCase
     private function administrateur(): string
     {
         return $this->administrateurAvecJeton($this->clinique)['jeton'];
+    }
+
+    /** Un compte effacé : son fil reste lisible par sa fiche, ses non-lus se lisent, on n'y répond plus */
+    public function test_le_fil_d_un_compte_efface_se_lit_par_sa_fiche_sans_reponse_possible(): void
+    {
+        MessageClientele::create(['clinique_id' => $this->clinique->id, 'user_id' => null, 'client_id' => $this->fiche->id, 'auteur' => 'proprietaire', 'texte' => 'Avant de partir, merci pour tout.']);
+
+        $fil = collect($this->getJson('/api/v1/messages', $this->enTetes($this->accueil))->assertOk()->json('data'))->firstWhere('cle', 'c'.$this->fiche->id);
+        $this->assertSame(['Léa Martin', 1, false], [$fil['client'], $fil['non_lus'], $fil['peut_repondre']]);
+
+        $this->getJson('/api/v1/messages/c'.$this->fiche->id, $this->enTetes($this->accueil))->assertOk()->assertJsonPath('data.messages.0.texte', 'Avant de partir, merci pour tout.');
+        $this->assertSame(0, collect($this->getJson('/api/v1/messages', $this->enTetes($this->accueil))->json('data'))->firstWhere('cle', 'c'.$this->fiche->id)['non_lus']);
+        $this->postJson('/api/v1/messages/c'.$this->fiche->id, ['texte' => 'Bonjour'], $this->enTetes($this->accueil))->assertUnprocessable();
+    }
+
+    /** Un compte révoqué (fiche détachée) : son fil s'ouvre encore, la réponse est refusée */
+    public function test_le_fil_d_un_compte_revoque_s_ouvre_sans_reponse_possible(): void
+    {
+        $this->ecrireCommeProprietaire('Félix tousse depuis hier.');
+        $this->fiche->update(['user_id' => null]);
+
+        $fil = collect($this->getJson('/api/v1/messages', $this->enTetes($this->accueil))->assertOk()->json('data'))->firstWhere('cle', 'u'.$this->proprietaire->id);
+        $this->assertFalse($fil['peut_repondre']);
+        $this->getJson("/api/v1/messages/u{$this->proprietaire->id}", $this->enTetes($this->accueil))->assertOk()->assertJsonPath('data.messages.0.texte', 'Félix tousse depuis hier.');
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Bonjour'], $this->enTetes($this->accueil))->assertUnprocessable();
+    }
+
+    /** La clinique ouvre un fil depuis la fiche d'un client qui a un compte, sans message encore */
+    public function test_la_clinique_ouvre_un_fil_vide_avec_un_client_qui_a_un_compte(): void
+    {
+        $this->getJson("/api/v1/messages/u{$this->proprietaire->id}", $this->enTetes($this->accueil))->assertOk()
+            ->assertJsonPath('data.client', 'Léa Martin')->assertJsonPath('data.messages', [])->assertJsonPath('data.peut_repondre', true);
+    }
+
+    /** La réponse de la clinique prévient le propriétaire par e-mail (réglage « Réponses de la clinique »), sauf s'il l'a coupé */
+    public function test_la_reponse_previent_le_proprietaire_par_e_mail_sauf_s_il_l_a_coupe(): void
+    {
+        Mail::fake();
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Passez cet après-midi.'], $this->enTetes($this->accueil))->assertCreated();
+        Mail::assertSent(ReponseClinique::class, fn (ReponseClinique $mail): bool => $mail->hasTo($this->proprietaire->email)
+            && str_contains($mail->render(), 'Deux Rives') && str_contains($mail->render(), 'Passez cet après-midi.'));
+
+        PreferencesProprietaire::pour($this->proprietaire)->update(['reponses_clinique' => false]);
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Et demain ?'], $this->enTetes($this->accueil))->assertCreated();
+        Mail::assertSent(ReponseClinique::class, 1);
     }
 }

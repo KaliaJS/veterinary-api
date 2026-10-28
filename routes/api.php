@@ -497,9 +497,9 @@ Route::prefix('v1')->group(function (): void {
         // Messagerie de la clinique (décision de Jim, 28.10.2026)
         Route::middleware('can:patients')->prefix('messages')->group(function (): void {
             Route::get('/', [MessagerieCliniqueController::class, 'index']);
-            // Le compte du client, jamais lié tel quel : il doit avoir une fiche dans l'organisation
-            Route::get('{compte}', [MessagerieCliniqueController::class, 'fil'])->whereNumber('compte');
-            Route::post('{compte}', [MessagerieCliniqueController::class, 'repondre'])->whereNumber('compte')->middleware('throttle:60,1,messages-clinique');
+            // « u12 » : le compte du client ; « c34 » : sa fiche (compte effacé). Jamais lié tel quel
+            Route::get('{cle}', [MessagerieCliniqueController::class, 'fil'])->where('cle', '[uc][0-9]+');
+            Route::post('{cle}', [MessagerieCliniqueController::class, 'repondre'])->where('cle', '[uc][0-9]+')->middleware('throttle:60,1,messages-clinique');
         });
         Route::put('rappels/reglages', [RappelsController::class, 'modifierReglages']);
 

@@ -31,6 +31,8 @@ class ClientResource extends JsonResource
             'npa' => $this->npa,
             'localite' => $this->localite,
             'a_un_compte' => $this->user_id !== null,
+            // Le compte, pour lui écrire depuis sa fiche (messagerie, 28.10.2026)
+            'compte_id' => $this->user_id,
             'nombre_patients' => $this->whenHas('patients_count'),
             'noms_patients' => $this->when(
                 $this->relationLoaded('patientsParNom') || $this->relationLoaded('patients'),

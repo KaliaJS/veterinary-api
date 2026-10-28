@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * Message d'un fil clinique ↔ propriétaire. Pas de scope global : lu
  * depuis l'espace propriétaire (par user_id) ou depuis la clinique
  * (par clinique_id du contexte) avec un filtre explicite.
+ *
+ * @property int|null $user_id vide quand le compte a été effacé (migration 2026_10_27_000001)
+ * @property int|null $client_id la fiche du fil, gardée quand le compte est effacé
  */
 class MessageClientele extends Model
 {
