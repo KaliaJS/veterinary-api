@@ -11,6 +11,7 @@ use App\Models\PreferencesProprietaire;
 use App\Models\RendezVous;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Database\Factories\SiteWebFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -208,5 +209,66 @@ class RelanceNoShowTest extends TestCase
         Mail::assertSent(RelanceNoShow::class, fn (RelanceNoShow $mail): bool => $mail->lienReprise === null
             && str_contains($mail->render(), 'appelez la clinique au 032 000 00 00')
             && ! str_contains($mail->render(), '/cliniques/'));
+    }
+
+    /** Un rendez-vous déjà repris pour l'animal (par téléphone, l'après-midi) : pas de « Reprenez rendez-vous » le soir */
+    public function test_un_rendez_vous_deja_repris_n_est_pas_relance(): void
+    {
+        $this->relanceActive();
+        $patient = $this->rendezVous->patient()->withoutGlobalScopes()->firstOrFail();
+        RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addDays(3), 'ends_at' => now()->addDays(3)->addMinutes(20)]);
+
+        $this->soir();
+
+        Mail::assertNotSent(RelanceNoShow::class);
+    }
+
+    /** Le rendez-vous repris puis annulé : la relance part quand même */
+    public function test_un_rendez_vous_repris_puis_annule_n_empeche_pas_la_relance(): void
+    {
+        $this->relanceActive();
+        $patient = $this->rendezVous->patient()->withoutGlobalScopes()->firstOrFail();
+        RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addDays(3), 'ends_at' => now()->addDays(3)->addMinutes(20), 'status' => StatutRendezVous::Annule]);
+
+        $this->soir();
+
+        Mail::assertSent(RelanceNoShow::class, 1);
+    }
+
+    /** Rien ne part la nuit (entre 22 h et 8 h) ; le lendemain matin, oui ; le soir suivant, plus rien de nouveau */
+    public function test_rien_ne_part_la_nuit_ni_le_soir_suivant(): void
+    {
+        $this->relanceActive();
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-06 03:05', 'Europe/Zurich'));
+        $this->artisan('rappels:envoyer')->assertSuccessful();
+        Mail::assertNotSent(RelanceNoShow::class);
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-06 18:05', 'Europe/Zurich'));
+        $this->artisan('rappels:envoyer')->assertSuccessful();
+        Mail::assertNotSent(RelanceNoShow::class);
+    }
+
+    /** Rappels par e-mail coupés par la clinique : pas d'e-mail de relance */
+    public function test_rappels_par_e_mail_coupes_par_la_clinique_pas_d_e_mail_de_relance(): void
+    {
+        $this->relanceActive();
+        $this->putJson('/api/v1/rappels/reglages', ['email' => false], $this->enTetes($this->jeton))->assertOk();
+
+        $this->soir();
+
+        Mail::assertNotSent(RelanceNoShow::class);
+    }
+
+    /** Un site publié : le lien mène au site de la clinique, avant l'annuaire */
+    public function test_avec_un_site_publie_le_lien_mene_au_site(): void
+    {
+        $this->relanceActive();
+        $site = SiteWebFactory::new()->publie()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'slug' => 'deux-rives']);
+
+        $this->soir();
+
+        Mail::assertSent(RelanceNoShow::class, fn (RelanceNoShow $mail): bool => $mail->lienReprise === $site->urlPublique()
+            && str_contains($mail->render(), '/site/deux-rives'));
     }
 }

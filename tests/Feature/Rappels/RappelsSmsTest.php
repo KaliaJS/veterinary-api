@@ -316,4 +316,34 @@ class RappelsSmsTest extends TestCase
 
         $this->assertSame(['email', 'sms'], $ligne['canaux']);
     }
+
+    /** « SMS seulement », la clinique envoie des SMS, mais la fiche porte un fixe : « À venir » dit qu'il manque le mobile, comme le carnet */
+    public function test_sms_seulement_avec_un_fixe_a_venir_dit_qu_il_manque_le_mobile(): void
+    {
+        $this->smsActifs();
+        $user = User::factory()->create();
+        $this->client->update(['user_id' => $user->id, 'tel' => '032 123 45 67']);
+        PreferencesProprietaire::pour($user)->update(['rappels_email' => false, 'rappels_sms' => true]);
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+
+        $ligne = collect($this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->json('data.a_venir'))->firstWhere('patient.nom', 'Félix');
+
+        $this->assertSame([], $ligne['canaux']);
+        $this->assertSame('Pas de numéro de mobile', $ligne['bloque']);
+    }
+
+    /** « Rappeler le propriétaire » par e-mail et SMS : le SMS bloqué par le quota se dit, l'e-mail parti aussi */
+    public function test_rappeler_le_proprietaire_dit_le_canal_qui_n_est_pas_parti(): void
+    {
+        $this->smsActifs();
+        $this->client->update(['rappels_sms' => true]);
+        $organisation = $this->clinique->societe->organisation;
+        $organisation->forceFill(['plan' => FormuleSaas::Individuel, 'quota_extra_sms' => 0])->save();
+        CompteurMensuel::ajouter('sms:'.$organisation->id, 100);
+        $vaccination = Vaccination::query()->where('patient_id', $this->patient->id)->sole();
+
+        $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations/{$vaccination->id}/rappel", [], $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('data.adresse', 'lea.martin@example.ch')
+            ->assertJsonPath('data.manque', 'Le SMS n’est pas parti, quota de SMS du mois atteint : achetez un pack dans l’abonnement.');
+    }
 }

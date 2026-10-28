@@ -13,8 +13,10 @@ use App\Models\Patient;
 use App\Models\PreferencesProprietaire;
 use App\Models\RendezVous;
 use App\Services\AccueilProprietaire;
+use App\Support\Telephone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
 
 /**
@@ -31,6 +33,14 @@ class ReglagesProprietaireController extends Controller
 
     public function modifierPreferences(ModifierPreferencesRequest $request, ContexteProprietaire $contexte): JsonResponse
     {
+        // Les SMS « avec son mobile » : sans mobile, ils ne s'activent pas,
+        // d'où qu'il les demande (configuration ou réglages)
+        if ($request->validated('rappels_sms') === true) {
+            $fiche = $contexte->clients()->first();
+            if (Telephone::mobile($fiche->tel ?? $contexte->user()->tel) === null) {
+                throw ValidationException::withMessages(['rappels_sms' => 'Indiquez d’abord votre numéro de mobile : les SMS partent vers un numéro en 07x, ou étranger avec son indicatif.']);
+            }
+        }
         $preferences = PreferencesProprietaire::pour($contexte->user());
         $preferences->update($request->validated());
         // Les rappels choisis : la ligne « Vos rappels » de sa configuration est faite

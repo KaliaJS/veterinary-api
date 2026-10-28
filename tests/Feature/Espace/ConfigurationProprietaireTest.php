@@ -52,12 +52,34 @@ class ConfigurationProprietaireTest extends TestCase
         $this->putJson('/api/v1/espace/preferences', ['rappels_email' => true, 'rappels_sms' => false], $this->enTetes($jeton))->assertOk();
         $this->assertTrue(collect($this->etat($jeton)['etapes'])->firstWhere('cle', 'rappels')['fait']);
 
-        // SMS choisi sans mobile : pas encore fait
-        $this->putJson('/api/v1/espace/preferences', ['rappels_sms' => true], $this->enTetes($jeton))->assertOk();
-        $this->assertFalse(collect($this->etat($jeton)['etapes'])->firstWhere('cle', 'rappels')['fait']);
-
+        // Un mobile, puis les SMS : la ligne reste faite
         $this->putJson('/api/v1/espace/coordonnees', ['prenom' => 'Léa', 'nom' => 'Martin', 'tel' => '079 123 45 67'], $this->enTetes($jeton))->assertOk();
+        $this->putJson('/api/v1/espace/preferences', ['rappels_sms' => true], $this->enTetes($jeton))->assertOk();
         $this->assertTrue(collect($this->etat($jeton)['etapes'])->firstWhere('cle', 'rappels')['fait']);
+
+        // Le mobile remplacé par un fixe : les SMS ne partent plus, la ligne redevient à faire
+        $this->putJson('/api/v1/espace/coordonnees', ['prenom' => 'Léa', 'nom' => 'Martin', 'tel' => '032 123 45 67'], $this->enTetes($jeton))->assertOk();
+        $this->assertFalse(collect($this->etat($jeton)['etapes'])->firstWhere('cle', 'rappels')['fait']);
+    }
+
+    /** Il choisit le SMS « avec son mobile » : sans mobile (ou avec un fixe), les SMS ne s'activent pas, d'où qu'il les demande */
+    public function test_les_sms_ne_s_activent_pas_sans_mobile(): void
+    {
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+
+        $this->putJson('/api/v1/espace/preferences', ['rappels_email' => false, 'rappels_sms' => true], $this->enTetes($jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('rappels_sms');
+        $this->getJson('/api/v1/espace/preferences', $this->enTetes($jeton))->assertOk()
+            ->assertJsonPath('data.rappels_sms', false)->assertJsonPath('data.rappels_email', true);
+
+        $this->putJson('/api/v1/espace/coordonnees', ['prenom' => 'Léa', 'nom' => 'Martin', 'tel' => '032 123 45 67'], $this->enTetes($jeton))->assertOk();
+        $this->putJson('/api/v1/espace/preferences', ['rappels_sms' => true], $this->enTetes($jeton))->assertUnprocessable();
+
+        $this->putJson('/api/v1/espace/mobile', ['tel' => '079 123 45 67'], $this->enTetes($jeton))->assertOk();
+        $this->putJson('/api/v1/espace/preferences', ['rappels_sms' => true], $this->enTetes($jeton))->assertOk()->assertJsonPath('data.rappels_sms', true);
+        // Couper les SMS reste toujours possible
+        $this->putJson('/api/v1/espace/coordonnees', ['prenom' => 'Léa', 'nom' => 'Martin', 'tel' => null], $this->enTetes($jeton))->assertOk();
+        $this->putJson('/api/v1/espace/preferences', ['rappels_sms' => false], $this->enTetes($jeton))->assertOk();
     }
 
     public function test_les_coordonnees_se_gardent_meme_sans_fiche_de_clinique_et_font_la_ligne(): void

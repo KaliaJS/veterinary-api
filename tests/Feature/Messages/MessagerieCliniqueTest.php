@@ -169,7 +169,8 @@ class MessagerieCliniqueTest extends TestCase
         $fil = collect($this->getJson('/api/v1/messages', $this->enTetes($this->accueil))->assertOk()->json('data'))->firstWhere('cle', 'c'.$this->fiche->id);
         $this->assertSame(['Léa Martin', 1, false], [$fil['client'], $fil['non_lus'], $fil['peut_repondre']]);
 
-        $this->getJson('/api/v1/messages/c'.$this->fiche->id, $this->enTetes($this->accueil))->assertOk()->assertJsonPath('data.messages.0.texte', 'Avant de partir, merci pour tout.');
+        $this->getJson('/api/v1/messages/c'.$this->fiche->id, $this->enTetes($this->accueil))->assertOk()->assertJsonPath('data.messages.0.texte', 'Avant de partir, merci pour tout.')
+            ->assertJsonPath('data.peut_repondre', false);
         $this->assertSame(0, collect($this->getJson('/api/v1/messages', $this->enTetes($this->accueil))->json('data'))->firstWhere('cle', 'c'.$this->fiche->id)['non_lus']);
         $this->postJson('/api/v1/messages/c'.$this->fiche->id, ['texte' => 'Bonjour'], $this->enTetes($this->accueil))->assertUnprocessable();
     }
@@ -204,5 +205,40 @@ class MessagerieCliniqueTest extends TestCase
         PreferencesProprietaire::pour($this->proprietaire)->update(['reponses_clinique' => false]);
         $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Et demain ?'], $this->enTetes($this->accueil))->assertCreated();
         Mail::assertSent(ReponseClinique::class, 1);
+    }
+
+    /** Le bouton de l'e-mail ouvre le fil de cette clinique dans l'espace du propriétaire */
+    public function test_le_lien_de_l_e_mail_ouvre_le_fil_de_la_clinique_dans_l_espace(): void
+    {
+        Mail::fake();
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Passez cet après-midi.'], $this->enTetes($this->accueil))->assertCreated();
+
+        $attendu = rtrim((string) config('app.frontend_url'), '/').'/espace/messages?clinique='.$this->clinique->id;
+        Mail::assertSent(ReponseClinique::class, fn (ReponseClinique $mail): bool => str_contains($mail->render(), $attendu));
+    }
+
+    /** Une clinique inconnue dans le lien : le propriétaire tombe sur le fil de sa première clinique, pas sur un écran vide */
+    public function test_une_clinique_inconnue_dans_le_lien_ouvre_la_premiere_clinique(): void
+    {
+        $this->ecrireCommeProprietaire('Félix tousse depuis hier.');
+
+        $this->getJson('/api/v1/espace/messages?clinique_id=999999', $this->enTetes($this->jetonProprietaire))->assertOk()
+            ->assertJsonPath('data.clinique_id', $this->clinique->id)->assertJsonPath('data.messages.0.texte', 'Félix tousse depuis hier.');
+    }
+
+    /** Un message d'avant le 27.10.2026, sans fiche : la migration lui pose celle du compte, le fil d'un compte détaché garde son nom */
+    public function test_les_anciens_messages_recoivent_la_fiche_du_compte(): void
+    {
+        $ancien = MessageClientele::create(['clinique_id' => $this->clinique->id, 'user_id' => $this->proprietaire->id, 'client_id' => null, 'auteur' => 'proprietaire', 'texte' => 'Message d’avant.']);
+        $autre = Client::factory()->create(['user_id' => $this->proprietaire->id, 'prenom' => 'Léa', 'nom' => 'Ailleurs']);
+
+        (require database_path('migrations/2026_10_28_000015_fiche_des_anciens_messages.php'))->up();
+
+        $this->assertSame($this->fiche->id, $ancien->refresh()->client_id);
+        $this->assertNotSame($autre->organisation_id, $this->fiche->organisation_id);
+        $this->fiche->update(['user_id' => null]);
+        $fil = collect($this->getJson('/api/v1/messages', $this->enTetes($this->accueil))->assertOk()->json('data'))->firstWhere('cle', 'u'.$this->proprietaire->id);
+        $this->assertSame('Léa Martin', $fil['client']);
+        $this->getJson('/api/v1/messages/u'.$this->proprietaire->id, $this->enTetes($this->accueil))->assertOk()->assertJsonPath('data.messages.0.texte', 'Message d’avant.');
     }
 }

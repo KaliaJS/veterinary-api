@@ -27,7 +27,8 @@ class MessageProprietaireController extends Controller
     {
         $cliniques = $this->cliniques($contexte);
         $cliniqueId = $request->integer('clinique_id') ?: $cliniques->first()?->id;
-        $clinique = $cliniques->firstWhere('id', $cliniqueId);
+        // Une clinique inconnue (lien d'un ancien e-mail) : la première, pas un écran vide
+        $clinique = $cliniques->firstWhere('id', $cliniqueId) ?? $cliniques->first();
 
         $messages = collect();
         if ($clinique) {

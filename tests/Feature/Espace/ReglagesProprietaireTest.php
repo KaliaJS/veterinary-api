@@ -35,6 +35,8 @@ class ReglagesProprietaireTest extends TestCase
             ->assertJsonPath('data.statistiques_anonymes', true)
             ->assertJsonPath('data.langue', 'fr');
 
+        // Les SMS demandent un mobile (28.10.2026)
+        $this->putJson('/api/v1/espace/mobile', ['tel' => '079 123 45 67'], $this->enTetes($jeton))->assertOk();
         $this->putJson('/api/v1/espace/preferences', ['rappels_sms' => true, 'langue' => 'de'], $this->enTetes($jeton))
             ->assertOk()
             ->assertJsonPath('data.rappels_sms', true)

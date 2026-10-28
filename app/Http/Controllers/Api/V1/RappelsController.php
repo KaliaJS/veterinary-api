@@ -95,6 +95,6 @@ class RappelsController extends Controller
             throw ValidationException::withMessages(['rappel' => $resultat['raison']]);
         }
 
-        return response()->json(['data' => ['statut' => $resultat['statut'], 'adresse' => $resultat['adresse'], 'envoye_le' => $resultat['rappel']?->envoye_le?->toIso8601String()]]);
+        return response()->json(['data' => ['statut' => $resultat['statut'], 'adresse' => $resultat['adresse'], 'manque' => $resultat['manque'] ?? null, 'envoye_le' => $resultat['rappel']?->envoye_le?->toIso8601String()]]);
     }
 }

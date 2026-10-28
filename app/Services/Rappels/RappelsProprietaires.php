@@ -112,7 +112,7 @@ class RappelsProprietaires
      * Rappel d'un vaccin demandé par la clinique (« Rappeler le
      * propriétaire ») : part tout de suite, gardé ; un refus dit pourquoi.
      *
-     * @return array{statut: string, adresse: ?string, raison: ?string, rappel: ?RappelEnvoye}
+     * @return array{statut: string, adresse: ?string, raison: ?string, manque?: ?string, rappel: ?RappelEnvoye}
      */
     public function rappelerMaintenant(Clinique $clinique, Vaccination $vaccination, ?User $auteur): array
     {
@@ -148,9 +148,15 @@ class RappelsProprietaires
             $partis[] = $rappel;
         }
         $envoyes = array_values(array_filter($partis, fn (RappelEnvoye $r): bool => $r->statut === 'envoye'));
+        $manques = array_filter($partis, fn (RappelEnvoye $r): bool => $r->statut !== 'envoye');
 
         return [
             'statut' => $envoyes === [] ? 'echec' : 'envoye',
+            // E-mail parti, SMS non (ou l'inverse) : le carnet le dit aussi
+            'manque' => $envoyes === [] || $manques === [] ? null : implode(' ', array_map(
+                fn (RappelEnvoye $r): string => ($r->canal === 'sms' ? 'Le SMS' : 'L’e-mail').' n’est pas parti'.(str_starts_with((string) $r->erreur, 'Quota') ? ', '.mb_lcfirst((string) $r->erreur) : '.'),
+                $manques,
+            )),
             'adresse' => $envoyes === [] ? null : implode(' et ', array_map(fn (RappelEnvoye $r): string => (string) $r->adresse, $envoyes)),
             'raison' => $envoyes === [] ? 'Le rappel n’est pas parti : réessayez dans un moment.' : null,
             'rappel' => $envoyes[0] ?? $partis[0] ?? null,
@@ -557,6 +563,12 @@ class RappelsProprietaires
         if (! $ouverte || $patient === null || $client === null || $patient->rappels_coupes || $patient->decede_le !== null) {
             return false;
         }
+        // Un rendez-vous déjà repris pour l'animal (par téléphone, au guichet) : pas de relance
+        $repris = RendezVous::withoutGlobalScopes()->where('patient_id', $patient->id)->where('starts_at', '>', now())
+            ->whereNotIn('status', [StatutRendezVous::Annule, StatutRendezVous::Noshow])->exists();
+        if ($repris) {
+            return false;
+        }
         $jour = substr($this->momentLocal($rendezVous, $clinique), 0, 10);
         $attributs = ['clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'client_id' => $client->id, 'objet' => 'noshow',
             'rendez_vous_id' => $rendezVous->id, 'libelle' => 'Relance après une absence', 'echeance_le' => $jour];
@@ -707,6 +719,8 @@ class RappelsProprietaires
                 $client !== null && $this->mobilePourSms($clinique, $client) !== null => $prochain->greaterThan($dernier) ? 'Échéance passée avant le prochain envoi' : null,
                 // Respecter son choix (décision de Jim) : SMS seulement, la clinique n'en envoie pas
                 $client !== null && $this->veutLesSms($client) && ! $this->accepteLesRappels($client) && (! $reglages['sms'] || ! QuotaSms::estConfigure()) => 'SMS seulement, que la clinique n’envoie pas',
+                // SMS seulement, la clinique en envoie, mais la fiche n'a pas de mobile (comme le carnet)
+                $client !== null && $this->veutLesSms($client) && ! $this->accepteLesRappels($client) => 'Pas de numéro de mobile',
                 ! $reglages['email'] => 'Rappels par e-mail coupés',
                 $client === null || blank($client->email) => 'Pas d’adresse e-mail',
                 ! $this->accepteLesRappels($client) => 'Refusés par le propriétaire',

@@ -26,7 +26,7 @@ class ReponseClinique extends Mailable
     public function content(): Content
     {
         return new Content(markdown: 'emails.messages.reponse', with: [
-            'lien' => rtrim((string) config('app.frontend_url'), '/').'/messages?clinique='.$this->clinique->id,
+            'lien' => rtrim((string) config('app.frontend_url'), '/').'/espace/messages?clinique='.$this->clinique->id,
         ]);
     }
 }
