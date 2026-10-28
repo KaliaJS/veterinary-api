@@ -19,7 +19,7 @@ class Client extends Model
 
     protected $fillable = [
         'organisation_id', 'user_id', 'civilite', 'prenom', 'nom',
-        'tel', 'email', 'rue', 'npa', 'localite',
+        'tel', 'email', 'rue', 'npa', 'localite', 'rappels_sms',
     ];
 
     protected function casts(): array
@@ -27,6 +27,7 @@ class Client extends Model
         return [
             'civilite' => Civilite::class,
             'rappels_email' => 'boolean',
+            'rappels_sms' => 'boolean',
         ];
     }
 

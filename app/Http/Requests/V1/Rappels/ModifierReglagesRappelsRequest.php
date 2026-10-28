@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\V1\Rappels;
 
+use App\Services\Messages\QuotaSms;
 use App\Services\Rappels\RappelsProprietaires;
+use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -14,8 +16,12 @@ class ModifierReglagesRappelsRequest extends FormRequest
     {
         return [
             'email' => ['sometimes', 'boolean'],
-            // Aucun prestataire SMS branché pour l'instant
-            'sms' => ['sometimes', 'boolean', 'declined'],
+            // SMS par Twilio (28.10.2026) : seulement quand les clés sont là
+            'sms' => ['sometimes', 'boolean', function (string $attribut, mixed $valeur, Closure $echec): void {
+                if ($valeur && ! QuotaSms::estConfigure()) {
+                    $echec('Les SMS ne sont pas encore configurés pour Veterinary.');
+                }
+            }],
             'delai_jours' => ['sometimes', 'integer', Rule::in(RappelsProprietaires::DELAIS)],
             'vaccins' => ['sometimes', 'boolean'],
             'controles' => ['sometimes', 'boolean'],
@@ -26,7 +32,6 @@ class ModifierReglagesRappelsRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'sms.declined' => 'Les rappels par SMS ne sont pas encore disponibles.',
             'delai_jours.in' => 'Choisissez 7 jours, 3 jours ou la veille.',
             'delai_jours.integer' => 'Choisissez 7 jours, 3 jours ou la veille.',
             '*.boolean' => 'Choisissez oui ou non.',

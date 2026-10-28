@@ -85,7 +85,7 @@ class RappelsEmailTest extends TestCase
     public function test_les_reglages_sont_enregistres_par_le_serveur_et_partages_par_l_equipe(): void
     {
         $this->getJson('/api/v1/rappels/reglages', $this->enTetes($this->jeton))->assertOk()
-            ->assertJsonPath('data', ['email' => true, 'sms' => false, 'delai_jours' => 7, 'vaccins' => true, 'controles' => true]);
+            ->assertJsonPath('data', ['email' => true, 'sms' => false, 'sms_disponible' => true, 'delai_jours' => 7, 'vaccins' => true, 'controles' => true]);
 
         $this->reglages(['email' => true, 'delai_jours' => 3, 'vaccins' => false, 'controles' => true]);
 

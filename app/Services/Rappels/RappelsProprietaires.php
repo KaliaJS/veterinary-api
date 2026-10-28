@@ -14,12 +14,17 @@ use App\Models\RappelEnvoye;
 use App\Models\RendezVous;
 use App\Models\User;
 use App\Models\Vaccination;
+use App\Notifications\RappelSms;
 use App\Services\EtatVaccinal;
+use App\Services\Messages\QuotaSms;
+use App\Support\Telephone;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\URL;
+use NotificationChannels\Twilio\TwilioChannel;
 use Throwable;
 
 /**
@@ -57,19 +62,24 @@ class RappelsProprietaires
     /** @var array<int, bool> */
     private array $organisationsOuvertes = [];
 
-    /** @return array{email: bool, sms: bool, delai_jours: int, vaccins: bool, controles: bool} */
+    /** @var array<int, bool> */
+    private array $smsEspace = [];
+
+    /** @return array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool} */
     public static function reglages(Clinique $clinique): array
     {
         return [
             'email' => (bool) ($clinique->rappels_email ?? true),
             'sms' => (bool) ($clinique->rappels_sms ?? false),
+            // Les SMS peuvent partir (clés Twilio en place)
+            'sms_disponible' => QuotaSms::estConfigure(),
             'delai_jours' => (int) ($clinique->rappels_delai_jours ?? 7),
             'vaccins' => (bool) ($clinique->rappels_vaccins ?? true),
             'controles' => (bool) ($clinique->rappels_controles ?? true),
         ];
     }
 
-    /** Envoie les rappels dus à cette heure ; renvoie le nombre d'e-mails partis. */
+    /** Envoie les rappels dus à cette heure ; renvoie le nombre de rappels partis (par au moins un canal). */
     public function envoyerLesRappelsDus(): int
     {
         $partis = 0;
@@ -129,30 +139,30 @@ class RappelsProprietaires
         if ($reglages['vaccins']) {
             $vaccins = $this->dernieresInjections($aujourdhui, $limite, $clinique->societe->organisation_id);
             $references = $this->cliniquesDeReference($vaccins->pluck('patient'));
-            $envoyes = $this->clesEnvoyees($vaccins->map(fn (Vaccination $v): string => self::cle('vaccin', $v->id, $v->echeance_le->toDateString())));
+            $envoyes = $this->clesEnvoyees($vaccins->flatMap(fn (Vaccination $v): array => self::cles('vaccin', $v->id, $v->echeance_le->toDateString())));
             $this->lireLesRefus($vaccins->map(fn (Vaccination $v): ?Client => $v->patient?->client));
             foreach ($vaccins as $vaccination) {
                 if (($references[$vaccination->patient_id] ?? null)?->id !== $clinique->id
-                    || isset($envoyes[self::cle('vaccin', $vaccination->id, $vaccination->echeance_le->toDateString())])) {
+                    || self::dejaParti($envoyes, 'vaccin', $vaccination->id, $vaccination->echeance_le->toDateString())) {
                     continue;
                 }
                 $echeance = $vaccination->echeance_le->toDateString();
                 // Un vaccin se rappelle jusqu'au jour de son échéance compris
                 $dernier = CarbonImmutable::parse($echeance.' 23:59:59', $clinique->fuseau_horaire ?: 'Europe/Zurich');
-                $lignes[] = $this->ligneAVenir('vaccin', $vaccination->nom, $vaccination->patient, $echeance, $reglages, $prochain, $dernier);
+                $lignes[] = $this->ligneAVenir($clinique, 'vaccin', $vaccination->nom, $vaccination->patient, $echeance, $reglages, $prochain, $dernier);
             }
         }
         if ($reglages['controles']) {
             $controles = RendezVous::withoutGlobalScopes()->with(['patient' => fn ($p) => $p->withoutGlobalScopes(), 'patient.client' => fn ($c) => $c->withoutGlobalScopes()])
                 ->where('clinique_id', $clinique->id)->where('type', TypeRendezVous::Controle)->where('status', StatutRendezVous::Prevu)
                 ->whereNotNull('patient_id')->whereBetween('starts_at', [now(), $limite->endOfDay()])->get();
-            $envoyes = $this->clesEnvoyees($controles->map(fn (RendezVous $r): string => self::cle('controle', $r->id, $this->momentLocal($r, $clinique))));
+            $envoyes = $this->clesEnvoyees($controles->flatMap(fn (RendezVous $r): array => self::cles('controle', $r->id, $this->momentLocal($r, $clinique))));
             $this->lireLesRefus($controles->map(fn (RendezVous $r): ?Client => $r->patient?->client));
             foreach ($controles as $rendezVous) {
-                if (! isset($envoyes[self::cle('controle', $rendezVous->id, $this->momentLocal($rendezVous, $clinique))])) {
+                if (! self::dejaParti($envoyes, 'controle', $rendezVous->id, $this->momentLocal($rendezVous, $clinique))) {
                     $jour = substr($this->momentLocal($rendezVous, $clinique), 0, 10);
                     // Un contrôle se rappelle jusqu'à son heure
-                    $lignes[] = $this->ligneAVenir('controle', 'Contrôle', $rendezVous->patient, $jour, $reglages, $prochain, $rendezVous->starts_at->toImmutable());
+                    $lignes[] = $this->ligneAVenir($clinique, 'controle', 'Contrôle', $rendezVous->patient, $jour, $reglages, $prochain, $rendezVous->starts_at->toImmutable());
                 }
             }
         }
@@ -207,9 +217,56 @@ class RappelsProprietaires
     }
 
     /** Un rappel automatique par échéance (le jour d'un vaccin, le moment d'un contrôle) et par canal. */
-    private static function cle(string $objet, int $id, string $echeance): string
+    private static function cle(string $objet, int $id, string $echeance, string $canal = 'email'): string
     {
-        return $objet.':'.$id.':'.$echeance.':email';
+        return $objet.':'.$id.':'.$echeance.':'.$canal;
+    }
+
+    /** @return list<string> */
+    private static function cles(string $objet, int $id, string $echeance): array
+    {
+        return [self::cle($objet, $id, $echeance, 'email'), self::cle($objet, $id, $echeance, 'sms')];
+    }
+
+    /** @param  array<string, mixed>  $envoyes */
+    private static function dejaParti(array $envoyes, string $objet, int $id, string $echeance): bool
+    {
+        return collect(self::cles($objet, $id, $echeance))->contains(fn (string $cle): bool => isset($envoyes[$cle]));
+    }
+
+    /**
+     * Le propriétaire veut ses rappels par SMS : son choix dans son espace
+     * s'il a un compte, sinon la case cochée par la clinique sur sa fiche.
+     */
+    public function veutLesSms(Client $client): bool
+    {
+        if ($client->user_id === null) {
+            return (bool) $client->rappels_sms;
+        }
+
+        return $this->smsEspace[$client->user_id] ??= (bool) PreferencesProprietaire::query()->where('user_id', $client->user_id)->value('rappels_sms');
+    }
+
+    /** Le mobile où envoyer le SMS, si la clinique l'utilise et que le client le veut ; null sinon. */
+    private function mobilePourSms(Clinique $clinique, Client $client): ?string
+    {
+        if (! self::reglages($clinique)['sms'] || ! QuotaSms::estConfigure() || ! $this->veutLesSms($client)) {
+            return null;
+        }
+
+        return Telephone::mobile($client->tel);
+    }
+
+    /** Le texte du SMS : court (160 caractères), sans détail médical, la clinique et son téléphone. */
+    public static function texteSms(Clinique $clinique, Patient $patient, ?Vaccination $vaccination, ?RendezVous $rendezVous): string
+    {
+        $tel = filled($clinique->tel) ? ' Rendez-vous : '.$clinique->tel.'.' : '';
+        if ($vaccination !== null) {
+            return $clinique->nom.' : le vaccin '.$vaccination->nom.' de '.$patient->nom.' est à faire avant le '.($vaccination->echeance_le ?? $vaccination->injectee_le)->format('d.m.Y').'.'.$tel;
+        }
+        $moment = $rendezVous->starts_at->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich');
+
+        return $clinique->nom.' : contrôle de '.$patient->nom.' le '.$moment->format('d.m.Y').' à '.$moment->format('H:i').'.'.(filled($clinique->tel) ? ' Pour le déplacer : '.$clinique->tel.'.' : '');
     }
 
     /** Le moment d'un contrôle à l'heure de la clinique : un déplacement, même le jour même, est rappelé. */
@@ -364,24 +421,37 @@ class RappelsProprietaires
         $reglages = self::reglages($clinique);
         // Une organisation fermée (abonnement terminé, vérification refusée) n'envoie plus
         $ouverte = $this->organisationsOuvertes[$clinique->id] ??= (bool) $clinique->societe?->organisation?->estOuverte();
-        if (! $ouverte || $patient === null || $client === null || ! $reglages['email'] || $patient->rappels_coupes || $patient->decede_le !== null
-            || blank($client->email) || ! $this->accepteLesRappels($client)) {
+        if (! $ouverte || $patient === null || $client === null || $patient->rappels_coupes || $patient->decede_le !== null) {
             return false;
         }
 
         $echeance = $vaccination !== null ? $vaccination->echeance_le->toDateString() : $this->momentLocal($rendezVous, $clinique);
-        $rappel = $this->prendre(self::cle($objet, $vaccination->id ?? $rendezVous->id, $echeance), [
+        $id = $vaccination->id ?? $rendezVous->id;
+        $attributs = [
             'clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'client_id' => $client->id, 'objet' => $objet,
             'vaccination_id' => $vaccination?->id, 'rendez_vous_id' => $rendezVous?->id,
-            'libelle' => $vaccination !== null ? $vaccination->nom : 'Contrôle', 'echeance_le' => substr($echeance, 0, 10), 'canal' => 'email',
-        ]);
-        if ($rappel === null) {
-            return false;
+            'libelle' => $vaccination !== null ? $vaccination->nom : 'Contrôle', 'echeance_le' => substr($echeance, 0, 10),
+        ];
+        $parti = false;
+
+        // Chaque canal choisi par le client et permis par la clinique (28.10.2026)
+        if ($reglages['email'] && filled($client->email) && $this->accepteLesRappels($client)) {
+            $rappel = $this->prendre(self::cle($objet, $id, $echeance, 'email'), [...$attributs, 'canal' => 'email']);
+            if ($rappel !== null) {
+                $this->expedier($rappel, $clinique, $client, $vaccination, $rendezVous);
+                $parti = $rappel->statut === 'envoye';
+            }
+        }
+        $mobile = $this->mobilePourSms($clinique, $client);
+        if ($mobile !== null) {
+            $rappel = $this->prendre(self::cle($objet, $id, $echeance, 'sms'), [...$attributs, 'canal' => 'sms']);
+            if ($rappel !== null) {
+                $this->expedierSms($rappel, $clinique, $mobile, self::texteSms($clinique, $patient, $vaccination, $rendezVous));
+                $parti = $parti || $rappel->statut === 'envoye';
+            }
         }
 
-        $this->expedier($rappel, $clinique, $client, $vaccination, $rendezVous);
-
-        return $rappel->statut === 'envoye';
+        return $parti;
     }
 
     /**
@@ -425,6 +495,34 @@ class RappelsProprietaires
         $rappel->save();
     }
 
+    /**
+     * Un SMS « Veterinary » : réservé dans le quota du mois, rendu si Twilio
+     * le refuse ; quota atteint, il ne part pas (et n'est pas repris).
+     */
+    private function expedierSms(RappelEnvoye $rappel, Clinique $clinique, string $mobile, string $texte): void
+    {
+        $organisation = $clinique->societe->organisation;
+        $rappel->adresse = $mobile;
+        $rappel->tentatives = (int) $rappel->tentatives + 1;
+        $quota = app(QuotaSms::class);
+        $mois = $quota->reserver($organisation);
+        if ($mois === null) {
+            $rappel->fill(['statut' => 'echec', 'erreur' => 'Quota de SMS du mois atteint : achetez un pack dans l’abonnement.', 'tentatives' => self::TENTATIVES_MAX]);
+            $rappel->save();
+
+            return;
+        }
+        try {
+            Notification::route(TwilioChannel::class, $mobile)->notifyNow(new RappelSms($texte));
+            $rappel->fill(['statut' => 'envoye', 'erreur' => null, 'envoye_le' => now()]);
+        } catch (Throwable $e) {
+            report($e);
+            $quota->rendre($organisation, $mois);
+            $rappel->fill(['statut' => 'echec', 'erreur' => mb_substr($e->getMessage(), 0, 500)]);
+        }
+        $rappel->save();
+    }
+
     /** Le prochain moment où un rappel peut partir, à l'heure de la clinique (jamais la nuit). */
     private function prochainEnvoiPossible(Clinique $clinique): CarbonImmutable
     {
@@ -445,12 +543,12 @@ class RappelsProprietaires
     }
 
     /**
-     * @param  array{email: bool, sms: bool, delai_jours: int, vaccins: bool, controles: bool}  $reglages
+     * @param  array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool}  $reglages
      * @param  CarbonImmutable  $prochain  le prochain moment où un rappel peut partir
      * @param  CarbonImmutable  $dernier  le dernier moment où ce rappel a encore un sens
      * @return array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, echeance_le: string, envoi_le: string, bloque: ?string}
      */
-    private function ligneAVenir(string $objet, string $libelle, Patient $patient, string $echeance, array $reglages, CarbonImmutable $prochain, CarbonImmutable $dernier): array
+    private function ligneAVenir(Clinique $clinique, string $objet, string $libelle, Patient $patient, string $echeance, array $reglages, CarbonImmutable $prochain, CarbonImmutable $dernier): array
     {
         $client = $patient->client;
         $envoi = CarbonImmutable::parse($echeance)->subDays($reglages['delai_jours']);
@@ -466,8 +564,10 @@ class RappelsProprietaires
             // Ce qui l'empêchera de partir, dit tel quel
             'bloque' => match (true) {
                 $patient->decede_le !== null => 'Animal décédé',
-                ! $reglages['email'] => 'Rappels par e-mail coupés',
                 (bool) $patient->rappels_coupes => 'Rappels coupés pour '.$patient->nom,
+                // Un SMS peut partir : le rappel n'est pas bloqué
+                $client !== null && $this->mobilePourSms($clinique, $client) !== null => null,
+                ! $reglages['email'] => 'Rappels par e-mail coupés',
                 $client === null || blank($client->email) => 'Pas d’adresse e-mail',
                 ! $this->accepteLesRappels($client) => 'Refusés par le propriétaire',
                 // Saisi trop tard (après 20 h pour une échéance du jour) : il ne partira plus

@@ -21,6 +21,8 @@ class ModifierClientRequest extends FormRequest
             'rue' => ['sometimes', 'nullable', 'string', 'max:255'],
             'npa' => ['sometimes', 'nullable', 'digits:4'],
             'localite' => ['sometimes', 'nullable', 'string', 'max:255'],
+            // Case cochée par la clinique à la demande d'un client sans compte (28.10.2026)
+            'rappels_sms' => ['sometimes', 'boolean'],
         ];
     }
 }

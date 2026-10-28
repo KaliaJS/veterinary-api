@@ -5,6 +5,7 @@ namespace App\Http\Resources\V1;
 use App\Enums\FormuleSaas;
 use App\Models\Organisation;
 use App\Services\Abonnements\AbonnementSaas;
+use App\Services\Messages\QuotaSms;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -54,7 +55,8 @@ class OrganisationResource extends JsonResource
             ],
             'usage' => [
                 'emails' => $this->usage_emails,
-                'sms' => $this->usage_sms,
+                // Compté chaque mois à l'envoi (28.10.2026)
+                'sms' => QuotaSms::utilises($this->resource),
                 'stockage_go' => (float) $this->usage_stockage_go,
             ],
             'quota_extra' => [

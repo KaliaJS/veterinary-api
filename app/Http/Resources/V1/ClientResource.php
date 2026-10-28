@@ -26,6 +26,7 @@ class ClientResource extends JsonResource
             'nom_affiche' => $this->nom_affiche,
             'tel' => $this->tel,
             'email' => $this->email,
+            'rappels_sms' => (bool) $this->rappels_sms,
             'rue' => $this->rue,
             'npa' => $this->npa,
             'localite' => $this->localite,
