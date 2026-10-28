@@ -6,9 +6,9 @@ use App\Enums\MoyenPaiement;
 use App\Enums\StatutPaiement;
 use App\Events\PaiementMisAJour;
 use App\Models\Concerns\AppartientAUneClinique;
+use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Tentative de paiement d'une facture par Stripe (une intention de
@@ -22,13 +22,15 @@ class Paiement extends Model
 
     /**
      * Chaque changement d'état est diffusé à la clinique (Reverb,
-     * 28.10.2026), une fois la transaction validée : l'écran ne relit plus.
+     * 28.10.2026), une fois la transaction validée, sans faire échouer le
+     * paiement si la diffusion échoue : l'écran ne relit plus.
      */
     protected static function booted(): void
     {
-        static::saved(function (Paiement $paiement): void {
-            if ($paiement->wasRecentlyCreated || $paiement->wasChanged(['statut', 'erreur', 'url_twint', 'terminal_paiement_id'])) {
-                DB::afterCommit(fn () => PaiementMisAJour::dispatch($paiement->fresh() ?? $paiement));
+        static::created(fn (Paiement $paiement) => TempsReel::diffuser(fn () => PaiementMisAJour::dispatch($paiement->fresh() ?? $paiement)));
+        static::updated(function (Paiement $paiement): void {
+            if ($paiement->wasChanged(['statut', 'erreur', 'url_twint', 'terminal_paiement_id'])) {
+                TempsReel::diffuser(fn () => PaiementMisAJour::dispatch($paiement->fresh() ?? $paiement));
             }
         });
     }

@@ -11,6 +11,7 @@ use App\Enums\TypeRendezVous;
 use App\Events\RendezVousMisAJour;
 use App\Events\RendezVousSupprime;
 use App\Models\Concerns\AppartientAUneClinique;
+use App\Support\TempsReel;
 use Database\Factories\RendezVousFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\AsEnumCollection;
@@ -43,16 +44,14 @@ class RendezVous extends Model
     protected static function booted(): void
     {
         static::saved(function (RendezVous $rendezVous): void {
-            DB::afterCommit(function () use ($rendezVous): void {
+            TempsReel::diffuser(function () use ($rendezVous): void {
                 $frais = RendezVous::withoutGlobalScopes()->find($rendezVous->id);
                 if ($frais !== null) {
                     RendezVousMisAJour::dispatch($frais);
                 }
             });
         });
-        static::deleted(function (RendezVous $rendezVous): void {
-            DB::afterCommit(fn () => RendezVousSupprime::dispatch($rendezVous->id, (int) $rendezVous->clinique_id));
-        });
+        static::deleted(fn (RendezVous $rendezVous) => TempsReel::diffuser(fn () => RendezVousSupprime::dispatch($rendezVous->id, (int) $rendezVous->clinique_id)));
     }
 
     protected $fillable = [

@@ -21,10 +21,10 @@ use Illuminate\Support\Str;
  * intention Stripe et une ligne `paiements` ; réussie, elle encaisse la
  * facture (même service que l'encaissement manuel : stock, statut).
  *
- * L'issue arrive par webhook ; la caisse interroge aussi `synchroniser`
- * (filet si le webhook tarde ou n'est pas configuré en local). Les deux
- * chemins passent par `appliquer`, verrouillé : la facture n'est
- * encaissée qu'une fois.
+ * L'issue arrive par webhook, puis à l'écran par Reverb (28.10.2026) ; la
+ * caisse ne relit `synchroniser` qu'une fois, au retour du WebSocket ou à
+ * la demande (« Vérifier le paiement »). Les deux chemins passent par
+ * `appliquer`, verrouillé : la facture n'est encaissée qu'une fois.
  */
 class PaiementsCaisse
 {

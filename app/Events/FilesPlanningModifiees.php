@@ -22,7 +22,7 @@ class FilesPlanningModifiees implements ShouldBroadcastNow
     /** @return list<PrivateChannel> */
     public function broadcastOn(): array
     {
-        return [new PrivateChannel('clinique.'.$this->cliniqueId)];
+        return [new PrivateChannel('clinique.'.$this->cliniqueId.'.planning')];
     }
 
     public function broadcastAs(): string

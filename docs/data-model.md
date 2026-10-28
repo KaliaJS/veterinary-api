@@ -944,9 +944,10 @@ caisse.
   `terminal.reader.action_failed`, `charge.refunded`,
   `charge.dispute.created|closed`), dédupliqué par id dans
   `evenements_stripe` ; une intention inconnue est ignorée, comme
-  l'événement d'un autre compte que `stripe_compte_id`. La caisse
-  interroge aussi `GET /facturation/paiements/{id}` (filet sans
-  webhook). Réussie, la tentative encaisse la facture une seule fois
+  l'événement d'un autre compte que `stripe_compte_id`. L'écran
+  apprend l'issue par Reverb (canal de la clinique, message court) et ne
+  relit `GET /facturation/paiements/{id}` qu'une fois : au retour du
+  WebSocket, ou sur « Vérifier le paiement » (28.10.2026). Réussie, la tentative encaisse la facture une seule fois
   (verrou) — stock et statut comme l'encaissement manuel.
 - **Remboursements et litiges** (23.10.2026) : faits chez Stripe (composant
   intégré, droit `rembourser`, ou banque du client). Rendu en entier, le

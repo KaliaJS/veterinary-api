@@ -24,7 +24,7 @@ class RendezVousMisAJour implements ShouldBroadcastNow
     /** @return list<PrivateChannel> */
     public function broadcastOn(): array
     {
-        return [new PrivateChannel('clinique.'.$this->rendezVous->clinique_id)];
+        return [new PrivateChannel('clinique.'.$this->rendezVous->clinique_id.'.planning')];
     }
 
     public function broadcastAs(): string
