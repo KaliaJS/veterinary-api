@@ -135,7 +135,7 @@ class CommandeVetpointController extends Controller
             try {
                 $numero = $this->retrouver($client, $note, $commande);
             } catch (VetpointIndisponible) {
-                abort(503, 'Vetpoint ne répond pas : la commande est peut-être partie. Réessayez dans une minute, elle ne partira pas deux fois.');
+                abort(503, 'Vetpoint ne répond pas : la commande est peut-être partie. Réessayez dans une minute : elle sera d’abord cherchée chez Vetpoint.');
             } catch (VetpointIncertain) {
                 abort(409, 'Vetpoint ne dit pas si cette commande est déjà partie : vérifiez sur vetpoint.ch, puis abandonnez l’envoi par Vetpoint si elle n’y est pas.');
             } catch (VetpointCleRefusee|VetpointCgv|VetpointLimite $e) {
@@ -174,7 +174,7 @@ class CommandeVetpointController extends Controller
             $this->refuser($e);
         } catch (VetpointIndisponible) {
             // On ne sait pas : la commande est peut-être partie, le prochain essai la cherchera
-            abort(503, 'Vetpoint ne répond pas : la commande est peut-être partie. Réessayez dans une minute, elle ne partira pas deux fois.');
+            abort(503, 'Vetpoint ne répond pas : la commande est peut-être partie. Réessayez dans une minute : elle sera d’abord cherchée chez Vetpoint.');
         }
 
         // Relue : les choix posés sous verrou (adresse, livraison, date)
@@ -199,7 +199,7 @@ class CommandeVetpointController extends Controller
     public static function exigerHorsEnvoiEnSuspens(CommandeFournisseur $commande): void
     {
         if ($commande->vetpoint_envoi_le !== null && $commande->vetpoint_commande_id === null) {
-            throw ValidationException::withMessages(['statut' => 'Cette commande est peut-être déjà partie par Vetpoint : renvoyez-la par Vetpoint, elle y sera retrouvée sans doublon.']);
+            throw ValidationException::withMessages(['statut' => 'Cette commande est peut-être déjà partie par Vetpoint : renvoyez-la par Vetpoint, elle y sera d’abord cherchée.']);
         }
     }
 
@@ -347,6 +347,36 @@ class CommandeVetpointController extends Controller
         // et la nôtre est peut-être là. On ne renvoie pas à l'aveugle
         if ($commandes !== [] && $notes === []) {
             throw new VetpointIncertain;
+        }
+        // Aucune note ne correspond, mais une commande aux mêmes produits et
+        // quantités est là (note tronquée ou rangée ailleurs ?) : on ne
+        // l'adopte pas, on ne renvoie pas non plus, on fait vérifier
+        $attendu = $commande->lignes()->with('produit.vetpoint')->get()
+            ->map(fn (CommandeFournisseurLigne $ligne): string => ($ligne->vetpoint_produit_id ?? $ligne->produit?->vetpoint?->vetpoint_id).' × '.(int) $ligne->quantite)
+            ->sort()->values()->all();
+        foreach ($commandes as $existante) {
+            $elements = collect(is_array($existante['orderItems'] ?? null) ? $existante['orderItems'] : [])->filter(fn (mixed $e): bool => is_array($e));
+            $numero = is_string($existante['orderId'] ?? null) || is_int($existante['orderId'] ?? null) ? trim((string) $existante['orderId']) : '';
+            // Déjà gardée par une commande, ou portant la note entière d'une
+            // autre de nos commandes : sûrement pas la nôtre
+            $autreDesNotres = $elements->contains(function (array $e) use ($normaliser, $commande): bool {
+                if (preg_match('/^veterinary ([a-z]{2}-\d{4}-\d+)$/u', $normaliser($e['orderNote'] ?? null), $m) !== 1) {
+                    return false;
+                }
+
+                // Une note entière qui nomme une autre commande existante (pas tronquée)
+                return mb_strtoupper($m[1]) !== $commande->numero
+                    && CommandeFournisseur::query()->dansLOrganisation()->where('numero', mb_strtoupper($m[1]))->exists();
+            });
+            if ($autreDesNotres || ($numero !== '' && CommandeFournisseur::withoutGlobalScopes()->where('vetpoint_commande_id', $numero)->exists())) {
+                continue;
+            }
+            $recu = $elements
+                ->map(fn (array $e): string => (is_scalar($e['productId'] ?? null) ? (string) $e['productId'] : '').' × '.(is_numeric($e['quantity'] ?? null) ? (int) $e['quantity'] : -1))
+                ->sort()->values()->all();
+            if ($recu === $attendu) {
+                throw new VetpointIncertain;
+            }
         }
 
         return null;

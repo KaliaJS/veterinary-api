@@ -269,7 +269,7 @@ class VetpointCommandeTest extends TestCase
         $this->envoiPerdu = true;
 
         $this->envoyer($commande)->assertStatus(503)
-            ->assertJsonPath('message', 'Vetpoint ne répond pas : la commande est peut-être partie. Réessayez dans une minute, elle ne partira pas deux fois.');
+            ->assertJsonPath('message', 'Vetpoint ne répond pas : la commande est peut-être partie. Réessayez dans une minute : elle sera d’abord cherchée chez Vetpoint.');
         $this->assertSame(StatutCommandeFournisseur::Brouillon, $commande->refresh()->statut);
 
         // Une minute plus tard : retrouvée dans les commandes de Vetpoint, pas renvoyée
@@ -574,7 +574,7 @@ class VetpointCommandeTest extends TestCase
     {
         $commande = $this->brouillon();
         $commande->forceFill(['vetpoint_envoi_le' => now()->subMinutes(5)])->save();
-        $message = 'Cette commande est peut-être déjà partie par Vetpoint : renvoyez-la par Vetpoint, elle y sera retrouvée sans doublon.';
+        $message = 'Cette commande est peut-être déjà partie par Vetpoint : renvoyez-la par Vetpoint, elle y sera d’abord cherchée.';
 
         $this->postJson("/api/v1/stocks/commandes/{$commande->id}/envoyer", [], $this->entetes)
             ->assertUnprocessable()->assertJsonValidationErrors(['statut' => $message]);
@@ -912,5 +912,45 @@ class VetpointCommandeTest extends TestCase
 
         $this->postJson("/api/v1/stocks/commandes/{$ailleurs->id}/vetpoint/abandonner", [], $this->entetes)->assertNotFound();
         $this->assertNotNull($ailleurs->refresh()->vetpoint_envoi_le);
+    }
+
+    /** Aucune note ne correspond, mais une commande aux mêmes produits et quantités est là : on ne renvoie pas, on demande de vérifier. */
+    public function test_une_commande_aux_memes_produits_fait_verifier_au_lieu_de_renvoyer(): void
+    {
+        $commande = $this->brouillon();
+        // Note tronquée par Vetpoint : elle ne correspond plus
+        $this->listeCommandes = fn (array $commandes): string => json_encode(array_map(function (array $c): array {
+            $c['orderItems'] = array_map(fn (array $e): array => [...$e, 'orderNote' => mb_substr((string) $e['orderNote'], 0, 20)], $c['orderItems']);
+
+            return $c;
+        }, $commandes));
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+        $avant = count($this->envois());
+
+        $this->travel(2)->minutes();
+        $this->envoyer($commande)->assertStatus(409);
+
+        $this->assertCount($avant, $this->envois());
+    }
+
+    /** Une note aux espaces intérieurs doublés reste la nôtre. */
+    public function test_une_note_aux_espaces_doubles_reste_la_notre(): void
+    {
+        $this->listeCommandes = fn (array $commandes): string => json_encode(array_map(function (array $c): array {
+            $c['orderItems'] = array_map(fn (array $e): array => [...$e, 'orderNote' => str_replace(' ', "  \t", (string) $e['orderNote'])], $c['orderItems']);
+
+            return $c;
+        }, $commandes));
+        $commande = $this->brouillon();
+        $this->envoiPerdu = true;
+        $this->envoyer($commande)->assertStatus(503);
+        $this->envoiPerdu = false;
+
+        $this->travel(2)->minutes();
+        $this->envoyer($commande)->assertOk();
+
+        $this->assertCount(1, $this->envois());
     }
 }
