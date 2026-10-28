@@ -564,6 +564,8 @@ Route::prefix('v1')->group(function (): void {
             Route::post('factures/{facture}/prescriptions', [FacturePrescriptionController::class, 'store']);
             Route::post('factures/{facture}/encaisser', [EncaissementController::class, 'encaisser'])->middleware('throttle:stripe');
             Route::post('factures/{facture}/payer-plus-tard', [EncaissementController::class, 'payerPlusTard']);
+            // Vente du comptoir restée due : la caisse peut aussi l'annuler (28.10.2026)
+            Route::post('ventes/{facture}/annuler', [BoutiquePaiementController::class, 'annuler'])->middleware('throttle:stripe');
 
             // Paiement en caisse : carte sur un terminal de la clinique, ou TWINT, sur le compte de la société
             Route::post('factures/{facture}/paiements', [PaiementCaisseController::class, 'store'])->middleware('throttle:stripe');
@@ -848,6 +850,7 @@ Route::prefix('v1')->group(function (): void {
         // en ligne sort le stock de la clinique de retrait.
         Route::middleware(['can:stocks', 'service:boutique'])->prefix('boutique')->group(function (): void {
             // Vente du comptoir payée au terminal ou par TWINT, depuis la boutique (28.10.2026)
+            Route::get('ventes', [BoutiquePaiementController::class, 'enAttente']);
             Route::get('terminaux', [BoutiquePaiementController::class, 'terminaux'])->middleware('throttle:stripe');
             Route::post('ventes/{facture}/paiements', [BoutiquePaiementController::class, 'payer'])->middleware('throttle:stripe');
             Route::post('ventes/{facture}/especes', [BoutiquePaiementController::class, 'especes'])->middleware('throttle:stripe');

@@ -224,4 +224,60 @@ class VenteComptoirTerminalTest extends TestCase
         $this->postJson("/api/v1/boutique/ventes/{$facture->id}/annuler", [], $this->enTetes($this->jeton))->assertNotFound();
         $this->postJson("/api/v1/boutique/ventes/{$facture->id}/especes", [], $this->enTetes($this->jeton))->assertNotFound();
     }
+
+    /** Une vente abandonnée (page rechargée, app fermée) se retrouve : la boutique liste ses ventes en attente. */
+    public function test_la_boutique_retrouve_ses_ventes_en_attente(): void
+    {
+        $produit = $this->produitEnRayon(5);
+        $due = $this->vendre($produit, 'twint')->json('data');
+        $this->vendre($produit, 'cash');
+
+        $this->getJson('/api/v1/boutique/ventes', $this->enTetes($this->assistant()))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $due['id'])
+            ->assertJsonPath('data.0.statut', 'due');
+    }
+
+    /** La caisse (droit Facturation, sans Stocks) peut aussi annuler une vente du comptoir restée due. */
+    public function test_la_caisse_annule_une_vente_du_comptoir_restee_due(): void
+    {
+        $produit = $this->produitEnRayon(5);
+        $vente = $this->vendre($produit, 'tpe')->json('data');
+        ['employe' => $employe, 'jeton' => $caisse] = $this->employeAvecJeton($this->clinique);
+        $role = Role::withoutGlobalScope('organisation')->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Caisse seulement', 'domaines' => ['facturation']]);
+        $employe->update(['role_id' => $role->id]);
+
+        $this->postJson("/api/v1/facturation/ventes/{$vente['id']}/annuler", [], $this->enTetes($caisse))
+            ->assertOk()->assertJsonPath('data.statut', 'annulee');
+        $this->assertSame(5, $this->stockDe($produit));
+    }
+
+    /** Stripe ne peut plus annuler la tentative (le client valide à l'instant) : la vente ne s'annule pas, ni ne passe en espèces. */
+    public function test_une_tentative_qui_ne_s_annule_plus_bloque_l_annulation_et_les_especes(): void
+    {
+        $produit = $this->produitEnRayon(5);
+        $vente = $this->vendre($produit, 'twint')->json('data');
+        $paiement = $this->postJson("/api/v1/boutique/ventes/{$vente['id']}/paiements", ['moyen' => 'twint'], $this->enTetes($this->jeton))->json('data');
+        $intention = Paiement::query()->findOrFail($paiement['id'])->stripe_payment_intent_id;
+        $this->stripe->intentions[$intention]['statut'] = 'processing';
+        $this->stripe->erreurs['annulerIntention'] = new \App\Paiements\ErreurPaiement(\App\Paiements\ErreurPaiement::GENERIQUE, 'payment_intent_unexpected_state');
+
+        $this->postJson("/api/v1/boutique/ventes/{$vente['id']}/annuler", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['vente' => 'Un paiement est en cours de validation : attendez son issue.']);
+        $this->postJson("/api/v1/boutique/ventes/{$vente['id']}/especes", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['vente' => 'Un paiement est en cours de validation : attendez son issue.']);
+        $this->assertSame('due', Facture::withoutGlobalScopes()->findOrFail($vente['id'])->statut->value);
+    }
+
+    /** Annuler la ligne d'un ticket ou en retirer une est refusé aussi (pas seulement l'ajout). */
+    public function test_les_lignes_d_un_ticket_du_comptoir_ne_se_modifient_ni_ne_se_retirent(): void
+    {
+        $produit = $this->produitEnRayon(5);
+        $vente = $this->vendre($produit, 'tpe')->json('data');
+        $ligne = $vente['lignes'][0]['id'];
+
+        $this->patchJson("/api/v1/facturation/factures/{$vente['id']}/lignes/{$ligne}", ['quantite' => 40], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->deleteJson("/api/v1/facturation/factures/{$vente['id']}/lignes/{$ligne}", [], $this->enTetes($this->jeton))->assertUnprocessable();
+    }
 }
