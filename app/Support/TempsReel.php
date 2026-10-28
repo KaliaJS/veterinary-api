@@ -62,7 +62,7 @@ final class TempsReel
         });
     }
 
-    /** Pour les tests : chaque essai repart d'un Reverb joignable. */
+    /** Chaque tâche du worker (et chaque essai) repart d'un Reverb joignable. */
     public static function reinitialiser(): void
     {
         self::$coupeJusqua = null;
