@@ -720,6 +720,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('commandes/{commande}/vetpoint/adresses', [CommandeVetpointController::class, 'adresses'])->whereNumber('commande');
             Route::post('commandes/{commande}/vetpoint', [CommandeVetpointController::class, 'envoyer'])->whereNumber('commande');
             Route::get('commandes/{commande}/vetpoint', [CommandeVetpointController::class, 'detail'])->whereNumber('commande');
+            Route::patch('commandes/{commande}', [CommandeFournisseurController::class, 'changerDestination'])->whereNumber('commande');
             Route::delete('commandes/{commande}', [CommandeFournisseurController::class, 'destroy'])->whereNumber('commande');
             // Lignes d'un brouillon, avant envoi.
             Route::post('commandes/{commande}/lignes', [CommandeFournisseurLigneController::class, 'store'])->whereNumber('commande');

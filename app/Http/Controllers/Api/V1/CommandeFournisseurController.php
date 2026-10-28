@@ -8,6 +8,7 @@ use App\Enums\PieceNumerotee;
 use App\Enums\StatutCommandeFournisseur;
 use App\Http\Controllers\Api\V1\Vetpoint\CommandeVetpointController;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\V1\Stocks\ChangerDestinationCommandeRequest;
 use App\Http\Requests\V1\Stocks\EnregistrerCommandeFournisseurRequest;
 use App\Http\Resources\V1\CommandeFournisseurResource;
 use App\Models\Clinique;
@@ -265,6 +266,29 @@ class CommandeFournisseurController extends Controller
         });
 
         $commande->receptionVetpoint = $vetpoint;
+
+        return new CommandeFournisseurResource($commande->load('lignes'));
+    }
+
+    /**
+     * La clinique de livraison d'un brouillon se change après coup
+     * (28.10.2026) : sous verrou, jamais pendant un envoi par Vetpoint.
+     */
+    public function changerDestination(ChangerDestinationCommandeRequest $request, int $commande): CommandeFournisseurResource
+    {
+        $commande = $this->commandeDeLOrganisation($commande);
+        $this->authorize('update', $commande);
+
+        $commande = DB::transaction(function () use ($request, $commande): CommandeFournisseur {
+            $verrouillee = CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
+            if ($verrouillee->statut !== StatutCommandeFournisseur::Brouillon) {
+                throw ValidationException::withMessages(['statut' => 'Seule la livraison d’un brouillon se change.']);
+            }
+            CommandeVetpointController::exigerHorsEnvoiEnSuspens($verrouillee);
+            $verrouillee->forceFill(['clinique_id' => (int) $request->validated('clinique_id')])->save();
+
+            return $verrouillee;
+        });
 
         return new CommandeFournisseurResource($commande->load('lignes'));
     }

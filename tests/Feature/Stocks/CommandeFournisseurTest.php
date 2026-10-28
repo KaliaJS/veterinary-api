@@ -79,6 +79,25 @@ class CommandeFournisseurTest extends TestCase
         $this->assertNotNull($commande->fresh()->envoyee_le);
     }
 
+    /** La clinique de livraison d'un brouillon se change après coup : une clinique de l'organisation, un brouillon seulement. */
+    public function test_la_destination_d_un_brouillon_se_change(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $etrangere = Clinique::factory()->create();
+        $commande = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}", ['clinique_id' => $etrangere->id], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors('clinique_id');
+        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}", ['clinique_id' => $soeur->id], $entetes)
+            ->assertOk()->assertJsonPath('data.clinique_id', $soeur->id);
+        $this->assertSame($soeur->id, $commande->refresh()->clinique_id);
+
+        $commande->forceFill(['statut' => StatutCommandeFournisseur::Envoyee])->save();
+        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}", ['clinique_id' => $this->clinique->id], $entetes)
+            ->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Seule la livraison d’un brouillon se change.']);
+    }
+
     public function test_envoyer_une_commande_sans_ligne_est_refuse(): void
     {
         $commande = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
