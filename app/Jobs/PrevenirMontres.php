@@ -39,8 +39,13 @@ class PrevenirMontres implements ShouldBeUnique, ShouldQueue
     /** Plus long que la pause : le verrou ne tombe qu'à l'envoi (ou après une minute, si la file est arrêtée) */
     public int $uniqueFor = 60;
 
-    /** `$ligneId` à 0 : une tâche mise en file avant le 28.10.2026, sans colonne, ne réveille personne */
-    public function __construct(public int $cliniqueId, public int $ligneId = 0) {}
+    /** La colonne ; 0 pour une tâche mise en file avant le 28.10.2026 (sans colonne) : personne n'est réveillé */
+    public int $ligneId = 0;
+
+    public function __construct(public int $cliniqueId, int $ligneId)
+    {
+        $this->ligneId = $ligneId;
+    }
 
     public function uniqueId(): string
     {

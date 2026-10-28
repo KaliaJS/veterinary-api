@@ -375,4 +375,20 @@ class RappelsSmsTest extends TestCase
         $this->assertSame([], $this->smsEnvoyes());
         Mail::assertSent(RappelVaccin::class, 1);
     }
+
+    /** Vérification : la case de la clinique vaut, le client passe seulement l'e-mail à « Non » ; ses SMS continuent (il n'a pas touché à la ligne SMS) */
+    public function test_couper_seulement_l_e_mail_garde_les_sms_de_la_case_de_la_clinique(): void
+    {
+        $this->smsActifs();
+        $this->client->update(['rappels_sms' => true]);
+        ['user' => $user, 'jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $this->client->update(['user_id' => $user->id]);
+
+        $this->putJson('/api/v1/espace/preferences', ['rappels_email' => false], $this->enTetes($jetonProprietaire))
+            ->assertOk()->assertJsonPath('data.rappels_email', false)->assertJsonPath('data.rappels_sms', true);
+        $this->envoyer();
+
+        $this->assertCount(1, $this->smsEnvoyes());
+        Mail::assertNothingSent();
+    }
 }

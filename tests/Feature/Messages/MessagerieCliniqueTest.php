@@ -278,11 +278,16 @@ class MessagerieCliniqueTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-14 10:00', 'Europe/Zurich'));
         $this->ecrireCommeProprietaire('Merci, je prends rendez-vous.');
 
+        // 14 jours pile moins une minute : encore ouvert
+        $this->travelTo(CarbonImmutable::parse('2026-11-15 09:59', 'Europe/Zurich'));
+        $this->ecrireCommeProprietaire('Et le vermifuge ?');
+
         $this->travelTo(CarbonImmutable::parse('2026-11-15 10:01', 'Europe/Zurich'));
         $this->postJson('/api/v1/espace/messages', ['clinique_id' => $this->clinique->id, 'texte' => 'Autre chose : Moka boite.'], $this->enTetes($this->jetonProprietaire))->assertUnprocessable();
         $fil = $this->getJson('/api/v1/espace/messages', $this->enTetes($this->jetonProprietaire))->assertOk()->json('data.cliniques.0');
         $this->assertFalse($fil['peut_ecrire']);
         $this->assertStringContainsString('14 jours', $fil['raison']);
+        $this->assertStringContainsString('est passé', $fil['raison']);
 
         // La clinique réécrit : la réponse se rouvre
         $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Comment va Moka ?'], $this->enTetes($this->accueil))->assertCreated();

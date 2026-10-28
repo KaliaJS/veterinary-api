@@ -9,6 +9,7 @@ use App\Http\Requests\V1\Espace\EnvoyerMessageRequest;
 use App\Models\Clinique;
 use App\Models\MessageClientele;
 use App\Support\TempsReel;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -112,9 +113,15 @@ class MessageProprietaireController extends Controller
         }
         // « Réponses uniquement » : répondre dans les 14 jours après le dernier
         // message de la clinique (décision de Jim, 28.10.2026, choix B)
-        if ($clinique->messages_reponses_seulement && ! MessageClientele::query()->where('clinique_id', $clinique->id)->where('user_id', $contexte->user()->id)
-            ->where('auteur', 'clinique')->where('created_at', '>=', now()->subDays(self::JOURS_POUR_REPONDRE))->exists()) {
-            return 'Vous pouvez répondre à un message de la clinique pendant '.self::JOURS_POUR_REPONDRE.' jours.'.(filled($clinique->tel) ? ' Pour autre chose, appelez-la au '.$clinique->tel.'.' : '');
+        if ($clinique->messages_reponses_seulement) {
+            $dernier = MessageClientele::query()->where('clinique_id', $clinique->id)->where('user_id', $contexte->user()->id)->where('auteur', 'clinique')->max('created_at');
+            if ($dernier === null || CarbonImmutable::parse($dernier)->lessThan(now()->subDays(self::JOURS_POUR_REPONDRE))) {
+                $appel = filled($clinique->tel) ? ' Pour lui écrire, appelez-la au '.$clinique->tel.'.' : '';
+
+                return ($dernier === null
+                    ? 'La clinique répond aux messages qu’elle vous envoie.'
+                    : 'Le délai de '.self::JOURS_POUR_REPONDRE.' jours pour répondre à son dernier message est passé.').$appel;
+            }
         }
 
         return null;

@@ -307,4 +307,47 @@ class NotificationsMontreTest extends TestCase
 
         $this->assertSame([str_repeat('ab', 32), $jetonCollegue], $this->jetonsReveilles());
     }
+
+    /** Un verrou par colonne : déplacé de A vers B dans la même pause, les deux colonnes partent (un verrou par clinique écarterait B) */
+    public function test_deplace_d_une_colonne_a_l_autre_deux_reveils_en_file(): void
+    {
+        Queue::fake([PrevenirMontres::class]);
+        [, $ligneCollegue] = $this->collegue(avecColonne: true, ordre: 2);
+        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+
+        $rendezVous->update(['ligne_planning_id' => (int) $ligneCollegue]);
+
+        Queue::assertPushed(PrevenirMontres::class, 2);
+        $this->assertEqualsCanonicalizing([$this->ligne->id, (int) $ligneCollegue], Queue::pushed(PrevenirMontres::class)->map(fn (PrevenirMontres $t): int => $t->ligneId)->all());
+    }
+
+    /** La première colonne de consultation, comme la montre : un bloc, une colonne hors service ne comptent pas ; à ordre égal, la plus ancienne */
+    public function test_la_premiere_colonne_de_consultation_est_celle_de_la_montre(): void
+    {
+        [$jetonAsv] = $this->collegue(avecColonne: false);
+        LignePlanning::factory()->bloc()->create(['clinique_id' => $this->clinique->id, 'ordre' => -5]);
+        // Colonne d'un praticien retiré de la clinique : hors service
+        $retire = Employe::factory()->create();
+        LignePlanning::factory()->create(['clinique_id' => $this->clinique->id, 'employe_id' => $retire->id, 'ordre' => -3]);
+        $premiere = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id, 'ordre' => -1]);
+        $memeOrdre = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id, 'ordre' => -1]);
+
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $memeOrdre->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        $this->assertNotContains($jetonAsv, $this->jetonsReveilles());
+
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $premiere->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        $this->assertContains($jetonAsv, $this->jetonsReveilles());
+    }
+
+    /** Une tâche mise en file avant le 28.10.2026 (sans colonne) ne réveille personne, sans échouer */
+    public function test_une_tache_ancienne_sans_colonne_ne_fait_rien(): void
+    {
+        $this->montre();
+        $ancienne = preg_replace_callback('/^O:(\d+):"([^"]+)":(\d+):/', fn (array $m): string => 'O:'.$m[1].':"'.$m[2].'":'.((int) $m[3] - 1).':', str_replace('s:7:"ligneId";i:7;', '', serialize(new PrevenirMontres($this->clinique->id, 7))));
+        $tache = unserialize($ancienne);
+
+        $this->assertSame($this->clinique->id.':0', $tache->uniqueId());
+        $tache->handle($this->app->make(CanalApns::class));
+        $this->assertSame([], $this->envois);
+    }
 }

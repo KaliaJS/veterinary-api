@@ -43,7 +43,13 @@ class ReglagesProprietaireController extends Controller
             }
         }
         $preferences = PreferencesProprietaire::pour($contexte->user());
-        $preferences->update($request->validated());
+        $donnees = $request->validated();
+        // Seul l'e-mail change, les SMS pas encore choisis : ils restent tels
+        // qu'il les voit (la case d'une clinique), son choix n'y touche pas
+        if (array_key_exists('rappels_email', $donnees) && ! array_key_exists('rappels_sms', $donnees) && RappelsProprietaires::choixSms($preferences) === null) {
+            $donnees['rappels_sms'] = $this->smsDesFiches($contexte->user()->id);
+        }
+        $preferences->update($donnees);
         // Les rappels choisis : la ligne « Vos rappels » de sa configuration est faite
         if ($request->has('rappels_email') || $request->has('rappels_sms')) {
             $preferences->forceFill(['rappels_choisis_le' => now()])->save();
@@ -173,6 +179,13 @@ class ReglagesProprietaireController extends Controller
     }
 
     /** @return array<string, mixed> */
+    /** Une clinique a coché « Rappels par SMS » sur une de ses fiches */
+    private function smsDesFiches(int $userId): bool
+    {
+        return Client::withoutGlobalScopes()->where('user_id', $userId)->where('rappels_sms', true)->exists();
+    }
+
+    /** @return array<string, mixed> */
     private function preferencesArray(PreferencesProprietaire $p, int $userId): array
     {
         return [
@@ -180,7 +193,7 @@ class ReglagesProprietaireController extends Controller
             // (avant d'être rattachée au compte) bloque aussi ses rappels
             'rappels_email' => $p->rappels_email && ! Client::withoutGlobalScopes()->where('user_id', $userId)->where('rappels_email', false)->exists(),
             // Pas encore choisi : la case cochée par une clinique sur sa fiche vaut (décision de Jim, 28.10.2026)
-            'rappels_sms' => RappelsProprietaires::choixSms($p) ?? Client::withoutGlobalScopes()->where('user_id', $userId)->where('rappels_sms', true)->exists(),
+            'rappels_sms' => RappelsProprietaires::choixSms($p) ?? $this->smsDesFiches($userId),
             'reponses_clinique' => $p->reponses_clinique,
             'nouveautes_boutique' => $p->nouveautes_boutique,
             'statistiques_anonymes' => $p->statistiques_anonymes,
