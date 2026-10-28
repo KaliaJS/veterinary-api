@@ -26,14 +26,15 @@ class AnnotationRadioRequest extends FormRequest
         return [
             'type' => [$creation || $this->has('points') ? 'required' : 'sometimes', 'string', Rule::in(array_keys($types))],
             'points' => [$creation || $this->has('type') ? 'required' : 'sometimes', 'array', function (string $attribut, mixed $points, Closure $echec) use ($types, $cliche): void {
-                [$min, $max] = $types[$this->input('type')]['points'] ?? [1, 500];
+                $type = $this->input('type');
+                [$min, $max] = is_string($type) ? ($types[$type]['points'] ?? [1, 500]) : [1, 500];
                 if (! is_array($points) || ! array_is_list($points) || count($points) < $min || count($points) > $max) {
                     $echec($min === $max ? "Ce dessin demande {$min} point(s)." : "Ce dessin demande de {$min} à {$max} points.");
 
                     return;
                 }
                 foreach ($points as $point) {
-                    if (! is_array($point) || ! array_is_list($point) || count($point) !== 2 || ! is_numeric($point[0]) || ! is_numeric($point[1])) {
+                    if (! is_array($point) || ! array_is_list($point) || count($point) !== 2 || ! (is_int($point[0]) || is_float($point[0])) || ! (is_int($point[1]) || is_float($point[1]))) {
                         $echec('Chaque point est une paire [x, y].');
 
                         return;
@@ -59,7 +60,14 @@ class AnnotationRadioRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'type.required' => 'Choisissez un dessin.',
+            'type.string' => 'Ce type de dessin n’existe pas.',
             'type.in' => 'Ce type de dessin n’existe pas.',
+            'points.required' => 'Le dessin n’a pas de points.',
+            'points.array' => 'Le dessin n’a pas de points.',
+            'image.integer' => 'Ce fichier n’a pas autant d’images.',
+            'etiquette.required' => 'Choisissez une étiquette.',
+            'certitude.required' => 'Choisissez « Sûr » ou « Suspect ».',
             'image.max' => 'Ce fichier n’a pas autant d’images.',
             'etiquette.in' => 'Choisissez une étiquette de la liste.',
             'certitude.in' => 'Choisissez « Sûr » ou « Suspect ».',

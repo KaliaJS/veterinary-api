@@ -30,7 +30,7 @@ return [
         'lateral_gauche' => 'Latéral gauche',
         'ventro_dorsal' => 'Ventro-dorsal (VD)',
         'dorso_ventral' => 'Dorso-ventral (DV)',
-        'cranio_caudal' => 'Cranio-caudal',
+        'cranio_caudal' => 'Crânio-caudal',
         'caudo_cranial' => 'Caudo-crânial',
         'medio_lateral' => 'Médio-latéral',
         'oblique' => 'Oblique',

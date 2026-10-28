@@ -15,6 +15,9 @@ final class LecteurDicom
     /** Ce qu'on lit avant les pixels ; au-delà, un en-tête n'a plus rien d'utile */
     private const int LECTURE_MAX = 8 * 1024 * 1024;
 
+    /** Séquences imbriquées au-delà : le fichier n'est pas lu plus loin (un vrai DICOM en a quelques-unes) */
+    private const int PROFONDEUR_MAX = 16;
+
     private const string IMPLICITE = '1.2.840.10008.1.2';
 
     private const string GRAND_BOUTISTE = '1.2.840.10008.1.2.2';
@@ -110,8 +113,9 @@ final class LecteurDicom
             'lignes' => isset($lu['lignes']) ? (int) $lu['lignes'] : null,
             'colonnes' => isset($lu['colonnes']) ? (int) $lu['colonnes'] : null,
             'syntaxe_transfert' => $syntaxe,
-            // Lecture dégonflée impossible : la présence des pixels ne se vérifie pas
-            'pixels' => $pixels || ! $lisible,
+            // Grand-boutiste (retiré de la norme) ou dégonflé : les pixels ne se
+            // vérifient pas, le fichier est refusé plutôt que pris à l'aveugle
+            'pixels' => $pixels && $lisible,
         ];
     }
 
@@ -134,14 +138,27 @@ final class LecteurDicom
 
     private function groupeSuivant(): int
     {
-        return unpack('v', substr($this->octets, $this->pos, 2))[1];
+        return $this->entier16($this->pos) ?? -1;
     }
 
     private function etiquetteSuivante(): string
     {
-        [, $groupe, $numero] = unpack('v2', substr($this->octets, $this->pos, 4));
+        if ($this->pos + 4 > strlen($this->octets)) {
+            return 'FIN';
+        }
 
-        return sprintf('%04X%04X', $groupe, $numero);
+        return sprintf('%04X%04X', $this->entier16($this->pos), $this->entier16($this->pos + 2));
+    }
+
+    /** Lecture bornée : un fichier tronqué rend null, jamais une erreur */
+    private function entier16(int $a): ?int
+    {
+        return $a + 2 <= strlen($this->octets) ? unpack('v', substr($this->octets, $a, 2))[1] : null;
+    }
+
+    private function entier32(int $a): ?int
+    {
+        return $a + 4 <= strlen($this->octets) ? unpack('V', substr($this->octets, $a, 4))[1] : null;
     }
 
     /**
@@ -149,7 +166,7 @@ final class LecteurDicom
      *
      * @return array{0: string, 1: ?string, 2: string}|null
      */
-    private function element(bool $explicite): ?array
+    private function element(bool $explicite, int $profondeur = 0): ?array
     {
         $etiquette = $this->etiquetteSuivante();
         $this->pos += 4;
@@ -157,22 +174,26 @@ final class LecteurDicom
         if ($explicite) {
             $vr = substr($this->octets, $this->pos, 2);
             if (in_array($vr, self::VR_LONGS, true)) {
-                $longueur = unpack('V', substr($this->octets, $this->pos + 4, 4))[1];
+                $longueur = $this->entier32($this->pos + 4);
                 $this->pos += 8;
             } elseif (preg_match('/^[A-Z]{2}$/', $vr) === 1) {
-                $longueur = unpack('v', substr($this->octets, $this->pos + 2, 2))[1];
+                $longueur = $this->entier16($this->pos + 2);
                 $this->pos += 4;
             } else {
                 return null;
             }
         } else {
-            $longueur = unpack('V', substr($this->octets, $this->pos, 4))[1];
+            $longueur = $this->entier32($this->pos);
             $this->pos += 4;
+        }
+        if ($longueur === null) {
+            return null;
         }
 
         if ($longueur === 0xFFFFFFFF) {
-            // Séquence (ou valeur encapsulée) de longueur indéfinie : sautée
-            return $this->sauterIndefini($explicite) ? [$etiquette, $vr, ''] : null;
+            // Séquence (ou valeur encapsulée) de longueur indéfinie : sautée.
+            // Un UN de longueur indéfinie se lit en VR implicite (norme, PS3.5 §6.2.2)
+            return $this->sauterIndefini($explicite && $vr !== 'UN', $profondeur + 1) ? [$etiquette, $vr, ''] : null;
         }
         if ($this->pos + $longueur > strlen($this->octets)) {
             return null;
@@ -184,11 +205,14 @@ final class LecteurDicom
     }
 
     /** Saute une séquence de longueur indéfinie, jusqu'à son délimiteur (FFFE,E0DD) */
-    private function sauterIndefini(bool $explicite): bool
+    private function sauterIndefini(bool $explicite, int $profondeur): bool
     {
+        if ($profondeur > self::PROFONDEUR_MAX) {
+            return false;
+        }
         while ($this->pos + 8 <= strlen($this->octets)) {
             $etiquette = $this->etiquetteSuivante();
-            $longueur = unpack('V', substr($this->octets, $this->pos + 4, 4))[1];
+            $longueur = (int) $this->entier32($this->pos + 4);
             $this->pos += 8;
             if ($etiquette === 'FFFEE0DD') {
                 return true;
@@ -203,7 +227,7 @@ final class LecteurDicom
             }
             // Élément de longueur indéfinie : ses éléments, jusqu'à (FFFE,E00D)
             while ($this->pos + 8 <= strlen($this->octets) && $this->etiquetteSuivante() !== 'FFFEE00D') {
-                if ($this->element($explicite) === null) {
+                if ($this->element($explicite, $profondeur) === null) {
                     return false;
                 }
             }

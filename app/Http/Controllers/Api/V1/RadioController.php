@@ -35,10 +35,18 @@ class RadioController extends Controller
         if ($lu === null || $lu['sop_instance_uid'] === null || ! $lu['pixels']) {
             throw ValidationException::withMessages(['fichier' => 'Ce fichier n’est pas une image DICOM.']);
         }
+        // Un UID DICOM : chiffres et points, 64 caractères au plus (PS3.5 §9.1)
+        if (strlen($lu['sop_instance_uid']) > 64 || preg_match('/^[0-9]+(\.[0-9]+)*$/', $lu['sop_instance_uid']) !== 1) {
+            throw ValidationException::withMessages(['fichier' => 'L’identifiant de cette image DICOM est invalide : le fichier vient-il bien d’un appareil de radiographie ?']);
+        }
 
-        $existant = ClicheDicom::query()->where('sop_instance_uid', $lu['sop_instance_uid'])->first();
+        // La même radio dans une autre organisation (un référé) : un autre cliché, rien n'est révélé
+        $organisation = $examen->clinique()->withoutGlobalScopes()->firstOrFail()->societe()->value('organisation_id');
+        $existant = ClicheDicom::query()->where('sop_instance_uid', $lu['sop_instance_uid'])
+            ->whereHas('examen', fn ($e) => $e->withoutGlobalScopes()->whereHas('clinique', fn ($c) => $c->withoutGlobalScopes()->whereHas('societe', fn ($s) => $s->where('organisation_id', $organisation))))
+            ->first();
         if ($existant !== null && $existant->examen_imagerie_id !== $examen->id) {
-            throw ValidationException::withMessages(['fichier' => 'Cette radio appartient déjà à un autre examen.']);
+            throw ValidationException::withMessages(['fichier' => 'Cette radio appartient déjà à un autre examen de l’organisation.']);
         }
         // Déjà reçu : l'original n'est jamais remplacé
         if ($existant?->taille_octets !== null) {
@@ -46,9 +54,8 @@ class RadioController extends Controller
         }
 
         $patient = Patient::withoutGlobalScopes()->findOrFail($examen->patient_id);
-        $organisation = $examen->clinique()->withoutGlobalScopes()->firstOrFail()->societe()->value('organisation_id');
         $dossier = 'imagerie/'.$organisation.'/'.$examen->id;
-        $nom = preg_replace('/[^0-9.]/', '_', $lu['sop_instance_uid']).'.dcm';
+        $nom = $lu['sop_instance_uid'].'.dcm';
         $chemin = Storage::disk('prive')->putFileAs($dossier, $fichier, $nom);
         if ($chemin === false) {
             throw ValidationException::withMessages(['fichier' => 'La radio n’a pas pu être enregistrée : réessayez.']);
@@ -71,7 +78,8 @@ class RadioController extends Controller
             'images' => $lu['images'],
             'espece' => $patient->espece->value,
             'race' => $patient->race,
-            'poids_kg' => $patient->pesees()->orderByDesc('pesee_le')->orderByDesc('id')->value('poids_kg'),
+            // La dernière pesée faite au plus tard le jour de la radio
+            'poids_kg' => $patient->pesees()->whereDate('pesee_le', '<=', $examen->realise_le)->orderByDesc('pesee_le')->orderByDesc('id')->value('poids_kg'),
             'region' => $regions[mb_strtoupper((string) $lu['body_part'])] ?? null,
             'incidence' => $incidences[mb_strtoupper((string) $lu['view_position'])] ?? null,
             'reperes_dicom' => ['body_part' => $lu['body_part'], 'view_position' => $lu['view_position'], 'lateralite' => $lu['lateralite']],

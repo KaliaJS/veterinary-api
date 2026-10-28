@@ -54,7 +54,7 @@ class RadiosAnnoteesTest extends TestCase
             ->for(Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]))
             ->create(['espece' => 'CH', 'race' => 'Berger allemand']);
         Pesee::factory()->create(['patient_id' => $this->patient->id, 'poids_kg' => 31.4, 'pesee_le' => now()->subDays(3)]);
-        $this->examen = ExamenImagerie::factory()->create(['clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id, 'prescripteur_id' => $this->employe->id]);
+        $this->examen = ExamenImagerie::factory()->create(['clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id, 'prescripteur_id' => $this->employe->id, 'realise_le' => now()]);
     }
 
     /** @return array<string, string> */
@@ -363,5 +363,116 @@ class RadiosAnnoteesTest extends TestCase
 
         $this->assertSame(strlen($octets), $usage['stockage_octets']);
         $this->assertEqualsWithDelta(strlen($octets) / 1e9, $usage['stockage_go'], 0.001);
+    }
+
+    // ————— Vérification, première passe —————
+
+    /** D1 : des séquences imbriquées très profondes ne font pas exploser la mémoire ; le fichier est lu ou refusé proprement */
+    public function test_des_sequences_imbriquees_tres_profondes_ne_font_pas_exploser_le_lecteur(): void
+    {
+        $item = '';
+        for ($i = 0; $i < 4000; $i++) {
+            $item = pack('vv', 0x0008, 0x1140).'SQ'."\x00\x00".pack('V', 0xFFFFFFFF).pack('vvV', 0xFFFE, 0xE000, 0xFFFFFFFF).$item.pack('vvV', 0xFFFE, 0xE00D, 0).pack('vvV', 0xFFFE, 0xE0DD, 0);
+        }
+        $octets = $this->dicom();
+        $piege = substr($octets, 0, strpos($octets, pack('vv', 0x0008, 0x0016))).$item.substr($octets, strpos($octets, pack('vv', 0x0008, 0x0016)));
+        $chemin = tempnam(sys_get_temp_dir(), 'dcm');
+        file_put_contents($chemin, $piege);
+
+        $avant = memory_get_usage();
+        $lu = LecteurDicom::lire($chemin);
+
+        // Arrêté à la seizième séquence : quelques mégaoctets au plus, pas des centaines
+        $this->assertLessThan(32 * 1024 * 1024, memory_get_usage() - $avant);
+
+        $this->assertSame('1.2.826.0.1.3680043.8.498.1001', $lu['sop_instance_uid']);
+        unlink($chemin);
+    }
+
+    /** D2 : un élément UN de longueur indéfinie (contenu en VR implicite, prévu par la norme) ne fait pas refuser la radio */
+    public function test_un_element_un_de_longueur_indefinie_est_saute_selon_la_norme(): void
+    {
+        $octets = $this->dicom(['region' => 'ABDOMEN']);
+        $un = pack('vv', 0x0009, 0x1010).'UN'."\x00\x00".pack('V', 0xFFFFFFFF)
+            .pack('vvV', 0xFFFE, 0xE000, 0xFFFFFFFF).pack('vvV', 0x0009, 0x1011, 4).'ABCD'.pack('vvV', 0xFFFE, 0xE00D, 0).pack('vvV', 0xFFFE, 0xE0DD, 0);
+        $position = strpos($octets, pack('vv', 0x0010, 0x0010));
+        $octets = substr($octets, 0, $position).$un.substr($octets, $position);
+
+        $this->envoyer($octets)->assertCreated()->assertJsonPath('data.region', 'abdomen');
+    }
+
+    /** D3 : un SOP Instance UID qui n'est pas un UID DICOM (chiffres et points, 64 au plus) est refusé, jamais écrasé ni tronqué */
+    public function test_un_sop_qui_n_est_pas_un_uid_est_refuse(): void
+    {
+        $this->envoyer($this->dicom(['sop' => '1.2.a']))->assertUnprocessable()->assertJsonValidationErrors('fichier');
+        $this->envoyer($this->dicom(['sop' => '1.2/../3']))->assertUnprocessable();
+        $this->envoyer($this->dicom(['sop' => '1.'.str_repeat('2', 70)]))->assertUnprocessable();
+        $this->assertSame(0, ClicheDicom::query()->count());
+    }
+
+    /** D4 : la même radio transmise à une clinique d'une autre organisation (référé) y est acceptée, sans rien révéler */
+    public function test_la_meme_radio_dans_une_autre_organisation_est_acceptee(): void
+    {
+        $autre = Clinique::factory()->create();
+        ['employe' => $employeAutre, 'jeton' => $jetonAutre] = $this->employeAvecJeton($autre);
+        $patientAutre = Patient::factory()->for(Client::factory()->create(['organisation_id' => $autre->societe->organisation_id]))->create();
+        $examenAutre = ExamenImagerie::factory()->create(['clinique_id' => $autre->id, 'patient_id' => $patientAutre->id, 'prescripteur_id' => $employeAutre->id]);
+        $octets = $this->dicom();
+        $this->envoyer($octets)->assertCreated();
+
+        $this->post("/api/v1/imagerie/examens/{$examenAutre->id}/cliches/fichier", ['fichier' => UploadedFile::fake()->createWithContent('t.dcm', $octets)], $this->enTetes($jetonAutre) + ['Accept' => 'application/json'])
+            ->assertCreated();
+        $this->assertSame(2, ClicheDicom::query()->count());
+    }
+
+    /** D7 : un examen se résout par son patient : le patient d'une autre organisation ne lit pas la radio de cet examen */
+    public function test_le_patient_d_une_autre_organisation_ne_lit_pas_nos_radios_par_l_identifiant_d_examen(): void
+    {
+        $autre = Clinique::factory()->create();
+        ['jeton' => $jetonAutre] = $this->employeAvecJeton($autre);
+        $patientAutre = Patient::factory()->for(Client::factory()->create(['organisation_id' => $autre->societe->organisation_id]))->create();
+        $cliche = $this->cliche();
+
+        $this->get("/api/v1/patients/{$patientAutre->id}/imagerie/{$this->examen->id}/cliches/{$cliche->id}/fichier", $this->enTetes($jetonAutre))->assertNotFound();
+        $this->getJson("/api/v1/patients/{$patientAutre->id}/imagerie/{$this->examen->id}/confirmations", $this->enTetes($jetonAutre))->assertNotFound();
+    }
+
+    /** D8 : des champs mal formés répondent 422, jamais 500 */
+    public function test_des_champs_mal_formes_repondent_422(): void
+    {
+        $cliche = $this->cliche();
+
+        $this->postJson($this->base()."/cliches/{$cliche->id}/annotations", ['type' => ['rectangle'], 'points' => [[1, 1], [2, 2]], 'etiquette' => 'fracture', 'certitude' => 'sur'], $this->en())
+            ->assertUnprocessable()->assertJsonValidationErrors('type');
+        $this->postJson($this->base()."/cliches/{$cliche->id}/annotations", ['type' => 'point', 'points' => [['1e0', 1]], 'etiquette' => 'fracture', 'certitude' => 'sur'], $this->en())
+            ->assertUnprocessable()->assertJsonValidationErrors('points');
+        $tronque = substr($this->dicom(), 0, 300);
+        $this->envoyer($tronque)->assertUnprocessable();
+        $this->postJson($this->base()."/cliches/{$cliche->id}/annotations", [], $this->en())->assertUnprocessable()->assertJsonValidationErrors(['type' => 'Choisissez un dessin.']);
+    }
+
+    /** D11 : le poids rattaché est celui de la dernière pesée faite au plus tard le jour de la radio */
+    public function test_le_poids_est_celui_du_jour_de_la_radio(): void
+    {
+        $this->examen->update(['realise_le' => now()->subDays(10)]);
+        Pesee::factory()->create(['patient_id' => $this->patient->id, 'poids_kg' => 29.0, 'pesee_le' => now()->subDays(12)]);
+        // Pesée faite après la radio : pas celle-là (celle du setUp, il y a 3 jours, non plus)
+        $cliche = $this->envoyer($this->dicom())->assertCreated()->json('data');
+
+        $this->assertEquals(29.0, $cliche['poids_kg']);
+    }
+
+    /** Case 6 : la date d'une confirmation n'est pas dans le futur */
+    public function test_une_confirmation_n_est_pas_datee_dans_le_futur(): void
+    {
+        $this->postJson($this->base().'/confirmations', ['etiquette' => 'fracture', 'resultat' => 'confirme', 'source' => 'chirurgie', 'constate_le' => now()->addDays(3)->toDateString()], $this->en())
+            ->assertUnprocessable()->assertJsonValidationErrors('constate_le');
+    }
+
+    /** D9 : un faux fichier en syntaxe grand-boutiste ou dégonflée (illisible) est refusé, pas pris à l'aveugle */
+    public function test_un_fichier_en_syntaxe_illisible_est_refuse(): void
+    {
+        $this->envoyer($this->dicom([], '1.2.840.10008.1.2.2'))->assertUnprocessable()->assertJsonValidationErrors('fichier');
+        $this->envoyer($this->dicom([], '1.2.840.10008.1.2.1.99'))->assertUnprocessable();
     }
 }
