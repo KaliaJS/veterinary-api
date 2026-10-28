@@ -745,6 +745,9 @@ class SuppressionCompteTest extends TestCase
             'Dott.ssa Rachel Solal', 'Dott. Rachel Solal', 'Dr.ssa Rachel Solal', 'Prof.ssa Rachel Solal',
             'Dipl. Tierärztin Rachel Solal', 'Tierarzt Rachel Solal', 'DVM Rachel Solal', 'Dr. h.c. Rachel Solal',
             'Dottoressa Rachel Solal', 'MVDr. Rachel Solal', 'Dipl.-Tierärztin Rachel Solal', 'Frau Dr. Rachel Solal', 'Herr Rachel Solal',
+            // Honoris causa avec espaces (Duden) ou d'un seul tenant ; Suisse romande, Autriche
+            'Dr. h. c. Rachel Solal', 'Prof. Dr. h. c. Rachel Solal', 'Dr.h.c. Rachel Solal',
+            'Dresse Rachel Solal', 'Drsse Rachel Solal', 'Doctoresse Rachel Solal', 'Mag. med. vet. Rachel Solal',
             // « Tierärztin » écrit en Unicode décomposé (a + tréma)
             "Tiera\u{0308}rztin Rachel Solal",
         ] as $nom) {
@@ -761,7 +764,7 @@ class SuppressionCompteTest extends TestCase
     /** Une initiale n'est pas un titre : « C. Rochat » garde « C. », pas le nom de famille. */
     public function test_une_initiale_n_est_pas_prise_pour_un_titre(): void
     {
-        foreach (['C. Rochat' => 'C.', 'H. Müller' => 'H.'] as $nom => $prenom) {
+        foreach (['C. Rochat' => 'C.', 'H. Müller' => 'H.', 'H.C. Rochat' => 'H.C.'] as $nom => $prenom) {
             ['user' => $user, 'jeton' => $jeton] = $this->ancienMembre(['name' => $nom, 'email' => Str::lower(Str::random(8)).'@exemple.ch', 'gln' => null]);
             $this->demander($jeton, $user);
             $this->travel(31)->days();

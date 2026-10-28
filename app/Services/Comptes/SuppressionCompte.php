@@ -56,6 +56,8 @@ class SuppressionCompte
         // (Tierärztin, Frau, Herr), Europe centrale (MVDr.) ; honoris causa à part
         'dott', 'ssa', 'dottore', 'dottoressa', 'tierarzt', 'tierärztin', 'tierarztin', 'mvdr',
         'frau', 'herr', 'madame', 'monsieur', 'signora', 'signor',
+        // Suisse romande (Dresse, Drsse, Doctoresse), Autriche (Mag.), honoris causa (h. c.)
+        'dresse', 'drsse', 'doctoresse', 'mag', 'hc',
     ];
 
     public function __construct(
@@ -300,18 +302,17 @@ class SuppressionCompte
         // Le prénom, sans les titres devant, seuls ou en suite (Dre, Prof.,
         // PD Dr., Dr. med. vet., Dr.med.vet.)
         // Découpé sur le point et le trait d'union (Dr.med.vet., Dipl.-Tierärztin) ;
-        // une initiale (« C. ») n'est pas un titre, sauf « h.c. » entier
+        // une initiale (« C. », « H.C. ») n'est pas un titre
         $estTitre = function (string $mot): bool {
             $mot = mb_strtolower(rtrim($mot, '.'));
-            if (preg_match('/^h\.?c$/u', $mot) === 1) {
-                return true;
-            }
 
             return collect(preg_split('/[.\-]/u', $mot) ?: [])->filter(fn (string $morceau): bool => $morceau !== '')
                 ->every(fn (string $morceau): bool => in_array($morceau, self::TITRES, true));
         };
         $nom = trim((string) $user->name);
         $nom = (string) (\Normalizer::normalize($nom, \Normalizer::FORM_C) ?: $nom);
+        // Honoris causa, en minuscules seulement (« h. c. », « Dr.h.c. ») : un seul titre
+        $nom = (string) preg_replace('/(?<!\p{L})h\.\s*c\.?(?!\p{L})/u', ' hc ', $nom);
         $prenom = collect(preg_split('/\s+/u', $nom) ?: [])
             ->first(fn (string $mot): bool => $mot !== '' && ! $estTitre($mot));
         $user->forceFill([
