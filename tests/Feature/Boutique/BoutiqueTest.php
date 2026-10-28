@@ -145,6 +145,24 @@ class BoutiqueTest extends TestCase
         Mail::assertSent(CommandeBoutiquePrete::class, 2);
     }
 
+    /** Une commande déjà prête ne se remet pas « prête » : pas de second e-mail ; sans adresse, la réponse le dit. */
+    public function test_une_commande_prete_une_fois_et_la_raison_sans_adresse(): void
+    {
+        Mail::fake();
+        $sansAdresse = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'email' => 'lea@exemple.ch', 'user_id' => null]);
+        $commande = CommandeBoutique::factory()->create(['clinique_id' => $this->clinique->id, 'client_id' => $sansAdresse->id]);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->postJson("/api/v1/boutique/commandes/{$commande->id}/preparer", [], $entetes)->assertOk();
+        $this->postJson("/api/v1/boutique/commandes/{$commande->id}/preparer", [], $entetes)->assertUnprocessable();
+        Mail::assertSent(CommandeBoutiquePrete::class, 1);
+
+        $sansAdresse->update(['email' => null]);
+        $autre = CommandeBoutique::factory()->create(['clinique_id' => $this->clinique->id, 'client_id' => $sansAdresse->id]);
+        $this->postJson("/api/v1/boutique/commandes/{$autre->id}/preparer", [], $entetes)
+            ->assertOk()->assertJsonPath('data.client_non_prevenu', 'sans_adresse');
+    }
+
     /** E-mail « prête » en panne : la réponse le dit autrement qu'une fiche sans adresse. */
     public function test_un_e_mail_pret_en_panne_se_dit(): void
     {
@@ -167,6 +185,8 @@ class BoutiqueTest extends TestCase
             ->assertJsonValidationErrors(['client_id' => 'Choisissez une fiche client de votre organisation.']);
         $this->postJson('/api/v1/boutique/vente/apercu', ['lignes' => [['produit_id' => $produit->id, 'quantite' => 100]]], $entetes)
             ->assertJsonValidationErrors(['lignes.0.quantite' => 'Une ligne compte de 1 à 99 articles.']);
+        $this->postJson('/api/v1/boutique/vente', ['client_nom' => str_repeat('n', 256), 'moyen_paiement' => 'twint', 'lignes' => 'x'], $entetes)
+            ->assertJsonValidationErrors(['client_nom' => 'Le nom du client est trop long (255 caractères au plus).', 'lignes' => 'Ajoutez au moins un article au ticket.']);
     }
 
     /** Aperçu d'une société non assujettie : taux 0, HT = TTC, comme la facture. */

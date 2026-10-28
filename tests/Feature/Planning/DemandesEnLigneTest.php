@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Planning;
 
+use App\Enums\MotifRefusDemande;
 use App\Mail\DemandeRendezVousAcceptee;
 use App\Mail\DemandeRendezVousEnvoyee;
 use App\Mail\DemandeRendezVousProposee;
@@ -12,10 +13,12 @@ use App\Models\HoraireOuverture;
 use App\Models\LignePlanning;
 use App\Models\Patient;
 use App\Models\RendezVous;
+use App\Services\TraitementDemande;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -80,6 +83,31 @@ class DemandesEnLigneTest extends TestCase
         $this->postJson("/api/v1/demandes/{$demande->id}/refuser", ['motif' => 'agenda'], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('statut');
+    }
+
+    /** Deux postes qui répondent en même temps (modèle lu avant la réponse de l'autre) : une seule réponse, un seul RDV. */
+    public function test_deux_reponses_simultanees_ne_font_qu_un_rendez_vous(): void
+    {
+        $demande = $this->demande();
+        $this->getJson('/api/v1/rendez-vous', $this->enTetes($this->jeton))->assertOk();
+        $vueParLAutrePoste = DemandeRendezVous::query()->withoutGlobalScopes()->findOrFail($demande->id);
+        $service = app(TraitementDemande::class);
+
+        $service->accepter($demande, $this->mardi, null, null);
+
+        foreach ([
+            fn () => $service->accepter($vueParLAutrePoste, $this->mardi->addHour(), null, null),
+            fn () => $service->proposer($vueParLAutrePoste, [$this->mardi->addHours(2)], null),
+            fn () => $service->refuser($vueParLAutrePoste, MotifRefusDemande::AgendaComplet, null),
+        ] as $reponse) {
+            try {
+                $reponse();
+                $this->fail('Une seconde réponse est passée.');
+            } catch (ValidationException) {
+            }
+        }
+        $this->assertSame(1, RendezVous::query()->withoutGlobalScopes()->count());
+        $this->assertSame('acceptee', $demande->refresh()->statut->value);
     }
 
     public function test_accepter_une_heure_deja_prise_ou_une_demande_sans_heure_est_refuse(): void

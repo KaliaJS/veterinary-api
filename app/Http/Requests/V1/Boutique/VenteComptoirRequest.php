@@ -33,12 +33,15 @@ class VenteComptoirRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'client_nom.string' => 'Le nom du client est trop long ou mal formé.',
+            'client_nom.max' => 'Le nom du client est trop long (255 caractères au plus).',
             'client_id.integer' => 'Choisissez une fiche client de votre organisation.',
             'client_id.exists' => 'Choisissez une fiche client de votre organisation.',
             'moyen_paiement.required' => 'Choisissez le moyen de paiement.',
             'moyen_paiement.enum' => 'Choisissez le moyen de paiement.',
             'lignes.required' => 'Ajoutez au moins un article au ticket.',
             'lignes.min' => 'Ajoutez au moins un article au ticket.',
+            'lignes.array' => 'Ajoutez au moins un article au ticket.',
             'lignes.*.produit_id.required' => 'Un article du ticket est introuvable.',
             'lignes.*.produit_id.exists' => 'Un article du ticket est introuvable.',
             'lignes.*.quantite.required' => 'Une ligne compte de 1 à 99 articles.',

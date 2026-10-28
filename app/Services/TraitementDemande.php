@@ -90,6 +90,9 @@ class TraitementDemande
         $attributs['client_id'] ??= $demande->client_id;
 
         $rendezVous = DB::transaction(function () use ($demande, $attributs, $auteur): RendezVous {
+            // Relue sous verrou : deux postes qui acceptent, ou la clinique et
+            // le propriétaire qui choisit, ne font jamais deux rendez-vous
+            $this->ouverteSousVerrou($demande);
             $rendezVous = $this->mutation->creer($attributs, $auteur);
             $demande->update([
                 'statut' => StatutDemandeRendezVous::Acceptee,
@@ -121,7 +124,7 @@ class TraitementDemande
             }
         }
 
-        $demande->update([
+        DB::transaction(fn () => $this->ouverteSousVerrou($demande)->update([
             'statut' => StatutDemandeRendezVous::Proposee,
             'creneaux_proposes' => collect($debuts)->sort()->map(fn (CarbonImmutable $debut): string => $debut->utc()->toIso8601String())->values()->all(),
             'message' => $message,
@@ -129,7 +132,8 @@ class TraitementDemande
             // Un lien pour la demande sans compte qui n'en a pas encore ; jamais
             // réécrit (l'attribut ne se relit pas : il rendrait l'empreinte)
             ...($demande->user_id === null && $demande->jetonClair() === null ? ['jeton' => Str::random(48)] : []),
-        ]);
+        ]));
+        $demande->refresh();
 
         $this->ecrire($demande, new DemandeRendezVousProposee($demande->load('clinique')));
     }
@@ -141,13 +145,15 @@ class TraitementDemande
         // Un acompte payé (heure prise pendant le paiement) est rendu
         // d'abord : si le prestataire refuse, la demande reste ouverte et
         // l'on peut réessayer (le rendu n'est jamais fait deux fois)
+        $this->ouverteSousVerrou($demande, sansVerrou: true);
         app(AcomptesRendezVous::class)->rembourser($demande);
-        $demande->update([
+        DB::transaction(fn () => $this->ouverteSousVerrou($demande)->update([
             'statut' => StatutDemandeRendezVous::Refusee,
             'motif_refus' => $motif,
             'message' => $message,
             'traitee_le' => now(),
-        ]);
+        ]));
+        $demande->refresh();
 
         $this->ecrire($demande, new DemandeRendezVousRefusee($demande->load('clinique')));
     }
@@ -167,6 +173,16 @@ class TraitementDemande
         }
 
         return $this->accepter($demande, $debut, null, $auteur);
+    }
+
+    /** La demande relue en base (sous verrou dans une transaction), encore ouverte, sinon un refus. */
+    private function ouverteSousVerrou(DemandeRendezVous $demande, bool $sansVerrou = false): DemandeRendezVous
+    {
+        $requete = DemandeRendezVous::query()->withoutGlobalScopes()->whereKey($demande->id);
+        $tenue = ($sansVerrou ? $requete : $requete->lockForUpdate())->firstOrFail();
+        $this->doitEtreOuverte($tenue);
+
+        return $tenue;
     }
 
     private function doitEtreOuverte(DemandeRendezVous $demande): void
