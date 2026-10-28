@@ -87,6 +87,7 @@ use App\Http\Controllers\Api\V1\LicenciementEmployeController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
 use App\Http\Controllers\Api\V1\LotController;
+use App\Http\Controllers\Api\V1\MessagerieCliniqueController;
 use App\Http\Controllers\Api\V1\MouvementStockController;
 use App\Http\Controllers\Api\V1\MouvementStupefiantController;
 use App\Http\Controllers\Api\V1\MoyenPaiementController;
@@ -491,6 +492,13 @@ Route::prefix('v1')->group(function (): void {
         // Rappels aux propriétaires par e-mail : réglages et fenêtre « Rappels automatiques »
         Route::get('rappels', [RappelsController::class, 'index']);
         Route::get('rappels/reglages', [RappelsController::class, 'reglages']);
+        // Messagerie de la clinique (décision de Jim, 28.10.2026)
+        Route::middleware('can:patients')->prefix('messages')->group(function (): void {
+            Route::get('/', [MessagerieCliniqueController::class, 'index']);
+            // Le compte du client, jamais lié tel quel : il doit avoir une fiche dans l'organisation
+            Route::get('{compte}', [MessagerieCliniqueController::class, 'fil'])->whereNumber('compte');
+            Route::post('{compte}', [MessagerieCliniqueController::class, 'repondre'])->whereNumber('compte')->middleware('throttle:60,1,messages-clinique');
+        });
         Route::put('rappels/reglages', [RappelsController::class, 'modifierReglages']);
 
         // Catalogue des vaccins autorisés en Suisse (Swissmedic, GTIN Refdata)

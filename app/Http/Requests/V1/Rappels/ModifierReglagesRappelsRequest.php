@@ -25,6 +25,9 @@ class ModifierReglagesRappelsRequest extends FormRequest
             'delai_jours' => ['sometimes', 'integer', Rule::in(RappelsProprietaires::DELAIS)],
             'vaccins' => ['sometimes', 'boolean'],
             'controles' => ['sometimes', 'boolean'],
+            'relance_noshow' => ['sometimes', 'boolean'],
+            'messages_recus' => ['sometimes', 'boolean'],
+            'messages_reponses_seulement' => ['sometimes', 'boolean'],
         ];
     }
 

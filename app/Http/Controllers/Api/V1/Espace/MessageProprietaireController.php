@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\V1\Espace;
 
 use App\Auth\ContexteProprietaire;
+use App\Events\MessagesChangent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\EnvoyerMessageRequest;
 use App\Models\Clinique;
 use App\Models\MessageClientele;
+use App\Support\TempsReel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -60,6 +62,9 @@ class MessageProprietaireController extends Controller
                 'nom' => $c->nom,
                 'tel' => $c->tel,
                 'non_lus' => (int) ($nonLus[$c->id] ?? 0),
+                // Réglages de la clinique (28.10.2026) : la raison est dite quand il ne peut pas
+                'peut_ecrire' => $this->refus($c, $contexte) === null,
+                'raison' => $this->refus($c, $contexte),
             ])->values()->all(),
             'clinique_id' => $clinique?->id,
             'messages' => $messages->map(fn (MessageClientele $m): array => $this->message($m))->all(),
@@ -73,6 +78,10 @@ class MessageProprietaireController extends Controller
         if (! $this->cliniques($contexte)->contains('id', $cliniqueId)) {
             throw ValidationException::withMessages(['clinique_id' => 'Vous n’êtes pas client de cette clinique.']);
         }
+        $refus = $this->refus($this->cliniques($contexte)->firstWhere('id', $cliniqueId), $contexte);
+        if ($refus !== null) {
+            throw ValidationException::withMessages(['clinique_id' => $refus]);
+        }
 
         // Sa fiche client dans l'organisation de la clinique : le fil reste attribuable (28.10.2026)
         $organisation = $this->cliniques($contexte)->firstWhere('id', $cliniqueId)?->societe()->withoutGlobalScopes()->value('organisation_id');
@@ -84,7 +93,24 @@ class MessageProprietaireController extends Controller
             'texte' => trim($request->validated('texte')),
         ]);
 
+        // La clinique l'apprend aussitôt (sans le contenu : il se lit par l'API)
+        TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$cliniqueId, $contexte->user()->id));
+
         return response()->json(['data' => $this->message($message)], 201);
+    }
+
+    /** Pourquoi le propriétaire ne peut pas écrire à cette clinique (ses réglages), ou null. */
+    private function refus(Clinique $clinique, ContexteProprietaire $contexte): ?string
+    {
+        $tel = filled($clinique->tel) ? ' : appelez-la au '.$clinique->tel : '';
+        if ($clinique->messages_recus === false) {
+            return 'La clinique ne reçoit pas de messages'.$tel.'.';
+        }
+        if ($clinique->messages_reponses_seulement && ! MessageClientele::query()->where('clinique_id', $clinique->id)->where('user_id', $contexte->user()->id)->where('auteur', 'clinique')->exists()) {
+            return 'La clinique répond aux messages qu’elle vous envoie'.$tel.'.';
+        }
+
+        return null;
     }
 
     /**

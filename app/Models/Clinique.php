@@ -52,6 +52,9 @@ class Clinique extends Model
             'rappels_delai_jours' => 'integer',
             'rappels_vaccins' => 'boolean',
             'rappels_controles' => 'boolean',
+            'relance_noshow' => 'boolean',
+            'messages_recus' => 'boolean',
+            'messages_reponses_seulement' => 'boolean',
         ];
     }
 

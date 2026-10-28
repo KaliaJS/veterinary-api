@@ -65,7 +65,7 @@ class RappelsProprietaires
     /** @var array<int, bool> */
     private array $smsEspace = [];
 
-    /** @return array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool} */
+    /** @return array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool, relance_noshow: bool, messages_recus: bool, messages_reponses_seulement: bool} */
     public static function reglages(Clinique $clinique): array
     {
         return [
@@ -76,6 +76,10 @@ class RappelsProprietaires
             'delai_jours' => (int) ($clinique->rappels_delai_jours ?? 7),
             'vaccins' => (bool) ($clinique->rappels_vaccins ?? true),
             'controles' => (bool) ($clinique->rappels_controles ?? true),
+            // Branchés le 28.10.2026 (décision de Jim)
+            'relance_noshow' => (bool) ($clinique->relance_noshow ?? false),
+            'messages_recus' => (bool) ($clinique->messages_recus ?? true),
+            'messages_reponses_seulement' => (bool) ($clinique->messages_reponses_seulement ?? false),
         ];
     }
 
@@ -543,7 +547,7 @@ class RappelsProprietaires
     }
 
     /**
-     * @param  array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool}  $reglages
+     * @param  array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool, relance_noshow: bool, messages_recus: bool, messages_reponses_seulement: bool}  $reglages
      * @param  CarbonImmutable  $prochain  le prochain moment où un rappel peut partir
      * @param  CarbonImmutable  $dernier  le dernier moment où ce rappel a encore un sens
      * @return array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, echeance_le: string, envoi_le: string, bloque: ?string}
