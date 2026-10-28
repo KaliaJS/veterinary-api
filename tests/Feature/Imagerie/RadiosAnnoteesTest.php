@@ -573,6 +573,23 @@ class RadiosAnnoteesTest extends TestCase
         $this->postJson("{$this->base()}/cliches/{$cliche->id}/annotations", ['image' => 2] + $dessin, $this->en())->assertUnprocessable()->assertJsonValidationErrors('image');
     }
 
+    /** Déplacé, le dessin de la deuxième image garde ses nouveaux points et son image ; un point qui sort de l'image, non */
+    public function test_un_dessin_deplace_garde_ses_nouveaux_points_et_son_image(): void
+    {
+        $this->envoyer($this->dicom(['images' => 2, 'lignes' => 8, 'colonnes' => 10]))->assertCreated();
+        $cliche = ClicheDicom::query()->latest('id')->firstOrFail();
+        $id = $this->postJson("{$this->base()}/cliches/{$cliche->id}/annotations", ['type' => 'fleche', 'points' => [[1, 1], [4, 5]], 'image' => 1, 'etiquette' => 'fracture', 'certitude' => 'sur'], $this->en())->json('data.id');
+        $chemin = "{$this->base()}/cliches/{$cliche->id}/annotations/{$id}";
+
+        $this->patchJson($chemin, ['type' => 'fleche', 'points' => [[2, 1.5], [6, 7]]], $this->en())->assertOk()
+            ->assertJsonPath('data.points', [[2, 1.5], [6, 7]])->assertJsonPath('data.image', 1);
+        $this->getJson("{$this->base()}/cliches/{$cliche->id}/annotations", $this->en())->assertJsonPath('data.0.points', [[2, 1.5], [6, 7]])->assertJsonPath('data.0.image', 1);
+
+        // La radio fait 10 colonnes : un point en x = 12 sort de l'image
+        $this->patchJson($chemin, ['type' => 'fleche', 'points' => [[2, 1.5], [12, 7]]], $this->en())->assertUnprocessable()->assertJsonValidationErrors(['points' => 'Un point sort de l’image.']);
+        $this->assertSame([[2, 1.5], [6, 7]], AnnotationImagerie::query()->findOrFail($id)->points);
+    }
+
     /** Des fragments mal formés (autre chose qu'un élément, ou un élément sans longueur) : refusés */
     public function test_des_fragments_mal_formes_sont_refuses(): void
     {
