@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\V1;
 
+use App\Auth\ContexteClinique;
 use App\Models\Produit;
 use App\Models\Stock;
 use Illuminate\Http\Request;
@@ -54,6 +55,8 @@ class ProduitResource extends JsonResource
             ),
             'stock_total' => $this->whenLoaded('stocks', fn (): int => $this->stockTotal()),
             'sous_seuil' => $this->whenLoaded('stocks', fn (): bool => $this->estSousLeSeuil()),
+            // Sous le seuil dans la clinique du jeton : ce que « Commander le stock bas » commandera
+            'sous_seuil_clinique' => $this->whenLoaded('stocks', fn (): ?bool => app(ContexteClinique::class)->estDefini() ? $this->estSousLeSeuilDans((int) app(ContexteClinique::class)->cliniqueId()) : null),
         ];
     }
 }

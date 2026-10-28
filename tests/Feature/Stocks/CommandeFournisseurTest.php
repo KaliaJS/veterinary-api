@@ -202,11 +202,72 @@ class CommandeFournisseurTest extends TestCase
             ->assertJsonValidationErrors('commandes');
     }
 
+    /** Stock bas par clinique (décision de Jim, 28.10.2026) : le stock de la clinique ouverte face au seuil, même si une sœur en a beaucoup. */
+    public function test_generer_compare_le_stock_de_la_clinique_ouverte_au_seuil(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $produit = $this->produit(['fournisseur' => 'Vetopharm SA', 'seuil_alerte' => 10]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 2]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $soeur->id, 'quantite' => 40]);
+
+        $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))->assertOk()->assertJsonCount(1, 'data');
+
+        // Remonter le stock de la clinique à deux fois le seuil : 10 × 2 − 2 = 18
+        $this->assertSame(18, CommandeFournisseur::query()->sole()->lignes()->sole()->quantite);
+    }
+
+    /** Un brouillon d'une clinique sœur ne couvre plus l'article d'ici. */
+    public function test_le_brouillon_d_une_clinique_soeur_ne_bloque_plus_la_generation(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $produit = $this->produit(['fournisseur' => 'Vetopharm SA', 'seuil_alerte' => 10]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 0]);
+        $brouillonSoeur = CommandeFournisseur::factory()->create(['clinique_id' => $soeur->id]);
+        CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $brouillonSoeur->id, 'produit_id' => $produit->id]);
+
+        $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))->assertOk()->assertJsonCount(1, 'data');
+    }
+
+    /** Un article bien fourni ici n'est pas commandé, même si la somme de l'organisation est sous le seuil. */
+    public function test_un_article_bien_fourni_ici_n_est_pas_commande(): void
+    {
+        $produit = $this->produit(['fournisseur' => 'Vetopharm SA', 'seuil_alerte' => 10]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 11]);
+
+        $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))->assertUnprocessable();
+    }
+
+    /** Un article que la clinique ne tient pas (stock seulement chez une sœur) n'est pas commandé ici. */
+    public function test_un_article_que_la_clinique_ne_tient_pas_n_est_pas_commande(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $produit = $this->produit(['seuil_alerte' => 10]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $soeur->id, 'quantite' => 0]);
+
+        $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))->assertUnprocessable();
+    }
+
+    /** L'article dit s'il est sous le seuil dans la clinique ouverte (l'écran compte comme la génération). */
+    public function test_l_article_dit_s_il_est_sous_le_seuil_dans_la_clinique_ouverte(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $produit = $this->produit(['seuil_alerte' => 10]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 2]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $soeur->id, 'quantite' => 40]);
+
+        $this->getJson('/api/v1/stocks/produits', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.0.sous_seuil_clinique', true)
+            ->assertJsonPath('data.0.sous_seuil', false);
+    }
+
     /** On commande depuis la clinique (décision de Jim, 28.10.2026) : plus de commande ni de brouillons automatiques pour une clinique sœur. */
     public function test_on_ne_commande_plus_pour_une_clinique_soeur(): void
     {
         $cliniqueSoeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
         $produit = $this->produit(['seuil_alerte' => 10, 'fournisseur' => 'Vetopharm SA']);
+        // Tenu par la clinique ouverte, en rupture (stock bas par clinique, 28.10.2026)
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 0]);
         $refus = 'Une commande se passe depuis la clinique qui la reçoit : ouvrez cette clinique pour commander.';
 
         $this->postJson('/api/v1/stocks/commandes', [

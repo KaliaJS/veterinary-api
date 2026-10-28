@@ -120,6 +120,29 @@ class Produit extends Model
         return $this->stockTotal() <= $this->seuil_alerte;
     }
 
+    /** Le stock de l'article dans une clinique ; null si elle ne le tient pas (28.10.2026). */
+    public function stockDans(int $cliniqueId): ?int
+    {
+        $charge = $this->relationLoaded('stocks')
+            ? $this->stocks
+            : $this->stocks()->withoutGlobalScope('clinique')->get();
+        $lignes = $charge->where('clinique_id', $cliniqueId);
+
+        return $lignes->isEmpty() ? null : (int) $lignes->sum('quantite');
+    }
+
+    /**
+     * Stock bas par clinique (décision de Jim, 28.10.2026) : le stock de la
+     * clinique face au seuil de l'article ; une clinique qui ne tient pas
+     * l'article n'est jamais sous le seuil.
+     */
+    public function estSousLeSeuilDans(int $cliniqueId): bool
+    {
+        $stock = $this->stockDans($cliniqueId);
+
+        return $this->seuil_alerte > 0 && $stock !== null && $stock <= $this->seuil_alerte;
+    }
+
     /** Péremption rendue au format du front « MM.YYYY ». */
     public function peremptionAffichee(): ?string
     {

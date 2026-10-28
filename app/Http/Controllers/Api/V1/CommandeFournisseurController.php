@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Auth\ContexteClinique;
 use App\Enums\DomainePermission;
 use App\Enums\PieceNumerotee;
 use App\Enums\StatutCommandeFournisseur;
@@ -84,22 +85,20 @@ class CommandeFournisseurController extends Controller
     }
 
     /**
-     * Brouillons automatiques : les articles dont le stock total de
-     * l'organisation est sous le seuil, sans commande ouverte (brouillon
-     * ou envoyée) d'une clinique de l'organisation les couvrant, regroupés
-     * par fournisseur. Quantité proposée : remonter à deux fois le seuil.
-     * Livraison à la clinique du jeton, jamais à une autre.
+     * Brouillons automatiques, par clinique (décision de Jim, 28.10.2026) :
+     * les articles que la clinique du jeton tient et dont son stock est sous
+     * le seuil, sans commande ouverte (brouillon ou envoyée) de cette
+     * clinique les couvrant, regroupés par fournisseur. Quantité proposée :
+     * remonter son stock à deux fois le seuil.
      */
     public function generer(Request $request): AnonymousResourceCollection
     {
         $this->authorize('create', CommandeFournisseur::class);
 
         $request->validate(['clinique_id' => ['sometimes', 'nullable', 'integer', new CliniqueOuverte]]);
+        $cliniqueId = (int) app(ContexteClinique::class)->cliniqueId();
 
-        // Le seuil se mesure sur le stock de toute l'organisation : une
-        // commande ouverte d'une clinique sœur couvre déjà l'article
         $couverts = CommandeFournisseur::query()
-            ->dansLOrganisation()
             ->where('statut', '!=', StatutCommandeFournisseur::Receptionnee)
             ->with('lignes')
             ->get()
@@ -110,7 +109,7 @@ class CommandeFournisseurController extends Controller
             ->with(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
             ->whereNotIn('id', $couverts)
             ->get()
-            ->filter(fn (Produit $produit): bool => $produit->seuil_alerte > 0 && $produit->estSousLeSeuil());
+            ->filter(fn (Produit $produit): bool => $produit->estSousLeSeuilDans($cliniqueId));
 
         if ($sousSeuil->isEmpty()) {
             throw ValidationException::withMessages([
@@ -120,13 +119,13 @@ class CommandeFournisseurController extends Controller
 
         $commandes = DB::transaction(fn () => $sousSeuil
             ->groupBy(fn (Produit $produit): string => $produit->fournisseur ?? 'Interne')
-            ->map(function ($produits, string $fournisseur): CommandeFournisseur {
+            ->map(function ($produits, string $fournisseur) use ($cliniqueId): CommandeFournisseur {
                 $commande = $this->creerBrouillon($fournisseur);
 
                 foreach ($produits as $produit) {
                     $commande->lignes()->create([
                         'produit_id' => $produit->id,
-                        'quantite' => max($produit->seuil_alerte * 2 - $produit->stockTotal(), $produit->seuil_alerte),
+                        'quantite' => max($produit->seuil_alerte * 2 - (int) $produit->stockDans($cliniqueId), $produit->seuil_alerte),
                         'cout' => $produit->cout,
                     ]);
                 }
