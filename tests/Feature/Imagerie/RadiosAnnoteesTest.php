@@ -553,7 +553,39 @@ class RadiosAnnoteesTest extends TestCase
         $this->getJson("{$chemin}/cliches/{$cliche->id}/annotations", $this->enTetes($jetonAutre))->assertNotFound();
         $this->patchJson("{$chemin}/cliches/{$cliche->id}", ['region' => 'thorax', 'incidence' => 'lateral_droit'], $this->enTetes($jetonAutre))->assertNotFound();
         $this->postJson("{$chemin}/cliches/{$cliche->id}/annotations", ['type' => 'point', 'points' => [[2, 3]], 'etiquette' => 'fracture', 'certitude' => 'sur'], $this->enTetes($jetonAutre))->assertNotFound();
+        $dessin = $cliche->annotations()->firstOrFail();
+        $this->patchJson("{$chemin}/cliches/{$cliche->id}/annotations/{$dessin->id}", ['type' => 'point', 'points' => [[5, 5]]], $this->enTetes($jetonAutre))->assertNotFound();
+        $this->deleteJson("{$chemin}/cliches/{$cliche->id}/annotations/{$dessin->id}", [], $this->enTetes($jetonAutre))->assertNotFound();
+        $this->assertSame([[2, 3]], $dessin->refresh()->points);
         $this->assertSame(1, $cliche->annotations()->count());
+    }
+
+    /** Une radio de plusieurs images : le dessin posé sur la deuxième y reste, et revient sur elle ; une image qui n'existe pas, non */
+    public function test_un_dessin_sur_la_deuxieme_image_y_revient(): void
+    {
+        $this->envoyer($this->dicom(['images' => 2, 'lignes' => 8, 'colonnes' => 10]))->assertCreated();
+        $cliche = ClicheDicom::query()->latest('id')->firstOrFail();
+        $dessin = ['type' => 'point', 'points' => [[2, 3]], 'image' => 1, 'etiquette' => 'fracture', 'certitude' => 'sur'];
+
+        $this->postJson("{$this->base()}/cliches/{$cliche->id}/annotations", $dessin, $this->en())->assertCreated()->assertJsonPath('data.image', 1);
+        $this->getJson("{$this->base()}/cliches/{$cliche->id}/annotations", $this->en())->assertOk()->assertJsonPath('data.0.image', 1);
+        $this->assertSame(1, $cliche->annotations()->firstOrFail()->image);
+        $this->postJson("{$this->base()}/cliches/{$cliche->id}/annotations", ['image' => 2] + $dessin, $this->en())->assertUnprocessable()->assertJsonValidationErrors('image');
+    }
+
+    /** Des fragments mal formés (autre chose qu'un élément, ou un élément sans longueur) : refusés */
+    public function test_des_fragments_mal_formes_sont_refuses(): void
+    {
+        $jpeg = '1.2.840.10008.1.2.4.50';
+        $entete = pack('vv', 0x7FE0, 0x0010).'OB'."\0\0".pack('V', 0xFFFFFFFF).pack('vvV', 0xFFFE, 0xE000, 0);
+        $fin = pack('vvV', 0xFFFE, 0xE0DD, 0);
+
+        // Un élément d'un autre groupe au milieu des fragments
+        $autreGroupe = $this->dicom(['sop' => '1.2.3.51'], $jpeg, avecPixels: false).$entete.pack('vvV', 0x0008, 0xE000, 4)."\xFF\xD8\xFF\xD9".$fin;
+        $this->envoyer($autreGroupe)->assertUnprocessable()->assertJsonValidationErrors('fichier');
+        // Un fragment de longueur indéfinie
+        $sansLongueur = $this->dicom(['sop' => '1.2.3.52'], $jpeg, avecPixels: false).$entete.pack('vvV', 0xFFFE, 0xE000, 0xFFFFFFFF)."\xFF\xD8\xFF\xD9".$fin;
+        $this->envoyer($sansLongueur)->assertUnprocessable()->assertJsonValidationErrors('fichier');
     }
 
     /** Une syntaxe illisible (dégonflée, grand-boutiste) dit pourquoi, au lieu de « pas une image DICOM » */
