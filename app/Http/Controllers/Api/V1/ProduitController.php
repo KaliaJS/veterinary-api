@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Auth\ContexteClinique;
 use App\Enums\CategorieProduit;
 use App\Enums\MotifAjustementStock;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Stocks\EnregistrerProduitRequest;
 use App\Http\Resources\V1\ProduitResource;
+use App\Models\Lot;
 use App\Models\Produit;
 use App\Services\GestionnaireStock;
 use Illuminate\Database\Eloquent\Builder;
@@ -67,6 +69,19 @@ class ProduitController extends Controller
 
         if ($quantiteInitiale > 0) {
             $stock->appliquer($produit, $quantiteInitiale, 'Stock initial', $request->user(), MotifAjustementStock::Reception, cliniqueId: $request->cliniqueId());
+
+            // Article périssable : le stock initial a son lot, à sa péremption
+            // (28.10.2026), dans la clinique qui le reçoit, qui peut être une
+            // clinique sœur : hors événements du trait, comme à la réception
+            if ($produit->peremption_le !== null) {
+                Lot::withoutEvents(fn (): Lot => Lot::create([
+                    'produit_id' => $produit->id,
+                    'clinique_id' => $request->cliniqueId() ?? app(ContexteClinique::class)->clinique()->id,
+                    'numero_lot' => 'LOT INI-'.substr($produit->reference, -2),
+                    'peremption_le' => $produit->peremption_le,
+                    'quantite' => $quantiteInitiale,
+                ]));
+            }
         }
 
         return new ProduitResource(

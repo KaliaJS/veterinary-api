@@ -598,6 +598,7 @@ Route::prefix('v1')->group(function (): void {
             // la formule, la carte et les factures, de quoi payer.
             Route::withoutMiddleware('organisation.ouverte')->group(function (): void {
                 Route::get('/', [OrganisationController::class, 'afficher']);
+                Route::get('offres', [OrganisationController::class, 'offres']);
                 Route::get('abonnement/apercu', [AbonnementController::class, 'apercu']);
                 // Appels à Stripe : leur propre compteur, par compte (26.10.2026)
                 Route::post('abonnement', [AbonnementController::class, 'changer'])->middleware('throttle:stripe-abonnement');

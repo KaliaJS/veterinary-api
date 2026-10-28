@@ -31,6 +31,8 @@ class OrganisationResource extends JsonResource
             ],
             'cycle' => $this->cycle,
             'resilie_le' => $this->resilie_le?->toDateString(),
+            // « Client depuis » (Réglages, Facturation) : l'ouverture de l'organisation, jour de Zurich
+            'client_depuis' => $this->created_at?->copy()->timezone('Europe/Zurich')->toDateString(),
             'moyen_paiement' => $this->moyen_paiement,
             /* Abonnement (tenu par l'application) : statut (null : aucun
                abonnement payant ; actif | impaye | resilie), période payée

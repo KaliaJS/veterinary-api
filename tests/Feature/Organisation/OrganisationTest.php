@@ -121,6 +121,31 @@ class OrganisationTest extends TestCase
             ->assertJsonPath('data.stats.employes_actifs', 1);
     }
 
+    /** « Client depuis » de Réglages, Facturation : la date d'ouverture de l'organisation. */
+    public function test_l_organisation_dit_depuis_quand_elle_est_cliente(): void
+    {
+        Organisation::query()->whereKey($this->organisationId())->update(['created_at' => '2025-03-14 09:30:00']);
+
+        $this->getJson('/api/v1/organisation', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.client_depuis', '2025-03-14');
+    }
+
+    /** Catalogue des formules et des packs servi : prix, limites (null : illimité) et paliers des enums. */
+    public function test_le_catalogue_des_formules_et_des_packs_est_servi(): void
+    {
+        $reponse = $this->getJson('/api/v1/organisation/offres', $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertSame(['individuel', 'cabinet', 'hopital'], array_column($reponse->json('data.formules'), 'code'));
+        $reponse->assertJsonPath('data.formules.1', [
+            'code' => 'cabinet', 'nom' => FormuleSaas::Cabinet->nom(), 'prix_mensuel' => FormuleSaas::Cabinet->prixMensuel(),
+            'limites' => FormuleSaas::Cabinet->limites(),
+        ]);
+        $reponse->assertJsonPath('data.formules.2.limites.cliniques', null);
+        $this->assertSame(['emails', 'sms', 'sto'], array_column($reponse->json('data.packs'), 'type'));
+        $reponse->assertJsonPath('data.packs.1.paliers.0', ['quantite' => 500, 'prix' => 12]);
+    }
+
     public function test_une_societe_sans_ide_reste_sans_numero(): void
     {
         $this->postJson('/api/v1/organisation/societes', [

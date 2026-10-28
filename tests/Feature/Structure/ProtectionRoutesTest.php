@@ -59,6 +59,8 @@ class ProtectionRoutesTest extends TestCase
     /** Routes de l'espace clinique ouvertes à une organisation fermée : de quoi payer l'abonnement. */
     private const array OUVERTES_SANS_ABONNEMENT = [
         'GET api/v1/organisation',
+        // Catalogue des formules : une organisation fermée choisit sa formule pour payer
+        'GET api/v1/organisation/offres',
         'GET api/v1/organisation/abonnement/apercu',
         'POST api/v1/organisation/abonnement',
         'POST api/v1/organisation/moyen-paiement/intention',

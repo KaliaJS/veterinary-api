@@ -56,6 +56,25 @@ class StockTest extends TestCase
         return $produit;
     }
 
+    /** Un nouvel article périssable avec un stock initial : son lot est créé, avec sa péremption, dans la clinique qui reçoit le stock. */
+    public function test_le_stock_initial_d_un_article_perissable_cree_son_lot(): void
+    {
+        $id = $this->postJson('/api/v1/stocks/produits', [
+            'nom' => 'Vaccin rage', 'categorie' => 'soin', 'prix' => 30, 'quantite_initiale' => 12, 'peremption' => '10.2027',
+        ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
+
+        $lots = Lot::withoutGlobalScopes()->where('produit_id', $id)->get();
+        $this->assertCount(1, $lots);
+        $this->assertSame($this->clinique->id, $lots[0]->clinique_id);
+        $this->assertSame(12, (int) $lots[0]->quantite);
+        $this->assertSame('2027-10-01', $lots[0]->peremption_le->toDateString());
+
+        // Sans péremption ou sans stock initial : pas de lot
+        $sansPeremption = $this->postJson('/api/v1/stocks/produits', ['nom' => 'Gants', 'categorie' => 'mat', 'prix' => 5, 'quantite_initiale' => 50], $this->enTetes($this->jeton))->json('data.id');
+        $sansStock = $this->postJson('/api/v1/stocks/produits', ['nom' => 'Vaccin toux', 'categorie' => 'soin', 'prix' => 30, 'peremption' => '10.2027'], $this->enTetes($this->jeton))->json('data.id');
+        $this->assertSame(0, Lot::withoutGlobalScopes()->whereIn('produit_id', [$sansPeremption, $sansStock])->count());
+    }
+
     public function test_creer_un_article_pose_le_stock_initial_et_le_journalise(): void
     {
         $reponse = $this->postJson('/api/v1/stocks/produits', [
