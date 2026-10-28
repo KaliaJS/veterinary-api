@@ -20,6 +20,8 @@ class VenteComptoirRequest extends FormRequest
     {
         return [
             'client_nom' => ['nullable', 'string', 'max:255'],
+            // La fiche client de la vente, de l'organisation (28.10.2026)
+            'client_id' => ['nullable', 'integer', $this->existeDansLOrganisation('clients')],
             'moyen_paiement' => ['required', Rule::enum(MoyenPaiement::class)],
             'lignes' => ['required', 'array', 'min:1'],
             'lignes.*.produit_id' => ['required', $this->existeDansLOrganisation('produits')],

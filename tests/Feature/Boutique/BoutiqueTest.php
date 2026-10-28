@@ -196,6 +196,26 @@ class BoutiqueTest extends TestCase
         $this->assertStringStartsWith('FC-', $facture->numero);
     }
 
+    /** La vente comptoir se rattache à une fiche client de l'organisation ; une fiche d'ailleurs est refusée. */
+    public function test_la_vente_comptoir_se_rattache_a_une_fiche_client(): void
+    {
+        $produit = $this->produitEnRayon(5);
+        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'prenom' => 'Léa', 'nom' => 'Martin']);
+        $etranger = Client::factory()->create();
+
+        $this->postJson('/api/v1/boutique/vente', [
+            'client_id' => $etranger->id, 'moyen_paiement' => 'twint', 'lignes' => [['produit_id' => $produit->id, 'quantite' => 1]],
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('client_id');
+
+        $id = $this->postJson('/api/v1/boutique/vente', [
+            'client_id' => $client->id, 'moyen_paiement' => 'twint', 'lignes' => [['produit_id' => $produit->id, 'quantite' => 1]],
+        ], $this->enTetes($this->jeton))->assertCreated()->assertJsonPath('data.client_id', $client->id)->json('data.id');
+
+        $facture = Facture::withoutGlobalScopes()->find($id);
+        $this->assertSame($client->id, $facture->client_id);
+        $this->assertSame($client->refresh()->nom_affiche, $facture->owner_name);
+    }
+
     public function test_ni_ordonnance_ni_stupefiant_au_comptoir_ni_en_commande(): void
     {
         $surOrdonnance = $this->produitEnRayon(5, ['nom' => 'Antibiotique', 'est_sur_ordonnance' => true]);

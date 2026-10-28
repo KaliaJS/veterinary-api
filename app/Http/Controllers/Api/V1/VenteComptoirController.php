@@ -8,6 +8,7 @@ use App\Enums\TypeLigneFacture;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Boutique\VenteComptoirRequest;
 use App\Http\Resources\V1\FactureResource;
+use App\Models\Client;
 use App\Models\CommandeBoutique;
 use App\Models\Produit;
 use App\Models\Stock;
@@ -73,8 +74,10 @@ class VenteComptoirController extends Controller
                 ];
             }
 
+            // Rattachée à la fiche client choisie : son nom fait foi
+            $client = isset($donnees['client_id']) ? Client::query()->find($donnees['client_id']) : null;
             $facture = $this->creation->nouvelle(
-                ['owner_name' => $donnees['client_nom'] ?? null],
+                ['client_id' => $client?->id, 'owner_name' => $client->nom_affiche ?? $donnees['client_nom'] ?? null],
                 $lignes,
                 $request->user(),
             );
