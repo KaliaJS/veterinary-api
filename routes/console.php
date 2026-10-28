@@ -43,4 +43,6 @@ Schedule::command('alertes:stock')->dailyAt('07:00')->timezone('Europe/Zurich')-
 
 // Contrats terminés : accès suspendu et jetons révoqués ; jetons expirés supprimés
 Schedule::command('equipe:fermer-contrats')->hourlyAt(15)->withoutOverlapping(50)->onOneServer();
+// Rappels par e-mail aux propriétaires, en journée à l'heure de chaque clinique (28.10.2026)
+Schedule::command('rappels:envoyer')->hourlyAt(5)->withoutOverlapping(50)->onOneServer();
 Schedule::command('sanctum:prune-expired --hours=48')->dailyAt('04:45')->withoutOverlapping(60)->onOneServer();

@@ -26,6 +26,7 @@ class Client extends Model
     {
         return [
             'civilite' => Civilite::class,
+            'rappels_email' => 'boolean',
         ];
     }
 

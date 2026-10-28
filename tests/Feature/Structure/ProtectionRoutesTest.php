@@ -31,6 +31,7 @@ class ProtectionRoutesTest extends TestCase
         'api/v1/stripe/webhook' => 'Webhook Stripe, vérifié par signature.',
         'api/v1/app-store/notifications' => 'Notifications de l’App Store, vérifiées par signature.',
         'verification-cliniques/' => 'Liens signés de l’e-mail envoyé à la plateforme (middleware signed).',
+        'rappels/desabonner/' => 'Lien signé « Ne plus recevoir les rappels » des e-mails aux propriétaires (middleware signed).',
         'sanctum/csrf-cookie' => 'Route de Sanctum, sans effet : l’API n’a pas de session.',
         'up' => 'Sonde de santé.',
         '/' => 'Page d’accueil du serveur.',
@@ -54,6 +55,7 @@ class ProtectionRoutesTest extends TestCase
         'PUT api/v1/alertes/reglages' => 'Réglages d’e-mails de la personne du jeton.',
         'GET api/v1/vaccins' => 'Catalogue Swissmedic, données publiques de la plateforme.',
         'GET api/v1/vaccins/gtin/{gtin}' => 'Catalogue Swissmedic, données publiques de la plateforme.',
+        'GET api/v1/rappels/reglages' => 'Réglages des rappels de la clinique (oui ou non, délai) : lus par toute l’équipe, modifiés avec le droit organisation.',
     ];
 
     /** Routes de l'espace clinique ouvertes à une organisation fermée : de quoi payer l'abonnement. */
@@ -84,9 +86,9 @@ class ProtectionRoutesTest extends TestCase
 
         $this->assertSame([], $imprevues->values()->all(), 'Route sans auth:sanctum hors des routes publiques prévues.');
 
-        // Les liens de vérification n'ont de valeur que signés
+        // Les liens de vérification et de désabonnement n'ont de valeur que signés
         $this->routes()
-            ->filter(fn (RouteLaravel $route) => str_starts_with($route->uri(), 'verification-cliniques/'))
+            ->filter(fn (RouteLaravel $route) => str_starts_with($route->uri(), 'verification-cliniques/') || str_starts_with($route->uri(), 'rappels/desabonner/'))
             ->each(fn (RouteLaravel $route) => $this->assertTrue($this->a($route, 'signed'), $this->nom($route)));
     }
 

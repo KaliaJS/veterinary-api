@@ -46,6 +46,11 @@ class Clinique extends Model
             'urgences_a_valider' => 'boolean',
             'acompte_centimes' => 'integer',
             'paiements_integres' => 'boolean',
+            'rappels_email' => 'boolean',
+            'rappels_sms' => 'boolean',
+            'rappels_delai_jours' => 'integer',
+            'rappels_vaccins' => 'boolean',
+            'rappels_controles' => 'boolean',
         ];
     }
 

@@ -29,6 +29,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prependToGroup('api', ForcerReponseJson::class);
 
+        // Désabonnement en un clic depuis la messagerie (lien signé, RFC 8058)
+        $middleware->validateCsrfTokens(except: ['rappels/desabonner/*']);
+
         // L'adresse du client derrière le répartiteur de charge (TRUSTED_PROXIES)
         $middleware->replace(TrustProxies::class, ProxiesDeConfiance::class);
 

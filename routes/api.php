@@ -116,6 +116,7 @@ use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
 use App\Http\Controllers\Api\V1\ProduitController;
 use App\Http\Controllers\Api\V1\ProfilVeterinaireController;
+use App\Http\Controllers\Api\V1\RappelsController;
 use App\Http\Controllers\Api\V1\RegistreStupefiantController;
 use App\Http\Controllers\Api\V1\ReleveDentaireController;
 use App\Http\Controllers\Api\V1\ReleveOphtalmologiqueController;
@@ -467,6 +468,13 @@ Route::prefix('v1')->group(function (): void {
         Route::post('patients/{patient}/vaccinations', [VaccinationController::class, 'store']);
         Route::put('patients/{patient}/vaccinations/{vaccination}', [VaccinationController::class, 'update']);
         Route::delete('patients/{patient}/vaccinations/{vaccination}', [VaccinationController::class, 'destroy']);
+        // « Rappeler le propriétaire » depuis le carnet (28.10.2026)
+        Route::post('patients/{patient}/vaccinations/{vaccination}/rappel', [RappelsController::class, 'vaccination'])->middleware('throttle:30,1');
+
+        // Rappels aux propriétaires par e-mail : réglages et fenêtre « Rappels automatiques »
+        Route::get('rappels', [RappelsController::class, 'index']);
+        Route::get('rappels/reglages', [RappelsController::class, 'reglages']);
+        Route::put('rappels/reglages', [RappelsController::class, 'modifierReglages']);
 
         // Catalogue des vaccins autorisés en Suisse (Swissmedic, GTIN Refdata)
         Route::get('vaccins', [VaccinCatalogueController::class, 'index']);
