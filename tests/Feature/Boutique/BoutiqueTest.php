@@ -3,6 +3,7 @@
 namespace Tests\Feature\Boutique;
 
 use App\Enums\StatutFacture;
+use App\Mail\CommandeBoutiquePrete;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\CommandeBoutique;
@@ -10,8 +11,10 @@ use App\Models\CommandeBoutiqueLigne;
 use App\Models\Facture;
 use App\Models\Produit;
 use App\Models\Stock;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -116,6 +119,30 @@ class BoutiqueTest extends TestCase
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('lignes.0.produit_id');
+    }
+
+    /** Commande prête : le client est prévenu par e-mail (adresse de sa fiche, sinon de son compte), et la réponse le dit. */
+    public function test_une_commande_prete_previent_le_client_par_e_mail(): void
+    {
+        Mail::fake();
+        $organisation = $this->clinique->societe->organisation_id;
+        $avecFiche = Client::factory()->create(['organisation_id' => $organisation, 'email' => 'lea@exemple.ch']);
+        $compte = User::factory()->create(['email' => 'paul@exemple.ch']);
+        $avecCompte = Client::factory()->create(['organisation_id' => $organisation, 'email' => null, 'user_id' => $compte->id]);
+        $sansAdresse = Client::factory()->create(['organisation_id' => $organisation, 'email' => null, 'user_id' => null]);
+        $entetes = $this->enTetes($this->jeton);
+
+        foreach ([[$avecFiche, 'lea@exemple.ch'], [$avecCompte, 'paul@exemple.ch'], [$sansAdresse, null]] as [$client, $adresse]) {
+            $commande = CommandeBoutique::factory()->create(['clinique_id' => $this->clinique->id, 'client_id' => $client->id]);
+
+            $this->postJson("/api/v1/boutique/commandes/{$commande->id}/preparer", [], $entetes)
+                ->assertOk()->assertJsonPath('data.client_prevenu', $adresse !== null);
+
+            if ($adresse !== null) {
+                Mail::assertSent(CommandeBoutiquePrete::class, fn (CommandeBoutiquePrete $mail) => $mail->hasTo($adresse) && $mail->commande->is($commande));
+            }
+        }
+        Mail::assertSent(CommandeBoutiquePrete::class, 2);
     }
 
     public function test_le_cycle_de_commande_sort_le_stock_a_la_remise(): void

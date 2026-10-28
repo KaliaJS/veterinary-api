@@ -24,6 +24,8 @@ class CommandeBoutiqueResource extends JsonResource
             'statut' => $this->statut,
             'passee_le' => $this->passee_le,
             'retiree_le' => $this->retiree_le,
+            // Au passage « prête » : client prévenu par e-mail ou non (28.10.2026)
+            'client_prevenu' => $this->when($this->resource->clientPrevenu !== null, fn () => $this->resource->clientPrevenu),
             'total_ttc' => $this->whenLoaded('lignes', fn (): float => $this->totalTtc()),
             'nombre_articles' => $this->whenLoaded('lignes', fn (): int => (int) $this->lignes->sum('quantite')),
             'lignes' => $this->whenLoaded(

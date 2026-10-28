@@ -7,6 +7,7 @@ use App\Enums\StatutCommandeBoutique;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Boutique\EnregistrerCommandeBoutiqueRequest;
 use App\Http\Resources\V1\CommandeBoutiqueResource;
+use App\Mail\CommandeBoutiquePrete;
 use App\Models\Client;
 use App\Models\CommandeBoutique;
 use App\Models\Produit;
@@ -16,7 +17,9 @@ use App\Services\Numeroteur;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Commandes de la boutique en ligne, clinique de retrait du jeton.
@@ -93,6 +96,20 @@ class CommandeBoutiqueController extends Controller
         }
 
         $commande->update(['statut' => StatutCommandeBoutique::Prete]);
+
+        // Le client est prévenu par e-mail (28.10.2026) : l'adresse de sa
+        // fiche, sinon celle de son compte ; la réponse dit s'il l'a été
+        $client = $commande->client()->with('user')->first();
+        $adresse = $client?->email ?: $client?->user?->email;
+        $commande->clientPrevenu = false;
+        if ($adresse) {
+            try {
+                Mail::to($adresse)->send(new CommandeBoutiquePrete($commande->load('clinique')));
+                $commande->clientPrevenu = true;
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
 
         return new CommandeBoutiqueResource($commande->load('lignes.produit'));
     }
