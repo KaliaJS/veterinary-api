@@ -26,6 +26,9 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    // Temps réel (Reverb, 28.10.2026) : l'autorisation des canaux passe par
+    // le jeton Sanctum et le contexte de clinique, sous /api/v1
+    ->withBroadcasting(__DIR__.'/../routes/channels.php', ['prefix' => 'api/v1', 'middleware' => ['api', 'auth:sanctum', 'clinique', 'organisation.ouverte']])
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prependToGroup('api', ForcerReponseJson::class);
 

@@ -55,6 +55,7 @@ class ProtectionRoutesTest extends TestCase
         'PUT api/v1/alertes/reglages' => 'Réglages d’e-mails de la personne du jeton.',
         'GET api/v1/vaccins' => 'Catalogue Swissmedic, données publiques de la plateforme.',
         'GET api/v1/vaccins/gtin/{gtin}' => 'Catalogue Swissmedic, données publiques de la plateforme.',
+        'GET api/v1/broadcasting/auth' => 'Autorisation des canaux temps réel (Reverb) : chaque canal vérifie la clinique du jeton (routes/channels.php).',
         'GET api/v1/rappels/reglages' => 'Réglages des rappels de la clinique (oui ou non, délai) : lus par toute l’équipe, modifiés avec le droit organisation.',
     ];
 
