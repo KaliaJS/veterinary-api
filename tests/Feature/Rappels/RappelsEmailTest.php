@@ -13,6 +13,7 @@ use App\Models\RappelEnvoye;
 use App\Models\RendezVous;
 use App\Models\User;
 use App\Models\Vaccination;
+use App\Services\Rappels\RappelsProprietaires;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -418,5 +419,123 @@ class RappelsEmailTest extends TestCase
         $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations/{$vaccination->id}/rappel", [], $this->enTetes($this->jeton))->assertOk();
 
         Mail::assertSent(RappelVaccin::class, fn (RappelVaccin $mail) => str_contains($mail->render(), 'est à prévoir') && ! str_contains($mail->render(), 'pour le .'));
+    }
+
+    /* ---------- Deuxième passe de vérification (28.10.2026) ---------- */
+
+    /** Un rappel abandonné (trois échecs) ou en cours d'envoi n'est plus annoncé « à venir » ; un échec qui sera repris l'est encore. */
+    public function test_un_rappel_abandonne_ou_en_cours_ne_figure_plus_dans_les_prochains(): void
+    {
+        $abandonne = $this->vaccin('2026-11-09', 'Rage');
+        $enCours = $this->vaccin('2026-11-10', 'Leucose');
+        $repris = $this->vaccin('2026-11-11', 'Typhus');
+        $trace = fn (Vaccination $v, string $statut, int $tentatives) => RappelEnvoye::withoutGlobalScopes()->create([
+            'clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id, 'objet' => 'vaccin', 'vaccination_id' => $v->id, 'libelle' => $v->nom,
+            'echeance_le' => $v->echeance_le, 'canal' => 'email', 'statut' => $statut, 'tentatives' => $tentatives, 'cle' => 'vaccin:'.$v->id.':'.$v->echeance_le->toDateString().':email',
+        ]);
+        $trace($abandonne, 'echec', 3);
+        $trace($enCours, 'envoi', 1);
+        $trace($repris, 'echec', 1);
+
+        $prochains = collect($this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->json('data.a_venir'))->pluck('libelle')->all();
+
+        $this->assertSame(['Typhus'], $prochains);
+    }
+
+    /** La fenêtre des rappels lit les refus des espaces en une fois : autant de requêtes pour 5 propriétaires que pour 40. */
+    public function test_la_fenetre_des_rappels_ne_croit_pas_avec_les_proprietaires(): void
+    {
+        $requetes = function (int $nombre): int {
+            foreach (range(1, $nombre) as $i) {
+                $user = User::factory()->create();
+                PreferencesProprietaire::pour($user);
+                $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'user_id' => $user->id, 'email' => 'p'.$nombre.'-'.$i.'@example.ch']);
+                $animal = Patient::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'client_id' => $client->id]);
+                RendezVous::factory()->pourPatient($animal)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->subMonths(11), 'ends_at' => now()->subMonths(11)->addMinutes(20)]);
+                Vaccination::factory()->create(['patient_id' => $animal->id, 'nom' => 'Rage', 'injectee_le' => '2025-11-20', 'echeance_le' => '2026-11-20']);
+            }
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk();
+            DB::disableQueryLog();
+
+            return count(DB::getQueryLog());
+        };
+
+        // Une première lecture à blanc, sans propriétaire : jeton et clinique déjà lus
+        $this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk();
+        $cinq = $requetes(5);
+        $quarante = $requetes(35);
+
+        $this->assertLessThanOrEqual($cinq, $quarante);
+    }
+
+    /** Désabonnée par le lien sans compte, puis rattachée à un compte : son espace dit « Non », pas « Oui ». */
+    public function test_l_espace_dit_non_quand_la_fiche_a_refuse_par_le_lien(): void
+    {
+        $this->post(RappelsProprietaires::lienDesabonnement($this->client))->assertOk();
+        ['user' => $user, 'jeton' => $jetonEspace] = $this->proprietaireAvecJeton(['email' => 'lea.martin@example.ch']);
+        $this->client->forceFill(['user_id' => $user->id])->save();
+
+        $this->getJson('/api/v1/espace/preferences', $this->enTetes($jetonEspace))->assertOk()->assertJsonPath('data.rappels_email', false);
+        $this->putJson('/api/v1/espace/preferences', ['rappels_email' => true], $this->enTetes($jetonEspace))->assertOk()->assertJsonPath('data.rappels_email', true);
+        $this->assertTrue($this->client->refresh()->rappels_email);
+    }
+
+    /** Le contrôle d'un animal décédé n'est pas annoncé comme programmé. */
+    public function test_le_controle_d_un_animal_decede_est_bloque_dans_la_fenetre(): void
+    {
+        $debut = CarbonImmutable::parse('2026-11-09 14:30', 'Europe/Zurich')->utc();
+        RendezVous::factory()->pourPatient($this->patient)->create(['clinique_id' => $this->clinique->id, 'type' => TypeRendezVous::Controle, 'starts_at' => $debut, 'ends_at' => $debut->addMinutes(20)]);
+        $this->patient->forceFill(['decede_le' => now()->subDay()])->save();
+
+        $this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.a_venir.0.bloque', 'Animal décédé');
+    }
+
+    /** Case 3 : le délai d'un contrôle suit le réglage de la clinique (la veille : rien à J-3 ni à J-2). */
+    public function test_le_delai_d_un_controle_suit_le_reglage(): void
+    {
+        $this->reglages(['delai_jours' => 1]);
+        $debut = CarbonImmutable::parse('2026-11-05 14:30', 'Europe/Zurich')->utc();
+        RendezVous::factory()->pourPatient($this->patient)->create(['clinique_id' => $this->clinique->id, 'type' => TypeRendezVous::Controle, 'starts_at' => $debut, 'ends_at' => $debut->addMinutes(20)]);
+
+        $this->envoyer();
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 10:00', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertNothingSent();
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-04 10:00', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertSent(RappelControle::class, 1);
+    }
+
+    /** Case 5 : la nuit se compte à l'heure de la clinique, pour les vaccins comme pour les contrôles. */
+    public function test_la_nuit_se_compte_a_l_heure_de_la_clinique(): void
+    {
+        $this->clinique->forceFill(['fuseau_horaire' => 'America/New_York'])->save();
+        $this->vaccin('2026-11-09');
+        $debut = CarbonImmutable::parse('2026-11-09 14:30', 'America/New_York')->utc();
+        RendezVous::factory()->pourPatient($this->patient)->create(['clinique_id' => $this->clinique->id, 'type' => TypeRendezVous::Controle, 'starts_at' => $debut, 'ends_at' => $debut->addMinutes(20)]);
+
+        // 10 h à Zurich, 5 h à New York : la nuit de la clinique
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 10:00', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertNothingSent();
+
+        // 15 h à Zurich, 9 h à New York
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 15:00', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertSent(RappelVaccin::class, 1);
+        Mail::assertSent(RappelControle::class, 1);
+    }
+
+    /** Case 7 : le compteur des échecs vient du serveur. */
+    public function test_le_compteur_des_echecs_vient_du_serveur(): void
+    {
+        foreach (range(1, 4) as $i) {
+            RappelEnvoye::withoutGlobalScopes()->create(['clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id, 'objet' => 'vaccin', 'libelle' => 'Rage', 'echeance_le' => '2026-11-09', 'canal' => 'email', 'statut' => 'echec', 'tentatives' => 3, 'cle' => 'echec:'.$i]);
+        }
+
+        $this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.compteurs.echecs', 4);
     }
 }

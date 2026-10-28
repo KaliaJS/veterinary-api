@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Boutique;
 
+use App\Auth\ContexteClinique;
 use App\Auth\RolesParDefaut;
 use App\Enums\MoyenPaiement;
 use App\Enums\StatutPaiement;
@@ -12,6 +13,7 @@ use App\Models\Produit;
 use App\Models\Role;
 use App\Models\Stock;
 use App\Models\TerminalPaiement;
+use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
 use App\Services\Paiements\PaiementsCaisse;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -261,7 +263,7 @@ class VenteComptoirTerminalTest extends TestCase
         $paiement = $this->postJson("/api/v1/boutique/ventes/{$vente['id']}/paiements", ['moyen' => 'twint'], $this->enTetes($this->jeton))->json('data');
         $intention = Paiement::query()->findOrFail($paiement['id'])->stripe_payment_intent_id;
         $this->stripe->intentions[$intention]['statut'] = 'processing';
-        $this->stripe->erreurs['annulerIntention'] = new \App\Paiements\ErreurPaiement(\App\Paiements\ErreurPaiement::GENERIQUE, 'payment_intent_unexpected_state');
+        $this->stripe->erreurs['annulerIntention'] = new ErreurPaiement(ErreurPaiement::GENERIQUE, 'payment_intent_unexpected_state');
 
         $this->postJson("/api/v1/boutique/ventes/{$vente['id']}/annuler", [], $this->enTetes($this->jeton))
             ->assertUnprocessable()->assertJsonValidationErrors(['vente' => 'Un paiement est en cours de validation : attendez son issue.']);
@@ -279,5 +281,51 @@ class VenteComptoirTerminalTest extends TestCase
 
         $this->patchJson("/api/v1/facturation/factures/{$vente['id']}/lignes/{$ligne}", ['quantite' => 40], $this->enTetes($this->jeton))->assertUnprocessable();
         $this->deleteJson("/api/v1/facturation/factures/{$vente['id']}/lignes/{$ligne}", [], $this->enTetes($this->jeton))->assertUnprocessable();
+    }
+
+    /**
+     * Troisième passe (28.10.2026) : la fenêtre de la boutique relit l'état
+     * d'une vente quand un geste est refusé (payée par la caisse entre-temps,
+     * ou annulée), au lieu de rester bloquée.
+     */
+    public function test_la_boutique_relit_l_etat_d_une_vente_du_comptoir(): void
+    {
+        $produit = $this->produitEnRayon(5);
+        $vente = $this->vendre($produit, 'tpe')->json('data');
+        $assistant = $this->assistant();
+
+        $this->getJson("/api/v1/boutique/ventes/{$vente['id']}", $this->enTetes($assistant))->assertOk()->assertJsonPath('data.statut', 'due');
+        $this->postJson("/api/v1/boutique/ventes/{$vente['id']}/especes", [], $this->enTetes($assistant))->assertOk();
+        $this->getJson("/api/v1/boutique/ventes/{$vente['id']}", $this->enTetes($assistant))->assertOk()->assertJsonPath('data.statut', 'payee');
+
+        $consultation = Facture::factory()->create(['clinique_id' => $this->clinique->id]);
+        $this->getJson("/api/v1/boutique/ventes/{$consultation->id}", $this->enTetes($assistant))->assertNotFound();
+    }
+
+    /** Plusieurs terminaux : le paiement part sur celui que la boutique a choisi. */
+    public function test_le_terminal_choisi_parmi_plusieurs_recoit_le_paiement(): void
+    {
+        $produit = $this->produitEnRayon(5);
+        $vente = $this->vendre($produit, 'tpe')->json('data');
+        $this->terminal('Accueil', 'tmr_accueil');
+        $boutique = $this->terminal('Boutique', 'tmr_boutique');
+
+        $this->postJson("/api/v1/boutique/ventes/{$vente['id']}/paiements", ['moyen' => 'tpe', 'terminal_id' => $boutique->id], $this->enTetes($this->jeton))->assertCreated();
+
+        $this->assertSame(['tmr_boutique'], array_column($this->stripe->presentations, 'lecteur'));
+    }
+
+    /** Le terminal d'une autre clinique (même sœur) n'encaisse pas la vente. */
+    public function test_le_terminal_d_une_autre_clinique_est_refuse(): void
+    {
+        $produit = $this->produitEnRayon(5);
+        $vente = $this->vendre($produit, 'tpe')->json('data');
+        app(ContexteClinique::class)->oublier();
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $ailleurs = TerminalPaiement::query()->withoutGlobalScopes()->create(['clinique_id' => $soeur->id, 'stripe_reader_id' => 'tmr_soeur', 'libelle' => 'Sœur', 'modele' => 'bbpos_wisepos_e']);
+
+        $this->postJson("/api/v1/boutique/ventes/{$vente['id']}/paiements", ['moyen' => 'tpe', 'terminal_id' => $ailleurs->id], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['terminal_id' => 'Ce terminal n’appartient pas à la clinique.']);
+        $this->assertSame([], $this->stripe->presentations);
     }
 }

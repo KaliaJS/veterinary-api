@@ -851,6 +851,7 @@ Route::prefix('v1')->group(function (): void {
         Route::middleware(['can:stocks', 'service:boutique'])->prefix('boutique')->group(function (): void {
             // Vente du comptoir payée au terminal ou par TWINT, depuis la boutique (28.10.2026)
             Route::get('ventes', [BoutiquePaiementController::class, 'enAttente']);
+            Route::get('ventes/{facture}', [BoutiquePaiementController::class, 'afficherVente']);
             Route::get('terminaux', [BoutiquePaiementController::class, 'terminaux'])->middleware('throttle:stripe');
             Route::post('ventes/{facture}/paiements', [BoutiquePaiementController::class, 'payer'])->middleware('throttle:stripe');
             Route::post('ventes/{facture}/especes', [BoutiquePaiementController::class, 'especes'])->middleware('throttle:stripe');

@@ -52,6 +52,15 @@ class BoutiquePaiementController extends Controller
             ->with(['lignes', 'prescriptions', 'decompte'])->latest('id')->limit(20)->get());
     }
 
+    /** L'état d'une vente, relu quand un geste est refusé (payée à la caisse entre-temps, annulée). */
+    public function afficherVente(Facture $facture): FactureResource
+    {
+        $this->authorize('create', CommandeBoutique::class);
+        $this->venteDuComptoir($facture);
+
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+    }
+
     public function terminaux(): JsonResponse
     {
         $this->authorize('create', CommandeBoutique::class);

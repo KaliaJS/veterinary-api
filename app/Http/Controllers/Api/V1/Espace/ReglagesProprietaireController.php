@@ -26,7 +26,7 @@ class ReglagesProprietaireController extends Controller
 {
     public function preferences(ContexteProprietaire $contexte): JsonResponse
     {
-        return response()->json(['data' => $this->preferencesArray(PreferencesProprietaire::pour($contexte->user()))]);
+        return response()->json(['data' => $this->preferencesArray(PreferencesProprietaire::pour($contexte->user()), $contexte->user()->id)]);
     }
 
     public function modifierPreferences(ModifierPreferencesRequest $request, ContexteProprietaire $contexte): JsonResponse
@@ -38,7 +38,7 @@ class ReglagesProprietaireController extends Controller
             Client::withoutGlobalScopes()->where('user_id', $contexte->user()->id)->update(['rappels_email' => true]);
         }
 
-        return response()->json(['data' => $this->preferencesArray($preferences->fresh())]);
+        return response()->json(['data' => $this->preferencesArray($preferences->fresh(), $contexte->user()->id)]);
     }
 
     public function appareils(Request $request, ContexteProprietaire $contexte): JsonResponse
@@ -151,15 +151,17 @@ class ReglagesProprietaireController extends Controller
                 ->map(fn ($c): array => ['numero' => $c->numero, 'passee_le' => $c->passee_le->toIso8601String(), 'statut' => $c->statut->value, 'total_ttc' => round($c->totalTtc(), 2)])->all(),
             'messages' => MessageClientele::query()->with('clinique')->where('user_id', $user->id)->orderBy('created_at')->get()
                 ->map(fn ($m): array => ['clinique' => $m->clinique->nom, 'auteur' => $m->auteur, 'texte' => $m->texte, 'envoye_le' => $m->created_at?->toIso8601String()])->all(),
-            'preferences' => $this->preferencesArray(PreferencesProprietaire::pour($user)),
+            'preferences' => $this->preferencesArray(PreferencesProprietaire::pour($user), $user->id),
         ]]);
     }
 
     /** @return array<string, mixed> */
-    private function preferencesArray(PreferencesProprietaire $p): array
+    private function preferencesArray(PreferencesProprietaire $p, int $userId): array
     {
         return [
-            'rappels_email' => $p->rappels_email,
+            // Ce qui part vraiment : une fiche désabonnée par le lien d'un e-mail
+            // (avant d'être rattachée au compte) bloque aussi ses rappels
+            'rappels_email' => $p->rappels_email && ! Client::withoutGlobalScopes()->where('user_id', $userId)->where('rappels_email', false)->exists(),
             'rappels_sms' => $p->rappels_sms,
             'reponses_clinique' => $p->reponses_clinique,
             'nouveautes_boutique' => $p->nouveautes_boutique,

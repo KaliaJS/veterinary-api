@@ -129,6 +129,7 @@ class RappelsProprietaires
             $vaccins = $this->dernieresInjections($aujourdhui, $limite, $clinique->societe->organisation_id);
             $references = $this->cliniquesDeReference($vaccins->pluck('patient'));
             $envoyes = $this->clesEnvoyees($vaccins->map(fn (Vaccination $v): string => self::cle('vaccin', $v->id, $v->echeance_le->toDateString())));
+            $this->lireLesRefus($vaccins->map(fn (Vaccination $v): ?Client => $v->patient?->client));
             foreach ($vaccins as $vaccination) {
                 if (($references[$vaccination->patient_id] ?? null)?->id !== $clinique->id
                     || isset($envoyes[self::cle('vaccin', $vaccination->id, $vaccination->echeance_le->toDateString())])) {
@@ -142,6 +143,7 @@ class RappelsProprietaires
                 ->where('clinique_id', $clinique->id)->where('type', TypeRendezVous::Controle)->where('status', StatutRendezVous::Prevu)
                 ->whereNotNull('patient_id')->whereBetween('starts_at', [now(), $limite->endOfDay()])->get();
             $envoyes = $this->clesEnvoyees($controles->map(fn (RendezVous $r): string => self::cle('controle', $r->id, $this->momentLocal($r, $clinique))));
+            $this->lireLesRefus($controles->map(fn (RendezVous $r): ?Client => $r->patient?->client));
             foreach ($controles as $rendezVous) {
                 if (! isset($envoyes[self::cle('controle', $rendezVous->id, $this->momentLocal($rendezVous, $clinique))])) {
                     $jour = substr($this->momentLocal($rendezVous, $clinique), 0, 10);
@@ -153,6 +155,25 @@ class RappelsProprietaires
         usort($lignes, fn (array $a, array $b): int => [$a['envoi_le'], $a['echeance_le']] <=> [$b['envoi_le'], $b['echeance_le']]);
 
         return $lignes;
+    }
+
+    /**
+     * Les refus des espaces de ces propriétaires, lus en une requête (la
+     * fenêtre des rappels en compte des dizaines).
+     *
+     * @param  iterable<?Client>  $clients
+     */
+    private function lireLesRefus(iterable $clients): void
+    {
+        $users = collect($clients)->filter()->pluck('user_id')->filter()->unique()
+            ->reject(fn (int $id): bool => array_key_exists($id, $this->refusEspace))->values();
+        if ($users->isEmpty()) {
+            return;
+        }
+        $refus = PreferencesProprietaire::query()->whereIn('user_id', $users->all())->pluck('rappels_email', 'user_id');
+        foreach ($users as $id) {
+            $this->refusEspace[$id] = ($refus[$id] ?? null) !== false;
+        }
     }
 
     /** Le propriétaire n'a refusé les rappels ni par le lien de l'e-mail, ni dans son espace. */
@@ -202,7 +223,11 @@ class RappelsProprietaires
             return [];
         }
 
-        return array_fill_keys(RappelEnvoye::withoutGlobalScopes()->whereIn('cle', $cles->all())->where('statut', 'envoye')->pluck('cle')->all(), true);
+        // Parti, en cours d'envoi, ou abandonné après trois échecs : plus « à venir »
+        // (la liste des envois le montre) ; un échec qui sera repris l'est encore
+        return array_fill_keys(RappelEnvoye::withoutGlobalScopes()->whereIn('cle', $cles->all())
+            ->where(fn ($q) => $q->whereIn('statut', ['envoye', 'envoi'])->orWhere(fn ($e) => $e->where('statut', 'echec')->where('tentatives', '>=', self::TENTATIVES_MAX)))
+            ->pluck('cle')->all(), true);
     }
 
     private function clinique(?int $id): ?Clinique
@@ -420,6 +445,7 @@ class RappelsProprietaires
             'envoi_le' => max($envoi, $aujourdhui)->toDateString(),
             // Ce qui l'empêchera de partir, dit tel quel
             'bloque' => match (true) {
+                $patient->decede_le !== null => 'Animal décédé',
                 ! $reglages['email'] => 'Rappels par e-mail coupés',
                 (bool) $patient->rappels_coupes => 'Rappels coupés pour '.$patient->nom,
                 $client === null || blank($client->email) => 'Pas d’adresse e-mail',
