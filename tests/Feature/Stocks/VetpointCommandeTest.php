@@ -487,23 +487,18 @@ class VetpointCommandeTest extends TestCase
         $this->assertSame('2026-10-27', end($recherches)['corps']['fromDate']);
     }
 
-    /** Une clinique sœur qui a sa clé : la commande qu'elle reçoit part avec sa clé à elle. */
-    public function test_une_commande_livree_a_une_clinique_soeur_part_avec_la_cle_de_la_soeur(): void
+    /** On commande depuis la clinique : la commande d'une clinique sœur ne part pas d'ici, même si la sœur a sa clé. */
+    public function test_la_commande_d_une_clinique_soeur_ne_part_pas_d_ici(): void
     {
         $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
         ConnexionVetpoint::withoutGlobalScopes()->create(['clinique_id' => $soeur->id, 'cle' => self::CLE_SOEUR, 'verifiee_le' => now()]);
         $commande = $this->brouillon();
         $commande->forceFill(['clinique_id' => $soeur->id])->save();
 
-        $this->refus = ['statut' => 422, 'corps' => ['errorTyoe' => '4002', 'errorMessage' => 'invalid']];
-        $this->envoyer($commande)->assertUnprocessable();
-        $this->assertNull($commande->refresh()->vetpoint_envoi_le);
-        $this->refus = null;
+        $this->envoyer($commande)->assertNotFound();
+        $this->getJson("/api/v1/stocks/commandes/{$commande->id}/vetpoint/adresses", $this->entetes)->assertNotFound();
 
-        $this->envoyer($commande)->assertOk()->assertJsonPath('data.vetpoint.numero', 'V-7001');
-        $this->assertSame(StatutCommandeFournisseur::Envoyee, $commande->refresh()->statut);
-        // Chaque appel avec la clé de la sœur, jamais celle de la clinique du jeton
-        $this->assertSame([self::CLE_SOEUR], array_values(array_unique(array_column($this->appels, 'cle'))));
+        $this->assertSame([], $this->appels);
     }
 
     public function test_les_refus_sans_code_ou_en_allemand_restent_justes(): void
@@ -745,29 +740,17 @@ class VetpointCommandeTest extends TestCase
         $this->postJson("/api/v1/stocks/commandes/{$commande->id}/envoyer", [], $this->entetes)->assertUnprocessable();
     }
 
-    /** La clinique de livraison changée pendant la lecture des adresses : rien ne part avec la clé de l'autre clinique. */
+    /** La commande passée à une autre clinique pendant la lecture des adresses : elle n'est plus d'ici, rien ne part. */
     public function test_la_clinique_changee_pendant_l_envoi_n_envoie_rien(): void
     {
         $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
         $commande = $this->brouillon();
         $this->pendantLesAdresses = fn () => CommandeFournisseur::query()->withoutGlobalScopes()->whereKey($commande->id)->update(['clinique_id' => $soeur->id]);
 
-        $this->envoyer($commande)->assertStatus(409);
+        $this->envoyer($commande)->assertNotFound();
 
         $this->assertSame([], $this->envois());
         $this->assertNull($commande->refresh()->vetpoint_envoi_le);
-    }
-
-    /** La clinique de livraison ne se change pas pendant un envoi en suspens. */
-    public function test_la_destination_ne_se_change_pas_pendant_un_envoi_en_suspens(): void
-    {
-        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
-        $commande = $this->brouillon();
-        $commande->forceFill(['vetpoint_envoi_le' => now()->subMinutes(5)])->save();
-
-        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}", ['clinique_id' => $soeur->id], $this->entetes)->assertUnprocessable();
-
-        $this->assertSame($this->clinique->id, $commande->refresh()->clinique_id);
     }
 
     /** Un numéro déjà gardé par une autre commande n'est jamais repris. */

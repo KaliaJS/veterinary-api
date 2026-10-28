@@ -18,10 +18,11 @@ use Tests\TestCase;
 /**
  * Tranches de scope du domaine (docs/data-model.md §14) : le catalogue
  * est d'ORGANISATION — invisible d'une organisation étrangère ; les
- * quantités, le journal et les commandes se LISENT toutes cliniques de
- * l'organisation confondues ; les écritures visent la clinique du jeton
- * ou une clinique SŒUR explicite — jamais une autre organisation. Les
- * lots restent à la clinique du jeton.
+ * quantités et le journal se LISENT toutes cliniques de l'organisation
+ * confondues ; les écritures visent la clinique du jeton ou une clinique
+ * SŒUR explicite, jamais une autre organisation. Les lots et les commandes
+ * fournisseur restent à la clinique du jeton (on commande depuis la
+ * clinique, décision de Jim du 28.10.2026).
  */
 class StocksIsolationTest extends TestCase
 {
@@ -85,34 +86,28 @@ class StocksIsolationTest extends TestCase
         );
     }
 
-    public function test_les_commandes_de_l_organisation_sont_visibles_et_pilotables_pas_celles_d_une_autre(): void
+    /** On commande depuis la clinique (décision de Jim, 28.10.2026) : celles d'une clinique sœur ne se voient ni ne se touchent d'ici. */
+    public function test_les_commandes_d_une_clinique_soeur_sont_invisibles_et_intouchables(): void
     {
         $commandeSoeur = CommandeFournisseur::factory()->create(['clinique_id' => $this->cliniqueSoeur->id]);
         $commandeEtrangere = CommandeFournisseur::factory()->create(['clinique_id' => $this->cliniqueEtrangere->id]);
+        $commandeIci = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
         CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $commandeSoeur->id]);
 
         $this->getJson('/api/v1/stocks/commandes', $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.id', $commandeSoeur->id)
-            ->assertJsonPath('data.0.clinique_id', $this->cliniqueSoeur->id);
-
-        $this->getJson("/api/v1/stocks/commandes?clinique_id={$this->clinique->id}", $this->enTetes($this->jeton))
-            ->assertOk()
-            ->assertJsonCount(0, 'data');
-
-        $this->postJson("/api/v1/stocks/commandes/{$commandeSoeur->id}/envoyer", [], $this->enTetes($this->jeton))
-            ->assertOk()
-            ->assertJsonPath('data.statut', 'sent');
+            ->assertJsonPath('data.0.id', $commandeIci->id);
 
         $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
-
-        foreach (['envoyer', 'receptionner', 'lignes'] as $geste) {
-            $this->postJson("/api/v1/stocks/commandes/{$commandeEtrangere->id}/{$geste}", ['produit_id' => $produit->id, 'quantite' => 1], $this->enTetes($this->jeton))
-                ->assertNotFound();
+        foreach ([$commandeSoeur, $commandeEtrangere] as $ailleurs) {
+            foreach (['envoyer', 'receptionner', 'lignes', 'vetpoint'] as $geste) {
+                $this->postJson("/api/v1/stocks/commandes/{$ailleurs->id}/{$geste}", ['produit_id' => $produit->id, 'quantite' => 1, 'adresse_id' => 'A1', 'livraison' => 'standard'], $this->enTetes($this->jeton))
+                    ->assertNotFound();
+            }
+            $this->deleteJson("/api/v1/stocks/commandes/{$ailleurs->id}", [], $this->enTetes($this->jeton))->assertNotFound();
         }
-        $this->deleteJson("/api/v1/stocks/commandes/{$commandeEtrangere->id}", [], $this->enTetes($this->jeton))
-            ->assertNotFound();
+        $this->assertSame('draft', $commandeSoeur->refresh()->statut->value);
     }
 
     public function test_l_ajustement_et_le_stock_initial_atteignent_une_clinique_soeur_jamais_une_etrangere(): void

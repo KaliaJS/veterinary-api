@@ -3,6 +3,7 @@
 namespace App\Http\Requests\V1\Stocks;
 
 use App\Http\Requests\V1\Concerns\ReglesScopees;
+use App\Rules\CliniqueOuverte;
 use Illuminate\Foundation\Http\FormRequest;
 
 class EnregistrerCommandeFournisseurRequest extends FormRequest
@@ -14,16 +15,11 @@ class EnregistrerCommandeFournisseurRequest extends FormRequest
     {
         return [
             'fournisseur' => ['required', 'string', 'max:255'],
-            // Clinique de livraison (celle du jeton sinon).
-            'clinique_id' => ['sometimes', 'nullable', 'integer', $this->estUneCliniqueDeLOrganisation()],
+            // Toujours la clinique du jeton : on commande depuis la clinique
+            'clinique_id' => ['sometimes', 'nullable', 'integer', new CliniqueOuverte],
             'lignes' => ['required', 'array', 'min:1'],
             'lignes.*.produit_id' => ['required', $this->existeDansLOrganisation('produits')],
             'lignes.*.quantite' => ['required', 'integer', 'min:1', 'max:99999'],
         ];
-    }
-
-    public function cliniqueId(): ?int
-    {
-        return $this->filled('clinique_id') ? (int) $this->validated('clinique_id') : null;
     }
 }

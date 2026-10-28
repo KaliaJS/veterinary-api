@@ -80,7 +80,7 @@ class CommandeFournisseurLigneController extends Controller
      */
     private function brouillonModifiable(int $id): CommandeFournisseur
     {
-        $commande = CommandeFournisseur::query()->dansLOrganisation()->whereKey($id)->lockForUpdate()->firstOrFail();
+        $commande = CommandeFournisseur::query()->whereKey($id)->lockForUpdate()->firstOrFail();
 
         $this->authorize('update', $commande);
 

@@ -27,7 +27,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Vetpoint, étapes 3 et 4 (demande de Jim, 28.10.2026) : une commande
- * fournisseur part par Vetpoint, au nom de la clinique de livraison (sa
+ * fournisseur part par Vetpoint, au nom de la clinique qui la passe (sa
  * clé, ses adresses, ses prix), en une fois et jamais deux fois ; puis son
  * détail chez Vetpoint (prix réels, péremptions) se lit pour la réception.
  */
@@ -36,10 +36,10 @@ class CommandeVetpointController extends Controller
     /** Un envoi plus récent que cela est peut-être encore en route : on attend */
     private const int ENVOI_EN_COURS_SECONDES = 60;
 
-    /** Adresses de livraison du compte Vetpoint de la clinique de livraison. */
+    /** Adresses de livraison du compte Vetpoint de la clinique. */
     public function adresses(int $commande): JsonResponse
     {
-        $commande = CommandeFournisseurController::commandeDeLOrganisation($commande);
+        $commande = CommandeFournisseurController::commandeDeLaClinique($commande);
         $this->authorize('update', $commande);
 
         return response()->json(['data' => $this->appel(fn () => $this->client($commande)->adressesLivraison())]);
@@ -47,7 +47,7 @@ class CommandeVetpointController extends Controller
 
     public function envoyer(Request $request, int $commande): CommandeFournisseurResource
     {
-        $commande = CommandeFournisseurController::commandeDeLOrganisation($commande);
+        $commande = CommandeFournisseurController::commandeDeLaClinique($commande);
         $this->authorize('update', $commande);
 
         $choix = $request->validate([
@@ -95,13 +95,10 @@ class CommandeVetpointController extends Controller
         // Sous verrou : un seul envoi à la fois ; un envoi dont la réponse s'est
         // perdue est d'abord cherché chez Vetpoint
         $reprise = DB::transaction(function () use ($commande): ?bool {
-            $verrouillee = CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
+            $verrouillee = CommandeFournisseur::query()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
             if ($verrouillee->statut !== StatutCommandeFournisseur::Brouillon) {
                 throw ValidationException::withMessages(['statut' => 'Seul un brouillon s’envoie.']);
             }
-            // La clé et les adresses lues sont celles de la clinique de
-            // livraison d'avant le verrou : changée entre-temps, rien ne part
-            abort_if($verrouillee->clinique_id !== $commande->clinique_id, 409, 'La clinique de livraison a changé pendant l’envoi : renvoyez la commande.');
             $precedent = $verrouillee->vetpoint_envoi_le;
             if ($precedent !== null && $precedent->greaterThan(now()->subSeconds(self::ENVOI_EN_COURS_SECONDES))) {
                 return null;
@@ -121,13 +118,13 @@ class CommandeVetpointController extends Controller
         if ($lignes->isEmpty() || $lignes->contains(fn (CommandeFournisseurLigne $ligne): bool => $ligne->produit?->vetpoint === null)) {
             // Une reprise reste en suspens : la commande est peut-être partie
             if (! $reprise) {
-                CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->update(['vetpoint_envoi_le' => null]);
+                CommandeFournisseur::query()->whereKey($commande->id)->update(['vetpoint_envoi_le' => null]);
             }
             throw ValidationException::withMessages(['lignes' => 'Les lignes ont changé pendant l’envoi : vérifiez-les, puis renvoyez.']);
         }
 
         $note = 'Veterinary '.$commande->numero;
-        $liberer = fn () => CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->update(['vetpoint_envoi_le' => null]);
+        $liberer = fn () => CommandeFournisseur::query()->whereKey($commande->id)->update(['vetpoint_envoi_le' => null]);
         $numero = null;
         if ($reprise) {
             // La commande est peut-être partie : sans recherche aboutie, elle
@@ -144,7 +141,7 @@ class CommandeVetpointController extends Controller
         }
         try {
             if ($numero === null) {
-                CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->update([
+                CommandeFournisseur::query()->whereKey($commande->id)->update([
                     'vetpoint_adresse_id' => $choix['adresse_id'],
                     'vetpoint_livraison' => $choix['livraison'],
                     'vetpoint_date_souhaitee' => $date,
@@ -211,11 +208,11 @@ class CommandeVetpointController extends Controller
      */
     public function abandonner(int $commande): CommandeFournisseurResource
     {
-        $commande = CommandeFournisseurController::commandeDeLOrganisation($commande);
+        $commande = CommandeFournisseurController::commandeDeLaClinique($commande);
         $this->authorize('update', $commande);
 
         $commande = DB::transaction(function () use ($commande): CommandeFournisseur {
-            $verrouillee = CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
+            $verrouillee = CommandeFournisseur::query()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
             if ($verrouillee->statut !== StatutCommandeFournisseur::Brouillon || $verrouillee->vetpoint_envoi_le === null || $verrouillee->vetpoint_commande_id !== null) {
                 throw ValidationException::withMessages(['statut' => 'Aucun envoi par Vetpoint en suspens pour cette commande.']);
             }
@@ -231,7 +228,7 @@ class CommandeVetpointController extends Controller
     /** La commande chez Vetpoint : ses lignes avec prix réels et péremptions, dès que Vetpoint les donne. */
     public function detail(int $commande): JsonResponse
     {
-        $commande = CommandeFournisseurController::commandeDeLOrganisation($commande);
+        $commande = CommandeFournisseurController::commandeDeLaClinique($commande);
         $this->authorize('viewAny', CommandeFournisseur::class);
         abort_if($commande->vetpoint_commande_id === null, 404, 'Cette commande n’est pas passée par Vetpoint.');
 
@@ -287,14 +284,14 @@ class CommandeVetpointController extends Controller
     }
 
     /**
-     * Le client Vetpoint de la clinique de livraison, ou un refus clair. Une
+     * Le client Vetpoint de la clinique, ou un refus clair. Une
      * clinique sœur commande avec sa propre clé : la commande, déjà bornée à
      * l'organisation, dit laquelle (hors scope de la clinique du jeton).
      */
     public static function clientDe(int $cliniqueId): ClientVetpoint
     {
         $connexion = ConnexionVetpoint::withoutGlobalScopes()->where('clinique_id', $cliniqueId)->first();
-        abort_if($connexion === null, 409, 'Vetpoint n’est pas relié à la clinique de livraison : collez sa clé dans Réglages, Fournisseurs, depuis cette clinique.');
+        abort_if($connexion === null, 409, 'Vetpoint n’est pas relié à cette clinique : collez sa clé dans Réglages, Fournisseurs.');
         $cle = $connexion->cleEnClair();
         abort_if($cle === null, 409, 'La clé Vetpoint de la clinique est illisible : collez-la à nouveau dans Réglages, Fournisseurs.');
 

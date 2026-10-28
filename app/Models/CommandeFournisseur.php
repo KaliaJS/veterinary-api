@@ -13,10 +13,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * Bon de commande fournisseur, rattaché à la clinique de livraison —
- * celle du jeton ou une clinique sœur, lue et pilotée depuis toute
- * clinique de l'organisation (scope dansLOrganisation). Cycle brouillon → envoyée → réceptionnée ; la suppression est tolérée
- * tant que la commande n'est pas réceptionnée (le stock a alors bougé).
+ * Bon de commande fournisseur de la clinique qui le reçoit, lu et piloté
+ * depuis elle seule (décision de Jim, 28.10.2026). Cycle brouillon →
+ * envoyée → réceptionnée ; la suppression est tolérée tant que la commande
+ * n'est pas réceptionnée (le stock a alors bougé).
  */
 class CommandeFournisseur extends Model
 {
@@ -50,10 +50,10 @@ class CommandeFournisseur extends Model
     }
 
     /**
-     * Toutes cliniques de l'organisation du jeton (lecture et gestes
-     * depuis l'écran Stocks, dont la ventilation est transversale) —
-     * jamais au-delà. Résolution sans binding implicite, qui bornerait
-     * à la clinique du jeton.
+     * Toutes cliniques de l'organisation du jeton, jamais au-delà. Sert
+     * seulement aux contrôles transversaux (articles déjà couverts par une
+     * commande ouverte, note Vetpoint d'une autre de nos commandes) : on
+     * ne lit ni ne pilote d'ici la commande d'une clinique sœur.
      *
      * @param  Builder<static>  $requete
      * @return Builder<static>

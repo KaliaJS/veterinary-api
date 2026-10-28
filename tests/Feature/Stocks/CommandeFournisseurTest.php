@@ -7,7 +7,6 @@ use App\Models\Clinique;
 use App\Models\CommandeFournisseur;
 use App\Models\CommandeFournisseurLigne;
 use App\Models\Lot;
-use App\Models\MouvementStock;
 use App\Models\MouvementStupefiant;
 use App\Models\Produit;
 use App\Models\Stock;
@@ -77,25 +76,6 @@ class CommandeFournisseurTest extends TestCase
             ->assertJsonPath('data.statut', 'sent');
 
         $this->assertNotNull($commande->fresh()->envoyee_le);
-    }
-
-    /** La clinique de livraison d'un brouillon se change après coup : une clinique de l'organisation, un brouillon seulement. */
-    public function test_la_destination_d_un_brouillon_se_change(): void
-    {
-        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
-        $etrangere = Clinique::factory()->create();
-        $commande = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
-        $entetes = $this->enTetes($this->jeton);
-
-        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}", ['clinique_id' => $etrangere->id], $entetes)
-            ->assertUnprocessable()->assertJsonValidationErrors('clinique_id');
-        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}", ['clinique_id' => $soeur->id], $entetes)
-            ->assertOk()->assertJsonPath('data.clinique_id', $soeur->id);
-        $this->assertSame($soeur->id, $commande->refresh()->clinique_id);
-
-        $commande->forceFill(['statut' => StatutCommandeFournisseur::Envoyee])->save();
-        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}", ['clinique_id' => $this->clinique->id], $entetes)
-            ->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Seule la livraison d’un brouillon se change.']);
     }
 
     public function test_envoyer_une_commande_sans_ligne_est_refuse(): void
@@ -222,48 +202,34 @@ class CommandeFournisseurTest extends TestCase
             ->assertJsonValidationErrors('commandes');
     }
 
-    public function test_une_commande_livree_a_une_clinique_soeur_credite_son_stock_et_ses_lots_a_la_reception(): void
+    /** On commande depuis la clinique (décision de Jim, 28.10.2026) : plus de commande ni de brouillons automatiques pour une clinique sœur. */
+    public function test_on_ne_commande_plus_pour_une_clinique_soeur(): void
     {
         $cliniqueSoeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
-        $produit = $this->produit(['peremption_le' => aujourdhui()->addYear()]);
+        $produit = $this->produit(['seuil_alerte' => 10, 'fournisseur' => 'Vetopharm SA']);
+        $refus = 'Une commande se passe depuis la clinique qui la reçoit : ouvrez cette clinique pour commander.';
 
-        $id = $this->postJson('/api/v1/stocks/commandes', [
-            'fournisseur' => 'Vetopharm SA',
-            'clinique_id' => $cliniqueSoeur->id,
-            'lignes' => [['produit_id' => $produit->id, 'quantite' => 6]],
-        ], $this->enTetes($this->jeton))
-            ->assertCreated()
-            ->assertJsonPath('data.clinique_id', $cliniqueSoeur->id)
-            ->json('data.id');
+        $this->postJson('/api/v1/stocks/commandes', [
+            'fournisseur' => 'Vetopharm SA', 'clinique_id' => $cliniqueSoeur->id, 'lignes' => [['produit_id' => $produit->id, 'quantite' => 6]],
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors(['clinique_id' => $refus]);
+        $this->postJson('/api/v1/stocks/commandes/generer', ['clinique_id' => $cliniqueSoeur->id], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['clinique_id' => $refus]);
+        $this->assertSame(0, CommandeFournisseur::withoutGlobalScopes()->count());
 
-        $this->postJson("/api/v1/stocks/commandes/{$id}/envoyer", [], $this->enTetes($this->jeton))->assertOk();
-        $this->postJson("/api/v1/stocks/commandes/{$id}/receptionner", [], $this->enTetes($this->jeton))
-            ->assertOk()
-            ->assertJsonPath('data.statut', 'rec');
-
-        $this->assertSame(
-            [$cliniqueSoeur->id => 6],
-            Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->pluck('quantite', 'clinique_id')->all(),
-        );
-        $this->assertSame([$cliniqueSoeur->id], MouvementStock::withoutGlobalScopes()->pluck('clinique_id')->all());
-        $this->assertSame([$cliniqueSoeur->id], Lot::withoutGlobalScopes()->pluck('clinique_id')->all());
+        // Sans clinique demandée : pour la clinique ouverte
+        $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('data.0.clinique_id', $this->clinique->id);
     }
 
-    public function test_generer_livre_a_la_clinique_soeur_demandee(): void
+    /** La clinique de livraison d'un brouillon ne se change plus. */
+    public function test_la_clinique_d_un_brouillon_ne_se_change_plus(): void
     {
-        $cliniqueSoeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
-        $this->produit(['seuil_alerte' => 10, 'fournisseur' => 'Vetopharm SA']);
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $commande = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
 
-        $this->postJson('/api/v1/stocks/commandes/generer', ['clinique_id' => $cliniqueSoeur->id], $this->enTetes($this->jeton))
-            ->assertOk()
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.clinique_id', $cliniqueSoeur->id);
+        $this->patchJson("/api/v1/stocks/commandes/{$commande->id}", ['clinique_id' => $soeur->id], $this->enTetes($this->jeton))->assertStatus(405);
 
-        // Un article couvert par un brouillon d'une clinique sœur ne se
-        // regénère pas — le seuil est celui de l'organisation.
-        $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('commandes');
+        $this->assertSame($this->clinique->id, $commande->refresh()->clinique_id);
     }
 
     public function test_les_lignes_d_un_brouillon_s_ajoutent_se_modifient_et_se_retirent(): void
@@ -352,15 +318,5 @@ class CommandeFournisseurTest extends TestCase
             ->assertJsonValidationErrors(['statut' => 'Une commande réceptionnée a fait bouger le stock, elle ne se supprime plus.']);
 
         $this->assertDatabaseHas('commandes_fournisseur', ['id' => $commande->id]);
-    }
-
-    /** Le brouillon d'une autre organisation ne se déplace jamais, même vers une de ses propres cliniques. */
-    public function test_le_brouillon_d_une_autre_organisation_ne_se_deplace_pas(): void
-    {
-        $ailleurs = CommandeFournisseur::factory()->create(['clinique_id' => Clinique::factory()->create()->id]);
-
-        $this->patchJson("/api/v1/stocks/commandes/{$ailleurs->id}", ['clinique_id' => $this->clinique->id], $this->enTetes($this->jeton))->assertNotFound();
-
-        $this->assertNotSame($this->clinique->id, $ailleurs->refresh()->clinique_id);
     }
 }
