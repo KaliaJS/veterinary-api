@@ -264,13 +264,13 @@ class BoutiqueTest extends TestCase
 
         $reponse = $this->postJson('/api/v1/boutique/vente', [
             'client_nom' => 'Client de passage',
-            'moyen_paiement' => 'twint',
+            'moyen_paiement' => 'cash',
             'lignes' => [['produit_id' => $produit->id, 'quantite' => 2]],
         ], $this->enTetes($this->jeton));
 
         $reponse->assertCreated()
             ->assertJsonPath('data.statut', 'payee')
-            ->assertJsonPath('data.moyen_paiement', 'twint')
+            ->assertJsonPath('data.moyen_paiement', 'cash')
             ->assertJsonPath('data.lignes.0.prix_chf', 27)
             ->assertJsonPath('data.total_ttc', 54);
 
@@ -326,8 +326,8 @@ class BoutiqueTest extends TestCase
         $shampooing = $this->produitEnRayon(10);
         $entetes = $this->enTetes($this->jeton);
         // Un ticket de deux lignes, puis un ticket d'une ligne
-        $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'twint', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 1], ['produit_id' => $shampooing->id, 'quantite' => 1]]], $entetes)->assertCreated();
-        $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'twint', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 2]]], $entetes)->assertCreated();
+        $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'cash', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 1], ['produit_id' => $shampooing->id, 'quantite' => 1]]], $entetes)->assertCreated();
+        $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'cash', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 2]]], $entetes)->assertCreated();
 
         $totaux = $this->getJson('/api/v1/boutique/statistiques', $entetes)->assertOk()->json('data.totaux');
 
@@ -341,7 +341,7 @@ class BoutiqueTest extends TestCase
         $croquettes = $this->produitEnRayon(10, ['cout' => 10]);
         $shampooing = $this->produitEnRayon(10, ['cout' => 5]);
         $entetes = $this->enTetes($this->jeton);
-        $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'twint', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 3], ['produit_id' => $shampooing->id, 'quantite' => 1]]], $entetes)->assertCreated();
+        $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'cash', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 3], ['produit_id' => $shampooing->id, 'quantite' => 1]]], $entetes)->assertCreated();
 
         $data = $this->getJson('/api/v1/boutique/statistiques', $entetes)->assertOk()->json('data');
 
@@ -465,7 +465,7 @@ class BoutiqueTest extends TestCase
         $entetes = $this->enTetes($this->jeton);
 
         $this->postJson('/api/v1/boutique/vente', [
-            'moyen_paiement' => 'tpe',
+            'moyen_paiement' => 'cash',
             'lignes' => [['produit_id' => $produit->id, 'quantite' => 2]],
         ], $entetes)->assertCreated();
 

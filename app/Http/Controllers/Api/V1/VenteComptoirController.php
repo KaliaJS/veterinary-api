@@ -27,7 +27,9 @@ use Illuminate\Validation\ValidationException;
  * lignes produit (la cible de docs/data-model.md §14 — pas d'entité
  * « vente » parallèle) : prix effectif vitrine, panier borné au stock
  * local, stock sorti à l'encaissement, mouvements tracés. Jamais un
- * produit sur ordonnance ni un stupéfiant (23.10.2026). La facture
+ * produit sur ordonnance ni un stupéfiant (23.10.2026). En paiement
+ * intégré, une vente par carte ou TWINT reste due jusqu'au paiement réussi
+ * au terminal ou par le QR TWINT (28.10.2026). La facture
  * naît comme effet système du geste boutique (domaine stocks) — le
  * ticket est renvoyé au vendeur, la comptabilité reste au domaine
  * facturation.
@@ -54,11 +56,15 @@ class VenteComptoirController extends Controller
                 $request->user(),
             );
 
-            return $this->encaissement->encaisser(
-                $facture,
-                MoyenPaiement::from($donnees['moyen_paiement']),
-                $request->user(),
-            );
+            // Paiement intégré, carte ou TWINT (décision de Jim, 28.10.2026) :
+            // la vente attend le terminal ou le QR TWINT, comme une facture ;
+            // le stock sort au paiement réussi
+            $moyen = MoyenPaiement::from($donnees['moyen_paiement']);
+            if ($moyen !== MoyenPaiement::Especes && app(ContexteClinique::class)->clinique()->encaisseAvecVeterinary()) {
+                return $facture;
+            }
+
+            return $this->encaissement->encaisser($facture, $moyen, $request->user());
         });
 
         return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
