@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\AnalyseController;
 use App\Http\Controllers\Api\V1\AnalysePatientController;
 use App\Http\Controllers\Api\V1\AnnuaireCliniqueController;
 use App\Http\Controllers\Api\V1\AnnuaireEmployeController;
+use App\Http\Controllers\Api\V1\AppareilNotificationController;
 use App\Http\Controllers\Api\V1\AppStoreNotificationsController;
 use App\Http\Controllers\Api\V1\Auth\ChangementCliniqueController;
 use App\Http\Controllers\Api\V1\Auth\ChoixCliniqueController;
@@ -189,6 +190,8 @@ Route::prefix('v1')->group(function (): void {
         Route::post('rafraichir', [SessionController::class, 'rafraichir']);
         // Jeton de l'Apple Watch, demandé par l'app iPhone
         Route::post('montre', [SessionController::class, 'montre'])->middleware('throttle:10,1');
+        // La montre (ou l'iPhone) donne son jeton d'Apple pour être réveillée (28.10.2026)
+        Route::post('appareil', [AppareilNotificationController::class, 'enregistrer'])->middleware('throttle:20,1');
         Route::post('clinique', ChangementCliniqueController::class);
         Route::post('deconnexion', [SessionController::class, 'deconnexion']);
         // Profil vétérinaire du compte : GLN (cherché dans MedReg) et spécialités

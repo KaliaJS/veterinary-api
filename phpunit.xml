@@ -53,6 +53,8 @@
         <env name="AWS_ACCESS_KEY_ID" value="" force="true"/>
         <env name="AWS_SECRET_ACCESS_KEY" value="" force="true"/>
         <env name="MAIL_PASSWORD" value="" force="true"/>
+        <!-- Apple (APNs) : jamais la clé du .env (aucune notification réelle) -->
+        <env name="APNS_PRIVATE_KEY_BASE64" value="" force="true"/>
         <!-- TURN de Cloudflare : jamais la clé du .env (STUN seul dans les essais) -->
         <env name="CLOUDFLARE_TURN_KEY_ID" value="" force="true"/>
         <env name="CLOUDFLARE_TURN_API_TOKEN" value="" force="true"/>

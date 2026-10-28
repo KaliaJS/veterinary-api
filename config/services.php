@@ -122,6 +122,14 @@ return [
 
     // Téléconsultation (WebRTC, 28.10.2026) : serveurs TURN de Cloudflare,
     // identifiants temporaires créés par l'API ; sans clé, STUN seulement
+    // Notifications d'Apple (APNs) pour la montre (28.10.2026) : clé .p8 de
+    // Jim (Laravel Cloud), jamais affichée
+    'apns' => [
+        'key_id' => env('APNS_KEY_ID'),
+        'team_id' => env('APNS_TEAM_ID'),
+        'cle_base64' => env('APNS_PRIVATE_KEY_BASE64'),
+    ],
+
     'cloudflare_turn' => [
         'key_id' => env('CLOUDFLARE_TURN_KEY_ID'),
         'api_token' => env('CLOUDFLARE_TURN_API_TOKEN'),

@@ -10,8 +10,10 @@ use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
 use App\Events\RendezVousMisAJour;
 use App\Events\RendezVousSupprime;
+use App\Jobs\PrevenirMontres;
 use App\Models\Concerns\AppartientAUneClinique;
 use App\Support\TempsReel;
+use Carbon\CarbonImmutable;
 use Database\Factories\RendezVousFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\AsEnumCollection;
@@ -50,8 +52,25 @@ class RendezVous extends Model
                     RendezVousMisAJour::dispatch($frais);
                 }
             });
+            $rendezVous->reveillerLesMontres();
         });
-        static::deleted(fn (RendezVous $rendezVous) => TempsReel::diffuser(fn () => RendezVousSupprime::dispatch($rendezVous->id, (int) $rendezVous->clinique_id)));
+        static::deleted(function (RendezVous $rendezVous): void {
+            TempsReel::diffuser(fn () => RendezVousSupprime::dispatch($rendezVous->id, (int) $rendezVous->clinique_id));
+            $rendezVous->reveillerLesMontres();
+        });
+    }
+
+    /**
+     * Les montres de l'équipe relisent leur journée (APNs, 28.10.2026) quand
+     * le rendez-vous touche les deux prochains jours, avant ou après le
+     * changement ; une fois la transaction validée.
+     */
+    public function reveillerLesMontres(): void
+    {
+        $proche = fn (mixed $moment): bool => $moment !== null && CarbonImmutable::parse($moment)->between(now()->subHours(12), now()->addHours(48));
+        if ($proche($this->starts_at) || $proche($this->getPrevious()['starts_at'] ?? null)) {
+            PrevenirMontres::dispatch((int) $this->clinique_id)->afterCommit();
+        }
     }
 
     protected $fillable = [

@@ -6,6 +6,7 @@
     "license": "proprietary",
     "require": {
         "php": "^8.3",
+        "edamov/pushok": "^0.19",
         "laravel-notification-channels/twilio": "^4.2",
         "laravel/framework": "^13.17",
         "laravel/pennant": "^1.26",
