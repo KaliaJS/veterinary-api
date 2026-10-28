@@ -52,14 +52,26 @@ class StatistiquesBoutiqueController extends Controller
         // Une vente, c'est un ticket (une facture), pas une ligne (28.10.2026)
         $tickets = $ventes->pluck('facture_id')->unique()->count();
 
+        // Servis aussi, l'écran ne les calcule pas (28.10.2026) : chiffre par
+        // clinique, meilleures ventes (cinq, au chiffre d'affaires)
+        $parClinique = $ventes->groupBy('clinique_id')
+            ->map(fn ($lignes, $clinique): array => ['clinique_id' => (int) $clinique, 'chiffre_affaires' => round((float) $lignes->sum('revenu'), 2)])
+            ->values();
+        $top = $ventes->groupBy('produit_id')
+            ->map(fn ($lignes, $produit): array => ['produit_id' => (int) $produit, 'nom' => $lignes->first()['nom'], 'quantite' => (int) $lignes->sum('quantite'), 'revenu' => round((float) $lignes->sum('revenu'), 2)])
+            ->sortByDesc('revenu')->take(5)->values();
+
         return response()->json(['data' => [
             'ventes' => $ventes,
+            'par_clinique' => $parClinique,
+            'top' => $top,
             'totaux' => [
                 'chiffre_affaires' => $chiffreAffaires,
                 'cout' => $cout,
                 'marge' => round($chiffreAffaires - $cout, 2),
                 'tickets' => $tickets,
                 'panier_moyen' => $tickets > 0 ? round($chiffreAffaires / $tickets, 2) : null,
+                'marge_pct' => $chiffreAffaires > 0 ? (int) round(($chiffreAffaires - $cout) / $chiffreAffaires * 100) : null,
             ],
         ]]);
     }

@@ -134,7 +134,8 @@ class OrganisationTest extends TestCase
     /** Catalogue des formules et des packs servi : prix, limites (null : illimité) et paliers des enums. */
     public function test_le_catalogue_des_formules_et_des_packs_est_servi(): void
     {
-        $reponse = $this->getJson('/api/v1/organisation/offres', $this->enTetes($this->jeton))->assertOk();
+        // Public : l'espace client montre aussi les formules (onglet Professionnels)
+        $reponse = $this->getJson('/api/v1/public/offres')->assertOk();
 
         $this->assertSame(['individuel', 'cabinet', 'hopital'], array_column($reponse->json('data.formules'), 'code'));
         $reponse->assertJsonPath('data.formules.1', [
@@ -2909,5 +2910,13 @@ class OrganisationTest extends TestCase
         $this->getJson('/api/v1/organisation/factures', $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonCount(0, 'data');
+    }
+
+    /** « Client depuis » au jour de Zurich : ouverte le 31 mars à 23 h 30 UTC, c'est le 1er avril à Zurich. */
+    public function test_client_depuis_se_lit_au_jour_de_zurich(): void
+    {
+        Organisation::query()->whereKey($this->organisationId())->update(['created_at' => '2025-03-31 23:30:00']);
+
+        $this->getJson('/api/v1/organisation', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.client_depuis', '2025-04-01');
     }
 }

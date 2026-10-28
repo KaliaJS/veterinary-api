@@ -253,6 +253,8 @@ Route::prefix('v1')->group(function (): void {
     // chez une clinique qui accepte les rendez-vous sans compte.
     Route::prefix('public')->middleware('throttle:60,1')->group(function (): void {
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
+        // Catalogue des formules et des packs : prix et limites, sans compte (28.10.2026)
+        Route::get('offres', [OrganisationController::class, 'offres']);
         Route::post('boutique/apercu', [BoutiqueProprietaireController::class, 'apercu']);
         Route::get('cliniques', [CliniqueProprietaireController::class, 'index']);
         // Calendrier de la prise de rendez-vous : une semaine d'heures, libres ou non
@@ -599,7 +601,6 @@ Route::prefix('v1')->group(function (): void {
             // la formule, la carte et les factures, de quoi payer.
             Route::withoutMiddleware('organisation.ouverte')->group(function (): void {
                 Route::get('/', [OrganisationController::class, 'afficher']);
-                Route::get('offres', [OrganisationController::class, 'offres']);
                 Route::get('abonnement/apercu', [AbonnementController::class, 'apercu']);
                 // Appels à Stripe : leur propre compteur, par compte (26.10.2026)
                 Route::post('abonnement', [AbonnementController::class, 'changer'])->middleware('throttle:stripe-abonnement');

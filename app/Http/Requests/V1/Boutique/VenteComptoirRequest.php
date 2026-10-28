@@ -28,4 +28,22 @@ class VenteComptoirRequest extends FormRequest
             'lignes.*.quantite' => ['required', 'integer', 'between:1,99'],
         ];
     }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'client_id.integer' => 'Choisissez une fiche client de votre organisation.',
+            'client_id.exists' => 'Choisissez une fiche client de votre organisation.',
+            'moyen_paiement.required' => 'Choisissez le moyen de paiement.',
+            'moyen_paiement.enum' => 'Choisissez le moyen de paiement.',
+            'lignes.required' => 'Ajoutez au moins un article au ticket.',
+            'lignes.min' => 'Ajoutez au moins un article au ticket.',
+            'lignes.*.produit_id.required' => 'Un article du ticket est introuvable.',
+            'lignes.*.produit_id.exists' => 'Un article du ticket est introuvable.',
+            'lignes.*.quantite.required' => 'Une ligne compte de 1 à 99 articles.',
+            'lignes.*.quantite.integer' => 'Une ligne compte de 1 à 99 articles.',
+            'lignes.*.quantite.between' => 'Une ligne compte de 1 à 99 articles.',
+        ];
+    }
 }

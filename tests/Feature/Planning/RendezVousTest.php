@@ -7,6 +7,7 @@ use App\Enums\TypeRendezVous;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\CompteRendu;
+use App\Models\DemandeRendezVous;
 use App\Models\LignePlanning;
 use App\Models\Patient;
 use App\Models\RendezVous;
@@ -327,6 +328,20 @@ class RendezVousTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.a_compte_rendu', true)
             ->assertJsonPath('data.no_shows_client', 2);
+    }
+
+    /** L'origine servie : « en ligne » si le RDV vient d'une demande en ligne, sinon pris par la clinique (rien de deviné sur un drapeau). */
+    public function test_la_liste_sert_l_origine_du_rendez_vous(): void
+    {
+        $enLigne = $this->rendezVous(['flags' => []]);
+        DemandeRendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'rendez_vous_id' => $enLigne->id]);
+        $nouveauClient = $this->rendezVous(['flags' => ['neuf']]);
+
+        $parId = collect($this->getJson('/api/v1/rendez-vous?per_page=100', $this->enTetes($this->jeton))->assertOk()->json('data'))->keyBy('id');
+
+        $this->assertSame('en_ligne', $parId[$enLigne->id]['origine']);
+        $this->assertSame('clinique', $parId[$nouveauClient->id]['origine']);
+        $this->getJson("/api/v1/rendez-vous/{$enLigne->id}", $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.origine', 'en_ligne');
     }
 
     public function test_le_filtre_actifs_ecarte_annules_et_tampons(): void

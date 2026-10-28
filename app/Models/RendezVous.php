@@ -152,6 +152,7 @@ class RendezVous extends Model
     {
         return $query
             ->withExists('compteRendu')
+            ->withExists('demandeEnLigne')
             ->addSelect(['no_shows_client' => RendezVous::query()
                 ->withoutGlobalScope('clinique')
                 ->from('rendez_vous as no_shows')

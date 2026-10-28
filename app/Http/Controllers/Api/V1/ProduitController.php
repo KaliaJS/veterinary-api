@@ -14,6 +14,7 @@ use App\Services\GestionnaireStock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Catalogue d'organisation, quantités par clinique : la lecture expose
@@ -50,39 +51,44 @@ class ProduitController extends Controller
 
         $donnees = $request->validated();
 
-        $produit = Produit::create([
-            'nom' => $donnees['nom'],
-            'categorie' => $donnees['categorie'],
-            'reference' => $this->prochaineReference(),
-            'prix' => $donnees['prix'],
-            'cout' => $donnees['cout'] ?? 0,
-            'unite' => $donnees['unite'] ?? 'pièce',
-            'seuil_alerte' => $donnees['seuil_alerte'] ?? 0,
-            'est_boutique' => $donnees['est_boutique'] ?? false,
-            'est_sur_ordonnance' => $donnees['est_sur_ordonnance'] ?? false,
-            'peremption_le' => $request->peremptionValidee(),
-            'fournisseur' => $donnees['fournisseur'] ?? null,
-            'ean' => $donnees['ean'] ?? null,
-        ]);
+        // Article, stock initial et lot en un tout : jamais l'un sans l'autre
+        $produit = DB::transaction(function () use ($request, $donnees, $stock): Produit {
+            $produit = Produit::create([
+                'nom' => $donnees['nom'],
+                'categorie' => $donnees['categorie'],
+                'reference' => $this->prochaineReference(),
+                'prix' => $donnees['prix'],
+                'cout' => $donnees['cout'] ?? 0,
+                'unite' => $donnees['unite'] ?? 'pièce',
+                'seuil_alerte' => $donnees['seuil_alerte'] ?? 0,
+                'est_boutique' => $donnees['est_boutique'] ?? false,
+                'est_sur_ordonnance' => $donnees['est_sur_ordonnance'] ?? false,
+                'peremption_le' => $request->peremptionValidee(),
+                'fournisseur' => $donnees['fournisseur'] ?? null,
+                'ean' => $donnees['ean'] ?? null,
+            ]);
 
-        $quantiteInitiale = (int) ($donnees['quantite_initiale'] ?? 0);
+            $quantiteInitiale = (int) ($donnees['quantite_initiale'] ?? 0);
 
-        if ($quantiteInitiale > 0) {
-            $stock->appliquer($produit, $quantiteInitiale, 'Stock initial', $request->user(), MotifAjustementStock::Reception, cliniqueId: $request->cliniqueId());
+            if ($quantiteInitiale > 0) {
+                $stock->appliquer($produit, $quantiteInitiale, 'Stock initial', $request->user(), MotifAjustementStock::Reception, cliniqueId: $request->cliniqueId());
 
-            // Article périssable : le stock initial a son lot, à sa péremption
-            // (28.10.2026), dans la clinique qui le reçoit, qui peut être une
-            // clinique sœur : hors événements du trait, comme à la réception
-            if ($produit->peremption_le !== null) {
-                Lot::withoutEvents(fn (): Lot => Lot::create([
-                    'produit_id' => $produit->id,
-                    'clinique_id' => $request->cliniqueId() ?? app(ContexteClinique::class)->clinique()->id,
-                    'numero_lot' => 'LOT INI-'.substr($produit->reference, -2),
-                    'peremption_le' => $produit->peremption_le,
-                    'quantite' => $quantiteInitiale,
-                ]));
+                // Article périssable : le stock initial a son lot, à sa péremption
+                // (28.10.2026), dans la clinique qui le reçoit, qui peut être une
+                // clinique sœur : hors événements du trait, comme à la réception
+                if ($produit->peremption_le !== null) {
+                    Lot::withoutEvents(fn (): Lot => Lot::create([
+                        'produit_id' => $produit->id,
+                        'clinique_id' => $request->cliniqueId() ?? app(ContexteClinique::class)->clinique()->id,
+                        'numero_lot' => 'LOT INI-'.substr($produit->reference, -2),
+                        'peremption_le' => $produit->peremption_le,
+                        'quantite' => $quantiteInitiale,
+                    ]));
+                }
             }
-        }
+
+            return $produit;
+        });
 
         return new ProduitResource(
             $produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint']),

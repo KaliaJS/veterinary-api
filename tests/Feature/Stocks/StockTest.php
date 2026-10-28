@@ -286,4 +286,16 @@ class StockTest extends TestCase
             ->assertJsonPath('data.0.id', $urgent->id)
             ->assertJsonPath('data.1.id', $lointain->id);
     }
+
+    /** Le lot du stock initial naît dans la clinique sœur qui reçoit le stock. */
+    public function test_le_lot_du_stock_initial_nait_dans_la_clinique_qui_le_recoit(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+
+        $id = $this->postJson('/api/v1/stocks/produits', [
+            'nom' => 'Vaccin rage', 'categorie' => 'soin', 'prix' => 30, 'quantite_initiale' => 6, 'peremption' => '10.2027', 'clinique_id' => $soeur->id,
+        ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
+
+        $this->assertSame([$soeur->id], Lot::withoutGlobalScopes()->where('produit_id', $id)->pluck('clinique_id')->all());
+    }
 }

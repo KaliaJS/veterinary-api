@@ -26,6 +26,7 @@ class CommandeBoutiqueResource extends JsonResource
             'retiree_le' => $this->retiree_le,
             // Au passage « prête » : client prévenu par e-mail ou non (28.10.2026)
             'client_prevenu' => $this->when($this->resource->clientPrevenu !== null, fn () => $this->resource->clientPrevenu),
+            'client_non_prevenu' => $this->when($this->resource->clientNonPrevenu !== null, fn () => $this->resource->clientNonPrevenu),
             'total_ttc' => $this->whenLoaded('lignes', fn (): float => $this->totalTtc()),
             'nombre_articles' => $this->whenLoaded('lignes', fn (): int => (int) $this->lignes->sum('quantite')),
             'lignes' => $this->whenLoaded(

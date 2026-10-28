@@ -145,6 +145,45 @@ class BoutiqueTest extends TestCase
         Mail::assertSent(CommandeBoutiquePrete::class, 2);
     }
 
+    /** E-mail « prête » en panne : la réponse le dit autrement qu'une fiche sans adresse. */
+    public function test_un_e_mail_pret_en_panne_se_dit(): void
+    {
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('Resend en panne'));
+        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'email' => 'lea@exemple.ch']);
+        $commande = CommandeBoutique::factory()->create(['clinique_id' => $this->clinique->id, 'client_id' => $client->id]);
+
+        $this->postJson("/api/v1/boutique/commandes/{$commande->id}/preparer", [], $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('data.client_prevenu', false)->assertJsonPath('data.client_non_prevenu', 'echec');
+    }
+
+    /** Fiche client d'ailleurs, ou quantité hors bornes : refus en français. */
+    public function test_la_vente_comptoir_refuse_en_francais(): void
+    {
+        $produit = $this->produitEnRayon(5);
+        $etranger = Client::factory()->create();
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->postJson('/api/v1/boutique/vente', ['client_id' => $etranger->id, 'moyen_paiement' => 'twint', 'lignes' => [['produit_id' => $produit->id, 'quantite' => 1]]], $entetes)
+            ->assertJsonValidationErrors(['client_id' => 'Choisissez une fiche client de votre organisation.']);
+        $this->postJson('/api/v1/boutique/vente/apercu', ['lignes' => [['produit_id' => $produit->id, 'quantite' => 100]]], $entetes)
+            ->assertJsonValidationErrors(['lignes.0.quantite' => 'Une ligne compte de 1 à 99 articles.']);
+    }
+
+    /** Aperçu d'une société non assujettie : taux 0, HT = TTC, comme la facture. */
+    public function test_l_apercu_d_une_societe_non_assujettie_est_sans_tva(): void
+    {
+        $this->clinique->societe->forceFill(['assujettie_tva' => false])->save();
+        $produit = $this->produitEnRayon(5);
+        $panier = ['lignes' => [['produit_id' => $produit->id, 'quantite' => 2]]];
+
+        $apercu = $this->postJson('/api/v1/boutique/vente/apercu', $panier, $this->enTetes($this->jeton))->assertOk()->json('data');
+        $facture = $this->postJson('/api/v1/boutique/vente', [...$panier, 'moyen_paiement' => 'twint'], $this->enTetes($this->jeton))->json('data');
+
+        $this->assertEquals(0, $apercu['taux_tva']);
+        $this->assertEquals($facture['total_ht'], $apercu['total_ht']);
+        $this->assertEquals($apercu['total_ttc'], $apercu['total_ht']);
+    }
+
     public function test_le_cycle_de_commande_sort_le_stock_a_la_remise(): void
     {
         $produit = $this->produitEnRayon(10);
@@ -274,6 +313,23 @@ class BoutiqueTest extends TestCase
 
         $this->assertSame(2, $totaux['tickets']);
         $this->assertEquals(round($totaux['chiffre_affaires'] / 2, 2), $totaux['panier_moyen']);
+    }
+
+    /** Marge en %, chiffre par clinique et meilleures ventes : servis, l'écran ne les calcule pas. */
+    public function test_les_chiffres_servent_marge_par_clinique_et_meilleures_ventes(): void
+    {
+        $croquettes = $this->produitEnRayon(10, ['cout' => 10]);
+        $shampooing = $this->produitEnRayon(10, ['cout' => 5]);
+        $entetes = $this->enTetes($this->jeton);
+        $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'twint', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 3], ['produit_id' => $shampooing->id, 'quantite' => 1]]], $entetes)->assertCreated();
+
+        $data = $this->getJson('/api/v1/boutique/statistiques', $entetes)->assertOk()->json('data');
+
+        $ca = $data['totaux']['chiffre_affaires'];
+        $this->assertEquals(round(($ca - $data['totaux']['cout']) / $ca * 100), $data['totaux']['marge_pct']);
+        $this->assertEquals([['clinique_id' => $this->clinique->id, 'chiffre_affaires' => $ca]], $data['par_clinique']);
+        $this->assertSame([$croquettes->id, $shampooing->id], array_column($data['top'], 'produit_id'));
+        $this->assertSame(3, $data['top'][0]['quantite']);
     }
 
     public function test_ni_ordonnance_ni_stupefiant_au_comptoir_ni_en_commande(): void

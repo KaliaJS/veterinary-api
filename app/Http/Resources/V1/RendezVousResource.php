@@ -35,6 +35,8 @@ class RendezVousResource extends JsonResource
             // client toutes cliniques — « NO-SHOW ×N » de la fiche.
             'a_compte_rendu' => (bool) ($this->compte_rendu_exists ?? $this->compteRendu()->exists()),
             'no_shows_client' => (int) ($this->no_shows_client ?? $this->noShowsDuClient()),
+            // Origine (28.10.2026) : venu d'une demande en ligne, sinon pris par la clinique
+            'origine' => (bool) ($this->demande_en_ligne_exists ?? $this->demandeEnLigne()->exists()) ? 'en_ligne' : 'clinique',
         ];
     }
 }

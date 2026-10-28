@@ -353,4 +353,14 @@ class CommandeFournisseurTest extends TestCase
 
         $this->assertDatabaseHas('commandes_fournisseur', ['id' => $commande->id]);
     }
+
+    /** Le brouillon d'une autre organisation ne se déplace jamais, même vers une de ses propres cliniques. */
+    public function test_le_brouillon_d_une_autre_organisation_ne_se_deplace_pas(): void
+    {
+        $ailleurs = CommandeFournisseur::factory()->create(['clinique_id' => Clinique::factory()->create()->id]);
+
+        $this->patchJson("/api/v1/stocks/commandes/{$ailleurs->id}", ['clinique_id' => $this->clinique->id], $this->enTetes($this->jeton))->assertNotFound();
+
+        $this->assertNotSame($this->clinique->id, $ailleurs->refresh()->clinique_id);
+    }
 }

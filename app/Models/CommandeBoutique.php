@@ -25,6 +25,9 @@ class CommandeBoutique extends Model
     /** Au passage « prête » : le client a-t-il été prévenu par e-mail (réponse seulement, jamais gardé) */
     public ?bool $clientPrevenu = null;
 
+    /** Pourquoi il ne l'a pas été : « sans_adresse » ou « echec » (e-mail en panne) */
+    public ?string $clientNonPrevenu = null;
+
     protected $fillable = [
         'clinique_id', 'numero', 'client_id', 'client_nom', 'statut', 'passee_le', 'retiree_le',
     ];

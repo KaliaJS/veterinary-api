@@ -91,23 +91,30 @@ class CommandeBoutiqueController extends Controller
     {
         $this->authorize('update', $commande);
 
-        if ($commande->statut !== StatutCommandeBoutique::APreparer) {
-            throw ValidationException::withMessages(['statut' => 'Seule une commande à préparer se marque prête.']);
-        }
-
-        $commande->update(['statut' => StatutCommandeBoutique::Prete]);
+        // Sous verrou : deux postes qui cliquent ensemble n'envoient qu'un e-mail
+        DB::transaction(function () use ($commande): void {
+            $tenue = CommandeBoutique::query()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
+            if ($tenue->statut !== StatutCommandeBoutique::APreparer) {
+                throw ValidationException::withMessages(['statut' => 'Seule une commande à préparer se marque prête.']);
+            }
+            $tenue->update(['statut' => StatutCommandeBoutique::Prete]);
+        });
+        $commande->refresh();
 
         // Le client est prévenu par e-mail (28.10.2026) : l'adresse de sa
         // fiche, sinon celle de son compte ; la réponse dit s'il l'a été
         $client = $commande->client()->with('user')->first();
         $adresse = $client?->email ?: $client?->user?->email;
         $commande->clientPrevenu = false;
+        $commande->clientNonPrevenu = 'sans_adresse';
         if ($adresse) {
             try {
                 Mail::to($adresse)->send(new CommandeBoutiquePrete($commande->load('clinique')));
                 $commande->clientPrevenu = true;
+                $commande->clientNonPrevenu = null;
             } catch (Throwable $e) {
                 report($e);
+                $commande->clientNonPrevenu = 'echec';
             }
         }
 
