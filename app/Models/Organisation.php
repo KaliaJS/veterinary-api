@@ -260,11 +260,27 @@ class Organisation extends Model
             $problemes[] = "{$patients} patients (max {$limites['patients']})";
         }
 
-        if ($limites['stockage_go'] !== null && (float) $this->usage_stockage_go > $limites['stockage_go']) {
-            $problemes[] = "{$this->usage_stockage_go} Go de stockage (max {$limites['stockage_go']} Go)";
+        $stockage = round($this->stockageOctets() / 1e9, 1);
+        if ($limites['stockage_go'] !== null && $stockage > $limites['stockage_go'] + $this->quota_extra_stockage_go) {
+            $problemes[] = "{$stockage} Go de stockage (max {$limites['stockage_go']} Go)";
         }
 
         return $problemes;
+    }
+
+    /**
+     * Le stockage utilisé (28.10.2026) : les radios d'origine gardées pour
+     * ses cliniques, à l'octet près (les autres fichiers n'ont pas encore
+     * de taille enregistrée).
+     */
+    public function stockageOctets(): int
+    {
+        return (int) ClicheDicom::query()
+            ->join('examens_imagerie', 'examens_imagerie.id', '=', 'cliches_dicom.examen_imagerie_id')
+            ->join('cliniques', 'cliniques.id', '=', 'examens_imagerie.clinique_id')
+            ->join('societes', 'societes.id', '=', 'cliniques.societe_id')
+            ->where('societes.organisation_id', $this->id)
+            ->sum('cliches_dicom.taille_octets');
     }
 
     /**

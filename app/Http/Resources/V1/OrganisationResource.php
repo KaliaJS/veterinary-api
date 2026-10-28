@@ -57,7 +57,9 @@ class OrganisationResource extends JsonResource
                 'emails' => $this->usage_emails,
                 // Compté chaque mois à l'envoi (28.10.2026)
                 'sms' => QuotaSms::utilises($this->resource),
-                'stockage_go' => (float) $this->usage_stockage_go,
+                // Les radios d'origine gardées, à l'octet près (28.10.2026)
+                'stockage_go' => round(($octets = $this->stockageOctets()) / 1e9, 3),
+                'stockage_octets' => $octets,
             ],
             'quota_extra' => [
                 'emails' => $this->quota_extra_emails,

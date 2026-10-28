@@ -343,4 +343,25 @@ class RadiosAnnoteesTest extends TestCase
         $this->getJson("/api/v1/patients/{$this->patient->id}/imagerie", $this->enTetes($jetonSoeur))->assertOk()
             ->assertJsonPath('data.0.cliches.0.a_fichier', true)->assertJsonPath('data.0.cliches.0.region', 'thorax');
     }
+
+    // ————— Stockage : 1000 Go par organisation (décision de Jim, 28.10.2026) —————
+
+    public function test_chaque_formule_offre_1000_go_de_stockage(): void
+    {
+        $offres = $this->getJson('/api/v1/public/offres')->assertOk()->json('data.formules');
+
+        $this->assertSame([1000, 1000, 1000], array_map(fn (array $f): ?int => $f['limites']['stockage_go'], $offres));
+    }
+
+    public function test_les_radios_comptent_dans_le_stockage_de_l_organisation(): void
+    {
+        ['jeton' => $admin] = $this->administrateurAvecJeton($this->clinique);
+        $octets = $this->dicom();
+        $this->envoyer($octets)->assertCreated();
+
+        $usage = $this->getJson('/api/v1/organisation', $this->enTetes($admin))->assertOk()->json('data.usage');
+
+        $this->assertSame(strlen($octets), $usage['stockage_octets']);
+        $this->assertEqualsWithDelta(strlen($octets) / 1e9, $usage['stockage_go'], 0.001);
+    }
 }

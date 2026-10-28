@@ -32,13 +32,16 @@ enum FormuleSaas: string
         };
     }
 
+    /** Stockage offert à chaque organisation, quelle que soit la formule (décision de Jim, 28.10.2026) */
+    public const int STOCKAGE_GO = 1000;
+
     /** @return array{cliniques: ?int, employes: ?int, emails: ?int, sms: ?int, patients: ?int, stockage_go: ?int} */
     public function limites(): array
     {
         return match ($this) {
-            self::Individuel => ['cliniques' => 1, 'employes' => 2, 'emails' => 500, 'sms' => 100, 'patients' => 800, 'stockage_go' => 5],
-            self::Cabinet => ['cliniques' => 5, 'employes' => 30, 'emails' => 5000, 'sms' => 1000, 'patients' => 10000, 'stockage_go' => 50],
-            self::Hopital => ['cliniques' => null, 'employes' => null, 'emails' => null, 'sms' => null, 'patients' => null, 'stockage_go' => null],
+            self::Individuel => ['cliniques' => 1, 'employes' => 2, 'emails' => 500, 'sms' => 100, 'patients' => 800, 'stockage_go' => self::STOCKAGE_GO],
+            self::Cabinet => ['cliniques' => 5, 'employes' => 30, 'emails' => 5000, 'sms' => 1000, 'patients' => 10000, 'stockage_go' => self::STOCKAGE_GO],
+            self::Hopital => ['cliniques' => null, 'employes' => null, 'emails' => null, 'sms' => null, 'patients' => null, 'stockage_go' => self::STOCKAGE_GO],
         };
     }
 }
