@@ -13,6 +13,7 @@ use App\Models\Patient;
 use App\Models\PreferencesProprietaire;
 use App\Models\RendezVous;
 use App\Services\AccueilProprietaire;
+use App\Services\Rappels\RappelsProprietaires;
 use App\Support\Telephone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -178,7 +179,8 @@ class ReglagesProprietaireController extends Controller
             // Ce qui part vraiment : une fiche désabonnée par le lien d'un e-mail
             // (avant d'être rattachée au compte) bloque aussi ses rappels
             'rappels_email' => $p->rappels_email && ! Client::withoutGlobalScopes()->where('user_id', $userId)->where('rappels_email', false)->exists(),
-            'rappels_sms' => $p->rappels_sms,
+            // Pas encore choisi : la case cochée par une clinique sur sa fiche vaut (décision de Jim, 28.10.2026)
+            'rappels_sms' => RappelsProprietaires::choixSms($p) ?? Client::withoutGlobalScopes()->where('user_id', $userId)->where('rappels_sms', true)->exists(),
             'reponses_clinique' => $p->reponses_clinique,
             'nouveautes_boutique' => $p->nouveautes_boutique,
             'statistiques_anonymes' => $p->statistiques_anonymes,

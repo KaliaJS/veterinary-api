@@ -73,7 +73,7 @@ class RappelsProprietaires
     /** @var array<int, bool> */
     private array $organisationsOuvertes = [];
 
-    /** @var array<int, bool> */
+    /** @var array<int, ?bool> choix SMS de l'espace, null tant qu'il n'a pas choisi */
     private array $smsEspace = [];
 
     /** @return array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool, relance_noshow: bool, messages_recus: bool, messages_reponses_seulement: bool} */
@@ -226,10 +226,10 @@ class RappelsProprietaires
             return;
         }
         // Les choix des espaces (e-mail, SMS) en une requête
-        $preferences = PreferencesProprietaire::query()->whereIn('user_id', $users->all())->get(['user_id', 'rappels_email', 'rappels_sms'])->keyBy('user_id');
+        $preferences = PreferencesProprietaire::query()->whereIn('user_id', $users->all())->get(['user_id', 'rappels_email', 'rappels_sms', 'rappels_choisis_le'])->keyBy('user_id');
         foreach ($users as $id) {
             $this->refusEspace[$id] = ($preferences[$id]->rappels_email ?? null) !== false;
-            $this->smsEspace[$id] = (bool) ($preferences[$id]->rappels_sms ?? false);
+            $this->smsEspace[$id] = self::choixSms($preferences[$id] ?? null);
         }
     }
 
@@ -278,15 +278,30 @@ class RappelsProprietaires
 
     /**
      * Le propriétaire veut ses rappels par SMS : son choix dans son espace
-     * s'il a un compte, sinon la case cochée par la clinique sur sa fiche.
+     * s'il a un compte et l'a fait ; sinon la case cochée par la clinique
+     * sur sa fiche (décision de Jim, 28.10.2026 : elle vaut encore quand il
+     * obtient un compte, tant qu'il n'a pas choisi lui-même).
      */
     public function veutLesSms(Client $client): bool
     {
         if ($client->user_id === null) {
             return (bool) $client->rappels_sms;
         }
+        if (! array_key_exists($client->user_id, $this->smsEspace)) {
+            $this->smsEspace[$client->user_id] = self::choixSms(PreferencesProprietaire::query()->where('user_id', $client->user_id)->first(['rappels_sms', 'rappels_choisis_le']));
+        }
 
-        return $this->smsEspace[$client->user_id] ??= (bool) PreferencesProprietaire::query()->where('user_id', $client->user_id)->value('rappels_sms');
+        return $this->smsEspace[$client->user_id] ?? (bool) $client->rappels_sms;
+    }
+
+    /** Le choix SMS fait dans l'espace, ou null s'il n'a pas encore choisi (SMS voulus = choisis) */
+    public static function choixSms(?PreferencesProprietaire $preferences): ?bool
+    {
+        if ($preferences === null || (! $preferences->rappels_sms && $preferences->rappels_choisis_le === null)) {
+            return null;
+        }
+
+        return (bool) $preferences->rappels_sms;
     }
 
     /** Le mobile où envoyer le SMS, si la clinique l'utilise et que le client le veut ; null sinon. */

@@ -346,4 +346,33 @@ class RappelsSmsTest extends TestCase
             ->assertOk()->assertJsonPath('data.adresse', 'lea.martin@example.ch')
             ->assertJsonPath('data.manque', 'Le SMS n’est pas parti, quota de SMS du mois atteint : achetez un pack dans l’abonnement.');
     }
+
+    /** Décision de Jim (28.10.2026, choix 4) : la case cochée par la clinique vaut encore quand le client obtient un compte, tant qu'il n'a pas choisi lui-même */
+    public function test_la_case_de_la_clinique_vaut_tant_que_le_client_n_a_pas_choisi(): void
+    {
+        $this->smsActifs();
+        $this->client->update(['rappels_sms' => true]);
+        ['user' => $user, 'jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $this->client->update(['user_id' => $user->id]);
+
+        // Son espace le montre, prêt à être changé
+        $this->getJson('/api/v1/espace/preferences', $this->enTetes($jetonProprietaire))->assertOk()->assertJsonPath('data.rappels_sms', true);
+        $this->envoyer();
+        $this->assertCount(1, $this->smsEnvoyes());
+    }
+
+    /** Une fois qu'il a choisi (sans SMS), son choix l'emporte sur la case de la clinique */
+    public function test_le_choix_du_client_l_emporte_sur_la_case_de_la_clinique(): void
+    {
+        $this->smsActifs();
+        $this->client->update(['rappels_sms' => true]);
+        ['user' => $user, 'jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $this->client->update(['user_id' => $user->id]);
+
+        $this->putJson('/api/v1/espace/preferences', ['rappels_email' => true, 'rappels_sms' => false], $this->enTetes($jetonProprietaire))->assertOk()->assertJsonPath('data.rappels_sms', false);
+        $this->envoyer();
+
+        $this->assertSame([], $this->smsEnvoyes());
+        Mail::assertSent(RappelVaccin::class, 1);
+    }
 }

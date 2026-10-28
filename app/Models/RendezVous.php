@@ -70,7 +70,11 @@ class RendezVous extends Model
     {
         $proche = fn (mixed $moment): bool => $moment !== null && CarbonImmutable::parse($moment)->between(now()->subDay(), now()->addHours(48));
         if ($proche($this->starts_at) || $proche($this->getPrevious()['starts_at'] ?? null)) {
-            PrevenirMontres::dispatch((int) $this->clinique_id)->delay(now()->addSeconds(PrevenirMontres::PAUSE))->afterCommit();
+            // Sa colonne, et l'ancienne s'il a changé de colonne (choix B de Jim)
+            $colonnes = array_unique(array_filter([(int) $this->ligne_planning_id, (int) ($this->getPrevious()['ligne_planning_id'] ?? 0)]));
+            foreach ($colonnes as $colonne) {
+                PrevenirMontres::dispatch((int) $this->clinique_id, $colonne)->delay(now()->addSeconds(PrevenirMontres::PAUSE))->afterCommit();
+            }
         }
     }
 

@@ -100,6 +100,9 @@ class MessageProprietaireController extends Controller
         return response()->json(['data' => $this->message($message)], 201);
     }
 
+    /** « Réponses uniquement » : la réponse reste ouverte ce nombre de jours après le dernier message de la clinique */
+    private const int JOURS_POUR_REPONDRE = 14;
+
     /** Pourquoi le propriétaire ne peut pas écrire à cette clinique (ses réglages), ou null. */
     private function refus(Clinique $clinique, ContexteProprietaire $contexte): ?string
     {
@@ -107,8 +110,11 @@ class MessageProprietaireController extends Controller
         if ($clinique->messages_recus === false) {
             return 'La clinique ne reçoit pas de messages'.$tel.'.';
         }
-        if ($clinique->messages_reponses_seulement && ! MessageClientele::query()->where('clinique_id', $clinique->id)->where('user_id', $contexte->user()->id)->where('auteur', 'clinique')->exists()) {
-            return 'La clinique répond aux messages qu’elle vous envoie'.$tel.'.';
+        // « Réponses uniquement » : répondre dans les 14 jours après le dernier
+        // message de la clinique (décision de Jim, 28.10.2026, choix B)
+        if ($clinique->messages_reponses_seulement && ! MessageClientele::query()->where('clinique_id', $clinique->id)->where('user_id', $contexte->user()->id)
+            ->where('auteur', 'clinique')->where('created_at', '>=', now()->subDays(self::JOURS_POUR_REPONDRE))->exists()) {
+            return 'Vous pouvez répondre à un message de la clinique pendant '.self::JOURS_POUR_REPONDRE.' jours.'.(filled($clinique->tel) ? ' Pour autre chose, appelez-la au '.$clinique->tel.'.' : '');
         }
 
         return null;

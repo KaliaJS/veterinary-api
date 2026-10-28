@@ -7,6 +7,7 @@ use App\Jobs\PrevenirMontres;
 use App\Models\AppareilNotification;
 use App\Models\Clinique;
 use App\Models\Employe;
+use App\Models\LignePlanning;
 use App\Models\RendezVous;
 use App\Services\Notifications\CanalApns;
 use Carbon\CarbonImmutable;
@@ -34,6 +35,8 @@ class NotificationsMontreTest extends TestCase
 
     private int $userId;
 
+    private LignePlanning $ligne;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -52,8 +55,10 @@ class NotificationsMontreTest extends TestCase
             }
         });
         $this->clinique = Clinique::factory()->create();
-        ['jeton' => $this->jeton, 'user' => $user] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $this->jeton, 'user' => $user, 'employe' => $employe] = $this->employeAvecJeton($this->clinique);
         $this->userId = $user->id;
+        // Sa colonne du planning : sa montre montre celle-là
+        $this->ligne = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id, 'employe_id' => $employe->id, 'ordre' => 1]);
     }
 
     /** @param  list<string>  $jetons @param  array<string, mixed>  $contenu */
@@ -75,7 +80,7 @@ class NotificationsMontreTest extends TestCase
     {
         AppareilNotification::query()->create(['user_id' => $this->userId, 'jeton' => str_repeat('ab', 32), 'environnement' => 'sandbox', 'plateforme' => 'watchos']);
 
-        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
 
         $this->assertCount(1, $this->envois);
         $this->assertSame([str_repeat('ab', 32)], $this->envois[0]['jetons']);
@@ -89,7 +94,7 @@ class NotificationsMontreTest extends TestCase
     {
         AppareilNotification::query()->create(['user_id' => $this->userId, 'jeton' => str_repeat('ab', 32), 'environnement' => 'production', 'plateforme' => 'watchos']);
 
-        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addDays(10), 'ends_at' => now()->addDays(10)->addMinutes(20)]);
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addDays(10), 'ends_at' => now()->addDays(10)->addMinutes(20)]);
 
         $this->assertSame([], $this->envois);
     }
@@ -107,7 +112,7 @@ class NotificationsMontreTest extends TestCase
     {
         AppareilNotification::query()->create(['user_id' => $this->userId, 'jeton' => 'perime'.str_repeat('0', 58), 'environnement' => 'sandbox', 'plateforme' => 'watchos']);
 
-        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
 
         $this->assertSame(0, AppareilNotification::query()->count());
     }
@@ -117,7 +122,7 @@ class NotificationsMontreTest extends TestCase
         config(['services.apns.cle_base64' => null]);
         AppareilNotification::query()->create(['user_id' => $this->userId, 'jeton' => str_repeat('ab', 32), 'environnement' => 'sandbox', 'plateforme' => 'watchos']);
 
-        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
 
         $this->assertSame([], $this->envois);
     }
@@ -131,7 +136,7 @@ class NotificationsMontreTest extends TestCase
     public function test_deplace_annule_modifie_ou_supprime_previent_aussi(): void
     {
         $this->montre();
-        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
+        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
 
         foreach ([
             'déplacé' => fn () => $rendezVous->update(['starts_at' => now()->addHours(3), 'ends_at' => now()->addHours(3)->addMinutes(20)]),
@@ -149,7 +154,7 @@ class NotificationsMontreTest extends TestCase
     public function test_un_rendez_vous_qui_quitte_la_journee_previent_aussi(): void
     {
         $this->montre();
-        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
+        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
         $this->envois = [];
 
         $rendezVous->update(['starts_at' => now()->addDays(10), 'ends_at' => now()->addDays(10)->addMinutes(20)]);
@@ -162,7 +167,7 @@ class NotificationsMontreTest extends TestCase
     {
         $this->travelTo(CarbonImmutable::parse('2026-11-05 20:00', 'Europe/Zurich'));
         // 07:30 à Zurich, 12 h 30 plus tôt
-        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->subMinutes(750), 'ends_at' => now()->subMinutes(730)]);
+        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->subMinutes(750), 'ends_at' => now()->subMinutes(730)]);
         $this->montre();
 
         $rendezVous->update(['status' => StatutRendezVous::Annule]);
@@ -176,7 +181,7 @@ class NotificationsMontreTest extends TestCase
         $this->montre();
         Employe::withoutGlobalScopes()->where('user_id', $this->userId)->update(['acces_suspendu' => true]);
 
-        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
 
         $this->assertSame([], $this->envois);
     }
@@ -187,7 +192,7 @@ class NotificationsMontreTest extends TestCase
         Queue::fake([PrevenirMontres::class]);
 
         for ($i = 0; $i < 10; $i++) {
-            RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
+            RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHours(2), 'ends_at' => now()->addHours(2)->addMinutes(20)]);
             $this->travel(1)->seconds();
         }
 
@@ -214,7 +219,7 @@ class NotificationsMontreTest extends TestCase
     {
         AppareilNotification::query()->create(['user_id' => $this->userId, 'jeton' => str_repeat('cd', 32), 'environnement' => 'sandbox', 'plateforme' => 'ios']);
 
-        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
 
         $this->assertSame([], $this->envois);
     }
@@ -245,5 +250,61 @@ class NotificationsMontreTest extends TestCase
         $this->postJson('/api/v1/auth/deconnexion', [], $this->enTetes($montre))->assertNoContent();
         $this->assertEqualsCanonicalizing([str_repeat('cd', 32), str_repeat('ef', 32)], AppareilNotification::query()->pluck('jeton')->all());
         $this->assertSame($collegue->id, AppareilNotification::query()->where('plateforme', 'watchos')->value('user_id'));
+    }
+
+    /** @return array{0: string, 1: string} montre inscrite pour un employé, et son jeton d'Apple */
+    private function collegue(bool $avecColonne, int $ordre = 0): array
+    {
+        ['user' => $user, 'employe' => $employe] = $this->employeAvecJeton($this->clinique);
+        $jetonApple = str_pad(dechex($user->id), 64, 'c', STR_PAD_LEFT);
+        AppareilNotification::query()->create(['user_id' => $user->id, 'jeton' => $jetonApple, 'environnement' => 'sandbox', 'plateforme' => 'watchos']);
+        $ligne = $avecColonne ? (string) LignePlanning::factory()->create(['clinique_id' => $this->clinique->id, 'employe_id' => $employe->id, 'ordre' => $ordre])->id : '';
+
+        return [$jetonApple, $ligne];
+    }
+
+    /** @return list<string> */
+    private function jetonsReveilles(): array
+    {
+        return collect($this->envois)->pluck('jetons')->flatten()->sort()->values()->all();
+    }
+
+    /** Choix B de Jim (28.10.2026) : le Dr Solal n'est réveillé que pour sa colonne */
+    public function test_seul_le_veterinaire_de_la_colonne_est_reveille(): void
+    {
+        $this->montre();
+        [$jetonCollegue] = $this->collegue(avecColonne: true, ordre: 2);
+
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+
+        $this->assertSame([str_repeat('ab', 32)], $this->jetonsReveilles());
+        $this->assertNotContains($jetonCollegue, $this->jetonsReveilles());
+    }
+
+    /** Sans colonne à soi, la montre montre la première colonne de consultation : réveillée pour celle-là seulement */
+    public function test_sans_colonne_a_soi_reveille_pour_la_premiere_colonne_de_consultation(): void
+    {
+        $premiere = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id, 'ordre' => 0]);
+        [$jetonAsv] = $this->collegue(avecColonne: false);
+
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $premiere->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        $this->assertContains($jetonAsv, $this->jetonsReveilles());
+
+        $this->envois = [];
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        $this->assertNotContains($jetonAsv, $this->jetonsReveilles());
+    }
+
+    /** Déplacé d'une colonne à l'autre : les deux vétérinaires sont réveillés */
+    public function test_deplace_d_une_colonne_a_l_autre_les_deux_sont_reveilles(): void
+    {
+        $this->montre();
+        [$jetonCollegue, $ligneCollegue] = $this->collegue(avecColonne: true, ordre: 2);
+        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        $this->envois = [];
+
+        $rendezVous->update(['ligne_planning_id' => (int) $ligneCollegue]);
+
+        $this->assertSame([str_repeat('ab', 32), $jetonCollegue], $this->jetonsReveilles());
     }
 }

@@ -10,6 +10,7 @@ use App\Models\MessageClientele;
 use App\Models\PreferencesProprietaire;
 use App\Models\Role;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -265,5 +266,26 @@ class MessagerieCliniqueTest extends TestCase
         $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Passez cet après-midi.'], $this->enTetes($this->accueil))->assertCreated();
 
         $this->assertSame(1, MessageClientele::query()->where('auteur', 'clinique')->count());
+    }
+
+    /** Décision de Jim (28.10.2026, choix B) : « Réponses uniquement », le propriétaire répond dans les 14 jours après le dernier message de la clinique */
+    public function test_reponses_uniquement_la_reponse_est_ouverte_14_jours_apres_le_dernier_message_de_la_clinique(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-01 10:00', 'Europe/Zurich'));
+        $this->putJson('/api/v1/rappels/reglages', ['messages_reponses_seulement' => true], $this->enTetes($this->administrateur()))->assertOk();
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Le rappel de vaccin de Félix arrive.'], $this->enTetes($this->accueil))->assertCreated();
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-14 10:00', 'Europe/Zurich'));
+        $this->ecrireCommeProprietaire('Merci, je prends rendez-vous.');
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-15 10:01', 'Europe/Zurich'));
+        $this->postJson('/api/v1/espace/messages', ['clinique_id' => $this->clinique->id, 'texte' => 'Autre chose : Moka boite.'], $this->enTetes($this->jetonProprietaire))->assertUnprocessable();
+        $fil = $this->getJson('/api/v1/espace/messages', $this->enTetes($this->jetonProprietaire))->assertOk()->json('data.cliniques.0');
+        $this->assertFalse($fil['peut_ecrire']);
+        $this->assertStringContainsString('14 jours', $fil['raison']);
+
+        // La clinique réécrit : la réponse se rouvre
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Comment va Moka ?'], $this->enTetes($this->accueil))->assertCreated();
+        $this->ecrireCommeProprietaire('Elle boite encore un peu.');
     }
 }
