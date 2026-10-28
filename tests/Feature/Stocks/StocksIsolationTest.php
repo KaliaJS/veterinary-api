@@ -92,7 +92,7 @@ class StocksIsolationTest extends TestCase
         $commandeSoeur = CommandeFournisseur::factory()->create(['clinique_id' => $this->cliniqueSoeur->id]);
         $commandeEtrangere = CommandeFournisseur::factory()->create(['clinique_id' => $this->cliniqueEtrangere->id]);
         $commandeIci = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id]);
-        CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $commandeSoeur->id]);
+        $ligneSoeur = CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $commandeSoeur->id, 'quantite' => 4]);
 
         $this->getJson('/api/v1/stocks/commandes', $this->enTetes($this->jeton))
             ->assertOk()
@@ -107,6 +107,10 @@ class StocksIsolationTest extends TestCase
             }
             $this->deleteJson("/api/v1/stocks/commandes/{$ailleurs->id}", [], $this->enTetes($this->jeton))->assertNotFound();
         }
+        // Ni ses lignes modifiées ou retirées
+        $this->patchJson("/api/v1/stocks/commandes/{$commandeSoeur->id}/lignes/{$ligneSoeur->id}", ['quantite' => 9], $this->enTetes($this->jeton))->assertNotFound();
+        $this->deleteJson("/api/v1/stocks/commandes/{$commandeSoeur->id}/lignes/{$ligneSoeur->id}", [], $this->enTetes($this->jeton))->assertNotFound();
+        $this->assertNotSame(9, (int) $ligneSoeur->refresh()->quantite);
         $this->assertSame('draft', $commandeSoeur->refresh()->statut->value);
     }
 
