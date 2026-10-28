@@ -41,6 +41,13 @@ class CycleOrdonnanceController extends Controller
         $contexte = app(ContexteClinique::class);
 
         $renouvellement = DB::transaction(function () use ($ordonnance, $contexte): Ordonnance {
+            // Sous verrou : deux touchers sur « Renouveler » ne font qu'un renouvellement,
+            // le second trouve l'ordonnance déjà close
+            $ordonnance = Ordonnance::query()->whereKey($ordonnance->id)->lockForUpdate()->firstOrFail();
+            if ($ordonnance->statut !== StatutOrdonnance::Active) {
+                throw ValidationException::withMessages(['statut' => 'Seule une ordonnance en cours se renouvelle.']);
+            }
+
             $renouvellement = Ordonnance::create([
                 'clinique_id' => $contexte->cliniqueId(),
                 'numero' => $this->numeroteur->attribuer(PieceNumerotee::Ordonnance),

@@ -8,15 +8,17 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
- * Un appel vidéo transféré à un collègue (28.10.2026) : le transfert
- * demandé ou annulé, sur le canal du compte du collègue.
+ * Un appel vidéo transféré à un collègue (28.10.2026), sur le canal du
+ * compte : le transfert demandé, annulé ou terminé pendant l'attente (chez
+ * le collègue), puis pris (chez celui qui a transféré, et sur les autres
+ * appareils du collègue).
  */
 class TransfertAppelVideo implements ShouldBroadcastNow
 {
     use Dispatchable;
     use InteractsWithSockets;
 
-    /** @param  array{etat: string, session_id: int, patient: ?string, de: ?string}  $donnees */
+    /** @param  array<string, mixed>  $donnees */
     public function __construct(public int $userId, public array $donnees) {}
 
     /** @return list<PrivateChannel> */
@@ -30,7 +32,7 @@ class TransfertAppelVideo implements ShouldBroadcastNow
         return 'appel.transfert';
     }
 
-    /** @return array{etat: string, session_id: int, patient: ?string, de: ?string} */
+    /** @return array<string, mixed> */
     public function broadcastWith(): array
     {
         return $this->donnees;

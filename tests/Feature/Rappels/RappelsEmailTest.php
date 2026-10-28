@@ -71,6 +71,17 @@ class RappelsEmailTest extends TestCase
         $this->putJson('/api/v1/rappels/reglages', $reglages, $this->enTetes($this->jeton))->assertOk();
     }
 
+    /** Partagés par l'équipe : un collègue sans le droit Organisation les lit, mais ne les change pas */
+    public function test_un_collegue_sans_le_droit_organisation_lit_les_reglages_sans_les_changer(): void
+    {
+        ['jeton' => $collegue] = $this->employeAvecJeton($this->clinique);
+
+        $this->getJson('/api/v1/rappels/reglages', $this->enTetes($collegue))->assertOk()->assertJsonPath('data.delai_jours', 7);
+        $this->putJson('/api/v1/rappels/reglages', ['delai_jours' => 3], $this->enTetes($collegue))->assertForbidden();
+
+        $this->getJson('/api/v1/rappels/reglages', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.delai_jours', 7);
+    }
+
     public function test_les_reglages_sont_enregistres_par_le_serveur_et_partages_par_l_equipe(): void
     {
         $this->getJson('/api/v1/rappels/reglages', $this->enTetes($this->jeton))->assertOk()

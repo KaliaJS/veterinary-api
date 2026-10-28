@@ -6,11 +6,12 @@ use App\Auth\CalculateurPermissions;
 use App\Auth\ContexteClinique;
 use App\Enums\DomainePermission;
 use App\Events\SignalVisio;
-use App\Events\TransfertAppelVideo;
+use App\Http\Controllers\Api\V1\Concerns\MeneLAppel;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\SessionTeleconsultationResource;
 use App\Models\Employe;
 use App\Models\SessionTeleconsultation;
+use App\Services\Tele\AvisTransfert;
 use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
@@ -27,7 +28,9 @@ use Illuminate\Validation\ValidationException;
  */
 class TransfertAppelController extends Controller
 {
-    public function __construct(private CalculateurPermissions $permissions) {}
+    use MeneLAppel;
+
+    public function __construct(private CalculateurPermissions $permissions, private AvisTransfert $avis) {}
 
     /** Les collègues de la clinique qui peuvent prendre l'appel, les vétérinaires d'abord. */
     public function collegues(SessionTeleconsultation $session): JsonResponse
@@ -48,8 +51,13 @@ class TransfertAppelController extends Controller
             throw ValidationException::withMessages(['employe_id' => 'Choisissez un collègue de la clinique qui peut prendre l’appel.']);
         }
 
+        // Un autre collègue attendait : son transfert tombe, il le sait
+        $avant = $session->transfert_vers_id;
         $session->forceFill(['transfert_vers_id' => $vers->id, 'transfert_demande_le' => now()])->save();
-        $this->prevenir($vers, $session, 'demande');
+        if ($avant !== null && $avant !== $vers->id) {
+            $this->prevenirEmploye($avant, $session, 'annule');
+        }
+        $this->avis->envoyer($vers->user_id, $session, 'demande');
 
         return $this->ressource($session);
     }
@@ -57,13 +65,20 @@ class TransfertAppelController extends Controller
     public function annuler(SessionTeleconsultation $session): SessionTeleconsultationResource
     {
         $this->assurerQuiMene($session);
-        $vers = $session->transfertVers()->withoutGlobalScopes()->first();
-        $session->forceFill(['transfert_vers_id' => null, 'transfert_demande_le' => null])->save();
+        // Sous verrou : une prise au même instant passe avant, ou après l'annulation, jamais entre
+        $vers = DB::transaction(function () use ($session): ?int {
+            $tenue = SessionTeleconsultation::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
+            $this->assurerMeneLAppel($tenue);
+            $vers = $tenue->transfert_vers_id;
+            $tenue->forceFill(['transfert_vers_id' => null, 'transfert_demande_le' => null])->save();
+
+            return $vers;
+        });
         if ($vers !== null) {
-            $this->prevenir($vers, $session, 'annule');
+            $this->prevenirEmploye($vers, $session, 'annule');
         }
 
-        return $this->ressource($session);
+        return $this->ressource($session->refresh());
     }
 
     /** Le collègue désigné prend l'appel : il le mène, l'autre poste se retire. */
@@ -73,22 +88,28 @@ class TransfertAppelController extends Controller
         abort_unless($session->estJoignable(), 410, 'Cet appel est terminé.');
         $moi = app(ContexteClinique::class)->employe();
 
-        $pris = DB::transaction(function () use ($session, $moi): bool {
+        $avant = DB::transaction(function () use ($session, $moi): ?int {
             $tenue = SessionTeleconsultation::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
             if ($tenue->transfert_vers_id === null) {
-                throw ValidationException::withMessages(['transfert' => 'Ce transfert a été annulé.']);
+                // Déjà pris (sur un autre appareil), ou annulé entre-temps
+                throw ValidationException::withMessages(['transfert' => $tenue->mene_par_id === $moi?->id ? 'Vous avez déjà pris cet appel.' : 'Ce transfert a été annulé.']);
             }
-            if ($tenue->transfert_vers_id !== $moi?->id) {
-                return false;
-            }
+            abort_unless($tenue->transfert_vers_id === $moi?->id, 403, 'Cet appel est transféré à un autre collègue.');
+            $avant = $tenue->mene_par_id;
             $tenue->forceFill(['mene_par_id' => $moi->id, 'transfert_vers_id' => null, 'transfert_demande_le' => null])->save();
 
-            return true;
+            return $avant;
         });
-        abort_unless($pris, 403, 'Cet appel est transféré à un autre collègue.');
 
         // Le poste qui menait l'appel se retire ; le client attend l'offre du nouveau
         TempsReel::diffuser(fn () => SignalVisio::dispatch($session->id, 'veterinaire', 'releve', ['par' => $moi->id, 'nom' => $moi->nom]));
+        // Sur le canal des comptes aussi : l'ancien poste, même sans la relève
+        // (page rechargée, WebSocket coupé), et mes autres appareils
+        $pris = ['par' => $moi->id, 'nom' => $moi->nom];
+        if ($avant !== null) {
+            $this->prevenirEmploye($avant, $session, 'pris', $pris);
+        }
+        $this->avis->envoyer($moi->user_id, $session, 'pris', $pris);
 
         return $this->ressource($session->refresh());
     }
@@ -97,7 +118,7 @@ class TransfertAppelController extends Controller
     {
         $this->authorize('update', $session);
         abort_unless($session->estJoignable(), 410, 'Cet appel est terminé.');
-        abort_unless($session->mene_par_id === app(ContexteClinique::class)->employe()?->id, 403, 'Seule la personne qui mène l’appel peut le transférer.');
+        $this->assurerMeneLAppel($session);
     }
 
     /** @return Collection<int, Employe> */
@@ -107,6 +128,8 @@ class TransfertAppelController extends Controller
             ->where('organisation_id', app(ContexteClinique::class)->organisationId())
             ->whereHas('cliniques', fn ($q) => $q->whereKey($session->clinique_id))
             ->where('acces_suspendu', false)
+            // Contrat fini : il ne peut plus se connecter (le dernier jour compte encore)
+            ->where(fn ($q) => $q->whereNull('fin_contrat_le')->orWhereDate('fin_contrat_le', '>=', aujourdhui()))
             ->whereKeyNot($session->mene_par_id)
             ->with(['role', 'derogations'])
             ->get()
@@ -114,11 +137,13 @@ class TransfertAppelController extends Controller
             ->values();
     }
 
-    private function prevenir(Employe $vers, SessionTeleconsultation $session, string $etat): void
+    /** @param  array<string, mixed>  $plus */
+    private function prevenirEmploye(int $employeId, SessionTeleconsultation $session, string $etat, array $plus = []): void
     {
-        $de = app(ContexteClinique::class)->employe()?->nom;
-        $patient = $session->patient()->withoutGlobalScopes()->value('nom');
-        TempsReel::diffuser(fn () => TransfertAppelVideo::dispatch($vers->user_id, ['etat' => $etat, 'session_id' => $session->id, 'patient' => $patient, 'de' => $de]));
+        $userId = Employe::withoutGlobalScopes()->whereKey($employeId)->value('user_id');
+        if ($userId !== null) {
+            $this->avis->envoyer((int) $userId, $session, $etat, $plus);
+        }
     }
 
     private function ressource(SessionTeleconsultation $session): SessionTeleconsultationResource

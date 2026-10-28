@@ -4,14 +4,17 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\StatutRendezVous;
 use App\Events\SignalVisio;
+use App\Http\Controllers\Api\V1\Concerns\MeneLAppel;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Tele\TerminerSessionRequest;
 use App\Http\Resources\V1\FactureResource;
 use App\Http\Resources\V1\SessionTeleconsultationResource;
+use App\Models\Employe;
 use App\Models\Facture;
 use App\Models\SessionTeleconsultation;
 use App\Services\CreationFacture;
 use App\Services\ProjectionPlanningTele;
+use App\Services\Tele\AvisTransfert;
 use App\Support\TempsReel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -27,9 +30,12 @@ use Illuminate\Validation\ValidationException;
  */
 class FinTeleconsultationController extends Controller
 {
+    use MeneLAppel;
+
     public function __construct(
         private ProjectionPlanningTele $projection,
         private CreationFacture $creationFacture,
+        private AvisTransfert $avis,
     ) {}
 
     public function __invoke(TerminerSessionRequest $request, SessionTeleconsultation $session): SessionTeleconsultationResource
@@ -39,6 +45,9 @@ class FinTeleconsultationController extends Controller
         if ($session->estTerminee()) {
             throw ValidationException::withMessages(['terminee_le' => 'Cette session est déjà terminée.']);
         }
+        // Transférée et prise par un collègue : ce n'est plus à ce poste de la terminer
+        $this->assurerMeneLAppel($session);
+        $transfertEnAttente = $session->transfert_vers_id;
 
         $facture = DB::transaction(function () use ($request, $session): ?Facture {
             $maintenant = now();
@@ -46,6 +55,8 @@ class FinTeleconsultationController extends Controller
             $session->update([
                 'terminee_le' => $maintenant,
                 'duree_secondes' => (int) $session->demarre_le->diffInSeconds($maintenant),
+                'transfert_vers_id' => null,
+                'transfert_demande_le' => null,
             ]);
 
             if (! $request->boolean('cloturer')) {
@@ -71,6 +82,11 @@ class FinTeleconsultationController extends Controller
 
         // La page du client l'apprend aussitôt (appel vidéo WebRTC, 28.10.2026)
         TempsReel::diffuser(fn () => SignalVisio::dispatch($session->id, 'veterinaire', 'fin', []));
+        // Le collègue à qui l'appel était transféré : sa demande tombe
+        $userVers = $transfertEnAttente !== null ? Employe::withoutGlobalScopes()->whereKey($transfertEnAttente)->value('user_id') : null;
+        if ($userVers !== null) {
+            $this->avis->envoyer((int) $userVers, $session, 'termine');
+        }
 
         $resource = new SessionTeleconsultationResource($session->load(SessionTeleconsultationController::relations()));
 

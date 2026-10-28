@@ -268,6 +268,27 @@ class OrdonnanceTest extends TestCase
         $this->assertSame(StatutOrdonnance::Active, $ordonnance->fresh()->statut);
     }
 
+    /** Une ordonnance close ne se rouvre pas, même par l'annulation dans la fenêtre de 20 s */
+    public function test_un_renouvellement_clos_ne_s_annule_plus_et_la_precedente_reste_close(): void
+    {
+        $ordonnance = Ordonnance::factory()->create([
+            'clinique_id' => $this->clinique->id,
+            'patient_id' => $this->patient->id,
+            'renouvellements' => 1,
+        ]);
+        OrdonnanceLigne::factory()->create([
+            'ordonnance_id' => $ordonnance->id,
+            'produit_id' => $this->medicamentEnStock(5)->id,
+        ]);
+        $renouvellement = $this->postJson("/api/v1/ordonnances/{$ordonnance->id}/renouveler", [], $this->enTetes($this->jeton))->json('data.id');
+        $this->postJson("/api/v1/ordonnances/{$renouvellement}/cloturer", [], $this->enTetes($this->jeton))->assertOk();
+
+        $this->deleteJson("/api/v1/ordonnances/{$renouvellement}", [], $this->enTetes($this->jeton))->assertUnprocessable();
+
+        $this->assertSame(StatutOrdonnance::Cloturee, Ordonnance::find($renouvellement)->statut);
+        $this->assertSame(StatutOrdonnance::Cloturee, $ordonnance->fresh()->statut);
+    }
+
     public function test_la_cloture_rend_l_ordonnance_non_delivrable(): void
     {
         $ordonnance = Ordonnance::factory()->create([

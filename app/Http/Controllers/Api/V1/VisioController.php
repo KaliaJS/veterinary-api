@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Http\Controllers\Api\V1\Concerns\MeneLAppel;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Tele\SignalVisioRequest;
 use App\Mail\LienVisio;
@@ -19,6 +20,8 @@ use Illuminate\Support\Facades\Mail;
  */
 class VisioController extends Controller
 {
+    use MeneLAppel;
+
     public function __construct(private SignalisationVisio $signalisation) {}
 
     /** Le lien du client, envoyé à son adresse ; rendu aussi pour le copier. */
@@ -26,6 +29,7 @@ class VisioController extends Controller
     {
         $this->authorize('update', $session);
         abort_unless($session->estJoignable(), 410, 'Cet appel est terminé.');
+        $this->assurerMeneLAppel($session);
 
         $lien = $session->lienClient();
         $email = $session->patient?->client?->email;
@@ -41,6 +45,7 @@ class VisioController extends Controller
     {
         $this->authorize('view', $session);
         abort_unless($session->estJoignable(), 410, 'Cet appel est terminé.');
+        $this->assurerMeneLAppel($session);
 
         return response()->json(['data' => ['ice_servers' => $serveurs->pour()]]);
     }
@@ -48,6 +53,7 @@ class VisioController extends Controller
     public function signal(SignalVisioRequest $request, SessionTeleconsultation $session): JsonResponse
     {
         $this->authorize('update', $session);
+        $this->assurerMeneLAppel($session);
         $this->signalisation->envoyer($session, 'veterinaire', $request->validated('type'), $request->validated('donnees'));
 
         return response()->json(null, 202);
