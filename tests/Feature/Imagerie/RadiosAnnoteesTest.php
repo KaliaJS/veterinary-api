@@ -519,6 +519,43 @@ class RadiosAnnoteesTest extends TestCase
         $this->envoyer(substr($octets, 0, -4000))->assertUnprocessable()->assertJsonValidationErrors('fichier');
     }
 
+    /** Pixels compressés (en fragments) : gardés seulement s'ils vont jusqu'à leur délimiteur ; des pixels vides, jamais */
+    public function test_des_pixels_compresses_coupes_ou_vides_sont_refuses(): void
+    {
+        $jpeg = '1.2.840.10008.1.2.4.50';
+        $fragments = fn (string $donnees): string => pack('vv', 0x7FE0, 0x0010).'OB'."\0\0".pack('V', 0xFFFFFFFF)
+            .pack('vvV', 0xFFFE, 0xE000, 0)
+            .pack('vvV', 0xFFFE, 0xE000, strlen($donnees)).$donnees
+            .pack('vvV', 0xFFFE, 0xE0DD, 0);
+        $entier = $this->dicom(['sop' => '1.2.3.41'], $jpeg, avecPixels: false).$fragments(str_repeat("\xFF\xD8", 3000));
+
+        $this->envoyer($entier)->assertCreated();
+        // Coupé au milieu du fragment, ou juste avant le délimiteur
+        $coupe = $this->dicom(['sop' => '1.2.3.42'], $jpeg, avecPixels: false).$fragments(str_repeat("\xFF\xD8", 3000));
+        $this->envoyer(substr($coupe, 0, -2000))->assertUnprocessable()->assertJsonValidationErrors('fichier');
+        $this->envoyer(substr($coupe, 0, -8))->assertUnprocessable()->assertJsonValidationErrors('fichier');
+        // Des pixels de longueur nulle : rien à voir
+        $vide = $this->dicom(['sop' => '1.2.3.43'], avecPixels: false).pack('vv', 0x7FE0, 0x0010).'OW'."\0\0".pack('V', 0);
+        $this->envoyer($vide)->assertUnprocessable()->assertJsonValidationErrors('fichier');
+    }
+
+    /** D7, suite : par le patient d'une autre organisation, ni la liste des radios, ni les dessins, ni les repères, ni un nouveau dessin */
+    public function test_le_chemin_d7_ne_lit_ni_la_liste_ni_les_dessins(): void
+    {
+        $autre = Clinique::factory()->create();
+        ['jeton' => $jetonAutre] = $this->employeAvecJeton($autre);
+        $patientAutre = Patient::factory()->for(Client::factory()->create(['organisation_id' => $autre->societe->organisation_id]))->create();
+        $cliche = $this->cliche();
+        $this->postJson("{$this->base()}/cliches/{$cliche->id}/annotations", ['type' => 'point', 'points' => [[2, 3]], 'etiquette' => 'fracture', 'certitude' => 'sur'], $this->en())->assertCreated();
+        $chemin = "/api/v1/patients/{$patientAutre->id}/imagerie/{$this->examen->id}";
+
+        $this->getJson("{$chemin}/cliches", $this->enTetes($jetonAutre))->assertNotFound();
+        $this->getJson("{$chemin}/cliches/{$cliche->id}/annotations", $this->enTetes($jetonAutre))->assertNotFound();
+        $this->patchJson("{$chemin}/cliches/{$cliche->id}", ['region' => 'thorax', 'incidence' => 'lateral_droit'], $this->enTetes($jetonAutre))->assertNotFound();
+        $this->postJson("{$chemin}/cliches/{$cliche->id}/annotations", ['type' => 'point', 'points' => [[2, 3]], 'etiquette' => 'fracture', 'certitude' => 'sur'], $this->enTetes($jetonAutre))->assertNotFound();
+        $this->assertSame(1, $cliche->annotations()->count());
+    }
+
     /** Une syntaxe illisible (dégonflée, grand-boutiste) dit pourquoi, au lieu de « pas une image DICOM » */
     public function test_une_syntaxe_illisible_dit_pourquoi(): void
     {

@@ -23,8 +23,13 @@ final class LecteurDicom
     /** Grand-boutiste (retiré de la norme) et dégonflé : le jeu de données ne se lit pas */
     public const array SYNTAXES_ILLISIBLES = ['1.2.840.10008.1.2.2', '1.2.840.10008.1.2.1.99'];
 
+    /** Fragments de pixels compressés parcourus au plus (un par image, plus la table) */
+    private const int FRAGMENTS_MAX = 100_000;
+
     /** Taille du fichier entier : des pixels annoncés plus longs que lui, c'est un fichier coupé */
     private int $tailleFichier = 0;
+
+    private ?string $chemin = null;
 
     /** VR à longueur sur 4 octets (2 réservés avant) en VR explicite */
     private const array VR_LONGS = ['OB', 'OD', 'OF', 'OL', 'OV', 'OW', 'SQ', 'SV', 'UC', 'UN', 'UR', 'UT', 'UV'];
@@ -65,6 +70,7 @@ final class LecteurDicom
         fclose($flux);
         $lecteur = new self;
         $lecteur->tailleFichier = (int) @filesize($chemin);
+        $lecteur->chemin = $chemin;
 
         return $lecteur->analyser($octets);
     }
@@ -97,10 +103,14 @@ final class LecteurDicom
         while ($lisible && $this->pos + 8 <= strlen($this->octets)) {
             $etiquette = $this->etiquetteSuivante();
             if ($etiquette === '7FE00010') {
-                // Des pixels de longueur connue qui dépassent la fin du fichier : il est coupé
+                // Des pixels vides, ou qui dépassent la fin du fichier (il est coupé) : refusés
                 $longueur = $explicite ? $this->entier32($this->pos + 8) : $this->entier32($this->pos + 4);
                 $debut = $this->pos + ($explicite ? 12 : 8);
-                $pixels = $longueur === 0xFFFFFFFF || ($longueur !== null && $debut + $longueur <= $this->tailleFichier);
+                $pixels = match (true) {
+                    $longueur === null, $longueur === 0 => false,
+                    $longueur === 0xFFFFFFFF => $this->fragmentsComplets($debut),
+                    default => $debut + $longueur <= $this->tailleFichier,
+                };
                 break;
             }
             $element = $this->element($explicite);
@@ -126,6 +136,49 @@ final class LecteurDicom
             // n'est pas lu, les pixels ne sont pas trouvés, le fichier est refusé
             'pixels' => $pixels,
         ];
+    }
+
+    /**
+     * Pixels compressés : des fragments jusqu'au délimiteur (FFFE,E0DD),
+     * tous entiers dans le fichier. Seuls leurs en-têtes sont lus : un
+     * fichier de 100 Mo ne passe pas en mémoire.
+     */
+    private function fragmentsComplets(int $debut): bool
+    {
+        $flux = $this->chemin === null ? false : @fopen($this->chemin, 'rb');
+        if ($flux === false) {
+            return false;
+        }
+        try {
+            $pos = $debut;
+            for ($i = 0; $i < self::FRAGMENTS_MAX; $i++) {
+                if (fseek($flux, $pos) !== 0) {
+                    return false;
+                }
+                $entete = fread($flux, 8);
+                if ($entete === false || strlen($entete) < 8) {
+                    return false;
+                }
+                ['groupe' => $groupe, 'element' => $element, 'longueur' => $longueur] = unpack('vgroupe/velement/Vlongueur', $entete);
+                if ($groupe !== 0xFFFE) {
+                    return false;
+                }
+                if ($element === 0xE0DD) {
+                    return true;
+                }
+                if ($element !== 0xE000 || $longueur === 0xFFFFFFFF) {
+                    return false;
+                }
+                $pos += 8 + $longueur;
+                if ($pos > $this->tailleFichier) {
+                    return false;
+                }
+            }
+
+            return false;
+        } finally {
+            fclose($flux);
+        }
     }
 
     /** @param  array<string, mixed>  $lu @param  array{0: string, 1: ?string, 2: string}  $element */
