@@ -358,6 +358,8 @@ Route::prefix('v1')->group(function (): void {
         Route::post('animaux/{animal}/deces', [PlaneteController::class, 'declarerDeces']);
         Route::delete('animaux/{animal}/deces', [PlaneteController::class, 'annulerDeces']);
         Route::put('coordonnees', [CoordonneesProprietaireController::class, 'modifier']);
+        // Le mobile seul, pour les SMS (sans prénom ni nom à remplir, 28.10.2026)
+        Route::put('mobile', [CoordonneesProprietaireController::class, 'mobile'])->middleware('throttle:10,1,espace-mobile');
         Route::get('commandes', [BoutiqueProprietaireController::class, 'commandes']);
         Route::post('commandes', [BoutiqueProprietaireController::class, 'passer'])->middleware('throttle:espace-commandes');
         Route::post('devis/{devis}/signer', [DocumentProprietaireController::class, 'signerDevis']);

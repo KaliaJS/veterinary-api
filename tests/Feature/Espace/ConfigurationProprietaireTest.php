@@ -128,4 +128,27 @@ class ConfigurationProprietaireTest extends TestCase
         app(SuppressionCompte::class)->effacer($user);
         $this->assertDatabaseMissing('users', ['id' => $user->id, 'tel' => '079 123 45 67']);
     }
+
+    /** Inscrit à l'instant (nom provisoire) : son mobile s'enregistre seul, sans prénom ni nom (vérification du 28.10.2026, défaut grave) */
+    public function test_un_compte_neuf_enregistre_son_mobile_sans_prenom_ni_nom(): void
+    {
+        ['jeton' => $jeton, 'user' => $user] = $this->proprietaireAvecJeton(['name' => 'lea.martin']);
+        $clinique = Clinique::factory()->create();
+        Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'user_id' => $user->id, 'tel' => null]);
+
+        $this->putJson('/api/v1/espace/mobile', ['tel' => '079 123 45 67'], $this->enTetes($jeton))->assertOk()->assertJsonPath('data.tel', '079 123 45 67');
+
+        $this->assertSame('079 123 45 67', $user->refresh()->tel);
+        $this->assertSame('079 123 45 67', Client::withoutGlobalScopes()->where('user_id', $user->id)->value('tel'));
+    }
+
+    /** Un fixe n'est pas un mobile : refusé, rien ne change */
+    public function test_un_fixe_n_est_pas_enregistre_comme_mobile(): void
+    {
+        ['jeton' => $jeton, 'user' => $user] = $this->proprietaireAvecJeton();
+
+        $this->putJson('/api/v1/espace/mobile', ['tel' => '032 123 45 67'], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors('tel');
+
+        $this->assertNull($user->refresh()->tel);
+    }
 }
