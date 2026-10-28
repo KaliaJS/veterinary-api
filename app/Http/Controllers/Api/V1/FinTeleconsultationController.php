@@ -50,6 +50,13 @@ class FinTeleconsultationController extends Controller
         $transfertEnAttente = $session->transfert_vers_id;
 
         $facture = DB::transaction(function () use ($request, $session): ?Facture {
+            // Sous verrou : une prise du collègue au même instant passe avant
+            // (l'appel n'est alors plus à ce poste) ou après
+            $tenue = SessionTeleconsultation::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
+            if ($tenue->estTerminee()) {
+                throw ValidationException::withMessages(['terminee_le' => 'Cette session est déjà terminée.']);
+            }
+            $this->assurerMeneLAppel($tenue);
             $maintenant = now();
 
             $session->update([

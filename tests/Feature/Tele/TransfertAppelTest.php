@@ -292,4 +292,23 @@ class TransfertAppelTest extends TestCase
         $this->postJson('/api/v1/broadcasting/auth', [...$socket, 'channel_name' => 'private-utilisateur.'.$this->userVeto->id], $this->enTetes($this->veto))->assertOk();
         $this->postJson('/api/v1/broadcasting/auth', [...$socket, 'channel_name' => 'private-utilisateur.'.$this->employeAccueil->user_id], $this->enTetes($this->veto))->assertForbidden();
     }
+
+    /** Décision de Jim : tout employé avec le droit Planning mène l'appel ; l'accueil (ASV, pas vétérinaire) se relie au client */
+    public function test_l_accueil_avec_le_droit_planning_mene_l_appel(): void
+    {
+        $this->assertFalse($this->employeAccueil->estVeterinaire());
+
+        $this->postJson($this->url('signal'), ['type' => 'pret', 'donnees' => []], $this->enTetes($this->accueil))->assertStatus(202);
+        $this->getJson($this->url('ice'), $this->enTetes($this->accueil))->assertOk()->assertJsonStructure(['data' => ['ice_servers']]);
+
+        // L'autorisation du canal seulement (rien n'est diffusé après)
+        config([
+            'broadcasting.default' => 'reverb',
+            'broadcasting.connections.reverb.key' => 'cle-essai',
+            'broadcasting.connections.reverb.secret' => 'secret-essai',
+            'broadcasting.connections.reverb.app_id' => '1001',
+        ]);
+        require base_path('routes/channels.php');
+        $this->postJson('/api/v1/broadcasting/auth', ['socket_id' => '1234.5678', 'channel_name' => 'private-visio.'.$this->session->id], $this->enTetes($this->accueil))->assertOk();
+    }
 }

@@ -135,6 +135,14 @@ class OrdonnanceController extends Controller
         }
 
         DB::transaction(function () use ($request, $ordonnance): void {
+            // Sous verrou : un renouvellement au même instant depuis un autre
+            // poste la clôt d'abord, et l'annulation est alors refusée
+            if (Ordonnance::query()->whereKey($ordonnance->id)->lockForUpdate()->value('statut') !== StatutOrdonnance::Active) {
+                throw ValidationException::withMessages([
+                    'ordonnance' => 'Cette ordonnance a été renouvelée ou clôturée entre-temps : elle ne s’annule plus.',
+                ]);
+            }
+
             $this->stock->inverserMouvementsDe(
                 $ordonnance,
                 'Annulation ordonnance '.$ordonnance->numero,

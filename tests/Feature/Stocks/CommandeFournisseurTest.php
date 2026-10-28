@@ -216,6 +216,17 @@ class CommandeFournisseurTest extends TestCase
         $this->assertSame(18, CommandeFournisseur::query()->sole()->lignes()->sole()->quantite);
     }
 
+    /** « Seules les commandes ouvertes » : une commande déjà réceptionnée de la clinique ne couvre plus l'article. */
+    public function test_une_commande_receptionnee_ne_couvre_plus_l_article(): void
+    {
+        $produit = $this->produit(['fournisseur' => 'Vetopharm SA', 'seuil_alerte' => 10]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 0]);
+        $recue = CommandeFournisseur::factory()->create(['clinique_id' => $this->clinique->id, 'statut' => StatutCommandeFournisseur::Receptionnee]);
+        CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $recue->id, 'produit_id' => $produit->id]);
+
+        $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))->assertOk()->assertJsonCount(1, 'data');
+    }
+
     /** Un brouillon d'une clinique sœur ne couvre plus l'article d'ici. */
     public function test_le_brouillon_d_une_clinique_soeur_ne_bloque_plus_la_generation(): void
     {

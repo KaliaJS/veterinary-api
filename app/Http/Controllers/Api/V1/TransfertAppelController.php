@@ -51,9 +51,17 @@ class TransfertAppelController extends Controller
             throw ValidationException::withMessages(['employe_id' => 'Choisissez un collègue de la clinique qui peut prendre l’appel.']);
         }
 
-        // Un autre collègue attendait : son transfert tombe, il le sait
-        $avant = $session->transfert_vers_id;
-        $session->forceFill(['transfert_vers_id' => $vers->id, 'transfert_demande_le' => now()])->save();
+        // Sous verrou : une prise au même instant passe avant (l'appel n'est
+        // alors plus à moi) ou après ; un autre collègue qui attendait le sait
+        $avant = DB::transaction(function () use ($session, $vers): ?int {
+            $tenue = SessionTeleconsultation::query()->whereKey($session->id)->lockForUpdate()->firstOrFail();
+            $this->assurerMeneLAppel($tenue);
+            $avant = $tenue->transfert_vers_id;
+            $tenue->forceFill(['transfert_vers_id' => $vers->id, 'transfert_demande_le' => now()])->save();
+
+            return $avant;
+        });
+        $session->refresh();
         if ($avant !== null && $avant !== $vers->id) {
             $this->prevenirEmploye($avant, $session, 'annule');
         }
