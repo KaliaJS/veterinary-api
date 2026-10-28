@@ -35,4 +35,27 @@ class CompteRevueApple
     {
         return $this->codePour($email) !== null;
     }
+
+    /**
+     * L'adresse de revue ou une graphie qui s'y ramène en minuscules (signe
+     * Kelvin pour « k »…), qu'une base en utf8mb4_unicode_ci confondrait
+     * avec elle (28.10.2026).
+     */
+    public function ressemble(string $email): bool
+    {
+        $adresse = mb_strtolower(trim((string) config('plateforme.revue_apple.email')));
+        if ($adresse === '' || preg_match('/^\d{8}$/', trim((string) config('plateforme.revue_apple.code'))) !== 1) {
+            return false;
+        }
+        $email = trim($email);
+        $compatible = \Normalizer::normalize($email, \Normalizer::FORM_KC);
+
+        return mb_strtolower($email) === $adresse || mb_strtolower(is_string($compatible) ? $compatible : $email) === $adresse;
+    }
+
+    /** Une graphie voisine de l'adresse de revue, pas l'adresse elle-même : ni code fixe, ni code envoyé. */
+    public function estSosie(string $email): bool
+    {
+        return $this->ressemble($email) && $this->codePour($email) === null;
+    }
 }

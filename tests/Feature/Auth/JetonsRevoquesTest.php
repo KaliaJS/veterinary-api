@@ -4,6 +4,7 @@ namespace Tests\Feature\Auth;
 
 use App\Auth\EmetteurJetons;
 use App\Models\Clinique;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -109,5 +110,23 @@ class JetonsRevoquesTest extends TestCase
         $neuf = $this->postJson('/api/v1/auth/clinique', ['clinique_id' => $this->clinique->id], $this->enTetes($jeton))->assertOk()->json('data.token');
         $this->assertTrue($user->tokens()->sole()->session_depuis->equalTo($debut));
         $this->assertNotSame($jeton, $neuf);
+    }
+
+    /** La nuit, une fin de contrat se compare à la date de la clinique (New York : encore le dernier jour à 00:15 à Zurich). */
+    public function test_la_fermeture_de_nuit_suit_la_date_de_la_clinique(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-11 00:15', 'Europe/Zurich'));
+        $newYork = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id, 'fuseau_horaire' => 'America/New_York']);
+        ['employe' => $employe] = $this->employeAvecJeton($newYork);
+        $employe->forceFill(['fin_contrat_le' => '2026-11-10'])->save();
+
+        // 18:15 le 10 à New York : son dernier jour n'est pas fini
+        $this->artisan('equipe:fermer-contrats')->assertSuccessful();
+        $this->assertFalse((bool) $employe->refresh()->acces_suspendu);
+
+        // 00:15 le 11 à New York
+        $this->travelTo(CarbonImmutable::parse('2026-11-11 06:15', 'Europe/Zurich'));
+        $this->artisan('equipe:fermer-contrats')->assertSuccessful();
+        $this->assertTrue((bool) $employe->refresh()->acces_suspendu);
     }
 }

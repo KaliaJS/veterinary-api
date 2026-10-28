@@ -42,5 +42,5 @@ Schedule::command('comptes:effacer')->dailyAt(SuppressionCompte::HEURE_EFFACEMEN
 Schedule::command('alertes:stock')->dailyAt('07:00')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 
 // Contrats terminés : accès suspendu et jetons révoqués ; jetons expirés supprimés
-Schedule::command('equipe:fermer-contrats')->dailyAt('00:15')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
+Schedule::command('equipe:fermer-contrats')->hourlyAt(15)->withoutOverlapping(60)->onOneServer();
 Schedule::command('sanctum:prune-expired --hours=48')->dailyAt('04:45')->withoutOverlapping(60)->onOneServer();

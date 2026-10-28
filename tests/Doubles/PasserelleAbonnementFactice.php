@@ -49,6 +49,9 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     /** Stripe refuse la clé de la plateforme (401) à tout appel */
     public bool $cleRefusee = false;
 
+    /** L'annulation d'un prélèvement tombe en panne (sans réponse de Stripe) */
+    public bool $panneAnnulation = false;
+
     /** La liste répond encore ce nombre de fois, puis tombe en panne */
     public ?int $listeRepondEncore = null;
 
@@ -194,7 +197,8 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     public function lirePrelevement(string $id): array
     {
         $this->refuserLaCle();
-        $p = $this->prelevements[$id] ?? throw new ErreurPaiement('Élément introuvable chez Stripe.', 'resource_missing');
+        // Comme Stripe : 404 « No such payment_intent »
+        $p = $this->prelevements[$id] ?? throw new ErreurPaiement('Élément introuvable chez Stripe.', 'resource_missing', 404);
 
         return [
             'id' => $id,
@@ -208,6 +212,9 @@ class PasserelleAbonnementFactice implements PasserelleAbonnement
     {
         $this->journal[] = 'annuler:'.$id;
         $this->refuserLaCle();
+        if ($this->panneAnnulation) {
+            throw new ErreurPaiement(ErreurPaiement::GENERIQUE, 'api_connection_error');
+        }
         // Comme Stripe : en attente de confirmation ou refusé, il s'annule
         if (in_array($this->prelevements[$id]['statut'] ?? null, ['action_requise', 'refuse'], true)) {
             $this->prelevements[$id]['statut'] = 'annule';

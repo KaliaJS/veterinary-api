@@ -14,6 +14,7 @@ use App\Support\MasquageSql;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
@@ -69,6 +70,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // Une erreur SQL va au journal sans la valeur que répète le message
         // du pilote MySQL, ni les arguments de la pile (24.10.2026)
         $exceptions->report(MasquageSql::rapporteur());
+
+        // Limite d'un groupe de routes (`throttle:60,1`…) : le message de
+        // Laravel est en anglais, l'app et la montre l'affichent (28.10.2026)
+        $exceptions->render(fn (ThrottleRequestsException $e, Request $request) => $request->is('api/*')
+            ? response()->json(['message' => 'Trop de requêtes : réessayez dans une minute.'], 429, $e->getHeaders())
+            : null);
 
         // Refus du prestataire de paiement non rattrapé : un 422 avec son
         // message traduit, jamais un 500 (il reste noté au journal)

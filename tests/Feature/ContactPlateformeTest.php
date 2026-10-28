@@ -287,4 +287,39 @@ class ContactPlateformeTest extends TestCase
             ->assertStatus(503)->assertJsonPath('message', 'Le formulaire de contact n’est pas disponible pour l’instant.');
         Mail::assertNothingSent();
     }
+
+    /* ——— Vérification du 28.10.2026 ——— */
+
+    /** Un séparateur de ligne Unicode dans l'adresse n'invente pas de ligne dans le message. */
+    public function test_l_adresse_avec_un_separateur_de_ligne_est_refusee(): void
+    {
+        foreach (["paul@exemple.ch\u{2028}Compte-Veterinary:12", "paul\u{2029}x@exemple.ch"] as $adresse) {
+            $this->postJson('/api/v1/public/contact', $this->message(['email' => $adresse]))
+                ->assertUnprocessable()->assertJsonValidationErrors(['email' => 'Cette adresse e-mail n’est pas valable.']);
+        }
+        Mail::assertNothingSent();
+    }
+
+    /** Deux adresses IPv4 écrites en IPv6 (::ffff:a.b.c.d) ont chacune leur limite. */
+    public function test_deux_ipv4_ecrites_en_ipv6_ne_partagent_pas_leur_limite(): void
+    {
+        foreach (range(1, 5) as $n) {
+            $this->withServerVariables(['REMOTE_ADDR' => '::ffff:203.0.113.5'])->postJson('/api/v1/public/contact', $this->message())->assertStatus(202);
+        }
+
+        $this->withServerVariables(['REMOTE_ADDR' => '::ffff:198.51.100.7'])->postJson('/api/v1/public/contact', $this->message())->assertStatus(202);
+        $this->withServerVariables(['REMOTE_ADDR' => '::ffff:203.0.113.5'])->postJson('/api/v1/public/contact', $this->message())->assertStatus(429);
+    }
+
+    /** La limite générale des routes publiques répond en français. */
+    public function test_la_limite_des_routes_publiques_repond_en_francais(): void
+    {
+        foreach (range(1, 60) as $n) {
+            $this->postJson('/api/v1/public/contact', $this->message(['captcha' => '']))->assertUnprocessable();
+        }
+
+        $this->postJson('/api/v1/public/contact', $this->message())
+            ->assertStatus(429)
+            ->assertJsonPath('message', 'Trop de requêtes : réessayez dans une minute.');
+    }
 }

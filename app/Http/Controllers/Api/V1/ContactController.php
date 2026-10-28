@@ -28,7 +28,9 @@ class ContactController extends Controller
 
         $donnees = $request->validate([
             'nom' => ['required', 'string', 'max:120'],
-            'email' => ['required', 'email', 'max:190'],
+            // Ni contrôle ni séparateur de ligne Unicode : l'adresse est
+            // recopiée dans le message, elle n'y invente pas de ligne
+            'email' => ['required', 'email', 'max:190', 'not_regex:/[\p{Cc}\p{Zl}\p{Zp}]/u'],
             'message' => ['required', 'string', 'min:10', 'max:5000'],
             'captcha' => [$connecte ? 'nullable' : 'required', 'string', 'max:4096'],
         ], [
@@ -38,6 +40,7 @@ class ContactController extends Controller
             'nom.max' => 'Ce nom est trop long.',
             'email.required' => 'Indiquez votre adresse e-mail.',
             'email.email' => 'Cette adresse e-mail n’est pas valable.',
+            'email.not_regex' => 'Cette adresse e-mail n’est pas valable.',
             'email.max' => 'Cette adresse e-mail est trop longue.',
             'message.required' => 'Écrivez votre message.',
             'message.string' => 'Écrivez votre message.',

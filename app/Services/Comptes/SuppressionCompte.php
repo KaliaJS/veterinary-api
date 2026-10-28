@@ -49,7 +49,10 @@ class SuppressionCompte
     private const int ESSAIS_MAX = 5;
 
     /** Titres sautés pour garder le prénom d'une trace */
-    private const array TITRES = ['dr', 'dre', 'docteur', 'docteure', 'pr', 'pre', 'professeur', 'professeure', 'm', 'mme', 'mlle', 'me'];
+    private const array TITRES = [
+        'dr', 'dre', 'docteur', 'docteure', 'pr', 'pre', 'prof', 'professeur', 'professeure', 'pd',
+        'med', 'méd', 'vet', 'vét', 'dmv', 'phd', 'dipl', 'm', 'mme', 'mlle', 'me', 'mr', 'mrs', 'ms',
+    ];
 
     public function __construct(
         private CompteRevueApple $revue,
@@ -176,11 +179,20 @@ class SuppressionCompte
         }
 
         // Une facture Plus encore en attente chez Stripe : son prélèvement est
-        // annulé d'abord (en panne, le compte attend la nuit suivante)
+        // annulé d'abord (en panne ou clé refusée, le compte attend la nuit
+        // suivante). Un prélèvement inconnu du compte Stripe (ancien compte,
+        // passage du mode test au réel) n'a rien à annuler : signalé
         $enAttente = FactureProprietaire::query()->where('user_id', $user->id)->where('statut', 'a_payer')->get();
         foreach ($enAttente as $facture) {
             if ($facture->stripe_paiement_id) {
-                $this->stripe->annulerPrelevement($facture->stripe_paiement_id);
+                try {
+                    $this->stripe->annulerPrelevement($facture->stripe_paiement_id);
+                } catch (ErreurPaiement $e) {
+                    if ($e->estPassagere() || $e->cleRefusee()) {
+                        throw $e;
+                    }
+                    report($e);
+                }
             }
         }
 
@@ -281,10 +293,12 @@ class SuppressionCompte
         }
         $user->tokens()->delete();
 
-        // Le prénom, sans titre devant (Dr, Dre, Pr…)
+        // Le prénom, sans les titres devant, seuls ou en suite (Dre, Prof.,
+        // PD Dr., Dr. med. vet., Dr.med.vet.)
+        $estTitre = fn (string $mot): bool => collect(explode('.', rtrim($mot, '.')))
+            ->every(fn (string $morceau): bool => in_array(mb_strtolower($morceau), self::TITRES, true));
         $prenom = collect(preg_split('/\s+/u', trim((string) $user->name)) ?: [])
-            ->reject(fn (string $mot): bool => in_array(mb_strtolower(rtrim($mot, '.')), self::TITRES, true))
-            ->first(fn (string $mot): bool => $mot !== '');
+            ->first(fn (string $mot): bool => $mot !== '' && ! $estTitre($mot));
         $user->forceFill([
             'efface_le' => now(),
             'name' => $prenom ?? 'Ancien membre',

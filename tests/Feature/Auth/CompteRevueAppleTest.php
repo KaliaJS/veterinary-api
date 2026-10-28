@@ -184,4 +184,52 @@ class CompteRevueAppleTest extends TestCase
         Mail::assertSent(EssaisCompteRevue::class, 1);
         Mail::assertSent(EssaisCompteRevue::class, fn (EssaisCompteRevue $mail) => $mail->hasTo('alerte@exemple.ch'));
     }
+
+    /** Une graphie voisine (signe Kelvin) ne se connecte pas avec le code fixe demandé par l'adresse de revue. */
+    public function test_une_graphie_voisine_ne_se_connecte_pas_avec_le_code_fixe(): void
+    {
+        // Accès ouvert : en SQLite, la graphie voisine créerait son compte ; en
+        // MySQL (utf8mb4_unicode_ci), elle trouverait celui de revue
+        config(['plateforme.revue_apple.email' => 'kiosque@veterinary.app', 'plateforme.acces_sur_invitation' => false]);
+        User::factory()->create(['email' => 'kiosque@veterinary.app']);
+        $kelvin = "\u{212A}iosque@veterinary.app";
+
+        $this->demander('kiosque@veterinary.app');
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $kelvin, 'code' => self::CODE])->assertUnprocessable();
+
+        // Une demande sous la graphie voisine n'efface pas le code fixe : l'adresse elle-même se connecte toujours
+        $this->demander($kelvin);
+        $this->postJson('/api/v1/auth/code-email/verifier', ['email' => 'kiosque@veterinary.app', 'code' => self::CODE])->assertSuccessful();
+        Notification::assertNothingSent();
+    }
+
+    /** Les codes faux se comptent sur la journée, tous codes confondus : trois tours de quatre essais alertent. */
+    public function test_des_tours_de_quatre_essais_faux_alertent_aussi(): void
+    {
+        config(['plateforme.alerte_email' => 'alerte@exemple.ch']);
+
+        foreach (range(1, 3) as $tour) {
+            $this->travel(16)->minutes();
+            $this->demander(self::ADRESSE);
+            foreach (range(1, 4) as $essai) {
+                $this->postJson('/api/v1/auth/code-email/verifier', ['email' => self::ADRESSE, 'code' => '11111111'])->assertUnprocessable();
+            }
+        }
+
+        Mail::assertSent(EssaisCompteRevue::class, 1);
+    }
+
+    /** Cinq codes faux sous une graphie voisine alertent aussi. */
+    public function test_des_essais_faux_sous_une_graphie_voisine_alertent(): void
+    {
+        config(['plateforme.alerte_email' => 'alerte@exemple.ch', 'plateforme.revue_apple.email' => 'kiosque@veterinary.app']);
+        $kelvin = "\u{212A}iosque@veterinary.app";
+
+        $this->demander($kelvin);
+        foreach (range(1, 5) as $essai) {
+            $this->postJson('/api/v1/auth/code-email/verifier', ['email' => $kelvin, 'code' => '11111111'])->assertUnprocessable();
+        }
+
+        Mail::assertSent(EssaisCompteRevue::class, 1);
+    }
 }

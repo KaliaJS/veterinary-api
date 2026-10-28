@@ -42,6 +42,7 @@ use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\PasserelleAbonnementFactice;
 use Tests\Doubles\PasserelleIdentiteFactice;
@@ -735,6 +736,20 @@ class SuppressionCompteTest extends TestCase
         $this->assertNotNull($user->efface_le);
     }
 
+    /** Titres suisses et allemands, seuls ou en suite : Prof., PD, Dr. med. vet., Dr.med.vet. */
+    public function test_le_prenom_de_la_trace_saute_une_suite_de_titres(): void
+    {
+        foreach (['Prof. Rachel Solal', 'Dr. med. vet. Rachel Solal', 'PD Dr. Rachel Solal', 'Dr.med.vet. Rachel Solal', 'Prof. Dr. méd. vét. Rachel Solal'] as $nom) {
+            ['user' => $user, 'jeton' => $jeton] = $this->ancienMembre(['name' => $nom, 'email' => Str::lower(Str::random(8)).'@exemple.ch', 'gln' => null]);
+            $this->demander($jeton, $user);
+            $this->travel(31)->days();
+            $this->artisan('comptes:effacer')->assertSuccessful();
+
+            $this->assertSame('Rachel', $user->refresh()->name, $nom);
+            $this->travelBack();
+        }
+    }
+
     /** Une fiche liée à une trace ne se rétablit pas (elle compterait dans la limite d'employés). */
     public function test_une_fiche_liee_a_une_trace_ne_se_retablit_pas(): void
     {
@@ -773,6 +788,7 @@ class SuppressionCompteTest extends TestCase
     /** Une facture Plus en attente chez Stripe : annulée à l'effacement, plus rien ne la reprend. */
     public function test_une_facture_plus_en_attente_ne_bloque_rien_apres_l_effacement(): void
     {
+        Exceptions::fake();
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
         $client = $this->stripe->creerClient('Paul', 'paul@exemple.ch', []);
         $carte = $this->stripe->carteConfirmee($client);
@@ -792,6 +808,46 @@ class SuppressionCompteTest extends TestCase
 
         $this->assertFalse(User::query()->whereKey($user->id)->exists());
         $this->assertSame('annulee', $facture->refresh()->statut);
+        // Le prélèvement est bien annulé chez Stripe avant l'effacement
+        $this->assertContains('annuler:'.$intention['id'], $this->stripe->journal);
+        // Un prélèvement réussi malgré tout (arrivé avant l'annulation) est signalé, à rembourser
+        Exceptions::assertReported(fn (\RuntimeException $e): bool => str_contains($e->getMessage(), 'P-2026-0010') && str_contains($e->getMessage(), 'à rembourser'));
+    }
+
+    /** Un prélèvement inconnu du compte Stripe (ancien compte, passage du mode test au réel) : signalé, l'effacement passe. */
+    public function test_un_prelevement_inconnu_de_stripe_ne_bloque_pas_l_effacement(): void
+    {
+        Exceptions::fake();
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $facture = FactureProprietaire::query()->forceCreate([
+            'user_id' => $user->id, 'numero' => 'P-2026-0011', 'emise_le' => '2026-10-01', 'libelle' => 'Veterinary Plus', 'montant' => 12,
+            'statut' => 'a_payer', 'stripe_paiement_id' => 'pi_ancien_compte',
+        ]);
+        $this->demander($jeton, $user);
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
+        $this->assertFalse(User::query()->whereKey($user->id)->exists());
+        $this->assertSame('annulee', $facture->refresh()->statut);
+        Exceptions::assertReported(ErreurPaiement::class);
+    }
+
+    /** Stripe en panne passagère à l'annulation : le compte attend la nuit suivante, rien n'est effacé. */
+    public function test_une_panne_a_l_annulation_du_prelevement_fait_attendre_le_compte(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        FactureProprietaire::query()->forceCreate([
+            'user_id' => $user->id, 'numero' => 'P-2026-0012', 'emise_le' => '2026-10-01', 'libelle' => 'Veterinary Plus', 'montant' => 12,
+            'statut' => 'a_payer', 'stripe_paiement_id' => 'pi_en_panne',
+        ]);
+        $this->stripe->panneAnnulation = true;
+        $this->demander($jeton, $user);
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer');
+
+        $this->assertTrue(User::query()->whereKey($user->id)->exists());
     }
 
     /** Factures Plus détachées : effacées après 10 ans (fin de l'année d'émission + 10), chaque mois. */
@@ -834,6 +890,32 @@ class SuppressionCompteTest extends TestCase
 
         $this->assertTrue($session['suppression_annulee']);
         $this->assertTrue($session['plus_resilie']);
+    }
+
+    /** Sans Plus, la reconnexion qui annule ne parle pas de Plus. */
+    public function test_la_reconnexion_sans_plus_ne_dit_rien_de_plus(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['email' => 'lea@exemple.ch']);
+        $this->demander($jeton, $user);
+
+        $session = (new JetonEmisResource(app(EmetteurJetons::class)->emettreSansClinique($user->refresh()), null))->toArray(request());
+
+        $this->assertTrue($session['suppression_annulee']);
+        $this->assertFalse($session['plus_resilie']);
+    }
+
+    /** Deux fiches client du compte, dans deux organisations : le fil prend celle de l'organisation de la clinique. */
+    public function test_le_fil_prend_la_fiche_client_de_l_organisation_de_la_clinique(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $autre = Client::factory()->create(['user_id' => $user->id]);
+        $fiche = Client::factory()->create(['user_id' => $user->id]);
+        $this->assertNotSame($autre->organisation_id, $fiche->organisation_id);
+        $clinique = Clinique::factory()->create(['societe_id' => Societe::factory()->create(['organisation_id' => $fiche->organisation_id])->id]);
+
+        $id = $this->postJson('/api/v1/espace/messages', ['clinique_id' => $clinique->id, 'texte' => 'Bonjour'], $this->enTetes($jeton))->assertCreated()->json('data.id');
+
+        $this->assertSame($fiche->id, MessageClientele::query()->find($id)?->client_id);
     }
 
     /** Une session d'identité introuvable chez Stripe est signalée. */

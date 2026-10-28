@@ -54,6 +54,12 @@ class CodeEmail
         $codeRevue = $this->revue->codePour($email);
         $code = $codeRevue ?? (string) random_int(10000000, 99999999);
 
+        // Une graphie voisine de l'adresse de revue (signe Kelvin…) partage
+        // sa clé de cache : elle n'y range rien, le code fixe reste (28.10.2026)
+        if ($this->revue->estSosie($email)) {
+            return;
+        }
+
         // Le même travail pour toute adresse, invitée ou non (27.10.2026) :
         // ni le compteur d'essais ni le temps de réponse ne disent qui est
         // invité ou a un compte. Pour une adresse non invitée, le code n'est
@@ -115,15 +121,20 @@ class CodeEmail
             ]);
         }
 
-        $hache = Cache::get($this->cle($email));
+        // Une graphie voisine de l'adresse de revue n'a jamais de code : sa
+        // clé de cache est celle de l'adresse, le code fixe n'y vaut rien
+        $sosie = $this->revue->estSosie($email);
+        $hache = $sosie ? null : Cache::get($this->cle($email));
 
         if (! $hache || ! Hash::check($code, $hache)) {
-            if ($essais >= self::ESSAIS_MAX) {
+            // Codes faux sur l'adresse de revue d'Apple ou une graphie voisine :
+            // comptés sur la journée, tous codes confondus ; au cinquième, la
+            // plateforme le sait (28.10.2026)
+            if ($this->revue->ressemble($email)) {
+                app(AlerteCompteRevue::class)->compterEssaiFaux(mb_strtolower(trim($email)));
+            }
+            if ($essais >= self::ESSAIS_MAX && ! $sosie) {
                 Cache::forget($this->cle($email));
-                // Cinq codes faux sur l'adresse de revue d'Apple : la plateforme le sait (28.10.2026)
-                if ($this->revue->codePour($email) !== null) {
-                    app(AlerteCompteRevue::class)->signaler(mb_strtolower(trim($email)));
-                }
             }
 
             throw ValidationException::withMessages([
