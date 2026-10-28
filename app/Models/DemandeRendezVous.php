@@ -8,6 +8,7 @@ use App\Enums\ModeDemandeRendezVous;
 use App\Enums\MotifRefusDemande;
 use App\Enums\StatutDemandeRendezVous;
 use App\Models\Concerns\AppartientAUneClinique;
+use App\Models\Concerns\ChangeLesFilesDuPlanning;
 use Carbon\CarbonImmutable;
 use Database\Factories\DemandeRendezVousFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -25,7 +26,7 @@ use Illuminate\Support\Facades\Crypt;
 class DemandeRendezVous extends Model
 {
     /** @use HasFactory<DemandeRendezVousFactory> */
-    use AppartientAUneClinique, HasFactory;
+    use AppartientAUneClinique, ChangeLesFilesDuPlanning, HasFactory;
 
     protected $table = 'demandes_rendez_vous';
 

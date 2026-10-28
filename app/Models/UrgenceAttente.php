@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\Espece;
 use App\Models\Concerns\AppartientAUneClinique;
+use App\Models\Concerns\ChangeLesFilesDuPlanning;
 use Database\Factories\UrgenceAttenteFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class UrgenceAttente extends Model
 {
     /** @use HasFactory<UrgenceAttenteFactory> */
-    use AppartientAUneClinique, HasFactory;
+    use AppartientAUneClinique, ChangeLesFilesDuPlanning, HasFactory;
 
     protected $table = 'urgences_attente';
 

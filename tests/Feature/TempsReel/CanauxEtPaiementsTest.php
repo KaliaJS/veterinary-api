@@ -66,6 +66,14 @@ class CanauxEtPaiementsTest extends TestCase
         $this->autoriser('private-clinique.'.$soeur->id, $this->jeton)->assertForbidden();
     }
 
+    /** Le canal d'une clinique porte des fiches entières (note de l'accueil comprise) : jamais à un propriétaire. */
+    public function test_un_proprietaire_n_ouvre_pas_le_canal_d_une_clinique(): void
+    {
+        ['jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+
+        $this->assertContains($this->autoriser('private-clinique.'.$this->clinique->id, $jetonProprietaire)->status(), [401, 403]);
+    }
+
     public function test_sans_jeton_aucun_canal(): void
     {
         $this->autoriser('private-clinique.'.$this->clinique->id, null)->assertUnauthorized();

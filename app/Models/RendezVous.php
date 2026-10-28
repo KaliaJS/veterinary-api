@@ -8,6 +8,8 @@ use App\Enums\Espece;
 use App\Enums\StatutIntervention;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
+use App\Events\RendezVousMisAJour;
+use App\Events\RendezVousSupprime;
 use App\Models\Concerns\AppartientAUneClinique;
 use Database\Factories\RendezVousFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -33,6 +35,25 @@ class RendezVous extends Model
     use AppartientAUneClinique, HasFactory;
 
     protected $table = 'rendez_vous';
+
+    /**
+     * Pris, déplacé, annulé, modifié ou retiré : diffusé à la clinique
+     * (Reverb, 28.10.2026), une fois la transaction validée.
+     */
+    protected static function booted(): void
+    {
+        static::saved(function (RendezVous $rendezVous): void {
+            DB::afterCommit(function () use ($rendezVous): void {
+                $frais = RendezVous::withoutGlobalScopes()->find($rendezVous->id);
+                if ($frais !== null) {
+                    RendezVousMisAJour::dispatch($frais);
+                }
+            });
+        });
+        static::deleted(function (RendezVous $rendezVous): void {
+            DB::afterCommit(fn () => RendezVousSupprime::dispatch($rendezVous->id, (int) $rendezVous->clinique_id));
+        });
+    }
 
     protected $fillable = [
         'clinique_id', 'ligne_planning_id', 'patient_id', 'client_id',
