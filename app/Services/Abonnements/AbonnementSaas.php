@@ -19,6 +19,7 @@ use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleAbonnement;
 use App\Services\Diagnostic\ConsommationDiagnostic;
 use App\Services\Inscription\VerificationIdentite;
+use App\Services\Messages\QuotaSms;
 use App\Services\Transcription\ConsommationTranscription;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -1423,6 +1424,10 @@ final class AbonnementSaas
         $pack = TypePack::tryFrom((string) ($meta['pack'] ?? ''));
         if ($pack && ! $facture->quota_applique) {
             Organisation::query()->whereKey($organisation->id)->increment($pack->colonneQuota(), (int) ($meta['quantite'] ?? 0));
+            // Les SMS d'un pack valent pour le mois de l'achat seulement (28.10.2026)
+            if ($pack === TypePack::Sms) {
+                QuotaSms::ajouterPack($organisation, (int) ($meta['quantite'] ?? 0));
+            }
             $facture->forceFill(['quota_applique' => true])->save();
         }
     }

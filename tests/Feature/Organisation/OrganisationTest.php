@@ -23,6 +23,7 @@ use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserellePaiement;
 use App\Services\Abonnements\AbonnementSaas;
 use App\Services\Abonnements\AlerteCleStripe;
+use App\Services\Messages\QuotaSms;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Events\QueryExecuted;
@@ -1376,6 +1377,26 @@ class OrganisationTest extends TestCase
     }
 
     /** D26.1c : un pack passé alors que la réponse s'est perdue (délai) : retrouvé dans la liste du client, il est payé, jamais annulé ni refait (26.10.2026). */
+    /** Un pack de SMS vaut pour le mois en cours seulement (« le solde non utilisé n'est pas reporté ») : vérification du 28.10.2026, défaut grave. */
+    public function test_un_pack_de_sms_ne_compte_que_pour_le_mois_de_son_achat(): void
+    {
+        $this->jamaisAbonnee();
+        $this->voyager('2026-10-20 10:00');
+        $this->avecCarte();
+        $this->postJson('/api/v1/organisation/abonnement', ['plan' => 'cabinet'], $this->enTetes($this->jeton))->assertOk();
+
+        $this->postJson('/api/v1/organisation/packs', ['type' => 'sms', 'quantite' => 500], $this->enTetes($this->jeton))->assertOk();
+
+        $organisation = Organisation::query()->findOrFail($this->organisationId());
+        $this->assertSame(1500, QuotaSms::plafond($organisation));
+        $this->getJson('/api/v1/organisation', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.quota_extra.sms', 500);
+
+        // Le mois suivant : la formule seule
+        $this->voyager('2026-11-05 10:00');
+        $this->assertSame(1000, QuotaSms::plafond($organisation->refresh()));
+        $this->getJson('/api/v1/organisation', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.quota_extra.sms', 0);
+    }
+
     public function test_un_pack_a_la_reponse_perdue_est_reconnu_paye(): void
     {
         $this->jamaisAbonnee();

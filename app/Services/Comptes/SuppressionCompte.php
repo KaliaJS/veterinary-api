@@ -322,6 +322,8 @@ class SuppressionCompte
             'password' => Hash::make(Str::random(64)),
             'email_verified_at' => null,
             'suppression_demandee_le' => null,
+            // Ses coordonnées gardées sur le compte (28.10.2026)
+            'tel' => null, 'rue' => null, 'npa' => null, 'localite' => null,
             'gln' => null, 'medreg_id' => null, 'gln_verifie_le' => null,
             'verification_veterinaire' => null, 'verification_veterinaire_le' => null,
             'identite_statut' => null, 'identite_session_id' => null, 'identite_nom' => null, 'identite_raison' => null,

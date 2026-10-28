@@ -4,6 +4,7 @@ namespace Tests\Feature\Espace;
 
 use App\Models\Client;
 use App\Models\Clinique;
+use App\Services\Comptes\SuppressionCompte;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -95,5 +96,36 @@ class ConfigurationProprietaireTest extends TestCase
         $this->putJson('/api/v1/espace/coordonnees', ['prenom' => 'Léa', 'nom' => 'Martin', 'tel' => '079 123 45 67', 'rue' => 'Rue du Lac 1', 'npa' => '2502', 'localite' => 'Bienne'], $this->enTetes($jeton))->assertOk();
 
         $this->assertFalse($this->etat($jeton)['ouvrir']);
+    }
+
+    /** Les coordonnées gardées sur le compte arrivent dans une fiche rattachée plus tard (le SMS lit la fiche) */
+    public function test_les_coordonnees_du_compte_arrivent_dans_une_fiche_rattachee_plus_tard(): void
+    {
+        ['jeton' => $jeton, 'user' => $user] = $this->proprietaireAvecJeton(['email' => 'lea.martin@example.ch']);
+        $this->putJson('/api/v1/espace/coordonnees', ['prenom' => 'Léa', 'nom' => 'Martin', 'tel' => '079 123 45 67', 'rue' => 'Rue du Lac 1', 'npa' => '2502', 'localite' => 'Bienne'], $this->enTetes($jeton))->assertOk();
+        $clinique = Clinique::factory()->create();
+        ['jeton' => $accueil] = $this->administrateurAvecJeton($clinique);
+        $fiche = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'prenom' => 'Léa', 'nom' => 'Martin', 'tel' => null, 'rue' => null, 'npa' => null, 'localite' => null]);
+
+        $this->postJson("/api/v1/clients/{$fiche->id}/compte", ['email' => 'lea.martin@example.ch'], $this->enTetes($accueil))->assertOk();
+
+        $fiche->refresh();
+        $this->assertSame([$user->id, '079 123 45 67', 'Rue du Lac 1', '2502', 'Bienne'], [$fiche->user_id, $fiche->tel, $fiche->rue, $fiche->npa, $fiche->localite]);
+    }
+
+    /** Le compte effacé ne garde pas ses coordonnées ; l'export les donne */
+    public function test_les_coordonnees_du_compte_s_exportent_et_s_effacent(): void
+    {
+        ['jeton' => $jeton, 'user' => $user] = $this->proprietaireAvecJeton();
+        $this->putJson('/api/v1/espace/coordonnees', ['prenom' => 'Léa', 'nom' => 'Martin', 'tel' => '079 123 45 67', 'rue' => 'Rue du Lac 1', 'npa' => '2502', 'localite' => 'Bienne'], $this->enTetes($jeton))->assertOk();
+
+        $export = $this->getJson('/api/v1/espace/export', $this->enTetes($jeton))->assertOk()->json('data.compte');
+        $this->assertSame(['079 123 45 67', 'Rue du Lac 1', '2502', 'Bienne'], [$export['tel'] ?? null, $export['rue'] ?? null, $export['npa'] ?? null, $export['localite'] ?? null]);
+
+        // Effacé (demande de 30 jours) : un propriétaire disparaît avec ses coordonnées ;
+        // la trace d'un ancien membre les perd aussi (SuppressionCompteTest)
+        $user->refresh()->forceFill(['suppression_demandee_le' => now()->subDays(31)])->save();
+        app(SuppressionCompte::class)->effacer($user);
+        $this->assertDatabaseMissing('users', ['id' => $user->id, 'tel' => '079 123 45 67']);
     }
 }

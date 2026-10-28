@@ -54,7 +54,10 @@ class CompteClientController extends Controller
             'password' => $motDePasse,
         ]);
 
-        $client->update(['user_id' => $user->id]);
+        // Les coordonnées gardées sur le compte remplissent ce que la fiche n'a pas (28.10.2026)
+        $client->update(['user_id' => $user->id, ...collect(['tel', 'rue', 'npa', 'localite'])
+            ->filter(fn (string $champ): bool => blank($client->{$champ}) && filled($user->{$champ}))
+            ->mapWithKeys(fn (string $champ): array => [$champ => $user->{$champ}])->all()]);
 
         return new ClientResource($client);
     }

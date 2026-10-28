@@ -19,6 +19,7 @@ use App\Notifications\RappelSms;
 use App\Services\EtatVaccinal;
 use App\Services\Messages\QuotaSms;
 use App\Support\Telephone;
+use App\Support\TexteSms;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
@@ -111,24 +112,43 @@ class RappelsProprietaires
     {
         $patient = $vaccination->patient;
         $client = $patient->client;
+        // Les canaux choisis par le client, SMS compris (décision de Jim, 28.10.2026)
+        $parEmail = $client !== null && filled($client->email) && $this->accepteLesRappels($client);
+        $mobile = $client !== null ? $this->mobilePourSms($clinique, $client) : null;
         $raison = match (true) {
             $patient->decede_le !== null => 'Animal décédé : aucun rappel ne part.',
-            $client === null || blank($client->email) => 'Pas d’adresse e-mail pour '.($client ? self::nomDe($client) : 'ce propriétaire').'.',
-            ! $this->accepteLesRappels($client) => self::nomDe($client).' a refusé les rappels par e-mail.',
-            default => null,
+            $parEmail || $mobile !== null => null,
+            $client === null => 'Pas d’adresse e-mail pour ce propriétaire.',
+            default => $this->raisonSansCanal($clinique, $client),
         };
         if ($raison !== null) {
             return ['statut' => 'refuse', 'adresse' => null, 'raison' => $raison, 'rappel' => null];
         }
 
-        $rappel = new RappelEnvoye([
+        $attributs = [
             'clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'client_id' => $client->id, 'objet' => 'vaccin',
             'vaccination_id' => $vaccination->id, 'libelle' => $vaccination->nom, 'echeance_le' => $vaccination->echeance_le ?? $vaccination->injectee_le,
-            'canal' => 'email', 'manuel' => true, 'user_id' => $auteur?->id,
-        ]);
-        $this->expedier($rappel, $clinique, $client, $vaccination, null);
+            'manuel' => true, 'user_id' => $auteur?->id,
+        ];
+        $partis = [];
+        if ($parEmail) {
+            $rappel = new RappelEnvoye([...$attributs, 'canal' => 'email']);
+            $this->expedier($rappel, $clinique, $client, $vaccination, null);
+            $partis[] = $rappel;
+        }
+        if ($mobile !== null) {
+            $rappel = new RappelEnvoye([...$attributs, 'canal' => 'sms']);
+            $this->expedierSms($rappel, $clinique, $mobile, self::texteSms($clinique, $patient, $vaccination, null));
+            $partis[] = $rappel;
+        }
+        $envoyes = array_values(array_filter($partis, fn (RappelEnvoye $r): bool => $r->statut === 'envoye'));
 
-        return ['statut' => $rappel->statut, 'adresse' => $rappel->adresse, 'raison' => $rappel->statut === 'echec' ? 'L’e-mail n’est pas parti : réessayez dans un moment.' : null, 'rappel' => $rappel];
+        return [
+            'statut' => $envoyes === [] ? 'echec' : 'envoye',
+            'adresse' => $envoyes === [] ? null : implode(' et ', array_map(fn (RappelEnvoye $r): string => (string) $r->adresse, $envoyes)),
+            'raison' => $envoyes === [] ? 'Le rappel n’est pas parti : réessayez dans un moment.' : null,
+            'rappel' => $envoyes[0] ?? $partis[0] ?? null,
+        ];
     }
 
     /**
@@ -193,9 +213,11 @@ class RappelsProprietaires
         if ($users->isEmpty()) {
             return;
         }
-        $refus = PreferencesProprietaire::query()->whereIn('user_id', $users->all())->pluck('rappels_email', 'user_id');
+        // Les choix des espaces (e-mail, SMS) en une requête
+        $preferences = PreferencesProprietaire::query()->whereIn('user_id', $users->all())->get(['user_id', 'rappels_email', 'rappels_sms'])->keyBy('user_id');
         foreach ($users as $id) {
-            $this->refusEspace[$id] = ($refus[$id] ?? null) !== false;
+            $this->refusEspace[$id] = ($preferences[$id]->rappels_email ?? null) !== false;
+            $this->smsEspace[$id] = (bool) ($preferences[$id]->rappels_sms ?? false);
         }
     }
 
@@ -263,6 +285,20 @@ class RappelsProprietaires
         }
 
         return Telephone::mobile($client->tel);
+    }
+
+    /** Pourquoi aucun rappel ne peut partir vers ce client (ni e-mail, ni SMS). */
+    private function raisonSansCanal(Clinique $clinique, Client $client): string
+    {
+        $nom = self::nomDe($client);
+        if ($this->veutLesSms($client) && ! $this->accepteLesRappels($client)) {
+            return match (true) {
+                ! self::reglages($clinique)['sms'] || ! QuotaSms::estConfigure() => $nom.' a choisi les SMS seulement, et la clinique n’en envoie pas.',
+                default => 'Pas de numéro de mobile pour '.$nom.'.',
+            };
+        }
+
+        return blank($client->email) ? 'Pas d’adresse e-mail pour '.$nom.'.' : $nom.' a refusé les rappels par e-mail.';
     }
 
     /** Le texte du SMS : court (160 caractères), sans détail médical, la clinique et son téléphone. */
@@ -577,8 +613,11 @@ class RappelsProprietaires
         $organisation = $clinique->societe->organisation;
         $rappel->adresse = $mobile;
         $rappel->tentatives = (int) $rappel->tentatives + 1;
+        // Dans l'alphabet SMS (un segment le plus souvent) ; le quota compte les segments facturés
+        $texte = TexteSms::versGsm($texte);
+        $segments = TexteSms::segments($texte);
         $quota = app(QuotaSms::class);
-        $mois = $quota->reserver($organisation);
+        $mois = $quota->reserver($organisation, $segments);
         if ($mois === null) {
             $rappel->fill(['statut' => 'echec', 'erreur' => 'Quota de SMS du mois atteint : achetez un pack dans l’abonnement.', 'tentatives' => self::TENTATIVES_MAX]);
             $rappel->save();
@@ -590,7 +629,7 @@ class RappelsProprietaires
             $rappel->fill(['statut' => 'envoye', 'erreur' => null, 'envoye_le' => now()]);
         } catch (Throwable $e) {
             report($e);
-            $quota->rendre($organisation, $mois);
+            $quota->rendre($organisation, $mois, $segments);
             $rappel->fill(['statut' => 'echec', 'erreur' => mb_substr($e->getMessage(), 0, 500)]);
         }
         $rappel->save();
@@ -638,8 +677,10 @@ class RappelsProprietaires
             'bloque' => match (true) {
                 $patient->decede_le !== null => 'Animal décédé',
                 (bool) $patient->rappels_coupes => 'Rappels coupés pour '.$patient->nom,
-                // Un SMS peut partir : le rappel n'est pas bloqué
-                $client !== null && $this->mobilePourSms($clinique, $client) !== null => null,
+                // Un SMS peut partir : le rappel n'est pas bloqué (sauf échéance passée)
+                $client !== null && $this->mobilePourSms($clinique, $client) !== null => $prochain->greaterThan($dernier) ? 'Échéance passée avant le prochain envoi' : null,
+                // Respecter son choix (décision de Jim) : SMS seulement, la clinique n'en envoie pas
+                $client !== null && $this->veutLesSms($client) && ! $this->accepteLesRappels($client) && (! $reglages['sms'] || ! QuotaSms::estConfigure()) => 'SMS seulement, que la clinique n’envoie pas',
                 ! $reglages['email'] => 'Rappels par e-mail coupés',
                 $client === null || blank($client->email) => 'Pas d’adresse e-mail',
                 ! $this->accepteLesRappels($client) => 'Refusés par le propriétaire',

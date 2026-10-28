@@ -133,7 +133,9 @@ class ReglagesProprietaireController extends Controller
 
         return response()->json(['data' => [
             'exporte_le' => now()->toIso8601String(),
-            'compte' => ['nom' => $user->name, 'email' => $user->email, 'cree_le' => $user->created_at?->toIso8601String()],
+            'compte' => ['nom' => $user->name, 'email' => $user->email, 'cree_le' => $user->created_at?->toIso8601String(),
+                // Ses coordonnées gardées sur le compte (28.10.2026)
+                'tel' => $user->tel, 'rue' => $user->rue, 'npa' => $user->npa, 'localite' => $user->localite],
             'fiches' => $contexte->clients()->map(fn ($c): array => [
                 'organisation' => $c->organisation->nom, 'prenom' => $c->prenom, 'nom' => $c->nom, 'tel' => $c->tel,
                 'rue' => $c->rue, 'npa' => $c->npa, 'localite' => $c->localite,

@@ -446,6 +446,8 @@ class SuppressionCompteTest extends TestCase
             'ancre_jour' => 1, 'prochaine_tentative_le' => now(), 'resilie_le' => '2026-12-01',
             'verification_veterinaire' => StatutVerificationVeterinaire::cases()[0]->value, 'identite_statut' => StatutIdentite::cases()[0]->value,
             'identite_session_id' => 'vs_rachel', 'stripe_client_id' => 'cus_rachel', 'stripe_moyen_paiement_id' => 'pm_rachel', 'carte_alertee_le' => '2026-10-01',
+            // Coordonnées gardées sur le compte (28.10.2026)
+            'tel' => '079 555 44 33', 'rue' => 'Rue du Lac 1', 'npa' => '2502', 'localite' => 'Bienne',
         ])->save();
         $ficheClient = Client::factory()->create();
         $suivi = Patient::factory()->create(['client_id' => $ficheClient->id]);
@@ -482,7 +484,7 @@ class SuppressionCompteTest extends TestCase
             'identite_nom', 'identite_raison', 'identite_verifiee_le', 'identite_payee_le', 'presentation', 'langues', 'annuaire_accord_le',
             'code_employe', 'apple_compte', 'apple_abonnement_id', 'apple_fin', 'apple_renouvelle', 'apple_signe_le', 'stripe_client_id',
             'stripe_moyen_paiement_id', 'moyen_paiement', 'carte_expire_le', 'carte_alertee_le', 'statut_abonnement', 'periode_fin',
-            'periode_debut', 'ancre_jour', 'prochaine_tentative_le', 'resilie_le'] as $colonne) {
+            'periode_debut', 'ancre_jour', 'prochaine_tentative_le', 'resilie_le', 'tel', 'rue', 'npa', 'localite'] as $colonne) {
             $this->assertNull($trace->getRawOriginal($colonne), $colonne);
         }
         $this->assertFalse((bool) $trace->est_moderateur);

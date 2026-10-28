@@ -61,7 +61,8 @@ class OrganisationResource extends JsonResource
             ],
             'quota_extra' => [
                 'emails' => $this->quota_extra_emails,
-                'sms' => $this->quota_extra_sms,
+                // Les packs de SMS du mois en cours (non reportés)
+                'sms' => QuotaSms::packsDuMois($this->resource),
                 'stockage_go' => $this->quota_extra_stockage_go,
             ],
             'stats' => [

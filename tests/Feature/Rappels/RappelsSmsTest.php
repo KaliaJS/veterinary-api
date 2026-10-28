@@ -3,6 +3,7 @@
 namespace Tests\Feature\Rappels;
 
 use App\Enums\FormuleSaas;
+use App\Enums\TypeRendezVous;
 use App\Mail\RappelVaccin;
 use App\Models\Client;
 use App\Models\Clinique;
@@ -13,6 +14,7 @@ use App\Models\RendezVous;
 use App\Models\User;
 use App\Models\Vaccination;
 use App\Services\CompteurMensuel;
+use App\Support\TexteSms;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
@@ -214,5 +216,74 @@ class RappelsSmsTest extends TestCase
     {
         $this->postJson('/api/v1/clients', ['prenom' => 'Pierre', 'nom' => 'Rochat', 'tel' => '079 765 43 21', 'rappels_sms' => true], $this->enTetes($this->jeton))
             ->assertCreated()->assertJsonPath('data.rappels_sms', true);
+    }
+
+    /** Le SMS d'un contrôle part dans l'alphabet SMS (un segment), et le quota compte les segments */
+    public function test_le_sms_d_un_controle_tient_en_un_segment_et_le_quota_compte_les_segments(): void
+    {
+        $this->smsActifs();
+        $this->client->update(['rappels_sms' => true]);
+        RendezVous::factory()->pourPatient($this->patient)->create(['clinique_id' => $this->clinique->id, 'type' => TypeRendezVous::Controle,
+            'starts_at' => CarbonImmutable::parse('2026-11-12 14:30', 'Europe/Zurich')->utc(), 'ends_at' => CarbonImmutable::parse('2026-11-12 14:50', 'Europe/Zurich')->utc()]);
+        $this->clinique->update(['nom' => 'Clinique vétérinaire des Deux Rives de Neuchâtel']);
+
+        $this->envoyer();
+
+        $controle = collect($this->smsEnvoyes())->first(fn (array $r): bool => str_contains($r['data']['Body'], 'controle'));
+        $this->assertNotNull($controle);
+        $this->assertSame(1, TexteSms::segments($controle['data']['Body']));
+        $this->assertStringContainsString('Neuchatel', $controle['data']['Body']);
+        $total = collect($this->smsEnvoyes())->sum(fn (array $r): int => TexteSms::segments($r['data']['Body']));
+        $this->assertSame($total, CompteurMensuel::valeur('sms:'.$this->clinique->societe->organisation_id));
+    }
+
+    /** Décision de Jim : « Rappeler le propriétaire » suit les canaux choisis par le client, SMS compris */
+    public function test_rappeler_le_proprietaire_suit_ses_canaux_sms_compris(): void
+    {
+        $this->smsActifs();
+        $user = User::factory()->create();
+        $this->client->update(['user_id' => $user->id]);
+        PreferencesProprietaire::pour($user)->update(['rappels_email' => false, 'rappels_sms' => true]);
+        $vaccination = Vaccination::query()->where('patient_id', $this->patient->id)->sole();
+
+        $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations/{$vaccination->id}/rappel", [], $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('data.statut', 'envoye')->assertJsonPath('data.adresse', '+41791234567');
+
+        $this->assertCount(1, $this->smsEnvoyes());
+        Mail::assertNothingSent();
+    }
+
+    /** Respecter son choix (décision de Jim) : SMS seulement, mais la clinique n'en envoie pas : rien ne part, la raison est dite */
+    public function test_sms_seulement_sans_sms_a_la_clinique_rien_ne_part_et_la_raison_est_dite(): void
+    {
+        $user = User::factory()->create();
+        $this->client->update(['user_id' => $user->id]);
+        PreferencesProprietaire::pour($user)->update(['rappels_email' => false, 'rappels_sms' => true]);
+        $vaccination = Vaccination::query()->where('patient_id', $this->patient->id)->sole();
+
+        $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations/{$vaccination->id}/rappel", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['rappel' => 'Léa Martin a choisi les SMS seulement, et la clinique n’en envoie pas.']);
+        $this->envoyer();
+
+        $this->assertSame([], $this->smsEnvoyes());
+        Mail::assertNothingSent();
+        // La fenêtre « À venir » de la clinique le dit
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+        $ligne = collect($this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->json('data.a_venir'))->firstWhere('patient.nom', 'Félix');
+        $this->assertSame('SMS seulement, que la clinique n’envoie pas', $ligne['bloque']);
+    }
+
+    /** SMS coupés (TWILIO_ENABLED=false) : ils ne sont ni proposés ni comptés comme partis */
+    public function test_sms_coupes_ils_ne_sont_ni_proposes_ni_comptes(): void
+    {
+        $this->smsActifs();
+        $this->client->update(['rappels_sms' => true]);
+        config(['twilio-notification-channel.enabled' => false]);
+
+        $this->getJson('/api/v1/rappels/reglages', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.sms_disponible', false);
+        $this->envoyer();
+
+        $this->assertSame(0, RappelEnvoye::withoutGlobalScopes()->where('canal', 'sms')->count());
+        $this->assertSame(0, CompteurMensuel::valeur('sms:'.$this->clinique->societe->organisation_id));
     }
 }
