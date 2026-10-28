@@ -260,6 +260,22 @@ class BoutiqueTest extends TestCase
         $this->assertEquals([['produit_id' => $produit->id, 'quantite' => 3, 'prix_chf' => 27, 'total' => 81]], $apercu['lignes']);
     }
 
+    /** Chiffres de la boutique : les ventes se comptent en tickets (factures), pas en lignes ; le panier moyen est servi. */
+    public function test_les_chiffres_comptent_les_tickets_et_servent_le_panier_moyen(): void
+    {
+        $croquettes = $this->produitEnRayon(10);
+        $shampooing = $this->produitEnRayon(10);
+        $entetes = $this->enTetes($this->jeton);
+        // Un ticket de deux lignes, puis un ticket d'une ligne
+        $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'twint', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 1], ['produit_id' => $shampooing->id, 'quantite' => 1]]], $entetes)->assertCreated();
+        $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'twint', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 2]]], $entetes)->assertCreated();
+
+        $totaux = $this->getJson('/api/v1/boutique/statistiques', $entetes)->assertOk()->json('data.totaux');
+
+        $this->assertSame(2, $totaux['tickets']);
+        $this->assertEquals(round($totaux['chiffre_affaires'] / 2, 2), $totaux['panier_moyen']);
+    }
+
     public function test_ni_ordonnance_ni_stupefiant_au_comptoir_ni_en_commande(): void
     {
         $surOrdonnance = $this->produitEnRayon(5, ['nom' => 'Antibiotique', 'est_sur_ordonnance' => true]);

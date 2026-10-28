@@ -35,6 +35,7 @@ class StatistiquesBoutiqueController extends Controller
 
         $ventes = $lignes
             ->map(fn (FactureLigne $ligne): array => [
+                'facture_id' => $ligne->facture_id,
                 'produit_id' => $ligne->produit_id,
                 'nom' => $ligne->produit->nom,
                 'categorie' => $ligne->produit->categorie->value,
@@ -48,6 +49,8 @@ class StatistiquesBoutiqueController extends Controller
 
         $chiffreAffaires = round((float) $ventes->sum('revenu'), 2);
         $cout = round((float) $ventes->sum('cout'), 2);
+        // Une vente, c'est un ticket (une facture), pas une ligne (28.10.2026)
+        $tickets = $ventes->pluck('facture_id')->unique()->count();
 
         return response()->json(['data' => [
             'ventes' => $ventes,
@@ -55,6 +58,8 @@ class StatistiquesBoutiqueController extends Controller
                 'chiffre_affaires' => $chiffreAffaires,
                 'cout' => $cout,
                 'marge' => round($chiffreAffaires - $cout, 2),
+                'tickets' => $tickets,
+                'panier_moyen' => $tickets > 0 ? round($chiffreAffaires / $tickets, 2) : null,
             ],
         ]]);
     }
