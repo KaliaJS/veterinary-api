@@ -116,6 +116,16 @@ class SessionTeleconsultationTest extends TestCase
             ->assertJsonValidationErrors('rendez_vous_id');
     }
 
+    /** Un appel abandonné depuis plus de 12 h (lien du client mort) ne bloque plus le rendez-vous. */
+    public function test_un_appel_abandonne_depuis_douze_heures_ne_bloque_pas_le_rendez_vous(): void
+    {
+        $rendezVous = $this->rendezVousTele();
+        $ancienne = $this->postJson('/api/v1/tele/sessions', ['rendez_vous_id' => $rendezVous->id], $this->jeton())->assertCreated()->json('data.id');
+        SessionTeleconsultation::withoutGlobalScopes()->whereKey($ancienne)->update(['demarre_le' => now()->subHours(13)]);
+
+        $this->postJson('/api/v1/tele/sessions', ['rendez_vous_id' => $rendezVous->id], $this->jeton())->assertCreated();
+    }
+
     public function test_un_rdv_annule_ou_d_un_autre_type_ne_demarre_pas_d_appel(): void
     {
         $annule = $this->rendezVousTele(['status' => StatutRendezVous::Annule]);

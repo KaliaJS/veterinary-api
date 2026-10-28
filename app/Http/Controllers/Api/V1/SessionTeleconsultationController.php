@@ -48,7 +48,9 @@ class SessionTeleconsultationController extends Controller
         $donnees = $request->validated();
         $rendezVous = isset($donnees['rendez_vous_id']) ? RendezVous::findOrFail($donnees['rendez_vous_id']) : null;
 
-        if ($rendezVous !== null && SessionTeleconsultation::where('rendez_vous_id', $rendezVous->id)->whereNull('terminee_le')->exists()) {
+        // Un appel abandonné depuis plus de 12 h (lien du client mort) ne bloque plus
+        if ($rendezVous !== null && SessionTeleconsultation::where('rendez_vous_id', $rendezVous->id)->whereNull('terminee_le')
+            ->where('demarre_le', '>', now()->subHours(SessionTeleconsultation::HEURES_LIEN))->exists()) {
             throw ValidationException::withMessages([
                 'rendez_vous_id' => 'Un appel est déjà en cours sur ce rendez-vous.',
             ]);
