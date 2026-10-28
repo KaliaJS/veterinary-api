@@ -249,15 +249,16 @@ class RelanceNoShowTest extends TestCase
         Mail::assertNotSent(RelanceNoShow::class);
     }
 
-    /** Rappels par e-mail coupés par la clinique : pas d'e-mail de relance */
-    public function test_rappels_par_e_mail_coupes_par_la_clinique_pas_d_e_mail_de_relance(): void
+    /** La clinique ne choisit plus les canaux (décision de Jim, 28.10.2026) : un ancien « e-mail coupé » ne retient pas la relance */
+    public function test_la_clinique_ne_coupe_plus_l_e_mail_de_relance(): void
     {
         $this->relanceActive();
+        $this->clinique->forceFill(['rappels_email' => false])->save();
         $this->putJson('/api/v1/rappels/reglages', ['email' => false], $this->enTetes($this->jeton))->assertOk();
 
         $this->soir();
 
-        Mail::assertNotSent(RelanceNoShow::class);
+        Mail::assertSent(RelanceNoShow::class, 1);
     }
 
     /** Un site publié : le lien mène au site de la clinique, avant l'annuaire */

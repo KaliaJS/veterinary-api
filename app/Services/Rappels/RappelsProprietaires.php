@@ -80,8 +80,11 @@ class RappelsProprietaires
     public static function reglages(Clinique $clinique): array
     {
         return [
-            'email' => (bool) ($clinique->rappels_email ?? true),
-            'sms' => (bool) ($clinique->rappels_sms ?? false),
+            // Décision de Jim (28.10.2026) : la clinique ne choisit plus les
+            // canaux ; l'e-mail partout, le SMS dès que Twilio est configuré,
+            // et seul le client choisit
+            'email' => true,
+            'sms' => QuotaSms::estConfigure(),
             // Les SMS peuvent partir (clés Twilio en place)
             'sms_disponible' => QuotaSms::estConfigure(),
             'delai_jours' => (int) ($clinique->rappels_delai_jours ?? 7),
@@ -307,7 +310,7 @@ class RappelsProprietaires
     /** Le mobile où envoyer le SMS, si la clinique l'utilise et que le client le veut ; null sinon. */
     private function mobilePourSms(Clinique $clinique, Client $client): ?string
     {
-        if (! self::reglages($clinique)['sms'] || ! QuotaSms::estConfigure() || ! $this->veutLesSms($client)) {
+        if (! QuotaSms::estConfigure() || ! $this->veutLesSms($client)) {
             return null;
         }
 
@@ -320,7 +323,7 @@ class RappelsProprietaires
         $nom = self::nomDe($client);
         if ($this->veutLesSms($client) && ! $this->accepteLesRappels($client)) {
             return match (true) {
-                ! self::reglages($clinique)['sms'] || ! QuotaSms::estConfigure() => $nom.' a choisi les SMS seulement, et la clinique n’en envoie pas.',
+                ! QuotaSms::estConfigure() => $nom.' a choisi les SMS seulement, et les SMS ne sont pas encore disponibles.',
                 default => 'Pas de numéro de mobile pour '.$nom.'.',
             };
         }
@@ -506,7 +509,7 @@ class RappelsProprietaires
         $parti = false;
 
         // Chaque canal choisi par le client et permis par la clinique (28.10.2026)
-        if ($reglages['email'] && filled($client->email) && $this->accepteLesRappels($client)) {
+        if (filled($client->email) && $this->accepteLesRappels($client)) {
             $rappel = $this->prendre(self::cle($objet, $id, $echeance, 'email'), [...$attributs, 'canal' => 'email']);
             if ($rappel !== null) {
                 $this->expedier($rappel, $clinique, $client, $vaccination, $rendezVous);
@@ -723,7 +726,7 @@ class RappelsProprietaires
             'envoi_le' => max($envoi, $aujourdhui)->toDateString(),
             // Par où il partira (e-mail, SMS), dit à l'écran (28.10.2026)
             'canaux' => $client === null ? [] : array_values(array_filter([
-                $reglages['email'] && filled($client->email) && $this->accepteLesRappels($client) ? 'email' : null,
+                filled($client->email) && $this->accepteLesRappels($client) ? 'email' : null,
                 $this->mobilePourSms($clinique, $client) !== null ? 'sms' : null,
             ])),
             // Ce qui l'empêchera de partir, dit tel quel
@@ -733,10 +736,9 @@ class RappelsProprietaires
                 // Un SMS peut partir : le rappel n'est pas bloqué (sauf échéance passée)
                 $client !== null && $this->mobilePourSms($clinique, $client) !== null => $prochain->greaterThan($dernier) ? 'Échéance passée avant le prochain envoi' : null,
                 // Respecter son choix (décision de Jim) : SMS seulement, la clinique n'en envoie pas
-                $client !== null && $this->veutLesSms($client) && ! $this->accepteLesRappels($client) && (! $reglages['sms'] || ! QuotaSms::estConfigure()) => 'SMS seulement, que la clinique n’envoie pas',
+                $client !== null && $this->veutLesSms($client) && ! $this->accepteLesRappels($client) && ! QuotaSms::estConfigure() => 'SMS seulement, pas encore disponibles',
                 // SMS seulement, la clinique en envoie, mais la fiche n'a pas de mobile (comme le carnet)
                 $client !== null && $this->veutLesSms($client) && ! $this->accepteLesRappels($client) => 'Pas de numéro de mobile',
-                ! $reglages['email'] => 'Rappels par e-mail coupés',
                 $client === null || blank($client->email) => 'Pas d’adresse e-mail',
                 ! $this->accepteLesRappels($client) => 'Refusés par le propriétaire',
                 // Saisi trop tard (après 20 h pour une échéance du jour) : il ne partira plus

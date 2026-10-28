@@ -178,7 +178,6 @@ class ReglagesProprietaireController extends Controller
         ]]);
     }
 
-    /** @return array<string, mixed> */
     /** Une clinique a coché « Rappels par SMS » sur une de ses fiches */
     private function smsDesFiches(int $userId): bool
     {

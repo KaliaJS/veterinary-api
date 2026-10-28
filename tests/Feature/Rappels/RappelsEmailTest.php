@@ -85,7 +85,7 @@ class RappelsEmailTest extends TestCase
     public function test_les_reglages_sont_enregistres_par_le_serveur_et_partages_par_l_equipe(): void
     {
         $this->getJson('/api/v1/rappels/reglages', $this->enTetes($this->jeton))->assertOk()
-            ->assertJsonPath('data', ['email' => true, 'sms' => false, 'sms_disponible' => true, 'delai_jours' => 7, 'vaccins' => true, 'controles' => true, 'relance_noshow' => false, 'messages_recus' => true, 'messages_reponses_seulement' => false]);
+            ->assertJsonPath('data', ['email' => true, 'sms' => true, 'sms_disponible' => true, 'delai_jours' => 7, 'vaccins' => true, 'controles' => true, 'relance_noshow' => false, 'messages_recus' => true, 'messages_reponses_seulement' => false]);
 
         $this->reglages(['email' => true, 'delai_jours' => 3, 'vaccins' => false, 'controles' => true]);
 
@@ -174,7 +174,6 @@ class RappelsEmailTest extends TestCase
     public static function casSansEnvoi(): array
     {
         return [
-            'e-mail coupé par la clinique' => [fn (self $t) => $t->reglages(['email' => false])],
             'rappels de vaccins coupés par la clinique' => [fn (self $t) => $t->reglages(['vaccins' => false])],
             'rappels coupés pour l’animal' => [fn (self $t) => $t->patient->forceFill(['rappels_coupes' => true])->save()],
             'animal décédé' => [fn (self $t) => $t->patient->forceFill(['decede_le' => '2026-10-01'])->save()],
@@ -580,7 +579,6 @@ class RappelsEmailTest extends TestCase
     {
         return [
             'rappels de contrôles coupés par la clinique' => [fn (self $t) => $t->reglages(['controles' => false])],
-            'e-mail coupé par la clinique' => [fn (self $t) => $t->reglages(['email' => false])],
             'animal décédé' => [fn (self $t) => $t->patient->forceFill(['decede_le' => '2026-10-01'])->save()],
         ];
     }
@@ -684,8 +682,9 @@ class RappelsEmailTest extends TestCase
             ->mapWithKeys(fn (array $ligne): array => [$ligne['patient']['nom'] => $ligne['bloque']])->all();
 
         $this->assertSame(['Animal Espace' => 'Refusés par le propriétaire', 'Animal Lien' => 'Refusés par le propriétaire', 'Animal Accepte' => null], array_intersect_key($bloques(), array_flip(['Animal Espace', 'Animal Lien', 'Animal Accepte'])));
+        // La clinique ne coupe plus l'e-mail (décision de Jim, 28.10.2026)
         $this->reglages(['email' => false]);
-        $this->assertSame('Rappels par e-mail coupés', $bloques()['Animal Accepte']);
+        $this->assertNull($bloques()['Animal Accepte']);
     }
 
     /** Case 7 : les compteurs servis, « à venir » sans les lignes bloquées, envois sur 30 jours. */

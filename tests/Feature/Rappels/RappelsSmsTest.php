@@ -18,6 +18,7 @@ use App\Support\TexteSms;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\URL;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Concerns\FauxTwilio;
 use Tests\TestCase;
@@ -58,9 +59,10 @@ class RappelsSmsTest extends TestCase
         Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Rage', 'injectee_le' => '2025-11-12', 'echeance_le' => '2026-11-12']);
     }
 
+    /** Décision de Jim (28.10.2026) : plus de choix pour la clinique, les SMS sont proposés partout dès que Twilio est configuré */
     private function smsActifs(): void
     {
-        $this->putJson('/api/v1/rappels/reglages', ['sms' => true], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.sms', true);
+        $this->getJson('/api/v1/rappels/reglages', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.sms', true);
     }
 
     private function envoyer(): void
@@ -74,20 +76,34 @@ class RappelsSmsTest extends TestCase
         return array_values(array_filter($this->requetesTwilio, fn (array $r): bool => str_ends_with($r['url'], '/Messages.json')));
     }
 
-    public function test_la_clinique_decide_si_elle_utilise_les_sms(): void
+    /** Décision de Jim (28.10.2026) : les cliniques ne choisissent plus les canaux ; e-mail et SMS sont proposés partout, seul le client choisit */
+    public function test_les_cliniques_ne_choisissent_plus_les_canaux(): void
     {
         $this->getJson('/api/v1/rappels/reglages', $this->enTetes($this->jeton))->assertOk()
-            ->assertJsonPath('data.sms', false)->assertJsonPath('data.sms_disponible', true);
+            ->assertJsonPath('data.email', true)->assertJsonPath('data.sms', true)->assertJsonPath('data.sms_disponible', true);
 
-        $this->smsActifs();
+        // Une ancienne version de l'app qui enverrait encore ces réglages : sans effet
+        $this->putJson('/api/v1/rappels/reglages', ['email' => false, 'sms' => false], $this->enTetes($this->jeton))->assertOk()
+            ->assertJsonPath('data.email', true)->assertJsonPath('data.sms', true);
+        $this->client->update(['rappels_sms' => true]);
+        $this->envoyer();
+
+        $this->assertCount(1, $this->smsEnvoyes());
+        Mail::assertSent(RappelVaccin::class, 1);
     }
 
-    public function test_sans_cle_twilio_la_clinique_ne_peut_pas_activer_les_sms(): void
+    /** Sans les clés Twilio, les SMS ne sont disponibles nulle part ; rien à régler côté clinique */
+    public function test_sans_cle_twilio_les_sms_ne_sont_disponibles_nulle_part(): void
     {
         config(['twilio-notification-channel.password' => null]);
 
-        $this->getJson('/api/v1/rappels/reglages', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.sms_disponible', false);
-        $this->putJson('/api/v1/rappels/reglages', ['sms' => true], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('sms');
+        $this->getJson('/api/v1/rappels/reglages', $this->enTetes($this->jeton))->assertOk()
+            ->assertJsonPath('data.sms_disponible', false)->assertJsonPath('data.sms', false);
+        $this->client->update(['rappels_sms' => true]);
+        $this->envoyer();
+
+        $this->assertSame([], $this->smsEnvoyes());
+        Mail::assertSent(RappelVaccin::class, 1);
     }
 
     public function test_un_client_sans_compte_recoit_un_sms_quand_la_clinique_coche_la_case_sur_sa_fiche(): void
@@ -136,14 +152,14 @@ class RappelsSmsTest extends TestCase
         Mail::assertNothingSent();
     }
 
-    public function test_la_clinique_sans_sms_n_en_envoie_aucun_meme_si_le_client_les_veut(): void
+    /** Le client qui veut des SMS les reçoit, sans aucun réglage de la clinique */
+    public function test_le_client_qui_veut_des_sms_les_recoit_sans_reglage_de_la_clinique(): void
     {
         $this->client->update(['rappels_sms' => true]);
 
         $this->envoyer();
 
-        $this->assertSame([], $this->smsEnvoyes());
-        Mail::assertSent(RappelVaccin::class, 1);
+        $this->assertCount(1, $this->smsEnvoyes());
     }
 
     public function test_un_numero_fixe_ne_recoit_pas_de_sms(): void
@@ -253,16 +269,17 @@ class RappelsSmsTest extends TestCase
         Mail::assertNothingSent();
     }
 
-    /** Respecter son choix (décision de Jim) : SMS seulement, mais la clinique n'en envoie pas : rien ne part, la raison est dite */
-    public function test_sms_seulement_sans_sms_a_la_clinique_rien_ne_part_et_la_raison_est_dite(): void
+    /** Respecter son choix (décision de Jim) : SMS seulement, mais les SMS ne sont pas disponibles (Twilio) : rien ne part, la raison est dite */
+    public function test_sms_seulement_sans_sms_disponibles_rien_ne_part_et_la_raison_est_dite(): void
     {
+        config(['twilio-notification-channel.password' => null]);
         $user = User::factory()->create();
         $this->client->update(['user_id' => $user->id]);
         PreferencesProprietaire::pour($user)->update(['rappels_email' => false, 'rappels_sms' => true]);
         $vaccination = Vaccination::query()->where('patient_id', $this->patient->id)->sole();
 
         $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations/{$vaccination->id}/rappel", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable()->assertJsonValidationErrors(['rappel' => 'Léa Martin a choisi les SMS seulement, et la clinique n’en envoie pas.']);
+            ->assertUnprocessable()->assertJsonValidationErrors(['rappel' => 'Léa Martin a choisi les SMS seulement, et les SMS ne sont pas encore disponibles.']);
         $this->envoyer();
 
         $this->assertSame([], $this->smsEnvoyes());
@@ -270,7 +287,7 @@ class RappelsSmsTest extends TestCase
         // La fenêtre « À venir » de la clinique le dit
         $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
         $ligne = collect($this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->json('data.a_venir'))->firstWhere('patient.nom', 'Félix');
-        $this->assertSame('SMS seulement, que la clinique n’envoie pas', $ligne['bloque']);
+        $this->assertSame('SMS seulement, pas encore disponibles', $ligne['bloque']);
     }
 
     /** SMS coupés (TWILIO_ENABLED=false) : ils ne sont ni proposés ni comptés comme partis */
@@ -386,6 +403,34 @@ class RappelsSmsTest extends TestCase
 
         $this->putJson('/api/v1/espace/preferences', ['rappels_email' => false], $this->enTetes($jetonProprietaire))
             ->assertOk()->assertJsonPath('data.rappels_email', false)->assertJsonPath('data.rappels_sms', true);
+        $this->envoyer();
+
+        $this->assertCount(1, $this->smsEnvoyes());
+        Mail::assertNothingSent();
+    }
+
+    /** Il a choisi « SMS : Non », puis change seulement l'e-mail : les SMS restent coupés (la case de la clinique ne revient pas) */
+    public function test_un_choix_sms_non_n_est_pas_remplace_par_la_case_quand_il_change_l_e_mail(): void
+    {
+        $this->client->update(['rappels_sms' => true]);
+        ['user' => $user, 'jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        $this->client->update(['user_id' => $user->id]);
+        $this->putJson('/api/v1/espace/preferences', ['rappels_email' => true, 'rappels_sms' => false], $this->enTetes($jetonProprietaire))->assertOk();
+
+        $this->putJson('/api/v1/espace/preferences', ['rappels_email' => false], $this->enTetes($jetonProprietaire))->assertOk()->assertJsonPath('data.rappels_sms', false);
+        $this->envoyer();
+
+        $this->assertSame([], $this->smsEnvoyes());
+    }
+
+    /** Le lien de désabonnement d'un e-mail n'est pas un choix de SMS : la case de la clinique vaut toujours */
+    public function test_le_lien_de_desabonnement_ne_coupe_pas_les_sms_de_la_case(): void
+    {
+        $this->client->update(['rappels_sms' => true]);
+        ['user' => $user] = $this->proprietaireAvecJeton();
+        $this->client->update(['user_id' => $user->id]);
+
+        $this->post(URL::signedRoute('rappels.desabonner', ['client' => $this->client->id]))->assertOk();
         $this->envoyer();
 
         $this->assertCount(1, $this->smsEnvoyes());

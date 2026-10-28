@@ -33,7 +33,7 @@ class RappelsController extends Controller
     {
         Gate::authorize(DomainePermission::Organisation->value);
         $clinique = app(ContexteClinique::class)->clinique();
-        $correspondance = ['email' => 'rappels_email', 'sms' => 'rappels_sms', 'delai_jours' => 'rappels_delai_jours', 'vaccins' => 'rappels_vaccins', 'controles' => 'rappels_controles',
+        $correspondance = ['delai_jours' => 'rappels_delai_jours', 'vaccins' => 'rappels_vaccins', 'controles' => 'rappels_controles',
             'relance_noshow' => 'relance_noshow', 'messages_recus' => 'messages_recus', 'messages_reponses_seulement' => 'messages_reponses_seulement'];
         foreach ($request->validated() as $cle => $valeur) {
             $clinique->{$correspondance[$cle]} = $valeur;
