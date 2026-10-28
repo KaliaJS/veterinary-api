@@ -538,4 +538,166 @@ class RappelsEmailTest extends TestCase
 
         $this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.compteurs.echecs', 4);
     }
+
+    /* ---------- Troisième passe de vérification (28.10.2026) ---------- */
+
+    private function controle(string $quand): RendezVous
+    {
+        $debut = CarbonImmutable::parse($quand, 'Europe/Zurich')->utc();
+
+        return RendezVous::factory()->pourPatient($this->patient)->create(['clinique_id' => $this->clinique->id, 'type' => TypeRendezVous::Controle, 'starts_at' => $debut, 'ends_at' => $debut->addMinutes(20)]);
+    }
+
+    /** @return array<string, array{0: callable(self): void}> */
+    public static function casSansEnvoiDeControle(): array
+    {
+        return [
+            'rappels de contrôles coupés par la clinique' => [fn (self $t) => $t->reglages(['controles' => false])],
+            'e-mail coupé par la clinique' => [fn (self $t) => $t->reglages(['email' => false])],
+            'animal décédé' => [fn (self $t) => $t->patient->forceFill(['decede_le' => '2026-10-01'])->save()],
+        ];
+    }
+
+    /** Case 4, pour les contrôles. */
+    #[DataProvider('casSansEnvoiDeControle')]
+    public function test_aucun_controle_ne_part_quand(callable $situation): void
+    {
+        $situation($this);
+        $this->controle('2026-11-09 14:30');
+
+        $this->envoyer();
+
+        Mail::assertNothingSent();
+    }
+
+    /** Case 5 : la journée finit à 20 h, à l'heure de la clinique. */
+    public function test_rien_ne_part_le_soir_apres_vingt_heures(): void
+    {
+        $this->vaccin('2026-11-09');
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 20:05', 'Europe/Zurich'));
+        $this->envoyer();
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 21:05', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertNothingSent();
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 08:05', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertSent(RappelVaccin::class, 1);
+    }
+
+    /** Case 6 : un échec est réessayé l'heure suivante, trois fois au plus ; la date d'envoi est gardée. */
+    public function test_un_echec_est_reessaye_trois_fois_au_plus_et_la_date_est_gardee(): void
+    {
+        $this->vaccin('2026-11-09');
+        Mail::shouldReceive('to')->times(3)->andThrow(new \RuntimeException('Resend injoignable'));
+        foreach (['10:05', '11:05', '12:05', '13:05'] as $heure) {
+            $this->travelTo(CarbonImmutable::parse('2026-11-02 '.$heure, 'Europe/Zurich'));
+            $this->envoyer();
+        }
+        $this->assertDatabaseHas('rappels_envoyes', ['objet' => 'vaccin', 'statut' => 'echec', 'tentatives' => 3]);
+    }
+
+    public function test_un_echec_puis_une_reussite_garde_la_date_d_envoi(): void
+    {
+        $this->vaccin('2026-11-09');
+        $essais = 0;
+        Mail::shouldReceive('to')->twice()->andReturnUsing(function () use (&$essais): object {
+            if (++$essais === 1) {
+                throw new \RuntimeException('Resend injoignable');
+            }
+
+            return new class
+            {
+                public function send(mixed $mail): void {}
+            };
+        });
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 10:05', 'Europe/Zurich'));
+        $this->envoyer();
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 11:05', 'Europe/Zurich'));
+
+        $this->envoyer();
+
+        $rappel = RappelEnvoye::withoutGlobalScopes()->sole();
+        $this->assertSame(['envoye', 2], [$rappel->statut, $rappel->tentatives]);
+        $this->assertSame('2026-11-02 11:05', $rappel->envoye_le->setTimezone('Europe/Zurich')->format('Y-m-d H:i'));
+    }
+
+    /** Case 6 : supprimer une injection ne fait pas disparaître le journal de ses rappels. */
+    public function test_supprimer_l_injection_garde_le_journal(): void
+    {
+        $vaccination = $this->vaccin('2026-11-09');
+        $this->envoyer();
+
+        DB::table('vaccinations')->where('id', $vaccination->id)->delete();
+
+        $this->assertSame(1, RappelEnvoye::withoutGlobalScopes()->count());
+        $this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.compteurs.envoyes', 1);
+    }
+
+    /** Case 7 : la raison du blocage est dite telle quelle, refus lus en une fois compris. */
+    public function test_la_fenetre_dit_pourquoi_un_rappel_ne_partira_pas(): void
+    {
+        $organisation = $this->clinique->societe->organisation_id;
+        $proprietaire = function (string $nom, ?bool $refusEspace, bool $refusLien) use ($organisation): void {
+            $user = $refusEspace === null ? null : User::factory()->create();
+            if ($user) {
+                PreferencesProprietaire::query()->create(['user_id' => $user->id, 'rappels_email' => ! $refusEspace]);
+            }
+            $client = Client::factory()->create(['organisation_id' => $organisation, 'user_id' => $user?->id, 'nom' => $nom, 'email' => strtolower($nom).'@example.ch', 'rappels_email' => ! $refusLien]);
+            $animal = Patient::factory()->create(['organisation_id' => $organisation, 'client_id' => $client->id, 'nom' => 'Animal '.$nom]);
+            RendezVous::factory()->pourPatient($animal)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->subMonths(11), 'ends_at' => now()->subMonths(11)->addMinutes(20)]);
+            Vaccination::factory()->create(['patient_id' => $animal->id, 'nom' => 'Rage', 'injectee_le' => '2025-11-20', 'echeance_le' => '2026-11-20']);
+        };
+        $proprietaire('Espace', true, false);
+        $proprietaire('Lien', null, true);
+        $proprietaire('Accepte', false, false);
+
+        $bloques = fn (): array => collect($this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->json('data.a_venir'))
+            ->mapWithKeys(fn (array $ligne): array => [$ligne['patient']['nom'] => $ligne['bloque']])->all();
+
+        $this->assertSame(['Animal Espace' => 'Refusés par le propriétaire', 'Animal Lien' => 'Refusés par le propriétaire', 'Animal Accepte' => null], array_intersect_key($bloques(), array_flip(['Animal Espace', 'Animal Lien', 'Animal Accepte'])));
+        $this->reglages(['email' => false]);
+        $this->assertSame('Rappels par e-mail coupés', $bloques()['Animal Accepte']);
+    }
+
+    /** Case 7 : les compteurs servis, « à venir » sans les lignes bloquées, envois sur 30 jours. */
+    public function test_les_compteurs_a_venir_et_trente_jours(): void
+    {
+        $this->vaccin('2026-11-20');
+        $bloque = Patient::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'client_id' => $this->client->id, 'nom' => 'Moka', 'rappels_coupes' => true]);
+        RendezVous::factory()->pourPatient($bloque)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->subMonths(11), 'ends_at' => now()->subMonths(11)->addMinutes(20)]);
+        Vaccination::factory()->create(['patient_id' => $bloque->id, 'nom' => 'Rage', 'injectee_le' => '2025-11-21', 'echeance_le' => '2026-11-21']);
+        RappelEnvoye::withoutGlobalScopes()->create(['clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id, 'objet' => 'vaccin', 'libelle' => 'Rage', 'echeance_le' => '2026-09-09', 'canal' => 'email', 'statut' => 'envoye', 'envoye_le' => now()->subDays(40), 'cle' => 'ancien']);
+
+        $this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()
+            ->assertJsonPath('data.compteurs.a_venir', 1)
+            ->assertJsonCount(2, 'data.a_venir')
+            ->assertJsonPath('data.compteurs.envoyes', 0);
+    }
+
+    /** Après 20 h, le prochain envoi est le lendemain ; une échéance du jour ne partira plus, et la fenêtre le dit. */
+    public function test_apres_vingt_heures_la_date_d_envoi_est_le_lendemain(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 21:00', 'Europe/Zurich'));
+        $this->vaccin('2026-11-03', 'Leucose');
+        $this->vaccin('2026-11-02', 'Rage');
+
+        $lignes = collect($this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->json('data.a_venir'))->keyBy('libelle');
+
+        $this->assertSame('2026-11-03', $lignes['Leucose']['envoi_le']);
+        $this->assertNull($lignes['Leucose']['bloque']);
+        $this->assertSame('Échéance passée avant le prochain envoi', $lignes['Rage']['bloque']);
+    }
+
+    /** Case 8 : l'e-mail de contrôle porte aussi le lien de désabonnement. */
+    public function test_l_e_mail_de_controle_porte_le_lien_de_desabonnement(): void
+    {
+        $this->controle('2026-11-09 14:30');
+
+        $this->envoyer();
+
+        Mail::assertSent(RappelControle::class, fn (RappelControle $mail) => str_contains($mail->render(), 'rappels/desabonner/'.$this->client->id)
+            && str_contains($mail->render(), 'Ne plus recevoir les rappels'));
+    }
 }

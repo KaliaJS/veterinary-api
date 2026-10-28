@@ -64,15 +64,18 @@ class RappelsController extends Controller
             ]);
 
         $depuis = now()->subDays(30);
+        $aVenir = $this->rappels->aVenir($clinique);
 
         return response()->json(['data' => [
             'reglages' => RappelsProprietaires::reglages($clinique),
             // Compteurs des 30 derniers jours, comptés par le serveur (la liste s'arrête à 50)
             'compteurs' => [
+                // Ce qui partira vraiment : les lignes bloquées n'y sont pas
+                'a_venir' => count(array_filter($aVenir, fn (array $ligne): bool => $ligne['bloque'] === null)),
                 'envoyes' => RappelEnvoye::query()->where('clinique_id', $clinique->id)->where('statut', 'envoye')->where('envoye_le', '>=', $depuis)->count(),
                 'echecs' => RappelEnvoye::query()->where('clinique_id', $clinique->id)->where('statut', 'echec')->where('updated_at', '>=', $depuis)->count(),
             ],
-            'a_venir' => $this->rappels->aVenir($clinique),
+            'a_venir' => $aVenir,
             'envoyes' => $envoyes,
         ]]);
     }

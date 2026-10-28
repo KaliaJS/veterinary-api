@@ -123,6 +123,7 @@ class RappelsProprietaires
         $reglages = self::reglages($clinique);
         $aujourdhui = CarbonImmutable::parse(aujourdhui($clinique)->toDateString());
         $limite = $aujourdhui->addDays(45);
+        $prochain = $this->prochainEnvoiPossible($clinique);
         $lignes = [];
 
         if ($reglages['vaccins']) {
@@ -135,7 +136,10 @@ class RappelsProprietaires
                     || isset($envoyes[self::cle('vaccin', $vaccination->id, $vaccination->echeance_le->toDateString())])) {
                     continue;
                 }
-                $lignes[] = $this->ligneAVenir('vaccin', $vaccination->nom, $vaccination->patient, $vaccination->echeance_le->toDateString(), $reglages, $aujourdhui);
+                $echeance = $vaccination->echeance_le->toDateString();
+                // Un vaccin se rappelle jusqu'au jour de son échéance compris
+                $dernier = CarbonImmutable::parse($echeance.' 23:59:59', $clinique->fuseau_horaire ?: 'Europe/Zurich');
+                $lignes[] = $this->ligneAVenir('vaccin', $vaccination->nom, $vaccination->patient, $echeance, $reglages, $prochain, $dernier);
             }
         }
         if ($reglages['controles']) {
@@ -147,7 +151,8 @@ class RappelsProprietaires
             foreach ($controles as $rendezVous) {
                 if (! isset($envoyes[self::cle('controle', $rendezVous->id, $this->momentLocal($rendezVous, $clinique))])) {
                     $jour = substr($this->momentLocal($rendezVous, $clinique), 0, 10);
-                    $lignes[] = $this->ligneAVenir('controle', 'Contrôle', $rendezVous->patient, $jour, $reglages, $aujourdhui);
+                    // Un contrôle se rappelle jusqu'à son heure
+                    $lignes[] = $this->ligneAVenir('controle', 'Contrôle', $rendezVous->patient, $jour, $reglages, $prochain, $rendezVous->starts_at->toImmutable());
                 }
             }
         }
@@ -420,6 +425,18 @@ class RappelsProprietaires
         $rappel->save();
     }
 
+    /** Le prochain moment où un rappel peut partir, à l'heure de la clinique (jamais la nuit). */
+    private function prochainEnvoiPossible(Clinique $clinique): CarbonImmutable
+    {
+        $maintenant = CarbonImmutable::now($clinique->fuseau_horaire ?: 'Europe/Zurich');
+
+        return match (true) {
+            $maintenant->hour < self::HEURE_DEBUT => $maintenant->setTime(self::HEURE_DEBUT, 0),
+            $maintenant->hour >= self::HEURE_FIN => $maintenant->addDay()->setTime(self::HEURE_DEBUT, 0),
+            default => $maintenant,
+        };
+    }
+
     private function enJournee(Clinique $clinique): bool
     {
         $heure = (int) now()->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich')->format('G');
@@ -429,12 +446,15 @@ class RappelsProprietaires
 
     /**
      * @param  array{email: bool, sms: bool, delai_jours: int, vaccins: bool, controles: bool}  $reglages
+     * @param  CarbonImmutable  $prochain  le prochain moment où un rappel peut partir
+     * @param  CarbonImmutable  $dernier  le dernier moment où ce rappel a encore un sens
      * @return array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, echeance_le: string, envoi_le: string, bloque: ?string}
      */
-    private function ligneAVenir(string $objet, string $libelle, Patient $patient, string $echeance, array $reglages, CarbonImmutable $aujourdhui): array
+    private function ligneAVenir(string $objet, string $libelle, Patient $patient, string $echeance, array $reglages, CarbonImmutable $prochain, CarbonImmutable $dernier): array
     {
         $client = $patient->client;
         $envoi = CarbonImmutable::parse($echeance)->subDays($reglages['delai_jours']);
+        $aujourdhui = CarbonImmutable::parse($prochain->toDateString());
 
         return [
             'objet' => $objet,
@@ -450,6 +470,8 @@ class RappelsProprietaires
                 (bool) $patient->rappels_coupes => 'Rappels coupés pour '.$patient->nom,
                 $client === null || blank($client->email) => 'Pas d’adresse e-mail',
                 ! $this->accepteLesRappels($client) => 'Refusés par le propriétaire',
+                // Saisi trop tard (après 20 h pour une échéance du jour) : il ne partira plus
+                $prochain->greaterThan($dernier) => 'Échéance passée avant le prochain envoi',
                 default => null,
             },
         ];
