@@ -37,7 +37,7 @@ class RendezVous extends Model
     protected $fillable = [
         'clinique_id', 'ligne_planning_id', 'patient_id', 'client_id',
         'salle_id', 'patient_name', 'species', 'owner_name', 'type',
-        'status', 'flags', 'reason', 'starts_at', 'ends_at', 'arrived_at',
+        'status', 'flags', 'reason', 'note_accueil', 'starts_at', 'ends_at', 'arrived_at',
     ];
 
     protected function casts(): array

@@ -27,8 +27,18 @@ class EnregistrerRendezVousRequest extends FormRequest
             'species' => ['nullable', Rule::enum(Espece::class)],
             'owner_name' => ['nullable', 'string', 'max:255'],
             'reason' => ['nullable', 'string', 'max:255'],
+            'note_accueil' => ['nullable', 'string', 'max:1000'],
             'flags' => ['sometimes', 'array'],
             'flags.*' => [Rule::enum(DrapeauRendezVous::class)],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'note_accueil.max' => 'La note de l’accueil tient en 1000 caractères au plus.',
+            'note_accueil.string' => 'La note de l’accueil est un texte.',
         ];
     }
 }

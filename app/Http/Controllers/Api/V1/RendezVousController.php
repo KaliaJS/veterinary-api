@@ -89,7 +89,7 @@ class RendezVousController extends Controller
 
         $attributs = array_intersect_key($donnees, array_flip([
             'ligne_planning_id', 'salle_id', 'patient_id', 'patient_name',
-            'species', 'owner_name', 'type', 'reason',
+            'species', 'owner_name', 'type', 'reason', 'note_accueil',
         ]));
 
         $dureeActuelle = (int) $rendezVous->starts_at->diffInMinutes($rendezVous->ends_at);

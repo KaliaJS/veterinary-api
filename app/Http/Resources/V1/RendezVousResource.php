@@ -27,6 +27,8 @@ class RendezVousResource extends JsonResource
             'status' => $this->status,
             'flags' => $this->flags,
             'reason' => $this->reason,
+            // Note de l'accueil (28.10.2026) : interne, jamais dans l'espace client
+            'note_accueil' => $this->note_accueil,
             'starts_at' => $this->starts_at,
             'ends_at' => $this->ends_at,
             'arrived_at' => $this->arrived_at,

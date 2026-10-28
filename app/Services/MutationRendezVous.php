@@ -41,6 +41,7 @@ class MutationRendezVous
         'owner_name' => 'ownerName',
         'type' => 'type',
         'reason' => 'reason',
+        'note_accueil' => 'noteAccueil',
     ];
 
     /**
@@ -67,6 +68,7 @@ class MutationRendezVous
             'status' => $donnees['status'] ?? StatutRendezVous::Prevu,
             'flags' => $donnees['flags'] ?? [],
             'reason' => $donnees['reason'] ?? null,
+            'note_accueil' => $donnees['note_accueil'] ?? null,
             'arrived_at' => $donnees['arrived_at'] ?? null,
             'starts_at' => $debut,
             'ends_at' => $debut->addMinutes((int) $donnees['duree_minutes']),

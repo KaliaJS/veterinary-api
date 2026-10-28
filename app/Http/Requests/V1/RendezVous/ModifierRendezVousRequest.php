@@ -31,6 +31,16 @@ class ModifierRendezVousRequest extends FormRequest
             'species' => ['sometimes', 'nullable', Rule::enum(Espece::class)],
             'owner_name' => ['sometimes', 'nullable', 'string', 'max:255'],
             'reason' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'note_accueil' => ['sometimes', 'nullable', 'string', 'max:1000'],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'note_accueil.max' => 'La note de l’accueil tient en 1000 caractères au plus.',
+            'note_accueil.string' => 'La note de l’accueil est un texte.',
         ];
     }
 }
