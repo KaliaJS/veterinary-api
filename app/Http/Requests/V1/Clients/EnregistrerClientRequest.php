@@ -25,6 +25,8 @@ class EnregistrerClientRequest extends FormRequest
             'rue' => ['nullable', 'string', 'max:255'],
             'npa' => ['nullable', 'digits:4'],
             'localite' => ['nullable', 'string', 'max:255'],
+            // Case cochée par la clinique à la demande du client (28.10.2026)
+            'rappels_sms' => ['sometimes', 'boolean'],
         ];
     }
 }

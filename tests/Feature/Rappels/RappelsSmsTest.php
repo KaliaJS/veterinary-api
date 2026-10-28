@@ -208,4 +208,11 @@ class RappelsSmsTest extends TestCase
         // Un SMS refusé ne compte pas dans le quota
         $this->assertSame(0, CompteurMensuel::valeur('sms:'.$this->clinique->societe->organisation_id));
     }
+
+    /** La case se coche aussi à la création de la fiche */
+    public function test_la_case_sms_se_coche_a_la_creation_de_la_fiche(): void
+    {
+        $this->postJson('/api/v1/clients', ['prenom' => 'Pierre', 'nom' => 'Rochat', 'tel' => '079 765 43 21', 'rappels_sms' => true], $this->enTetes($this->jeton))
+            ->assertCreated()->assertJsonPath('data.rappels_sms', true);
+    }
 }
