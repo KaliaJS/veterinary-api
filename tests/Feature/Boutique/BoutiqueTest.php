@@ -216,6 +216,23 @@ class BoutiqueTest extends TestCase
         $this->assertSame($client->refresh()->nom_affiche, $facture->owner_name);
     }
 
+    /** Aperçu du ticket avant l'encaissement : lignes, total, TVA et HT servis, du même calcul que la facture, sans rien écrire. */
+    public function test_l_apercu_du_ticket_est_celui_de_la_facture(): void
+    {
+        $produit = $this->produitEnRayon(5, ['promo_pct' => 10]);
+        $panier = ['lignes' => [['produit_id' => $produit->id, 'quantite' => 3]]];
+
+        $apercu = $this->postJson('/api/v1/boutique/vente/apercu', $panier, $this->enTetes($this->jeton))->assertOk()->json('data');
+        $this->assertSame(0, Facture::withoutGlobalScopes()->count());
+        $this->assertSame(5, $this->stockDe($produit));
+
+        $facture = $this->postJson('/api/v1/boutique/vente', [...$panier, 'moyen_paiement' => 'twint'], $this->enTetes($this->jeton))->assertCreated()->json('data');
+        $this->assertEquals($facture['total_ttc'], $apercu['total_ttc']);
+        $this->assertEquals($facture['montant_tva'], $apercu['montant_tva']);
+        $this->assertEquals($facture['taux_tva'], $apercu['taux_tva']);
+        $this->assertEquals([['produit_id' => $produit->id, 'quantite' => 3, 'prix_chf' => 27, 'total' => 81]], $apercu['lignes']);
+    }
+
     public function test_ni_ordonnance_ni_stupefiant_au_comptoir_ni_en_commande(): void
     {
         $surOrdonnance = $this->produitEnRayon(5, ['nom' => 'Antibiotique', 'est_sur_ordonnance' => true]);

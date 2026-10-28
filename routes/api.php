@@ -840,6 +840,8 @@ Route::prefix('v1')->group(function (): void {
             Route::post('commandes/{commande}/retirer', [CommandeBoutiqueController::class, 'retirer']);
 
             Route::post('vente', VenteComptoirController::class);
+            // Le ticket chiffré avant l'encaissement, du calcul de la facture
+            Route::post('vente/apercu', [VenteComptoirController::class, 'apercu']);
             Route::patch('produits/{produit}/vitrine', [VitrineController::class, 'modifier']);
             Route::get('statistiques', StatistiquesBoutiqueController::class);
         });
