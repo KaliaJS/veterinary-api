@@ -86,6 +86,12 @@ class ExamenImagerie extends Model
         return $this->hasMany(ClicheDicom::class)->orderBy('id');
     }
 
+    /** Diagnostics confirmés ou infirmés après coup (28.10.2026) @return HasMany<ConfirmationImagerie, $this> */
+    public function confirmations(): HasMany
+    {
+        return $this->hasMany(ConfirmationImagerie::class)->orderBy('constate_le')->orderBy('id');
+    }
+
     /** Compte rendu signé (`done` du front) — l'examen est figé. */
     public function estSigne(): bool
     {

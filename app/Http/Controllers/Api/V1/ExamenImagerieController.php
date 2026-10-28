@@ -111,6 +111,7 @@ class ExamenImagerieController extends Controller
             'prescripteur' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
             'signePar' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
             'cliches',
+            'confirmations.auteur',
         ];
     }
 }

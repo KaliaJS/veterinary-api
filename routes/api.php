@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\AjustementStockController;
 use App\Http\Controllers\Api\V1\AlertesController;
 use App\Http\Controllers\Api\V1\AnalyseController;
 use App\Http\Controllers\Api\V1\AnalysePatientController;
+use App\Http\Controllers\Api\V1\AnnotationRadioController;
 use App\Http\Controllers\Api\V1\AnnuaireCliniqueController;
 use App\Http\Controllers\Api\V1\AnnuaireEmployeController;
 use App\Http\Controllers\Api\V1\AppareilNotificationController;
@@ -33,6 +34,7 @@ use App\Http\Controllers\Api\V1\CompteEmployeController;
 use App\Http\Controllers\Api\V1\ComptePaiementController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
 use App\Http\Controllers\Api\V1\CompteRenduImagerieController;
+use App\Http\Controllers\Api\V1\ConfirmationRadioController;
 use App\Http\Controllers\Api\V1\ConsentementInterventionController;
 use App\Http\Controllers\Api\V1\ConstanteSejourController;
 use App\Http\Controllers\Api\V1\ContactController;
@@ -49,6 +51,7 @@ use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\DomainePublicController;
 use App\Http\Controllers\Api\V1\EncaissementController;
 use App\Http\Controllers\Api\V1\EnregistrementConsultationController;
+use App\Http\Controllers\Api\V1\EntrainementImagerieController;
 use App\Http\Controllers\Api\V1\EquipeEmployeController;
 use App\Http\Controllers\Api\V1\Espace\AbonnementProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\AccueilController;
@@ -120,7 +123,10 @@ use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
 use App\Http\Controllers\Api\V1\ProduitController;
 use App\Http\Controllers\Api\V1\ProfilVeterinaireController;
+use App\Http\Controllers\Api\V1\RadioController;
+use App\Http\Controllers\Api\V1\RadioDossierController;
 use App\Http\Controllers\Api\V1\RappelsController;
+use App\Http\Controllers\Api\V1\ReferentielImagerieController;
 use App\Http\Controllers\Api\V1\RegistreStupefiantController;
 use App\Http\Controllers\Api\V1\ReleveDentaireController;
 use App\Http\Controllers\Api\V1\ReleveOphtalmologiqueController;
@@ -528,6 +534,24 @@ Route::prefix('v1')->group(function (): void {
         Route::get('patients/{patient}/analyses', AnalysePatientController::class);
         Route::get('patients/{patient}/imagerie', ImageriePatientController::class);
 
+        // Radios annotées (décision de Jim, 28.10.2026) : résolues par le
+        // patient, pour toute l'équipe du dossier (cliniques sœurs comprises).
+        // L'original relu tel quel, région et incidence validées, annotations
+        // dessinées à part, diagnostics confirmés après coup.
+        Route::get('referentiels/imagerie', ReferentielImagerieController::class);
+        Route::prefix('patients/{patient}/imagerie/{examen}')->whereNumber(['examen', 'cliche', 'annotation', 'confirmation'])->group(function (): void {
+            Route::get('cliches', [RadioDossierController::class, 'index']);
+            Route::get('cliches/{cliche}/fichier', [RadioDossierController::class, 'fichier']);
+            Route::patch('cliches/{cliche}', [RadioDossierController::class, 'reperes']);
+            Route::get('cliches/{cliche}/annotations', [AnnotationRadioController::class, 'index']);
+            Route::post('cliches/{cliche}/annotations', [AnnotationRadioController::class, 'store'])->middleware('throttle:240,1,annotations');
+            Route::patch('cliches/{cliche}/annotations/{annotation}', [AnnotationRadioController::class, 'update']);
+            Route::delete('cliches/{cliche}/annotations/{annotation}', [AnnotationRadioController::class, 'destroy']);
+            Route::get('confirmations', [ConfirmationRadioController::class, 'index']);
+            Route::post('confirmations', [ConfirmationRadioController::class, 'store']);
+            Route::delete('confirmations/{confirmation}', [ConfirmationRadioController::class, 'destroy']);
+        });
+
         // Odontogramme Triadan — map complète, remplacée d'un bloc.
         Route::get('patients/{patient}/dents', [ReleveDentaireController::class, 'afficher']);
         Route::put('patients/{patient}/dents', [ReleveDentaireController::class, 'remplacer']);
@@ -637,6 +661,8 @@ Route::prefix('v1')->group(function (): void {
         // résolvent explicitement depuis l'organisation du jeton, jamais
         // par binding implicite.
         Route::middleware('can:organisation')->prefix('organisation')->group(function (): void {
+            // Accord pour l'entraînement sur les radios anonymisées (28.10.2026)
+            Route::put('entrainement-imagerie', EntrainementImagerieController::class);
             // Ouvertes à une organisation fermée : l'état de l'abonnement,
             // la formule, la carte et les factures, de quoi payer.
             Route::withoutMiddleware('organisation.ouverte')->group(function (): void {
@@ -838,6 +864,8 @@ Route::prefix('v1')->group(function (): void {
 
             Route::post('examens/{examen}/compte-rendu', CompteRenduImagerieController::class);
             Route::post('examens/{examen}/cliches', ClicheDicomController::class);
+            // Radio DICOM envoyée depuis l'examen : l'original, tel quel (28.10.2026)
+            Route::post('examens/{examen}/cliches/fichier', RadioController::class)->middleware('throttle:120,1,radios');
         });
 
         // Domaine bloc opératoire — son propre domaine de permission

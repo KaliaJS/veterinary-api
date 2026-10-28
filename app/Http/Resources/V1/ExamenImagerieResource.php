@@ -43,15 +43,9 @@ class ExamenImagerieResource extends JsonResource
                 'id' => $this->signePar->id,
                 'nom' => $this->signePar->nom,
             ]),
-            'cliches' => $this->whenLoaded('cliches', fn () => $this->cliches->map(fn (ClicheDicom $cliche): array => [
-                'id' => $cliche->id,
-                'sop_instance_uid' => $cliche->sop_instance_uid,
-                'study_instance_uid' => $cliche->study_instance_uid,
-                'series_instance_uid' => $cliche->series_instance_uid,
-                'nom_fichier' => $cliche->nom_fichier,
-                'chemin' => $cliche->chemin,
-                'metadonnees' => $cliche->metadonnees,
-            ])),
+            // Avec l'original envoyé, l'espèce du jour, région et incidence (28.10.2026)
+            'cliches' => $this->whenLoaded('cliches', fn () => $this->cliches->map(fn (ClicheDicom $cliche): array => (new ClicheDicomResource($cliche))->resolve())),
+            'confirmations' => $this->whenLoaded('confirmations', fn () => ConfirmationImagerieResource::collection($this->confirmations)->resolve()),
         ];
     }
 }

@@ -54,6 +54,7 @@ class Organisation extends Model
             'verifiee_le' => 'datetime',
             'identite_avant_le' => 'date',
             'resilie_le' => 'date',
+            'entrainement_consenti_le' => 'datetime',
             'periode_debut' => 'date',
             'periode_fin' => 'date',
             'prochaine_tentative_le' => 'datetime',

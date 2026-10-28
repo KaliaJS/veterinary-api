@@ -65,6 +65,11 @@ class OrganisationResource extends JsonResource
                 'sms' => QuotaSms::packsDuMois($this->resource),
                 'stockage_go' => $this->quota_extra_stockage_go,
             ],
+            // Accord pour entraîner des modèles sur ses radios anonymisées (28.10.2026)
+            'entrainement_imagerie' => [
+                'accord' => $this->entrainement_consenti_le !== null,
+                'le' => $this->entrainement_consenti_le?->toIso8601String(),
+            ],
             'stats' => [
                 'cliniques' => $this->cliniques()->count(),
                 'societes' => $this->societes()->count(),
