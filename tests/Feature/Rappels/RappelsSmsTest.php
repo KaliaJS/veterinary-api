@@ -286,4 +286,22 @@ class RappelsSmsTest extends TestCase
         $this->assertSame(0, RappelEnvoye::withoutGlobalScopes()->where('canal', 'sms')->count());
         $this->assertSame(0, CompteurMensuel::valeur('sms:'.$this->clinique->societe->organisation_id));
     }
+
+    /** Le quota réserve les segments facturés : un SMS de deux segments ne part pas s'il n'en reste qu'un */
+    public function test_un_sms_de_deux_segments_ne_part_pas_quand_il_n_en_reste_qu_un(): void
+    {
+        $this->smsActifs();
+        $this->client->update(['rappels_sms' => true]);
+        $organisation = $this->clinique->societe->organisation;
+        $organisation->forceFill(['plan' => FormuleSaas::Individuel])->save();
+        CompteurMensuel::ajouter('sms:'.$organisation->id, 99);
+        // Un nom de clinique long : le SMS du vaccin fait deux segments
+        $this->clinique->update(['nom' => str_repeat('Clinique vétérinaire des Deux Rives ', 3)]);
+
+        $this->envoyer();
+
+        $this->assertSame([], $this->smsEnvoyes());
+        $this->assertStringContainsString('quota', mb_strtolower((string) RappelEnvoye::withoutGlobalScopes()->where('canal', 'sms')->sole()->erreur));
+        $this->assertSame(99, CompteurMensuel::valeur('sms:'.$organisation->id));
+    }
 }

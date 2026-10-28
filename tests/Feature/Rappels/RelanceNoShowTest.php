@@ -7,7 +7,9 @@ use App\Mail\RelanceNoShow;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Patient;
+use App\Models\PreferencesProprietaire;
 use App\Models\RendezVous;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
@@ -40,7 +42,7 @@ class RelanceNoShowTest extends TestCase
         Mail::fake();
         $this->fauxTwilio();
         $this->travelTo(CarbonImmutable::parse('2026-11-05 10:30', 'Europe/Zurich'));
-        $this->clinique = Clinique::factory()->create(['nom' => 'Deux Rives', 'tel' => '032 000 00 00', 'fuseau_horaire' => 'Europe/Zurich']);
+        $this->clinique = Clinique::factory()->dansLAnnuaire()->create(['nom' => 'Deux Rives', 'tel' => '032 000 00 00', 'fuseau_horaire' => 'Europe/Zurich']);
         ['jeton' => $this->jeton] = $this->administrateurAvecJeton($this->clinique);
         $organisation = $this->clinique->societe->organisation_id;
         $this->client = Client::factory()->create(['organisation_id' => $organisation, 'prenom' => 'Léa', 'nom' => 'Martin', 'email' => 'lea.martin@example.ch', 'tel' => '079 123 45 67']);
@@ -123,5 +125,88 @@ class RelanceNoShowTest extends TestCase
         $this->soir();
 
         Mail::assertNotSent(RelanceNoShow::class);
+    }
+
+    /** Absence marquée tard (19 h 10) : la relance part au passage suivant du soir */
+    public function test_une_absence_marquee_tard_part_au_passage_suivant_du_soir(): void
+    {
+        $this->relanceActive();
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-05 20:05', 'Europe/Zurich'));
+        $this->artisan('rappels:envoyer')->assertSuccessful();
+
+        Mail::assertSent(RelanceNoShow::class, 1);
+    }
+
+    /** Après 22 h, plus rien la nuit : la relance part le lendemain matin, une fois */
+    public function test_marquee_dans_la_nuit_elle_part_le_lendemain_matin(): void
+    {
+        $this->relanceActive();
+        $this->travelTo(CarbonImmutable::parse('2026-11-05 23:05', 'Europe/Zurich'));
+        $this->artisan('rappels:envoyer')->assertSuccessful();
+        Mail::assertNotSent(RelanceNoShow::class);
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-06 08:05', 'Europe/Zurich'));
+        $this->artisan('rappels:envoyer')->assertSuccessful();
+        $this->travelTo(CarbonImmutable::parse('2026-11-06 09:05', 'Europe/Zurich'));
+        $this->artisan('rappels:envoyer')->assertSuccessful();
+
+        Mail::assertSent(RelanceNoShow::class, 1);
+    }
+
+    /** Une absence d'avant-hier, ou d'hier à midi passé : jamais relancée */
+    public function test_une_absence_ancienne_n_est_pas_relancee(): void
+    {
+        $this->relanceActive();
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-06 13:05', 'Europe/Zurich'));
+        $this->artisan('rappels:envoyer')->assertSuccessful();
+        $this->travelTo(CarbonImmutable::parse('2026-11-07 18:05', 'Europe/Zurich'));
+        $this->artisan('rappels:envoyer')->assertSuccessful();
+
+        Mail::assertNotSent(RelanceNoShow::class);
+    }
+
+    /** Animal décédé, rappels coupés pour l'animal, organisation fermée : rien ne part */
+    public function test_animal_decede_rappels_coupes_ou_organisation_fermee_rien_ne_part(): void
+    {
+        $this->relanceActive();
+        $patient = $this->rendezVous->patient()->withoutGlobalScopes()->firstOrFail();
+
+        $patient->forceFill(['decede_le' => now()->toDateString()])->save();
+        $this->soir();
+        $patient->forceFill(['decede_le' => null, 'rappels_coupes' => true])->save();
+        $this->soir();
+        $patient->forceFill(['rappels_coupes' => false])->save();
+        $this->clinique->societe->organisation->forceFill(['statut_abonnement' => 'resilie'])->save();
+        $this->soir();
+
+        Mail::assertNotSent(RelanceNoShow::class);
+    }
+
+    /** « SMS seulement » : aucun e-mail de relance */
+    public function test_sms_seulement_pas_d_e_mail_de_relance(): void
+    {
+        $this->relanceActive();
+        $user = User::factory()->create();
+        $this->client->update(['user_id' => $user->id]);
+        PreferencesProprietaire::pour($user)->update(['rappels_email' => false, 'rappels_sms' => true]);
+
+        $this->soir();
+
+        Mail::assertNotSent(RelanceNoShow::class);
+    }
+
+    /** Sans site publié ni place dans l'annuaire, le lien mènerait nulle part : le message donne le téléphone */
+    public function test_sans_page_publique_le_message_donne_le_telephone(): void
+    {
+        $this->relanceActive();
+        $this->clinique->forceFill(['photo_chemin' => null])->save();
+
+        $this->soir();
+
+        Mail::assertSent(RelanceNoShow::class, fn (RelanceNoShow $mail): bool => $mail->lienReprise === null
+            && str_contains($mail->render(), 'appelez la clinique au 032 000 00 00')
+            && ! str_contains($mail->render(), '/cliniques/'));
     }
 }

@@ -13,6 +13,7 @@ use App\Models\Patient;
 use App\Models\PreferencesProprietaire;
 use App\Models\RappelEnvoye;
 use App\Models\RendezVous;
+use App\Models\SiteWeb;
 use App\Models\User;
 use App\Models\Vaccination;
 use App\Notifications\RappelSms;
@@ -52,8 +53,13 @@ class RappelsProprietaires
 
     private const int TENTATIVES_MAX = 3;
 
-    /** La relance d'un rendez-vous manqué part le soir même, dès 18 h (décision de Jim, 28.10.2026). */
+    /** La relance d'un rendez-vous manqué part le soir même, de 18 h à 22 h (décision de Jim, 28.10.2026) ; */
     private const int HEURE_RELANCE = 18;
+
+    private const int HEURE_FIN_RELANCE = 22;
+
+    /** marquée trop tard le soir, elle part le lendemain matin, avant midi. */
+    private const int MIDI = 12;
 
     /** @var array<int, ?Clinique> */
     private array $cliniques = [];
@@ -510,13 +516,16 @@ class RappelsProprietaires
             ->with(['clinique' => fn ($q) => $q->withoutGlobalScopes(), 'patient' => fn ($q) => $q->withoutGlobalScopes(), 'patient.client' => fn ($q) => $q->withoutGlobalScopes()])
             ->where('status', StatutRendezVous::Noshow)
             ->whereNotNull('patient_id')
-            ->whereBetween('starts_at', [now()->subDay(), now()])
+            ->whereBetween('starts_at', [now()->subHours(48), now()])
             ->get();
         foreach ($manques as $rendezVous) {
             $clinique = $rendezVous->clinique;
             $local = now()->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich');
-            if (! $clinique->relance_noshow || $local->hour < self::HEURE_RELANCE || $local->hour >= self::HEURE_FIN
-                || $rendezVous->starts_at->setTimezone($local->getTimezone())->toDateString() !== $local->toDateString()) {
+            $jour = $rendezVous->starts_at->setTimezone($local->getTimezone())->toDateString();
+            // Le soir même, ou le lendemain matin si l'absence a été marquée trop tard
+            $ceSoir = $jour === $local->toDateString() && $local->hour >= self::HEURE_RELANCE && $local->hour < self::HEURE_FIN_RELANCE;
+            $demainMatin = $jour === $local->subDay()->toDateString() && $local->hour >= self::HEURE_DEBUT && $local->hour < self::MIDI;
+            if (! $clinique->relance_noshow || (! $ceSoir && ! $demainMatin)) {
                 continue;
             }
             $partis += $this->envoyerRelance($clinique, $rendezVous) ? 1 : 0;
@@ -525,9 +534,19 @@ class RappelsProprietaires
         return $partis;
     }
 
-    public static function lienReprise(Clinique $clinique): string
+    /**
+     * Où reprendre rendez-vous : le site publié de l'organisation, sinon la
+     * clinique dans l'annuaire ; null si aucune page ne la montre (le
+     * message donne alors son téléphone).
+     */
+    public static function lienReprise(Clinique $clinique): ?string
     {
-        return rtrim((string) config('app.frontend_url'), '/').'/cliniques/'.$clinique->id;
+        $site = SiteWeb::query()->withoutGlobalScopes()->where('organisation_id', $clinique->societe?->organisation_id)->where('est_publie', true)->first();
+        if ($site !== null) {
+            return $site->urlPublique();
+        }
+
+        return $clinique->estDansLAnnuaire() ? rtrim((string) config('app.frontend_url'), '/').'/cliniques/'.$clinique->id : null;
     }
 
     private function envoyerRelance(Clinique $clinique, RendezVous $rendezVous): bool
@@ -553,7 +572,9 @@ class RappelsProprietaires
         if ($mobile !== null) {
             $rappel = $this->prendre(self::cle('noshow', $rendezVous->id, $jour, 'sms'), [...$attributs, 'canal' => 'sms']);
             if ($rappel !== null) {
-                $this->expedierSms($rappel, $clinique, $mobile, $clinique->nom.' : '.$patient->nom.' n’a pas pu venir aujourd’hui. Reprenez rendez-vous : '.self::lienReprise($clinique));
+                $lien = self::lienReprise($clinique);
+                $suite = $lien !== null ? 'Reprenez rendez-vous : '.$lien : (filled($clinique->tel) ? 'Pour reprendre rendez-vous : '.$clinique->tel.'.' : 'Contactez la clinique pour reprendre rendez-vous.');
+                $this->expedierSms($rappel, $clinique, $mobile, $clinique->nom.' : '.$patient->nom.' n’a pas pu venir au rendez-vous. '.$suite);
                 $parti = $parti || $rappel->statut === 'envoye';
             }
         }

@@ -24,13 +24,13 @@ class RelanceNoShow extends Mailable
         public Clinique $clinique,
         public Client $client,
         public string $lienDesabonnement,
-        public string $lienReprise,
+        public ?string $lienReprise,
     ) {}
 
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: $this->rendezVous->patient->nom.' n’a pas pu venir aujourd’hui chez '.$this->clinique->nom,
+            subject: $this->rendezVous->patient->nom.' n’a pas pu venir au rendez-vous chez '.$this->clinique->nom,
             replyTo: $this->clinique->email ? [new Address($this->clinique->email, $this->clinique->nom)] : [],
         );
     }
@@ -47,6 +47,7 @@ class RelanceNoShow extends Mailable
 
         return new Content(markdown: 'emails.rappels.noshow', with: [
             'patient' => $this->rendezVous->patient,
+            'jour' => $debut->format('d.m.Y'),
             'heure' => $debut->format('H:i'),
         ]);
     }
