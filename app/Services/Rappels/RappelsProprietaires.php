@@ -14,7 +14,9 @@ use App\Models\RappelEnvoye;
 use App\Models\RendezVous;
 use App\Models\User;
 use App\Models\Vaccination;
+use App\Services\EtatVaccinal;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\URL;
@@ -42,6 +44,18 @@ class RappelsProprietaires
     private const int HEURE_FIN = 20;
 
     private const int TENTATIVES_MAX = 3;
+
+    /** @var array<int, ?Clinique> */
+    private array $cliniques = [];
+
+    /** @var array<int, ?int> */
+    private array $premiereClinique = [];
+
+    /** @var array<int, bool> */
+    private array $refusEspace = [];
+
+    /** @var array<int, bool> */
+    private array $organisationsOuvertes = [];
 
     /** @return array{email: bool, sms: bool, delai_jours: int, vaccins: bool, controles: bool} */
     public static function reglages(Clinique $clinique): array
@@ -80,7 +94,7 @@ class RappelsProprietaires
         $patient = $vaccination->patient;
         $client = $patient->client;
         $raison = match (true) {
-            $patient->decede_le !== null => $patient->nom.' est décédé : aucun rappel ne part.',
+            $patient->decede_le !== null => 'Animal décédé : aucun rappel ne part.',
             $client === null || blank($client->email) => 'Pas d’adresse e-mail pour '.($client ? self::nomDe($client) : 'ce propriétaire').'.',
             ! $this->accepteLesRappels($client) => self::nomDe($client).' a refusé les rappels par e-mail.',
             default => null,
@@ -112,20 +126,25 @@ class RappelsProprietaires
         $lignes = [];
 
         if ($reglages['vaccins']) {
-            foreach ($this->dernieresInjections($aujourdhui, $limite, $clinique->societe->organisation_id) as $vaccination) {
-                if ($this->cliniqueDeReference($vaccination->patient)?->id !== $clinique->id || $this->dejaEnvoye('vaccin', $vaccination->id, $vaccination->echeance_le->toDateString())) {
+            $vaccins = $this->dernieresInjections($aujourdhui, $limite, $clinique->societe->organisation_id);
+            $references = $this->cliniquesDeReference($vaccins->pluck('patient'));
+            $envoyes = $this->clesEnvoyees($vaccins->map(fn (Vaccination $v): string => self::cle('vaccin', $v->id, $v->echeance_le->toDateString())));
+            foreach ($vaccins as $vaccination) {
+                if (($references[$vaccination->patient_id] ?? null)?->id !== $clinique->id
+                    || isset($envoyes[self::cle('vaccin', $vaccination->id, $vaccination->echeance_le->toDateString())])) {
                     continue;
                 }
                 $lignes[] = $this->ligneAVenir('vaccin', $vaccination->nom, $vaccination->patient, $vaccination->echeance_le->toDateString(), $reglages, $aujourdhui);
             }
         }
         if ($reglages['controles']) {
-            $controles = RendezVous::withoutGlobalScopes()->with('patient.client')
+            $controles = RendezVous::withoutGlobalScopes()->with(['patient' => fn ($p) => $p->withoutGlobalScopes(), 'patient.client' => fn ($c) => $c->withoutGlobalScopes()])
                 ->where('clinique_id', $clinique->id)->where('type', TypeRendezVous::Controle)->where('status', StatutRendezVous::Prevu)
                 ->whereNotNull('patient_id')->whereBetween('starts_at', [now(), $limite->endOfDay()])->get();
+            $envoyes = $this->clesEnvoyees($controles->map(fn (RendezVous $r): string => self::cle('controle', $r->id, $this->momentLocal($r, $clinique))));
             foreach ($controles as $rendezVous) {
-                $jour = $rendezVous->starts_at->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich')->toDateString();
-                if (! $this->dejaEnvoye('controle', $rendezVous->id, $jour)) {
+                if (! isset($envoyes[self::cle('controle', $rendezVous->id, $this->momentLocal($rendezVous, $clinique))])) {
+                    $jour = substr($this->momentLocal($rendezVous, $clinique), 0, 10);
                     $lignes[] = $this->ligneAVenir('controle', 'Contrôle', $rendezVous->patient, $jour, $reglages, $aujourdhui);
                 }
             }
@@ -142,21 +161,11 @@ class RappelsProprietaires
         if ($client->rappels_email === false) {
             return false;
         }
+        if ($client->user_id === null) {
+            return true;
+        }
 
-        return $client->user_id === null
-            || PreferencesProprietaire::query()->where('user_id', $client->user_id)->value('rappels_email') !== false;
-    }
-
-    /** La clinique où l'animal a été vu en dernier ; sinon la première de son organisation. */
-    public function cliniqueDeReference(Patient $patient): ?Clinique
-    {
-        $id = RendezVous::withoutGlobalScopes()->where('patient_id', $patient->id)
-            ->where('status', '!=', StatutRendezVous::Annule)->where('starts_at', '<=', now())
-            ->orderByDesc('starts_at')->value('clinique_id');
-
-        return $id !== null
-            ? Clinique::query()->withoutGlobalScopes()->find($id)
-            : Clinique::query()->withoutGlobalScopes()->whereRelation('societe', 'organisation_id', $patient->organisation_id)->orderBy('id')->first();
+        return $this->refusEspace[$client->user_id] ??= PreferencesProprietaire::query()->where('user_id', $client->user_id)->value('rappels_email') !== false;
     }
 
     public static function lienDesabonnement(Client $client): string
@@ -171,13 +180,76 @@ class RappelsProprietaires
         return $nom !== '' ? $nom : $client->nom_affiche;
     }
 
+    /** Un rappel automatique par échéance (le jour d'un vaccin, le moment d'un contrôle) et par canal. */
+    private static function cle(string $objet, int $id, string $echeance): string
+    {
+        return $objet.':'.$id.':'.$echeance.':email';
+    }
+
+    /** Le moment d'un contrôle à l'heure de la clinique : un déplacement, même le jour même, est rappelé. */
+    private function momentLocal(RendezVous $rendezVous, Clinique $clinique): string
+    {
+        return $rendezVous->starts_at->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich')->format('Y-m-d H:i');
+    }
+
+    /**
+     * @param  Collection<int, string>  $cles
+     * @return array<string, true>
+     */
+    private function clesEnvoyees(Collection $cles): array
+    {
+        if ($cles->isEmpty()) {
+            return [];
+        }
+
+        return array_fill_keys(RappelEnvoye::withoutGlobalScopes()->whereIn('cle', $cles->all())->where('statut', 'envoye')->pluck('cle')->all(), true);
+    }
+
+    private function clinique(?int $id): ?Clinique
+    {
+        if ($id === null) {
+            return null;
+        }
+
+        return $this->cliniques[$id] ??= Clinique::query()->withoutGlobalScopes()->with('societe.organisation')->find($id);
+    }
+
+    /**
+     * La clinique où chaque animal a été vu en dernier (rendez-vous passé,
+     * ni annulé ni manqué) ; sinon la première de son organisation. En une
+     * requête pour tous les animaux.
+     *
+     * @param  Collection<int, Patient>  $patients
+     * @return array<int, ?Clinique>
+     */
+    private function cliniquesDeReference(Collection $patients): array
+    {
+        $patients = $patients->filter()->unique('id');
+        if ($patients->isEmpty()) {
+            return [];
+        }
+        $vus = RendezVous::withoutGlobalScopes()->whereIn('patient_id', $patients->pluck('id')->all())
+            ->whereNotIn('status', [StatutRendezVous::Annule, StatutRendezVous::Noshow])->where('starts_at', '<=', now())
+            ->orderBy('starts_at')->get(['patient_id', 'clinique_id'])->keyBy('patient_id');
+        $references = [];
+        foreach ($patients as $patient) {
+            $id = $vus[$patient->id]->clinique_id ?? ($this->premiereClinique[$patient->organisation_id] ??= Clinique::query()->withoutGlobalScopes()
+                ->whereRelation('societe', 'organisation_id', $patient->organisation_id)->orderBy('id')->value('id'));
+            $references[$patient->id] = $this->clinique($id);
+        }
+
+        return $references;
+    }
+
     /** @return Collection<int, array{0: Vaccination, 1: Clinique}> */
     private function vaccinsDus(): Collection
     {
         $aujourdhui = CarbonImmutable::parse(aujourdhui()->toDateString());
+        $vaccins = $this->dernieresInjections($aujourdhui->subDay(), $aujourdhui->addDays(max(self::DELAIS) + 1), null);
+        $references = $this->cliniquesDeReference($vaccins->pluck('patient'));
 
-        return $this->dernieresInjections($aujourdhui->subDay(), $aujourdhui->addDays(max(self::DELAIS) + 1), null)
-            ->map(fn (Vaccination $vaccination): ?array => ($clinique = $this->cliniqueDeReference($vaccination->patient)) ? [$vaccination, $clinique] : null)
+        return $vaccins
+            ->map(fn (Vaccination $vaccination): ?array => ($clinique = $references[$vaccination->patient_id] ?? null) ? [$vaccination, $clinique] : null)
             ->filter(function (?array $paire): bool {
                 if ($paire === null) {
                     return false;
@@ -196,12 +268,16 @@ class RappelsProprietaires
     /** @return Collection<int, RendezVous> */
     private function controlesDus(): Collection
     {
-        return RendezVous::withoutGlobalScopes()->with(['clinique', 'patient.client'])
+        return RendezVous::withoutGlobalScopes()->with(['patient' => fn ($p) => $p->withoutGlobalScopes(), 'patient.client' => fn ($c) => $c->withoutGlobalScopes()])
             ->where('type', TypeRendezVous::Controle)->where('status', StatutRendezVous::Prevu)->whereNotNull('patient_id')
             ->whereBetween('starts_at', [now(), now()->addDays(max(self::DELAIS) + 1)])
             ->get()
             ->filter(function (RendezVous $rendezVous): bool {
-                $clinique = $rendezVous->clinique;
+                $clinique = $this->clinique($rendezVous->clinique_id);
+                if ($clinique === null) {
+                    return false;
+                }
+                $rendezVous->setRelation('clinique', $clinique);
                 $reglages = self::reglages($clinique);
                 $jour = CarbonImmutable::parse(aujourdhui($clinique)->toDateString());
                 $leJour = $rendezVous->starts_at->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich')->toDateString();
@@ -212,53 +288,94 @@ class RappelsProprietaires
     }
 
     /**
-     * La dernière injection de chaque vaccin d'un animal, d'échéance dans la
-     * période : un rappel fait depuis rend l'échéance précédente caduque.
+     * Les injections d'échéance dans la période qui sont encore dues : comme
+     * le carnet, une injection plus récente qui couvre ses valences (même
+     * vaccin, ou combiné qui le contient) rend l'échéance caduque. Toutes les
+     * injections des animaux concernés sont lues en une fois.
      *
      * @return Collection<int, Vaccination>
      */
     private function dernieresInjections(CarbonImmutable $du, CarbonImmutable $au, ?int $organisationId): Collection
     {
-        return Vaccination::query()->with('patient.client')
+        $candidates = Vaccination::query()
+            ->with(['patient' => fn ($p) => $p->withoutGlobalScopes(), 'patient.client' => fn ($c) => $c->withoutGlobalScopes(), 'produit.valences'])
             ->whereNotNull('echeance_le')->whereBetween('echeance_le', [$du->toDateString(), $au->toDateString()])
             ->whereHas('patient', fn ($patient) => $patient->withoutGlobalScopes()->whereNull('decede_le')
                 ->when($organisationId, fn ($requete, int $id) => $requete->where('organisation_id', $id)))
-            ->get()
-            ->filter(fn (Vaccination $vaccination): bool => ! Vaccination::query()
-                ->where('patient_id', $vaccination->patient_id)
-                ->whereRaw('lower(nom) = ?', [mb_strtolower($vaccination->nom)])
-                ->where(fn ($plusRecente) => $plusRecente->where('injectee_le', '>', $vaccination->injectee_le)
-                    ->orWhere(fn ($memeJour) => $memeJour->where('injectee_le', $vaccination->injectee_le)->where('id', '>', $vaccination->id)))
-                ->exists())
-            ->values();
+            ->get();
+        if ($candidates->isEmpty()) {
+            return $candidates;
+        }
+        $parAnimal = Vaccination::query()->with('produit.valences')
+            ->whereIn('patient_id', $candidates->pluck('patient_id')->unique()->all())->get()->groupBy('patient_id');
+
+        return $candidates->filter(function (Vaccination $vaccination) use ($parAnimal): bool {
+            $siennes = array_keys(EtatVaccinal::valencesDe($vaccination));
+            $couvertes = [];
+            foreach ($parAnimal[$vaccination->patient_id] ?? [] as $autre) {
+                $plusRecente = $autre->injectee_le->gt($vaccination->injectee_le)
+                    || ($autre->injectee_le->equalTo($vaccination->injectee_le) && $autre->id > $vaccination->id);
+                if (! $plusRecente) {
+                    continue;
+                }
+                if (mb_strtolower(trim($autre->nom)) === mb_strtolower(trim($vaccination->nom))) {
+                    return false;
+                }
+                $couvertes += array_fill_keys(array_keys(EtatVaccinal::valencesDe($autre)), true);
+            }
+
+            return array_diff($siennes, array_keys($couvertes)) !== [];
+        })->values();
     }
 
     private function envoyerAutomatique(Clinique $clinique, ?Patient $patient, string $objet, ?Vaccination $vaccination, ?RendezVous $rendezVous): bool
     {
         $client = $patient?->client;
         $reglages = self::reglages($clinique);
-        if ($patient === null || $client === null || ! $reglages['email'] || $patient->rappels_coupes || $patient->decede_le !== null
+        // Une organisation fermée (abonnement terminé, vérification refusée) n'envoie plus
+        $ouverte = $this->organisationsOuvertes[$clinique->id] ??= (bool) $clinique->societe?->organisation?->estOuverte();
+        if (! $ouverte || $patient === null || $client === null || ! $reglages['email'] || $patient->rappels_coupes || $patient->decede_le !== null
             || blank($client->email) || ! $this->accepteLesRappels($client)) {
             return false;
         }
 
-        $jour = $vaccination !== null
-            ? $vaccination->echeance_le->toDateString()
-            : $rendezVous->starts_at->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich')->toDateString();
-        $cle = $objet.':'.($vaccination->id ?? $rendezVous->id).':'.$jour.':email';
-        $rappel = RappelEnvoye::query()->firstOrNew(['cle' => $cle]);
-        if ($rappel->exists && ($rappel->statut === 'envoye' || $rappel->tentatives >= self::TENTATIVES_MAX)) {
+        $echeance = $vaccination !== null ? $vaccination->echeance_le->toDateString() : $this->momentLocal($rendezVous, $clinique);
+        $rappel = $this->prendre(self::cle($objet, $vaccination->id ?? $rendezVous->id, $echeance), [
+            'clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'client_id' => $client->id, 'objet' => $objet,
+            'vaccination_id' => $vaccination?->id, 'rendez_vous_id' => $rendezVous?->id,
+            'libelle' => $vaccination !== null ? $vaccination->nom : 'Contrôle', 'echeance_le' => substr($echeance, 0, 10), 'canal' => 'email',
+        ]);
+        if ($rappel === null) {
             return false;
         }
 
-        $rappel->fill([
-            'clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'client_id' => $client->id, 'objet' => $objet,
-            'vaccination_id' => $vaccination?->id, 'rendez_vous_id' => $rendezVous?->id,
-            'libelle' => $vaccination !== null ? $vaccination->nom : 'Contrôle', 'echeance_le' => $jour, 'canal' => 'email',
-        ]);
         $this->expedier($rappel, $clinique, $client, $vaccination, $rendezVous);
 
         return $rappel->statut === 'envoye';
+    }
+
+    /**
+     * Prend l'envoi avant d'envoyer (clé unique) : deux exécutions en même
+     * temps n'envoient jamais deux fois. Un échec se reprend trois fois ; un
+     * envoi resté « en cours » plus d'une heure (exécution interrompue) aussi.
+     */
+    /** @param  array<string, mixed>  $attributs */
+    private function prendre(string $cle, array $attributs): ?RappelEnvoye
+    {
+        $existant = RappelEnvoye::withoutGlobalScopes()->where('cle', $cle)->first();
+        if ($existant !== null) {
+            $pris = RappelEnvoye::withoutGlobalScopes()->whereKey($existant->id)
+                ->where(fn ($q) => $q->where(fn ($e) => $e->where('statut', 'echec')->where('tentatives', '<', self::TENTATIVES_MAX))
+                    ->orWhere(fn ($e) => $e->where('statut', 'envoi')->where('updated_at', '<', now()->subHour())))
+                ->update(['statut' => 'envoi', 'updated_at' => now()]);
+
+            return $pris === 1 ? $existant->refresh() : null;
+        }
+        try {
+            return RappelEnvoye::withoutGlobalScopes()->create([...$attributs, 'cle' => $cle, 'statut' => 'envoi', 'tentatives' => 0]);
+        } catch (UniqueConstraintViolationException) {
+            return null;
+        }
     }
 
     private function expedier(RappelEnvoye $rappel, Clinique $clinique, Client $client, ?Vaccination $vaccination, ?RendezVous $rendezVous): void
@@ -276,11 +393,6 @@ class RappelsProprietaires
             $rappel->fill(['statut' => 'echec', 'erreur' => mb_substr($e->getMessage(), 0, 500)]);
         }
         $rappel->save();
-    }
-
-    private function dejaEnvoye(string $objet, int $id, string $jour): bool
-    {
-        return RappelEnvoye::query()->where('cle', $objet.':'.$id.':'.$jour.':email')->where('statut', 'envoye')->exists();
     }
 
     private function enJournee(Clinique $clinique): bool

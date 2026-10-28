@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Espace;
 use App\Auth\ContexteProprietaire;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\ModifierPreferencesRequest;
+use App\Models\Client;
 use App\Models\CommandeBoutique;
 use App\Models\JetonApi;
 use App\Models\MessageClientele;
@@ -32,6 +33,10 @@ class ReglagesProprietaireController extends Controller
     {
         $preferences = PreferencesProprietaire::pour($contexte->user());
         $preferences->update($request->validated());
+        // Rappels par e-mail réactivés : un désabonnement par le lien d'un e-mail est levé aussi
+        if ($request->validated('rappels_email') === true) {
+            Client::withoutGlobalScopes()->where('user_id', $contexte->user()->id)->update(['rappels_email' => true]);
+        }
 
         return response()->json(['data' => $this->preferencesArray($preferences->fresh())]);
     }

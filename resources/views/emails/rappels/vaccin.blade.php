@@ -3,7 +3,7 @@
 
 Bonjour,
 
-le rappel du vaccin {{ $vaccination->nom }} de {{ $patient->nom }} est prévu pour le {{ $echeance }}. Prenez rendez-vous chez {{ $clinique->nom }} pour que sa protection continue.
+le rappel du vaccin {{ $vaccination->nom }} de {{ $patient->nom }} @if ($echeance) est prévu pour le {{ $echeance }}. @else est à prévoir. @endif Prenez rendez-vous chez {{ $clinique->nom }} pour que sa protection continue.
 
 <x-mail::button :url="$lienRendezVous">
 Prendre rendez-vous

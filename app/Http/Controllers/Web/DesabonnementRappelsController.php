@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Models\Client;
+use App\Models\PreferencesProprietaire;
+use App\Models\User;
 use Illuminate\View\View;
 
 /**
@@ -22,6 +24,10 @@ class DesabonnementRappelsController extends Controller
     {
         $fiche = $this->client($client);
         $fiche->forceFill(['rappels_email' => false])->save();
+        // L'espace du propriétaire dit la même chose que le lien
+        if ($fiche->user_id !== null) {
+            PreferencesProprietaire::pour(User::query()->findOrFail($fiche->user_id))->update(['rappels_email' => false]);
+        }
 
         return view('rappels.desabonnement', ['client' => $fiche, 'fait' => true]);
     }

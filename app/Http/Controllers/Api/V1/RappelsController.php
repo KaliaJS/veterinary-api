@@ -63,8 +63,15 @@ class RappelsController extends Controller
                 'tente_le' => $rappel->updated_at?->toIso8601String(),
             ]);
 
+        $depuis = now()->subDays(30);
+
         return response()->json(['data' => [
             'reglages' => RappelsProprietaires::reglages($clinique),
+            // Compteurs des 30 derniers jours, comptés par le serveur (la liste s'arrête à 50)
+            'compteurs' => [
+                'envoyes' => RappelEnvoye::query()->where('clinique_id', $clinique->id)->where('statut', 'envoye')->where('envoye_le', '>=', $depuis)->count(),
+                'echecs' => RappelEnvoye::query()->where('clinique_id', $clinique->id)->where('statut', 'echec')->where('updated_at', '>=', $depuis)->count(),
+            ],
             'a_venir' => $this->rappels->aVenir($clinique),
             'envoyes' => $envoyes,
         ]]);
