@@ -9,6 +9,7 @@ use App\Enums\MotifRefusDemande;
 use App\Enums\StatutDemandeRendezVous;
 use App\Models\Concerns\AppartientAUneClinique;
 use App\Models\Concerns\ChangeLesFilesDuPlanning;
+use App\Support\TempsReel;
 use Carbon\CarbonImmutable;
 use Database\Factories\DemandeRendezVousFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -163,6 +164,12 @@ class DemandeRendezVous extends Model
 
     protected static function booted(): void
     {
+        // Alertes en temps réel (28.10.2026) : acompte contesté, litige clos, acompte rendu
+        static::saved(function (DemandeRendezVous $demande): void {
+            if ($demande->wasChanged(['acompte_litige', 'acompte_rembourse_le', 'acompte_rembourse_centimes'])) {
+                TempsReel::alertes((int) $demande->clinique_id);
+            }
+        });
         // L'échéance du lien suit l'heure demandée, connue à l'enregistrement
         static::saving(function (DemandeRendezVous $demande): void {
             // L'empreinte enregistrée (l'attribut ne se relit pas : il ne fait qu'écrire)

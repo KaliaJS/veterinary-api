@@ -30,9 +30,24 @@ class EnregistrementConsultation extends Model
         // Temps réel (28.10.2026) : l'écran suit la transcription sans relire
         static::saved(function (EnregistrementConsultation $enregistrement): void {
             if ($enregistrement->wasRecentlyCreated || $enregistrement->wasChanged(['statut', 'erreur'])) {
-                TempsReel::diffuser(fn () => EnregistrementMisAJour::dispatch('clinique.'.$enregistrement->clinique_id, [
+                self::annoncer($enregistrement->id);
+            }
+        });
+    }
+
+    /**
+     * L'état de l'enregistrement est annoncé à sa clinique, relu après la
+     * validation. Aussi après une mise à jour par requête (reprise gardée
+     * contre les doubles traitements), qui ne passe pas par `saved`.
+     */
+    public static function annoncer(int $id): void
+    {
+        TempsReel::diffuser(function () use ($id): void {
+            $enregistrement = self::withoutGlobalScopes()->find($id);
+            if ($enregistrement !== null) {
+                EnregistrementMisAJour::dispatch('clinique.'.$enregistrement->clinique_id, [
                     'id' => $enregistrement->id, 'rendez_vous_id' => $enregistrement->rendez_vous_id, 'statut' => $enregistrement->statut->value,
-                ]));
+                ]);
             }
         });
     }

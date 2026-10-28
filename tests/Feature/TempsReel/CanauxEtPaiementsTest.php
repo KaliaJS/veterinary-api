@@ -10,6 +10,7 @@ use App\Models\Facture;
 use App\Models\FactureLigne;
 use App\Models\Paiement;
 use App\Services\Paiements\PaiementsCaisse;
+use App\Support\TempsReel;
 use Illuminate\Broadcasting\Broadcasters\NullBroadcaster;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Broadcasting\BroadcastManager;
@@ -216,5 +217,32 @@ class CanauxEtPaiementsTest extends TestCase
 
         $this->assertLessThanOrEqual(2, $options['connect_timeout'] ?? 10);
         $this->assertLessThanOrEqual(3, $options['timeout'] ?? 30);
+    }
+
+    /**
+     * Troisième passe (28.10.2026) : après une panne de Reverb, les
+     * diffusions suivantes ne la retentent pas pendant 30 s (une vente de
+     * cinq produits n'attend pas cinq fois) ; l'écran relit au retour du
+     * WebSocket.
+     */
+    public function test_apres_une_panne_de_reverb_les_diffusions_suivantes_n_attendent_pas(): void
+    {
+        $appels = 0;
+        TempsReel::diffuser(function () use (&$appels): void {
+            $appels++;
+            throw new \RuntimeException('Reverb muet');
+        });
+        foreach (range(1, 4) as $i) {
+            TempsReel::diffuser(function () use (&$appels): void {
+                $appels++;
+            });
+        }
+        $this->assertSame(1, $appels);
+
+        $this->travel(31)->seconds();
+        TempsReel::diffuser(function () use (&$appels): void {
+            $appels++;
+        });
+        $this->assertSame(2, $appels);
     }
 }

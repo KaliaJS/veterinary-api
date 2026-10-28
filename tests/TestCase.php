@@ -4,6 +4,7 @@ namespace Tests;
 
 use App\Auth\ContexteClinique;
 use App\Auth\ContexteProprietaire;
+use App\Support\TempsReel;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Illuminate\Support\Facades\Http;
@@ -28,6 +29,8 @@ abstract class TestCase extends BaseTestCase
         parent::setUp();
 
         Http::preventStrayRequests();
+        // Le disjoncteur de Reverb vit dans le processus : chaque essai repart joignable
+        TempsReel::reinitialiser();
 
         if ($horloge = getenv('HORLOGE')) {
             $this->travelTo($horloge === 'nouvel-an'

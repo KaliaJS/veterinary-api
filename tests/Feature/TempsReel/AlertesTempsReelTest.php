@@ -2,9 +2,13 @@
 
 namespace Tests\Feature\TempsReel;
 
+use App\Enums\StatutPaiement;
 use App\Events\AlertesModifiees;
 use App\Models\Clinique;
+use App\Models\DemandeRendezVous;
+use App\Models\Facture;
 use App\Models\Lot;
+use App\Models\Paiement;
 use App\Models\Produit;
 use App\Models\RendezVous;
 use App\Models\Stock;
@@ -90,5 +94,41 @@ class AlertesTempsReelTest extends TestCase
         $this->artisan('alertes:stock')->assertSuccessful();
 
         $this->assertEqualsCanonicalizing([$this->clinique->id, $this->soeur->id], $this->cliniquesPrevenues());
+    }
+
+    /* ---------- Troisième passe (28.10.2026) : sources d'alertes qui restaient muettes ---------- */
+
+    public function test_un_acompte_conteste_ou_rendu_previent_la_clinique(): void
+    {
+        $demande = DemandeRendezVous::factory()->create(['clinique_id' => $this->clinique->id]);
+        Event::fake([AlertesModifiees::class]);
+
+        DemandeRendezVous::withoutGlobalScopes()->findOrFail($demande->id)->forceFill(['acompte_litige' => 'ouvert'])->save();
+        $this->assertSame([$this->clinique->id], $this->cliniquesPrevenues());
+
+        Event::fake([AlertesModifiees::class]);
+        DemandeRendezVous::withoutGlobalScopes()->findOrFail($demande->id)->forceFill(['acompte_rembourse_le' => now(), 'acompte_rembourse_centimes' => 5000])->save();
+        $this->assertSame([$this->clinique->id], $this->cliniquesPrevenues());
+    }
+
+    public function test_un_remboursement_partiel_previent_la_clinique(): void
+    {
+        $facture = Facture::factory()->create(['clinique_id' => $this->clinique->id]);
+        $paiement = Paiement::query()->create(['facture_id' => $facture->id, 'clinique_id' => $this->clinique->id, 'moyen' => 'tpe', 'montant' => 60, 'stripe_payment_intent_id' => 'pi_essai', 'statut' => StatutPaiement::Reussi, 'reussi_le' => now()]);
+        Event::fake([AlertesModifiees::class]);
+
+        Paiement::withoutGlobalScopes()->findOrFail($paiement->id)->forceFill(['erreur' => 'Remboursé en partie : CHF 20.00.'])->save();
+
+        $this->assertSame([$this->clinique->id], $this->cliniquesPrevenues());
+    }
+
+    public function test_un_plafond_change_previent_toutes_les_cliniques_de_l_organisation(): void
+    {
+        $organisation = $this->clinique->societe->organisation;
+        Event::fake([AlertesModifiees::class]);
+
+        $organisation->forceFill(['plafond_transcription' => 1000])->save();
+
+        $this->assertSame(collect([$this->clinique->id, $this->soeur->id])->sort()->values()->all(), $this->cliniquesPrevenues());
     }
 }

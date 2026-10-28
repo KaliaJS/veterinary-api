@@ -3,17 +3,23 @@
 namespace Tests\Feature\TempsReel;
 
 use App\Enums\StatutEnregistrement;
+use App\Enums\StatutPartie;
 use App\Events\DiagnosticMisAJour;
 use App\Events\EnregistrementMisAJour;
 use App\Events\FactureAbonnementMisAJour;
 use App\Events\FacturePlusMisAJour;
+use App\Jobs\RedigerCompteRendu;
+use App\Jobs\SuggererDiagnostic;
+use App\Jobs\TranscrirePartie;
 use App\Models\Clinique;
 use App\Models\EnregistrementConsultation;
 use App\Models\FactureProprietaire;
 use App\Models\OrganisationFacture;
+use App\Models\PartieEnregistrement;
 use App\Models\RendezVous;
 use App\Models\SuggestionDiagnostique;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Event;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -51,8 +57,10 @@ class SuivisTempsReelTest extends TestCase
     public function test_l_avancement_d_un_enregistrement_est_diffuse_court_a_la_clinique(): void
     {
         $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id]);
-        $enregistrement = EnregistrementConsultation::query()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'clinique_id' => $this->clinique->id, 'rendez_vous_id' => $rendezVous->id]);
+        $cree = EnregistrementConsultation::query()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'clinique_id' => $this->clinique->id, 'rendez_vous_id' => $rendezVous->id]);
         Event::fake([EnregistrementMisAJour::class]);
+        // Relu : un changement, pas la création
+        $enregistrement = EnregistrementConsultation::withoutGlobalScopes()->findOrFail($cree->id);
 
         $enregistrement->forceFill(['statut' => StatutEnregistrement::Pret])->save();
 
@@ -63,8 +71,9 @@ class SuivisTempsReelTest extends TestCase
     public function test_un_diagnostic_rendu_est_diffuse_court_a_la_clinique(): void
     {
         $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id]);
-        $suggestion = SuggestionDiagnostique::query()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'clinique_id' => $this->clinique->id, 'rendez_vous_id' => $rendezVous->id]);
+        $creee = SuggestionDiagnostique::query()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'clinique_id' => $this->clinique->id, 'rendez_vous_id' => $rendezVous->id]);
         Event::fake([DiagnosticMisAJour::class]);
+        $suggestion = SuggestionDiagnostique::withoutGlobalScopes()->findOrFail($creee->id);
 
         $suggestion->forceFill(['statut' => 'prete'])->save();
 
@@ -120,5 +129,67 @@ class SuivisTempsReelTest extends TestCase
         $auth($employe, 'private-organisation.'.$organisation.'.facturation')->assertForbidden();
         // Organisation fermée : le canal de la clinique reste fermé
         $auth($admin, 'private-clinique.'.$this->clinique->id)->assertForbidden();
+    }
+
+    /* ---------- Troisième passe (28.10.2026) : chaque changement d'état est annoncé ---------- */
+
+    private function enregistrement(StatutEnregistrement $statut, array $attributs = []): EnregistrementConsultation
+    {
+        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id]);
+
+        return EnregistrementConsultation::query()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'clinique_id' => $this->clinique->id, 'rendez_vous_id' => $rendezVous->id, 'statut' => $statut, ...$attributs]);
+    }
+
+    private function annonce(EnregistrementConsultation $enregistrement, StatutEnregistrement $statut): void
+    {
+        Event::assertDispatched(EnregistrementMisAJour::class, fn (EnregistrementMisAJour $e): bool => $e->broadcastWith()['id'] === $enregistrement->id && $e->broadcastWith()['statut'] === $statut->value);
+    }
+
+    public function test_l_echec_de_la_redaction_est_annonce(): void
+    {
+        $enregistrement = $this->enregistrement(StatutEnregistrement::Redaction);
+        Event::fake([EnregistrementMisAJour::class]);
+
+        (new RedigerCompteRendu($enregistrement->id))->failed(null);
+
+        $this->annonce($enregistrement, StatutEnregistrement::Erreur);
+    }
+
+    public function test_le_passage_en_redaction_et_le_refus_sont_annonces(): void
+    {
+        Bus::fake();
+        $enCours = $this->enregistrement(StatutEnregistrement::Transcription, ['parties_attendues' => 1]);
+        PartieEnregistrement::query()->create(['enregistrement_consultation_id' => $enCours->id, 'numero' => 1, 'statut' => StatutPartie::Transcrite, 'format' => 'audio/mp4', 'morceaux' => 1]);
+        $refuse = $this->enregistrement(StatutEnregistrement::Transcription, ['parties_attendues' => 1, 'redactions' => (int) config('transcription.redactions_max')]);
+        PartieEnregistrement::query()->create(['enregistrement_consultation_id' => $refuse->id, 'numero' => 1, 'statut' => StatutPartie::Transcrite, 'format' => 'audio/mp4', 'morceaux' => 1]);
+        Event::fake([EnregistrementMisAJour::class]);
+
+        RedigerCompteRendu::siPret($enCours);
+        RedigerCompteRendu::siPret($refuse);
+
+        $this->annonce($enCours, StatutEnregistrement::Redaction);
+        $this->annonce($refuse, StatutEnregistrement::Erreur);
+    }
+
+    public function test_l_echec_d_une_transcription_apres_terminer_est_annonce(): void
+    {
+        $enregistrement = $this->enregistrement(StatutEnregistrement::Transcription, ['parties_attendues' => 1]);
+        $partie = PartieEnregistrement::query()->create(['enregistrement_consultation_id' => $enregistrement->id, 'numero' => 1, 'statut' => StatutPartie::Recue, 'format' => 'audio/mp4', 'morceaux' => 1]);
+        Event::fake([EnregistrementMisAJour::class]);
+
+        (new TranscrirePartie($partie->id))->failed(null);
+
+        $this->annonce($enregistrement, StatutEnregistrement::Erreur);
+    }
+
+    public function test_l_echec_d_un_diagnostic_est_annonce(): void
+    {
+        $rendezVous = RendezVous::factory()->create(['clinique_id' => $this->clinique->id]);
+        $suggestion = SuggestionDiagnostique::query()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'clinique_id' => $this->clinique->id, 'rendez_vous_id' => $rendezVous->id]);
+        Event::fake([DiagnosticMisAJour::class]);
+
+        (new SuggererDiagnostic($suggestion->id))->failed(null);
+
+        Event::assertDispatched(DiagnosticMisAJour::class, fn (DiagnosticMisAJour $e): bool => $e->broadcastWith()['id'] === $suggestion->id && $e->broadcastWith()['statut'] === 'erreur');
     }
 }

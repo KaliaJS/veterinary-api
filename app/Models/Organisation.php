@@ -9,6 +9,7 @@ use App\Enums\TypeAlerte;
 use App\Enums\VerificationOrganisation;
 use App\Services\PanelsLaboParDefaut;
 use App\Services\PrestationsParDefaut;
+use App\Support\TempsReel;
 use Carbon\CarbonImmutable;
 use Database\Factories\OrganisationFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -85,6 +86,12 @@ class Organisation extends Model
             RolesParDefaut::creer($organisation);
             PrestationsParDefaut::creer($organisation);
             PanelsLaboParDefaut::creer($organisation);
+        });
+        // Alertes en temps réel (28.10.2026) : un plafond changé change les alertes de consommation
+        static::updated(function (Organisation $organisation): void {
+            if ($organisation->wasChanged(['plafond_transcription', 'plafond_diagnostic'])) {
+                TempsReel::alertesDeLOrganisation($organisation->id);
+            }
         });
     }
 

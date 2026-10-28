@@ -187,13 +187,16 @@ final class TranscrirePartie implements ShouldQueue
         $partie->forceFill(['statut' => StatutPartie::Erreur])->save();
 
         // Encore en train d'enregistrer : la raison attend « terminer »
-        EnregistrementConsultation::withoutGlobalScopes()
+        $note = EnregistrementConsultation::withoutGlobalScopes()
             ->whereKey($partie->enregistrement_consultation_id)
             ->where('statut', StatutEnregistrement::Enregistrement->value)
             ->update(['erreur' => $raison]);
-        EnregistrementConsultation::withoutGlobalScopes()
+        $echoue = EnregistrementConsultation::withoutGlobalScopes()
             ->whereKey($partie->enregistrement_consultation_id)
             ->where('statut', StatutEnregistrement::Transcription->value)
             ->update(['statut' => StatutEnregistrement::Erreur->value, 'erreur' => $raison]);
+        if ($note + $echoue > 0) {
+            EnregistrementConsultation::annoncer($partie->enregistrement_consultation_id);
+        }
     }
 }

@@ -35,9 +35,20 @@ class SuggestionDiagnostique extends Model
         // Temps réel (28.10.2026) : la fiche suit la suggestion sans relire
         static::saved(function (SuggestionDiagnostique $suggestion): void {
             if ($suggestion->wasRecentlyCreated || $suggestion->wasChanged('statut')) {
-                TempsReel::diffuser(fn () => DiagnosticMisAJour::dispatch('clinique.'.$suggestion->clinique_id, [
+                self::annoncer($suggestion->id);
+            }
+        });
+    }
+
+    /** L'état de la suggestion annoncé à sa clinique ; aussi après une mise à jour par requête. */
+    public static function annoncer(int $id): void
+    {
+        TempsReel::diffuser(function () use ($id): void {
+            $suggestion = self::withoutGlobalScopes()->find($id);
+            if ($suggestion !== null) {
+                DiagnosticMisAJour::dispatch('clinique.'.$suggestion->clinique_id, [
                     'id' => $suggestion->id, 'rendez_vous_id' => $suggestion->rendez_vous_id, 'statut' => $suggestion->statut->value,
-                ]));
+                ]);
             }
         });
     }

@@ -15,6 +15,7 @@ use App\Services\BudgetAnthropic;
 use App\Services\Diagnostic\ConsommationDiagnostic;
 use App\Services\Diagnostic\Suggesteur;
 use App\Services\Diagnostic\SuggestionImpossible;
+use App\Support\TempsReel;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -105,10 +106,15 @@ final class SuggererDiagnostic implements ShouldQueue
 
     private function echec(): void
     {
-        SuggestionDiagnostique::withoutGlobalScopes()
+        $echoue = SuggestionDiagnostique::withoutGlobalScopes()
             ->whereKey($this->suggestionId)
             ->where('statut', StatutSuggestionDiagnostique::EnCours->value)
             ->update(['statut' => StatutSuggestionDiagnostique::Erreur->value, 'montant_centimes' => 0]);
+        if ($echoue === 1) {
+            SuggestionDiagnostique::annoncer($this->suggestionId);
+            // La consommation du mois a changé (rendue à zéro)
+            TempsReel::alertesDeLOrganisation((int) SuggestionDiagnostique::withoutGlobalScopes()->whereKey($this->suggestionId)->value('organisation_id'));
+        }
     }
 
     /** La transcription du dernier enregistrement rédigé du rendez-vous. */

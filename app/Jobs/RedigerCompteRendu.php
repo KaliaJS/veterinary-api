@@ -65,10 +65,13 @@ final class RedigerCompteRendu implements ShouldQueue
             default => null,
         };
         if ($refus !== null) {
-            EnregistrementConsultation::withoutGlobalScopes()
+            $refuse = EnregistrementConsultation::withoutGlobalScopes()
                 ->whereKey($enregistrement->id)
                 ->where('statut', StatutEnregistrement::Transcription->value)
                 ->update(['statut' => StatutEnregistrement::Erreur->value, 'erreur' => $refus]);
+            if ($refuse === 1) {
+                EnregistrementConsultation::annoncer($enregistrement->id);
+            }
 
             return;
         }
@@ -79,6 +82,7 @@ final class RedigerCompteRendu implements ShouldQueue
             ->update(['statut' => StatutEnregistrement::Redaction->value, 'erreur' => null, 'redactions' => $enregistrement->redactions + 1]);
 
         if ($pris === 1) {
+            EnregistrementConsultation::annoncer($enregistrement->id);
             // Comptée au budget du mois où elle part, en base (24.10.2026) :
             // un abandon le mois suivant ne la déplace pas
             CompteurMensuel::ajouter('anthropic:redactions', 1);
@@ -145,10 +149,13 @@ final class RedigerCompteRendu implements ShouldQueue
 
     private function echec(): void
     {
-        EnregistrementConsultation::withoutGlobalScopes()
+        $echoue = EnregistrementConsultation::withoutGlobalScopes()
             ->whereKey($this->enregistrementId)
             ->where('statut', StatutEnregistrement::Redaction->value)
             ->update(['statut' => StatutEnregistrement::Erreur->value, 'erreur' => 'redaction']);
+        if ($echoue === 1) {
+            EnregistrementConsultation::annoncer($this->enregistrementId);
+        }
     }
 
     /**
