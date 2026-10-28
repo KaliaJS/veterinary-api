@@ -744,6 +744,9 @@ class SuppressionCompteTest extends TestCase
             // Tessin, Suisse alémanique, titres anglais et honoris causa
             'Dott.ssa Rachel Solal', 'Dott. Rachel Solal', 'Dr.ssa Rachel Solal', 'Prof.ssa Rachel Solal',
             'Dipl. Tierärztin Rachel Solal', 'Tierarzt Rachel Solal', 'DVM Rachel Solal', 'Dr. h.c. Rachel Solal',
+            'Dottoressa Rachel Solal', 'MVDr. Rachel Solal', 'Dipl.-Tierärztin Rachel Solal', 'Frau Dr. Rachel Solal', 'Herr Rachel Solal',
+            // « Tierärztin » écrit en Unicode décomposé (a + tréma)
+            "Tiera\u{0308}rztin Rachel Solal",
         ] as $nom) {
             ['user' => $user, 'jeton' => $jeton] = $this->ancienMembre(['name' => $nom, 'email' => Str::lower(Str::random(8)).'@exemple.ch', 'gln' => null]);
             $this->demander($jeton, $user);
@@ -751,6 +754,20 @@ class SuppressionCompteTest extends TestCase
             $this->artisan('comptes:effacer')->assertSuccessful();
 
             $this->assertSame('Rachel', $user->refresh()->name, $nom);
+            $this->travelBack();
+        }
+    }
+
+    /** Une initiale n'est pas un titre : « C. Rochat » garde « C. », pas le nom de famille. */
+    public function test_une_initiale_n_est_pas_prise_pour_un_titre(): void
+    {
+        foreach (['C. Rochat' => 'C.', 'H. Müller' => 'H.'] as $nom => $prenom) {
+            ['user' => $user, 'jeton' => $jeton] = $this->ancienMembre(['name' => $nom, 'email' => Str::lower(Str::random(8)).'@exemple.ch', 'gln' => null]);
+            $this->demander($jeton, $user);
+            $this->travel(31)->days();
+            $this->artisan('comptes:effacer')->assertSuccessful();
+
+            $this->assertSame($prenom, $user->refresh()->name, $nom);
             $this->travelBack();
         }
     }
@@ -974,12 +991,15 @@ class SuppressionCompteTest extends TestCase
         $fiche = Client::factory()->create();
         $message = MessageClientele::query()->create(['clinique_id' => Clinique::factory()->create()->id, 'user_id' => null, 'auteur' => 'proprietaire', 'texte' => 'Gardé']);
         $facture = FactureProprietaire::query()->forceCreate(['user_id' => null, 'numero' => 'P-2026-0020', 'emise_le' => '2026-10-01', 'libelle' => 'Plus', 'montant' => 12, 'statut' => 'payee']);
+        $ordonnance = Ordonnance::factory()->create(['patient_id' => Patient::factory()->create(['client_id' => $fiche->id])->id, 'organisation_id' => $fiche->organisation_id]);
+        $renouvellement = DemandeRenouvellementOrdonnance::query()->create(['ordonnance_id' => $ordonnance->id, 'user_id' => null]);
         $migrations = collect(['2026_10_27_000003_traces_des_comptes', '2026_10_27_000002_suppression_des_comptes_pieces_et_fils', '2026_10_27_000001_suppression_des_comptes'])
             ->map(fn (string $nom) => require database_path("migrations/{$nom}.php"));
 
         $migrations->each(fn ($migration) => $migration->down());
         $this->assertTrue(MessageClientele::query()->whereKey($message->id)->exists());
         $this->assertTrue(FactureProprietaire::query()->whereKey($facture->id)->exists());
+        $this->assertTrue(DemandeRenouvellementOrdonnance::query()->whereKey($renouvellement->id)->exists());
         $migrations->reverse()->each(fn ($migration) => $migration->up());
         $this->assertTrue(Client::query()->withoutGlobalScopes()->whereKey($fiche->id)->exists());
     }

@@ -345,4 +345,20 @@ class ContactPlateformeTest extends TestCase
         $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => 'paul@exemple.ch'])
             ->assertStatus(429)->assertJsonPath('message', 'Trop de requêtes : réessayez dans 15 minutes.');
     }
+
+    /** Un message trop court se refuse en français. */
+    public function test_un_message_trop_court_se_refuse_en_francais(): void
+    {
+        $this->postJson('/api/v1/public/contact', $this->message(['message' => 'Bonjour']))
+            ->assertUnprocessable()->assertJsonValidationErrors(['message' => 'Écrivez quelques mots de plus.']);
+    }
+
+    /** Un nom fait seulement de caractères invisibles (inversion de sens…) est refusé. */
+    public function test_un_nom_invisible_est_refuse(): void
+    {
+        $this->postJson('/api/v1/public/contact', $this->message(['nom' => "\u{202E}"]))
+            ->assertUnprocessable()->assertJsonValidationErrors(['nom' => 'Indiquez votre nom.']);
+        $this->postJson('/api/v1/public/contact', $this->message(['nom' => "Paul\u{202E} Rochat"]))->assertStatus(202);
+        Mail::assertSent(MessageContact::class, fn (MessageContact $mail): bool => ! str_contains($mail->render(), "\u{202E}"));
+    }
 }

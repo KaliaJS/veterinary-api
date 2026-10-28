@@ -60,7 +60,8 @@ class ContactController extends Controller
 
         // Le nom tient sur une ligne : aucun caractère de contrôle ni
         // séparateur de ligne Unicode n'invente de ligne dans le message
-        $nom = trim((string) preg_replace('/[\p{Cc}\p{Zl}\p{Zp}]+/u', ' ', $donnees['nom']));
+        // Ni caractère de format invisible (inversion de sens, largeur nulle)
+        $nom = trim((string) preg_replace(['/[\p{Cc}\p{Zl}\p{Zp}]+/u', '/\p{Cf}+/u'], [' ', ''], $donnees['nom']));
         if ($nom === '') {
             throw ValidationException::withMessages(['nom' => 'Indiquez votre nom.']);
         }

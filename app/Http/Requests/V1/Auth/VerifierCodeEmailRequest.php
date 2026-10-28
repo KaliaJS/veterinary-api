@@ -17,4 +17,15 @@ class VerifierCodeEmailRequest extends FormRequest
             'appareil' => ['sometimes', 'string', 'max:100'],
         ];
     }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'email.required' => 'Indiquez votre adresse e-mail.',
+            'email.email' => 'Cette adresse e-mail n’est pas valable.',
+            'code.required' => 'Saisissez le code reçu par e-mail.',
+            'code.digits' => 'Le code a 8 chiffres.',
+        ];
+    }
 }

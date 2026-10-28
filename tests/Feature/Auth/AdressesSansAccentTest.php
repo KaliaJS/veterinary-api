@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Models\Client;
+use App\Models\Clinique;
 use App\Models\InvitationAcces;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -58,5 +60,33 @@ class AdressesSansAccentTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['email' => self::REFUS]);
         $this->postJson('/api/v1/equipe/invitations', ['email' => 'lea@gmaíl.com'], $entetes)
             ->assertUnprocessable()->assertJsonValidationErrors(['email' => self::REFUS]);
+    }
+
+    /** Une adresse mal formée se refuse en français, à la connexion. */
+    public function test_une_adresse_mal_formee_se_refuse_en_francais(): void
+    {
+        foreach (['paul.@gmail.com', 'paul@gmail..com', ''] as $adresse) {
+            $message = $this->postJson('/api/v1/auth/code-email/envoyer', ['email' => $adresse])->assertUnprocessable()->json('errors.email.0');
+
+            $this->assertContains($message, ['Cette adresse e-mail n’est pas valable.', 'Indiquez votre adresse e-mail.'], $adresse);
+        }
+    }
+
+    /** Chaque entrée qui crée ou retrouve un compte, une fiche ou une invitation par adresse refuse l'adresse accentuée. */
+    public function test_chaque_entree_par_adresse_refuse_l_adresse_accentuee(): void
+    {
+        $passkey = $this->postJson('/api/v1/auth/passkey/options', ['email' => 'paul@gmaíl.com']);
+        if ($passkey->status() !== 404) {
+            $passkey->assertUnprocessable()->assertJsonValidationErrors(['email' => self::REFUS]);
+        }
+        $this->postJson('/api/v1/public/demandes/code', ['email' => 'paul@gmaíl.com'])->assertUnprocessable()->assertJsonValidationErrors(['email' => self::REFUS]);
+        $this->postJson('/api/v1/public/demandes', ['email' => 'paul@gmaíl.com'])->assertUnprocessable()->assertJsonValidationErrors(['email' => self::REFUS]);
+
+        $clinique = Clinique::factory()->create();
+        ['jeton' => $jeton] = $this->administrateurAvecJeton($clinique);
+        $entetes = $this->enTetes($jeton);
+        $client = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id]);
+        $this->patchJson("/api/v1/clients/{$client->id}", ['email' => 'paul@gmaíl.com'], $entetes)->assertJsonValidationErrors(['email' => self::REFUS]);
+        $this->postJson("/api/v1/clients/{$client->id}/compte", ['email' => 'paul@gmaíl.com'], $entetes)->assertJsonValidationErrors(['email' => self::REFUS]);
     }
 }

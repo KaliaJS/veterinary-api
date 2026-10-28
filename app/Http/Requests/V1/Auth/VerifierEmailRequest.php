@@ -14,4 +14,13 @@ class VerifierEmailRequest extends FormRequest
             'email' => ['required', 'email', new AdresseSansAccent],
         ];
     }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'email.required' => 'Indiquez votre adresse e-mail.',
+            'email.email' => 'Cette adresse e-mail n’est pas valable.',
+        ];
+    }
 }

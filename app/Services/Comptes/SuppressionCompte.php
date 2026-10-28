@@ -52,8 +52,10 @@ class SuppressionCompte
     private const array TITRES = [
         'dr', 'dre', 'docteur', 'docteure', 'pr', 'pre', 'prof', 'professeur', 'professeure', 'pd',
         'med', 'méd', 'vet', 'vét', 'dmv', 'dvm', 'phd', 'dipl', 'm', 'mme', 'mlle', 'me', 'mr', 'mrs', 'ms',
-        // Tessin (Dott.ssa, Dr.ssa, Prof.ssa), Suisse alémanique, honoris causa (h.c.)
-        'dott', 'ssa', 'tierarzt', 'tierärztin', 'tierarztin', 'h', 'c',
+        // Tessin (Dott.ssa, Dr.ssa, Prof.ssa, Dottoressa), Suisse alémanique
+        // (Tierärztin, Frau, Herr), Europe centrale (MVDr.) ; honoris causa à part
+        'dott', 'ssa', 'dottore', 'dottoressa', 'tierarzt', 'tierärztin', 'tierarztin', 'mvdr',
+        'frau', 'herr', 'madame', 'monsieur', 'signora', 'signor',
     ];
 
     public function __construct(
@@ -297,9 +299,20 @@ class SuppressionCompte
 
         // Le prénom, sans les titres devant, seuls ou en suite (Dre, Prof.,
         // PD Dr., Dr. med. vet., Dr.med.vet.)
-        $estTitre = fn (string $mot): bool => collect(explode('.', rtrim($mot, '.')))
-            ->every(fn (string $morceau): bool => in_array(mb_strtolower($morceau), self::TITRES, true));
-        $prenom = collect(preg_split('/\s+/u', trim((string) $user->name)) ?: [])
+        // Découpé sur le point et le trait d'union (Dr.med.vet., Dipl.-Tierärztin) ;
+        // une initiale (« C. ») n'est pas un titre, sauf « h.c. » entier
+        $estTitre = function (string $mot): bool {
+            $mot = mb_strtolower(rtrim($mot, '.'));
+            if (preg_match('/^h\.?c$/u', $mot) === 1) {
+                return true;
+            }
+
+            return collect(preg_split('/[.\-]/u', $mot) ?: [])->filter(fn (string $morceau): bool => $morceau !== '')
+                ->every(fn (string $morceau): bool => in_array($morceau, self::TITRES, true));
+        };
+        $nom = trim((string) $user->name);
+        $nom = (string) (\Normalizer::normalize($nom, \Normalizer::FORM_C) ?: $nom);
+        $prenom = collect(preg_split('/\s+/u', $nom) ?: [])
             ->first(fn (string $mot): bool => $mot !== '' && ! $estTitre($mot));
         $user->forceFill([
             'efface_le' => now(),
