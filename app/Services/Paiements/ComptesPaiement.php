@@ -6,6 +6,7 @@ use App\Models\Clinique;
 use App\Models\Societe;
 use App\Paiements\PasserellePaiement;
 use App\Rules\NumeroIde;
+use App\Support\Telephone;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -126,14 +127,7 @@ class ComptesPaiement
     /** Numéro au format international (+41…), null s'il n'est pas lisible. */
     public static function telephone(?string $numero): ?string
     {
-        $chiffres = preg_replace('/[^\d+]/', '', (string) $numero);
-        if (str_starts_with($chiffres, '00')) {
-            $chiffres = '+'.substr($chiffres, 2);
-        } elseif (str_starts_with($chiffres, '0')) {
-            $chiffres = '+41'.substr($chiffres, 1);
-        }
-
-        return preg_match('/^\+\d{8,15}$/', $chiffres) ? $chiffres : null;
+        return Telephone::international($numero);
     }
 
     /** Relit l'état du compte : encaisse-t-il, reçoit-il ses virements, manque-t-il des informations. */

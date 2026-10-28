@@ -37,6 +37,7 @@ use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Sanctum\Sanctum;
 use Stripe\StripeClient;
+use Twilio\Rest\Client as TwilioClient;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -49,6 +50,16 @@ class AppServiceProvider extends ServiceProvider
         $this->app->scoped(LogosOrganisation::class);
         $this->app->scoped(ContexteClinique::class);
         $this->app->scoped(ContexteProprietaire::class);
+
+        // SMS par Twilio : la clé est en région Irlande, les appels passent par
+        // Dublin (le paquet ne règle pas la région)
+        // (la région ne se donne qu'à la construction du client)
+        $this->app->extend(TwilioClient::class, function (TwilioClient $client): TwilioClient {
+            $regional = new TwilioClient($client->getUsername(), $client->getPassword(), $client->getAccountSid(), config('twilio-notification-channel.region'));
+            $regional->setEdge(config('twilio-notification-channel.edge'));
+
+            return $regional;
+        });
 
         // Les tâches en échec gardées sans les valeurs des messages SQL
         $this->app->extend('queue.failer', fn (FailedJobProviderInterface $fournisseur) => $fournisseur instanceof EchecsMasques ? $fournisseur : new EchecsMasques($fournisseur));
