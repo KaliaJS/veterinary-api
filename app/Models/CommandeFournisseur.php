@@ -51,9 +51,10 @@ class CommandeFournisseur extends Model
 
     /**
      * Toutes cliniques de l'organisation du jeton, jamais au-delà. Sert
-     * seulement aux contrôles transversaux (articles déjà couverts par une
-     * commande ouverte, note Vetpoint d'une autre de nos commandes) : on
-     * ne lit ni ne pilote d'ici la commande d'une clinique sœur.
+     * seulement aux contrôles transversaux (note Vetpoint d'une autre de nos
+     * commandes) : on ne lit ni ne pilote d'ici la commande d'une clinique
+     * sœur. Les articles couverts par une commande ouverte, eux, se lisent
+     * dans la clinique ouverte (stock bas par clinique, 28.10.2026).
      *
      * @param  Builder<static>  $requete
      * @return Builder<static>

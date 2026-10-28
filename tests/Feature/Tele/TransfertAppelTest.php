@@ -46,7 +46,8 @@ class TransfertAppelTest extends TestCase
     {
         parent::setUp();
         $this->clinique = Clinique::factory()->create();
-        ['jeton' => $this->accueil, 'employe' => $this->employeAccueil] = $this->employeAvecJeton($this->clinique, ['nom' => 'Julie Muller', 'role_libelle' => 'ASV']);
+        // L'accueil : une ASV au rôle d'ASV (droit Planning, aucun droit de vétérinaire)
+        ['jeton' => $this->accueil, 'employe' => $this->employeAccueil] = $this->employeAvecJeton($this->clinique, ['nom' => 'Julie Muller', 'role_libelle' => 'ASV'], 'asv');
         ['jeton' => $this->veto, 'employe' => $this->employeVeto, 'user' => $this->userVeto] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dr Anna Meyer', 'role_libelle' => 'Vétérinaire']);
         $organisation = $this->clinique->societe->organisation_id;
         $client = Client::factory()->create(['organisation_id' => $organisation]);
@@ -310,5 +311,26 @@ class TransfertAppelTest extends TestCase
         ]);
         require base_path('routes/channels.php');
         $this->postJson('/api/v1/broadcasting/auth', ['socket_id' => '1234.5678', 'channel_name' => 'private-visio.'.$this->session->id], $this->enTetes($this->accueil))->assertOk();
+    }
+
+    /** Un collègue de deux cliniques retrouve, depuis n'importe laquelle, tous les appels qu'on lui transfère */
+    public function test_mes_transferts_en_attente_se_relisent_depuis_n_importe_laquelle_de_mes_cliniques(): void
+    {
+        app(ContexteClinique::class)->oublier();
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $this->employeVeto->cliniques()->attach($soeur->id);
+        $organisation = $this->clinique->societe->organisation_id;
+        $patientSoeur = Patient::factory()->create(['organisation_id' => $organisation, 'client_id' => Client::factory()->create(['organisation_id' => $organisation])->id, 'nom' => 'Moka']);
+        $appelSoeur = SessionTeleconsultation::factory()->create(['clinique_id' => $soeur->id, 'patient_id' => $patientSoeur->id, 'transfert_vers_id' => $this->employeVeto->id, 'mene_par_id' => $this->employeAccueil->id, 'demarre_le' => now()->subMinutes(5)]);
+        $termine = SessionTeleconsultation::factory()->create(['clinique_id' => $soeur->id, 'patient_id' => $patientSoeur->id, 'transfert_vers_id' => $this->employeVeto->id, 'demarre_le' => now()->subMinutes(5), 'terminee_le' => now()]);
+        $this->postJson($this->url('transferer'), ['employe_id' => $this->employeVeto->id], $this->enTetes($this->accueil))->assertOk();
+
+        $transferts = collect($this->getJson('/api/v1/tele/transferts', $this->enTetes($this->veto))->assertOk()->json('data'));
+
+        $this->assertEqualsCanonicalizing([$this->session->id, $appelSoeur->id], $transferts->pluck('session_id')->all());
+        $this->assertNotContains($termine->id, $transferts->pluck('session_id')->all());
+        $this->assertEquals(['clinique_id' => $soeur->id, 'clinique' => $soeur->nom, 'patient' => 'Moka', 'de' => 'Julie Muller'], collect($transferts->firstWhere('session_id', $appelSoeur->id))->only(['clinique_id', 'clinique', 'patient', 'de'])->all());
+        // Ceux d'un autre ne se lisent pas
+        $this->assertSame([], $this->getJson('/api/v1/tele/transferts', $this->enTetes($this->accueil))->assertOk()->json('data'));
     }
 }

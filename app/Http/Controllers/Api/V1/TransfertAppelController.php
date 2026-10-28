@@ -43,6 +43,36 @@ class TransfertAppelController extends Controller
             ->map(fn (Employe $e): array => ['id' => $e->id, 'nom' => $e->nom, 'est_veterinaire' => $e->estVeterinaire()])]);
     }
 
+    /**
+     * Les appels transférés à moi qui attendent, dans toutes mes cliniques :
+     * la liste des sessions ne voit que la clinique ouverte.
+     */
+    public function mesTransferts(): JsonResponse
+    {
+        $moi = app(ContexteClinique::class)->employe();
+        if ($moi === null) {
+            return response()->json(['data' => []]);
+        }
+
+        $sessions = SessionTeleconsultation::withoutGlobalScopes()
+            ->where('transfert_vers_id', $moi->id)
+            ->whereIn('clinique_id', $moi->cliniques()->pluck('cliniques.id'))
+            ->whereNull('terminee_le')
+            ->where('demarre_le', '>', now()->subHours(SessionTeleconsultation::HEURES_LIEN))
+            ->with(['patient' => fn ($q) => $q->withoutGlobalScopes(), 'menePar' => fn ($q) => $q->withoutGlobalScopes(), 'clinique' => fn ($q) => $q->withoutGlobalScopes()])
+            ->orderBy('transfert_demande_le')
+            ->get();
+
+        return response()->json(['data' => $sessions->map(fn (SessionTeleconsultation $s): array => [
+            'session_id' => $s->id,
+            'patient' => $s->patient?->nom,
+            'de' => $s->menePar?->nom,
+            'clinique_id' => $s->clinique_id,
+            'clinique' => $s->clinique?->nom,
+            'demarre_le' => $s->demarre_le->toIso8601String(),
+        ])->values()]);
+    }
+
     public function transferer(Request $request, SessionTeleconsultation $session): SessionTeleconsultationResource
     {
         $this->assurerQuiMene($session);

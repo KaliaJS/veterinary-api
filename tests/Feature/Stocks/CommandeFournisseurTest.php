@@ -216,6 +216,18 @@ class CommandeFournisseurTest extends TestCase
         $this->assertSame(18, CommandeFournisseur::query()->sole()->lignes()->sole()->quantite);
     }
 
+    /** Un brouillon de la clinique ouverte est une commande ouverte : deux clics sur « Commander le stock bas » ne doublent rien. */
+    public function test_le_brouillon_de_la_clinique_couvre_l_article_au_second_clic(): void
+    {
+        $produit = $this->produit(['fournisseur' => 'Vetopharm SA', 'seuil_alerte' => 10]);
+        Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 0]);
+
+        $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))->assertOk()->assertJsonCount(1, 'data');
+        $this->postJson('/api/v1/stocks/commandes/generer', [], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('commandes');
+
+        $this->assertSame(1, CommandeFournisseur::query()->count());
+    }
+
     /** « Seules les commandes ouvertes » : une commande déjà réceptionnée de la clinique ne couvre plus l'article. */
     public function test_une_commande_receptionnee_ne_couvre_plus_l_article(): void
     {

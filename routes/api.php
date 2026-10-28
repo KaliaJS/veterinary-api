@@ -848,6 +848,10 @@ Route::prefix('v1')->group(function (): void {
         // projection : démarrage → cours, « Terminer » → fini +
         // facture (effet système), « Quitter » ne touche à rien. La
         // durée est servie par le serveur. Jamais de suppression.
+        // Les appels qu'on me transfère, de toutes mes cliniques (un collègue
+        // de deux cliniques les retrouve après un rechargement, 28.10.2026)
+        Route::get('tele/transferts', [TransfertAppelController::class, 'mesTransferts'])->middleware('can:planning');
+
         Route::middleware(['can:planning', 'service:teleconsultation'])->prefix('tele')->group(function (): void {
             Route::get('sessions', [SessionTeleconsultationController::class, 'index']);
             Route::post('sessions', [SessionTeleconsultationController::class, 'store']);
