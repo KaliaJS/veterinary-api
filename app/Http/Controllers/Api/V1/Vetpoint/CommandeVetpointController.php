@@ -55,6 +55,8 @@ class CommandeVetpointController extends Controller
             'date_souhaitee' => ['nullable', 'date_format:Y-m-d'],
         ], [
             'adresse_id.required' => 'Choisissez une adresse de livraison du compte Vetpoint de la clinique.',
+            'adresse_id.string' => 'Choisissez une adresse de livraison du compte Vetpoint de la clinique.',
+            'adresse_id.max' => 'Choisissez une adresse de livraison du compte Vetpoint de la clinique.',
             'livraison.required' => 'Choisissez une livraison standard ou express.',
             'livraison.in' => 'Choisissez une livraison standard ou express.',
             'date_souhaitee.date_format' => 'Donnez la date souhaitée au format AAAA-MM-JJ.',
@@ -91,7 +93,7 @@ class CommandeVetpointController extends Controller
 
         // Sous verrou : un seul envoi à la fois ; un envoi dont la réponse s'est
         // perdue est d'abord cherché chez Vetpoint
-        $reprise = DB::transaction(function () use ($commande, $choix, $date): ?bool {
+        $reprise = DB::transaction(function () use ($commande): ?bool {
             $verrouillee = CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
             if ($verrouillee->statut !== StatutCommandeFournisseur::Brouillon) {
                 throw ValidationException::withMessages(['statut' => 'Seul un brouillon s’envoie.']);
@@ -100,16 +102,22 @@ class CommandeVetpointController extends Controller
             if ($precedent !== null && $precedent->greaterThan(now()->subSeconds(self::ENVOI_EN_COURS_SECONDES))) {
                 return null;
             }
-            $verrouillee->forceFill([
-                'vetpoint_envoi_le' => now(),
-                'vetpoint_adresse_id' => $choix['adresse_id'],
-                'vetpoint_livraison' => $choix['livraison'],
-                'vetpoint_date_souhaitee' => $date,
-            ])->save();
+            // Les choix ne s'écrivent qu'au moment d'envoyer : une commande
+            // retrouvée garde ceux avec lesquels elle est partie
+            $verrouillee->forceFill(['vetpoint_envoi_le' => now()])->save();
 
             return $precedent !== null;
         });
         abort_if($reprise === null, 409, 'Cette commande part déjà chez Vetpoint : patientez quelques secondes.');
+
+        // Relues une fois l'envoi posé (les lignes ne se modifient plus) :
+        // ce qui part chez Vetpoint est ce qui est gardé, même si un autre
+        // onglet les a changées pendant la lecture des adresses
+        $lignes = $commande->lignes()->with('produit.vetpoint')->get();
+        if ($lignes->isEmpty() || $lignes->contains(fn (CommandeFournisseurLigne $ligne): bool => $ligne->produit?->vetpoint === null)) {
+            CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->update(['vetpoint_envoi_le' => null]);
+            throw ValidationException::withMessages(['lignes' => 'Les lignes ont changé pendant l’envoi : vérifiez-les, puis renvoyez.']);
+        }
 
         $note = 'Veterinary '.$commande->numero;
         $liberer = fn () => CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->update(['vetpoint_envoi_le' => null]);
@@ -118,7 +126,7 @@ class CommandeVetpointController extends Controller
             // La commande est peut-être partie : sans recherche aboutie, elle
             // reste en suspens et ne repart jamais (le prochain essai cherche)
             try {
-                $numero = $this->retrouver($client, $note, $commande, $lignes);
+                $numero = $this->retrouver($client, $note, $commande);
             } catch (VetpointIndisponible) {
                 abort(503, 'Vetpoint ne répond pas : la commande est peut-être partie. Réessayez dans une minute, elle ne partira pas deux fois.');
             } catch (VetpointCleRefusee|VetpointCgv|VetpointLimite $e) {
@@ -126,6 +134,13 @@ class CommandeVetpointController extends Controller
             }
         }
         try {
+            if ($numero === null) {
+                CommandeFournisseur::query()->dansLOrganisation()->whereKey($commande->id)->update([
+                    'vetpoint_adresse_id' => $choix['adresse_id'],
+                    'vetpoint_livraison' => $choix['livraison'],
+                    'vetpoint_date_souhaitee' => $date,
+                ]);
+            }
             $numero ??= $client->commander(array_filter([
                 'shippingAddressId' => $choix['adresse_id'],
                 'deliveryType' => $express ? 'EXPRESS' : 'STANDARD',
@@ -257,38 +272,25 @@ class CommandeVetpointController extends Controller
     /**
      * Une commande déjà arrivée chez Vetpoint pour cet envoi (réponse perdue) :
      * son numéro. Cherchée depuis la création du brouillon (aucun envoi n'est
-     * plus ancien, même après plusieurs essais), par la note de ses lignes.
-     *
-     * @param  Collection<int, CommandeFournisseurLigne>  $lignes
+     * plus ancien, même après plusieurs essais), par la note de ses lignes
+     * seulement (rendue par GET /v1/order, OpenAPI) : une commande aux mêmes
+     * produits n'est jamais devinée, ce serait peut-être une autre (passée
+     * sur vetpoint.ch, ou une autre de nos commandes). Un numéro déjà gardé
+     * par une commande n'est jamais repris.
      */
-    private function retrouver(ClientVetpoint $client, string $note, CommandeFournisseur $commande, Collection $lignes): ?string
+    private function retrouver(ClientVetpoint $client, string $note, CommandeFournisseur $commande): ?string
     {
         $creee = CarbonImmutable::parse($commande->created_at ?? now());
-        $commandes = collect($client->commandes($creee->subDay()->toDateString(), now()->addDay()->toDateString()))
-            ->filter(fn (array $existante): bool => (is_string($existante['orderId'] ?? null) || is_int($existante['orderId'] ?? null)) && trim((string) $existante['orderId']) !== '');
-        $elements = fn (array $existante): Collection => collect(is_array($existante['orderItems'] ?? null) ? $existante['orderItems'] : [])->filter(fn (mixed $element): bool => is_array($element));
-
-        $notre = $commandes->first(fn (array $existante): bool => $elements($existante)->contains(fn (array $element): bool => ($element['orderNote'] ?? null) === $note));
-        if ($notre !== null) {
-            return trim((string) $notre['orderId']);
+        foreach ($client->commandes($creee->subDay()->toDateString(), now()->addDay()->toDateString()) as $existante) {
+            $numero = is_string($existante['orderId'] ?? null) || is_int($existante['orderId'] ?? null) ? trim((string) $existante['orderId']) : '';
+            $elements = is_array($existante['orderItems'] ?? null) ? $existante['orderItems'] : [];
+            $notre = collect($elements)->contains(fn (mixed $element): bool => is_array($element) && ($element['orderNote'] ?? null) === $note);
+            if ($notre && $numero !== '' && ! CommandeFournisseur::withoutGlobalScopes()->where('vetpoint_commande_id', $numero)->exists()) {
+                return $numero;
+            }
         }
 
-        // Vetpoint ne rend aucune note (l'OpenAPI les promet) : la commande se
-        // reconnaît à ses produits et quantités, passée depuis la création du
-        // brouillon (trois heures de marge pour une heure lue sans fuseau)
-        $avecNotes = $commandes->contains(fn (array $existante): bool => $elements($existante)->contains(fn (array $element): bool => is_string($element['orderNote'] ?? null) && trim($element['orderNote']) !== ''));
-        if ($avecNotes) {
-            return null;
-        }
-        $attendu = $lignes->map(fn (CommandeFournisseurLigne $ligne): string => $ligne->produit?->vetpoint?->vetpoint_id.' × '.(int) $ligne->quantite)->sort()->values()->all();
-        $pareille = $commandes->first(function (array $existante) use ($elements, $attendu, $creee): bool {
-            $recu = $elements($existante)->map(fn (array $element): string => (is_scalar($element['productId'] ?? null) ? (string) $element['productId'] : '').' × '.(is_numeric($element['quantity'] ?? null) ? (int) $element['quantity'] : -1))->sort()->values()->all();
-            $passee = is_string($existante['orderDate'] ?? null) ? rescue(fn () => CarbonImmutable::parse($existante['orderDate'], 'Europe/Zurich'), null, false) : null;
-
-            return $recu === $attendu && $passee !== null && $passee->greaterThanOrEqualTo($creee->subHours(3));
-        });
-
-        return $pareille !== null ? trim((string) $pareille['orderId']) : null;
+        return null;
     }
 
     /**

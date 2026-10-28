@@ -32,9 +32,10 @@ class VetpointRefus extends RuntimeException
             is_array($reponse->json()) => '',
             default => trim((string) $reponse->body()),
         };
-        // Le code arrive dans « errorTyoe » (sic), sinon en tête du message :
+        // Le code arrive dans « errorTyoe » (sic, OpenAPI ; « errorType » s'il
+        // est corrigé), sinon en tête du message :
         // un nombre au milieu du texte (une année) n'en est pas un
-        $type = is_scalar($corps['errorTyoe'] ?? null) ? trim((string) $corps['errorTyoe']) : '';
+        $type = is_scalar($corps['errorTyoe'] ?? $corps['errorType'] ?? null) ? trim((string) ($corps['errorTyoe'] ?? $corps['errorType'])) : '';
         $code = match (true) {
             preg_match('/^\d{4}$/', $type) === 1 => $type,
             preg_match('/^(\d{4})\b/', $texte, $trouve) === 1 => $trouve[1],

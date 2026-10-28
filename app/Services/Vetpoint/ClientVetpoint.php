@@ -149,7 +149,8 @@ class ClientVetpoint
             default => '',
         };
         $numero = trim($numero);
-        if ($numero === '' || mb_strlen($numero) > 40 || preg_match('/[\p{Cc}\s"{}\[\]]/u', $numero) === 1) {
+        // Un numéro a au moins un chiffre : « OK » ou « Created » n'en sont pas
+        if ($numero === '' || mb_strlen($numero) > 40 || preg_match('/[\p{Cc}\s"{}\[\]]/u', $numero) === 1 || preg_match('/\d/', $numero) !== 1) {
             throw new VetpointIndisponible;
         }
 
