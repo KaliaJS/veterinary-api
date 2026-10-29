@@ -605,6 +605,61 @@ class RadiosAnnoteesTest extends TestCase
         $this->envoyer($sansLongueur)->assertUnprocessable()->assertJsonValidationErrors('fichier');
     }
 
+    // ————— Sixième vérification : chaque règle et chaque rattachement au cliché éprouvés —————
+
+    /** Chaque règle du dessin refuse ce qu'elle doit refuser ; le bord de l'image, lui, est dedans */
+    public function test_chaque_regle_du_dessin_refuse_ce_qu_elle_doit(): void
+    {
+        $cliche = $this->cliche(); // 10 colonnes × 8 lignes
+        $url = "{$this->base()}/cliches/{$cliche->id}/annotations";
+        $base = ['type' => 'point', 'points' => [[2, 3]], 'etiquette' => 'fracture', 'certitude' => 'sur'];
+        $refus = [
+            'type hors de la liste' => [['type' => 'cercle'], 'type'],
+            'trop de points' => [['type' => 'rectangle', 'points' => [[1, 1], [2, 2], [3, 3]]], 'points'],
+            'points sans ordre' => [['points' => ['a' => [1, 1]]], 'points'],
+            'trois coordonnées' => [['points' => [[1, 1, 1]]], 'points'],
+            'y en texte' => [['points' => [[1, '3']]], 'points'],
+            'x négatif' => [['points' => [[-1, 1]]], 'points'],
+            'y négatif' => [['points' => [[1, -1]]], 'points'],
+            'image négative' => [['image' => -1], 'image'],
+        ];
+        foreach ($refus as $cas => [$champs, $cle]) {
+            $reponse = $this->postJson($url, $champs + $base, $this->en());
+            $this->assertSame(422, $reponse->status(), $cas);
+            $this->assertArrayHasKey($cle, $reponse->json('errors'), $cas);
+        }
+
+        // Le coin opposé de l'image (10, 8) est dedans
+        $id = $this->postJson($url, ['points' => [[10, 8]]] + $base, $this->en())->assertCreated()->json('data.id');
+        // Déplacé : des points sans leur type, ou un type sans ses points, ne se comprennent pas
+        $this->patchJson("{$url}/{$id}", ['points' => [[3, 3]]], $this->en())->assertUnprocessable()->assertJsonValidationErrors('type');
+        $this->patchJson("{$url}/{$id}", ['type' => 'point'], $this->en())->assertUnprocessable()->assertJsonValidationErrors('points');
+    }
+
+    /** Deux radios dans l'examen : chaque dessin va sur la sienne, se lit sur la sienne, se borne à elle, et ne se touche que par elle */
+    public function test_chaque_dessin_reste_sur_sa_radio(): void
+    {
+        $grande = $this->cliche(); // 10 colonnes × 8 lignes
+        $this->envoyer($this->dicom(['sop' => '1.2.3.61', 'lignes' => 4, 'colonnes' => 4]))->assertCreated();
+        $petite = ClicheDicom::query()->latest('id')->firstOrFail();
+        $dessin = ['type' => 'ellipse', 'points' => [[1, 1], [3, 3]], 'etiquette' => 'masse', 'certitude' => 'suspect'];
+
+        $id = $this->postJson("{$this->base()}/cliches/{$petite->id}/annotations", $dessin, $this->en())->assertCreated()
+            ->assertJsonPath('data.type', 'ellipse')->json('data.id');
+        $this->assertSame($petite->id, AnnotationImagerie::query()->findOrFail($id)->cliche_dicom_id);
+        $this->getJson("{$this->base()}/cliches/{$grande->id}/annotations", $this->en())->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson("{$this->base()}/cliches/{$petite->id}/annotations", $this->en())->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.type', 'ellipse');
+
+        // (9, 7) est dans la grande radio, pas dans la petite
+        $this->postJson("{$this->base()}/cliches/{$petite->id}/annotations", ['type' => 'point', 'points' => [[9, 7]]] + $dessin, $this->en())
+            ->assertUnprocessable()->assertJsonValidationErrors(['points' => 'Un point sort de l’image.']);
+
+        // Par l'autre radio : ni déplacé, ni retiré
+        $this->patchJson("{$this->base()}/cliches/{$grande->id}/annotations/{$id}", ['type' => 'ellipse', 'points' => [[2, 2], [4, 4]]], $this->en())->assertNotFound();
+        $this->deleteJson("{$this->base()}/cliches/{$grande->id}/annotations/{$id}", [], $this->en())->assertNotFound();
+        $this->assertSame([[1, 1], [3, 3]], AnnotationImagerie::query()->findOrFail($id)->points);
+    }
+
     /** Une syntaxe illisible (dégonflée, grand-boutiste) dit pourquoi, au lieu de « pas une image DICOM » */
     public function test_une_syntaxe_illisible_dit_pourquoi(): void
     {
