@@ -216,7 +216,11 @@ class PasserelleStripe implements PasserellePaiement
             'contact_email' => $societe['email'],
             // Aucun tableau de bord Stripe : tout se fait dans Veterinary (composants intégrés)
             'dashboard' => 'none',
-            'identity' => [
+            // Une société, ou un vétérinaire qui vend ses vidéos en son nom (31.10.2026)
+            'identity' => ($societe['type'] ?? 'company') === 'individual' ? [
+                'country' => 'ch',
+                'entity_type' => 'individual',
+            ] : [
                 'country' => 'ch',
                 'entity_type' => 'company',
                 // Prérempli pour raccourcir l'inscription : la société reste libre de corriger
@@ -229,8 +233,8 @@ class PasserelleStripe implements PasserellePaiement
             ],
             'configuration' => [
                 'merchant' => [
-                    // Services vétérinaires
-                    'mcc' => '0742',
+                    // Services vétérinaires ; vidéos de formation vendues en son nom : services d'enseignement
+                    'mcc' => $societe['mcc'] ?? '0742',
                     'capabilities' => [
                         'card_payments' => ['requested' => true],
                         'twint_payments' => ['requested' => true],

@@ -46,5 +46,7 @@ Schedule::command('equipe:fermer-contrats')->hourlyAt(15)->withoutOverlapping(50
 // Rappels par e-mail aux propriétaires, en journée à l'heure de chaque clinique (28.10.2026)
 Schedule::command('rappels:envoyer')->hourlyAt(5)->withoutOverlapping(50)->onOneServer();
 // Stockage des organisations hors DICOM (photos, logo, consentements), chaque nuit
+// Vidéos de formation : les envois abandonnés depuis plus de 24 heures (31.10.2026)
+Schedule::command('videos:purge-abandoned-uploads')->dailyAt('03:10')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 Schedule::command('stockage:compter')->dailyAt('02:40')->timezone('Europe/Zurich')->withoutOverlapping(120)->onOneServer();
 Schedule::command('sanctum:prune-expired --hours=48')->dailyAt('04:45')->withoutOverlapping(60)->onOneServer();

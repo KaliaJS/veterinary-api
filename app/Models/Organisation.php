@@ -278,7 +278,10 @@ class Organisation extends Model
             ->whereHas('patient', fn (Builder $patient) => $patient->withoutGlobalScopes()->where('organisation_id', $this->id))
             ->sum('taille_octets');
 
-        return (int) $this->stockage_autres_octets + $pdf + (int) ClicheDicom::query()
+        // Les vidéos de formation vendues par ses cliniques (31.10.2026)
+        $videos = (int) Video::query()->where('organisation_id', $this->id)->sum('size_bytes');
+
+        return (int) $this->stockage_autres_octets + $pdf + $videos + (int) ClicheDicom::query()
             ->join('examens_imagerie', 'examens_imagerie.id', '=', 'cliches_dicom.examen_imagerie_id')
             ->join('cliniques', 'cliniques.id', '=', 'examens_imagerie.clinique_id')
             ->join('societes', 'societes.id', '=', 'cliniques.societe_id')

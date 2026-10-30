@@ -291,10 +291,12 @@ class SuppressionCompte
             'clients' => 'user_id', 'patients' => 'proprietaire_id', 'demandes_rendez_vous' => 'user_id',
             'messages_clientele' => 'user_id', 'demandes_renouvellement_ordonnance' => 'user_id',
             'proprietaire_factures' => 'user_id', 'revocations_app_store' => 'user_id',
+            // Ses achats de vidéos restent pour les comptes du vendeur, sans lui (31.10.2026)
+            'video_purchases' => 'user_id',
         ] as $table => $colonne) {
             DB::table($table)->where($colonne, $user->id)->update([$colonne => null]);
         }
-        foreach (['passkeys', 'preferences_proprietaire', 'achats_planete', 'demandes_rattachement', 'specialites_veterinaire', 'parcours_veterinaire', 'decisions_verification'] as $table) {
+        foreach (['passkeys', 'preferences_proprietaire', 'achats_planete', 'demandes_rattachement', 'specialites_veterinaire', 'parcours_veterinaire', 'decisions_verification', 'video_views', 'viewing_certificates'] as $table) {
             DB::table($table)->where('user_id', $user->id)->delete();
         }
         $user->tokens()->delete();

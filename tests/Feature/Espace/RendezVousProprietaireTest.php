@@ -469,10 +469,11 @@ class RendezVousProprietaireTest extends TestCase
         // Un mois au plus : la dernière semaine s'arrête au même jour du mois suivant
         $derniere = $this->getJson("/api/v1/public/cliniques/{$clinique->id}/disponibilites?semaine=2099-01-05")
             ->assertOk()->assertJsonPath('data.suivante', null)
-            ->assertJsonPath('data.semaine', $aujourdhui->addMonth()->startOfWeek()->toDateString())
+            // Sans débordement, comme le calendrier : le 31 octobre s'arrête au 30 novembre
+            ->assertJsonPath('data.semaine', $aujourdhui->addMonthNoOverflow()->startOfWeek()->toDateString())
             ->json('data.jours');
         foreach ($derniere as $jour) {
-            $this->assertSame($jour['date'] <= $aujourdhui->addMonth()->toDateString(), $jour['visible']);
+            $this->assertSame($jour['date'] <= $aujourdhui->addMonthNoOverflow()->toDateString(), $jour['visible']);
         }
     }
 }

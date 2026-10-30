@@ -163,6 +163,13 @@ use App\Http\Controllers\Api\V1\Vetpoint\CommandeVetpointController;
 use App\Http\Controllers\Api\V1\Vetpoint\ConnexionVetpointController;
 use App\Http\Controllers\Api\V1\Vetpoint\ProduitVetpointController;
 use App\Http\Controllers\Api\V1\Vetpoint\RechercheVetpointController;
+use App\Http\Controllers\Api\V1\Videos\ClinicVideoController;
+use App\Http\Controllers\Api\V1\Videos\ClinicVideoUploadController;
+use App\Http\Controllers\Api\V1\Videos\PersonalVideoController;
+use App\Http\Controllers\Api\V1\Videos\PersonalVideoUploadController;
+use App\Http\Controllers\Api\V1\Videos\SellerAccountController;
+use App\Http\Controllers\Api\V1\Videos\VideoCatalogueController;
+use App\Http\Controllers\Api\V1\Videos\VideoLocalFileController;
 use App\Http\Controllers\Api\V1\VisioController;
 use App\Http\Controllers\Api\V1\VisioPubliqueController;
 use App\Http\Controllers\Api\V1\VisiteController;
@@ -268,6 +275,14 @@ Route::prefix('v1')->group(function (): void {
     // jeton ; commander exige une session, déposer une demande aussi sauf
     // chez une clinique qui accepte les rendez-vous sans compte.
     Route::prefix('public')->middleware('throttle:60,1')->group(function (): void {
+        // Vidéos de formation sur le disque local (développement, tests) : ce
+        // que font les adresses signées du bucket en production (31.10.2026)
+        // Un seul appel à middleware() : un second remplacerait le premier, et la signature sauterait
+        Route::prefix('videos/{video}/files/{name}')->whereUuid('video')
+            ->withoutMiddleware('throttle:60,1')->middleware(['signed', 'throttle:600,1'])->group(function (): void {
+                Route::get('/', [VideoLocalFileController::class, 'show'])->name('videos.local-file');
+                Route::put('/', [VideoLocalFileController::class, 'store'])->name('videos.local-upload');
+            });
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
         // Catalogue des formules et des packs : prix et limites, sans compte (28.10.2026)
         Route::get('offres', [OrganisationController::class, 'offres']);
@@ -316,6 +331,27 @@ Route::prefix('v1')->group(function (): void {
     // charge ses fiches client, toutes organisations, et chaque
     // requête filtre par ces fiches.
     Route::prefix('espace')->middleware(['auth:sanctum', 'proprietaire'])->group(function (): void {
+        // Vidéos de formation (31.10.2026) : le catalogue pour tout compte,
+        // et la vente en son nom pour un vétérinaire vérifié
+        Route::prefix('videos')->group(function (): void {
+            Route::get('/', [VideoCatalogueController::class, 'index']);
+            Route::get('purchased', [VideoCatalogueController::class, 'purchased']);
+            Route::get('seller/account', [SellerAccountController::class, 'show']);
+            Route::post('seller/account', [SellerAccountController::class, 'store'])->middleware('throttle:20,1');
+            Route::get('seller/videos', [PersonalVideoController::class, 'index']);
+            Route::post('seller/videos', [PersonalVideoController::class, 'store'])->middleware('throttle:30,1');
+            Route::prefix('seller/videos/{video}')->whereUuid('video')->group(function (): void {
+                Route::patch('/', [PersonalVideoController::class, 'update']);
+                Route::delete('/', [PersonalVideoController::class, 'destroy']);
+                Route::post('publish', [PersonalVideoController::class, 'publish']);
+                Route::post('withdraw', [PersonalVideoController::class, 'withdraw']);
+                Route::post('upload/start', [PersonalVideoUploadController::class, 'start'])->middleware('throttle:30,1');
+                Route::post('upload/urls', [PersonalVideoUploadController::class, 'urls'])->middleware('throttle:600,1');
+                Route::get('upload/files', [PersonalVideoUploadController::class, 'files']);
+                Route::post('upload/finish', [PersonalVideoUploadController::class, 'finish'])->middleware('throttle:30,1');
+            });
+            Route::get('{video}', [VideoCatalogueController::class, 'show'])->whereUuid('video');
+        });
         Route::get('accueil', AccueilController::class);
         Route::get('animaux', [AnimalController::class, 'index']);
         Route::post('animaux', [AnimalController::class, 'store']);
@@ -385,6 +421,22 @@ Route::prefix('v1')->group(function (): void {
     // Toute l'application clinique exige une organisation vérifiée et
     // payée (`organisation.ouverte`), sauf la facturation, pour payer.
     Route::middleware(['auth:sanctum', 'clinique', 'organisation.ouverte'])->group(function (): void {
+        // Vidéos de formation vendues au nom de la clinique (31.10.2026)
+        Route::middleware('can:organisation')->prefix('videos')->group(function (): void {
+            Route::get('/', [ClinicVideoController::class, 'index']);
+            Route::post('/', [ClinicVideoController::class, 'store'])->middleware('throttle:30,1');
+            Route::prefix('{video}')->whereUuid('video')->group(function (): void {
+                Route::patch('/', [ClinicVideoController::class, 'update']);
+                Route::delete('/', [ClinicVideoController::class, 'destroy']);
+                Route::post('publish', [ClinicVideoController::class, 'publish']);
+                Route::post('withdraw', [ClinicVideoController::class, 'withdraw']);
+                Route::post('upload/start', [ClinicVideoUploadController::class, 'start'])->middleware('throttle:30,1');
+                Route::post('upload/urls', [ClinicVideoUploadController::class, 'urls'])->middleware('throttle:600,1');
+                Route::get('upload/files', [ClinicVideoUploadController::class, 'files']);
+                Route::post('upload/finish', [ClinicVideoUploadController::class, 'finish'])->middleware('throttle:30,1');
+            });
+        });
+
         // Annuaire des cliniques de l'organisation (id, nom, boxes) :
         // tout employé — le domaine organisation garde la gestion.
         Route::get('cliniques', AnnuaireCliniqueController::class);

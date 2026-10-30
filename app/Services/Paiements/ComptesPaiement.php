@@ -4,8 +4,10 @@ namespace App\Services\Paiements;
 
 use App\Models\Clinique;
 use App\Models\Societe;
+use App\Models\User;
 use App\Paiements\PasserellePaiement;
 use App\Rules\NumeroIde;
+use App\Services\Videos\SellerAccounts;
 use App\Support\Telephone;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -155,6 +157,14 @@ class ComptesPaiement
 
         if ($societe) {
             $this->rafraichir($societe);
+
+            return;
+        }
+
+        // Le compte d'un vétérinaire qui vend ses vidéos en son nom (31.10.2026)
+        $vendeur = $compte ? User::query()->where('stripe_account_id', $compte)->first() : null;
+        if ($vendeur) {
+            app(SellerAccounts::class)->refresh($vendeur);
         }
     }
 

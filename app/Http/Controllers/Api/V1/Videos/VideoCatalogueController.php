@@ -1,0 +1,53 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1\Videos;
+
+use App\Http\Controllers\Controller;
+use App\Http\Resources\V1\VideoResource;
+use App\Models\Video;
+use App\Services\Videos\VideoAccess;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+/**
+ * Le catalogue des vidéos de formation (31.10.2026), pour tout compte :
+ * les vidéos destinées aux clients, et pour un vétérinaire vérifié celles
+ * destinées aux vétérinaires. Ce qu'il a acheté reste à lui, même retiré.
+ */
+class VideoCatalogueController extends Controller
+{
+    public function __construct(private VideoAccess $access) {}
+
+    public function index(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $videos = Video::visibleTo(Video::query(), $user)->latest('published_at')->paginate(24);
+
+        return response()->json([
+            'data' => $videos->getCollection()->map(fn (Video $video) => VideoResource::seenBy($video, $this->access->for($video, $user, $video->seller_user_id === $user->id))->resolve($request))->all(),
+            'meta' => ['current_page' => $videos->currentPage(), 'last_page' => $videos->lastPage(), 'total' => $videos->total()],
+        ]);
+    }
+
+    /** Ses achats : à vie, même retirés de la vente. */
+    public function purchased(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $videos = Video::query()
+            ->whereHas('purchases', fn ($purchase) => $purchase->where('user_id', $user->id)->whereNotNull('paid_at'))
+            ->latest('id')
+            ->get();
+
+        return response()->json(['data' => $videos->map(fn (Video $video) => VideoResource::seenBy($video, 'owned')->resolve($request))->all()]);
+    }
+
+    public function show(Request $request, string $video): VideoResource
+    {
+        $user = $request->user();
+        $model = Video::query()->where('uuid', $video)->firstOrFail();
+        $access = $this->access->for($model, $user, $model->seller_user_id === $user->id);
+        abort_if($access === null, 404);
+
+        return VideoResource::seenBy($model, $access, $access === 'seller');
+    }
+}

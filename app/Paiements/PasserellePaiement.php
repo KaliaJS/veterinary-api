@@ -93,10 +93,12 @@ interface PasserellePaiement
     public function lireEvenement(string $corps, string $signature): array;
 
     /**
-     * Ouvre le compte de paiement d'une société : sans tableau de bord,
-     * informations légales, pertes et frais chez le prestataire.
+     * Ouvre le compte de paiement d'une société, ou d'un vétérinaire qui
+     * vend ses vidéos en son nom (`type` individual, 31.10.2026) : sans
+     * tableau de bord, informations légales, pertes et frais chez le
+     * prestataire.
      *
-     * @param  array{nom: string, nom_commercial?: string, email: ?string, ide?: ?string, adresse?: ?array{rue: ?string, npa: ?string, ville: ?string}, telephone?: ?string, metadonnees: array<string, string>}  $societe
+     * @param  array{type?: 'company'|'individual', mcc?: string, nom: string, nom_commercial?: string, email: ?string, ide?: ?string, adresse?: ?array{rue: ?string, npa: ?string, ville: ?string}, telephone?: ?string, metadonnees: array<string, string>}  $societe
      */
     public function creerComptePaiement(array $societe): string;
 
