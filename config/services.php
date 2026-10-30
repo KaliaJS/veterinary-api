@@ -53,6 +53,8 @@ return [
         'commission_twint' => (float) env('STRIPE_COMMISSION_TWINT', 0.5),
         // Et sur les acomptes en ligne (carte ou TWINT) : des frais sur toutes les transactions
         'commission_en_ligne' => (float) env('STRIPE_COMMISSION_EN_LIGNE', 0.5),
+        // Et sur les vidéos de formation : 30 % de chaque vente (décision de Jim, 31.10.2026)
+        'commission_videos' => (float) env('STRIPE_COMMISSION_VIDEOS', 30),
         // Frais de Stripe pour une société suisse, affichés dans Réglages, Paiements. Stripe
         // ne publie pas d'API de ses tarifs : relevés sur stripe.com/ch/pricing, à revoir
         // quand ils changent (taux en %, montants fixes en centimes). Les frais réels de

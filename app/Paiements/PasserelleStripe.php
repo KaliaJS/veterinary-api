@@ -254,6 +254,18 @@ class PasserelleStripe implements PasserellePaiement
         return $compte->id;
     }
 
+    public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees): string
+    {
+        $versement = $this->appel(fn () => $this->client->transfers->create([
+            'amount' => $centimes,
+            'currency' => 'chf',
+            'destination' => $compte,
+            'metadata' => $metadonnees,
+        ], ['idempotency_key' => $cleIdempotence]));
+
+        return $versement->id;
+    }
+
     public function lireComptePaiement(string $compte): array
     {
         $lu = $this->appel(fn () => $this->client->accounts->retrieve($compte));

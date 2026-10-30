@@ -102,6 +102,14 @@ interface PasserellePaiement
      */
     public function creerComptePaiement(array $societe): string;
 
+    /**
+     * Verse au compte d'un vendeur, depuis le solde de la plateforme (la
+     * cagnotte Plus des vidéos, 31.10.2026). Rend l'identifiant du versement.
+     *
+     * @param  array<string, string>  $metadonnees
+     */
+    public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees): string;
+
     /** @return array{paiements: bool, virements: bool, a_completer: bool} */
     public function lireComptePaiement(string $compte): array;
 

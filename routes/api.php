@@ -170,6 +170,8 @@ use App\Http\Controllers\Api\V1\Videos\PersonalVideoUploadController;
 use App\Http\Controllers\Api\V1\Videos\SellerAccountController;
 use App\Http\Controllers\Api\V1\Videos\VideoCatalogueController;
 use App\Http\Controllers\Api\V1\Videos\VideoLocalFileController;
+use App\Http\Controllers\Api\V1\Videos\VideoPurchaseController;
+use App\Http\Controllers\Api\V1\Videos\VideoViewingController;
 use App\Http\Controllers\Api\V1\VisioController;
 use App\Http\Controllers\Api\V1\VisioPubliqueController;
 use App\Http\Controllers\Api\V1\VisiteController;
@@ -283,6 +285,14 @@ Route::prefix('v1')->group(function (): void {
                 Route::get('/', [VideoLocalFileController::class, 'show'])->name('videos.local-file');
                 Route::put('/', [VideoLocalFileController::class, 'store'])->name('videos.local-upload');
             });
+        // Lecture des vidéos : listes HLS signées (Safari les lit sans jeton), et
+        // vérification publique d'un certificat de visionnage (31.10.2026)
+        Route::prefix('videos/{video}/hls')->whereUuid('video')
+            ->withoutMiddleware('throttle:60,1')->middleware(['signed', 'throttle:300,1'])->group(function (): void {
+                Route::get('master.m3u8', [VideoViewingController::class, 'master'])->name('videos.hls.master');
+                Route::get('{name}', [VideoViewingController::class, 'media'])->name('videos.hls.media');
+            });
+        Route::get('certificates/{code}', [VideoViewingController::class, 'verify'])->middleware('throttle:30,1');
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
         // Catalogue des formules et des packs : prix et limites, sans compte (28.10.2026)
         Route::get('offres', [OrganisationController::class, 'offres']);
@@ -351,6 +361,14 @@ Route::prefix('v1')->group(function (): void {
                 Route::post('upload/finish', [PersonalVideoUploadController::class, 'finish'])->middleware('throttle:30,1');
             });
             Route::get('{video}', [VideoCatalogueController::class, 'show'])->whereUuid('video');
+            Route::prefix('{video}')->whereUuid('video')->group(function (): void {
+                Route::post('play', [VideoViewingController::class, 'play'])->middleware('throttle:60,1');
+                Route::post('progress', [VideoViewingController::class, 'progress'])->middleware('throttle:60,1');
+                Route::get('download', [VideoViewingController::class, 'download'])->middleware('throttle:20,1');
+                Route::post('certificate', [VideoViewingController::class, 'certificate'])->middleware('throttle:20,1');
+                Route::post('purchase', [VideoPurchaseController::class, 'store'])->middleware('throttle:20,1');
+                Route::post('purchase/confirm', [VideoPurchaseController::class, 'confirm'])->middleware('throttle:30,1');
+            });
         });
         Route::get('accueil', AccueilController::class);
         Route::get('animaux', [AnimalController::class, 'index']);

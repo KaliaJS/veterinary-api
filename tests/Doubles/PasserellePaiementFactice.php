@@ -249,6 +249,20 @@ class PasserellePaiementFactice implements PasserellePaiement
         return 'acct_'.(++$this->sequence);
     }
 
+    /** @var list<array{compte: string, centimes: int, cle: string, metadonnees: array<string, string>}> */
+    public array $versements = [];
+
+    public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees): string
+    {
+        $this->noter(__FUNCTION__, null, $cleIdempotence, plateforme: true);
+
+        return $this->idempotent(__FUNCTION__, $cleIdempotence, [$compte, $centimes], function () use ($compte, $centimes, $cleIdempotence, $metadonnees): string {
+            $this->versements[] = ['compte' => $compte, 'centimes' => $centimes, 'cle' => $cleIdempotence, 'metadonnees' => $metadonnees];
+
+            return 'tr_'.(++$this->sequence);
+        });
+    }
+
     public function lireComptePaiement(string $compte): array
     {
         $this->noter(__FUNCTION__, $compte, null, plateforme: true);

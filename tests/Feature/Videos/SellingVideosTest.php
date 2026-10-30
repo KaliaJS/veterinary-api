@@ -4,15 +4,14 @@ namespace Tests\Feature\Videos;
 
 use App\Enums\StatutVerificationVeterinaire;
 use App\Models\Clinique;
-use App\Models\User;
 use App\Models\Video;
 use App\Paiements\PasserellePaiement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Testing\TestResponse;
 use Tests\Concerns\BuildsHlsPackages;
 use Tests\Concerns\EmetDesJetonsApi;
+use Tests\Concerns\PublishesVideos;
 use Tests\Doubles\PasserellePaiementFactice;
 use Tests\TestCase;
 
@@ -25,6 +24,7 @@ class SellingVideosTest extends TestCase
 {
     use BuildsHlsPackages;
     use EmetDesJetonsApi;
+    use PublishesVideos;
     use RefreshDatabase;
 
     private PasserellePaiementFactice $gateway;
@@ -35,55 +35,6 @@ class SellingVideosTest extends TestCase
         Storage::fake('prive');
         $this->gateway = new PasserellePaiementFactice;
         $this->app->instance(PasserellePaiement::class, $this->gateway);
-    }
-
-    /** @return array{user: User, jeton: string} */
-    private function verifiedVet(bool $readyAccount = true): array
-    {
-        $vet = $this->proprietaireAvecJeton(['verification_veterinaire' => StatutVerificationVeterinaire::Verifie]);
-        if ($readyAccount) {
-            $vet['user']->forceFill(['stripe_account_id' => 'acct_vet_'.$vet['user']->id, 'stripe_account_ready_at' => now()])->save();
-        }
-
-        return $vet;
-    }
-
-    private function draft(string $jeton, string $base = '/api/v1/espace/videos/seller/videos'): string
-    {
-        return $this->postJson($base, ['title' => 'Nourrir un chat senior'], $this->enTetes($jeton))->assertCreated()->json('data.id');
-    }
-
-    /** Envoie un paquet comme le navigateur : démarrer, demander les adresses, déposer chaque fichier. */
-    private function upload(string $jeton, string $id, array $files, string $base = '/api/v1/espace/videos/seller/videos'): void
-    {
-        $this->postJson("{$base}/{$id}/upload/start", ['duration_seconds' => 30, 'estimated_bytes' => 10_000], $this->enTetes($jeton))->assertOk();
-        // Par paquets de 200 au plus, comme le navigateur
-        foreach (array_chunk(array_keys($files), 200) as $batch) {
-            $urls = $this->postJson("{$base}/{$id}/upload/urls", ['files' => $batch], $this->enTetes($jeton))->assertOk()->json('data');
-            foreach ($urls as $url) {
-                $this->call('PUT', $url['url'], [], [], [], [], $files[$url['name']])->assertNoContent();
-            }
-        }
-    }
-
-    private function finish(string $jeton, string $id, string $base = '/api/v1/espace/videos/seller/videos'): TestResponse
-    {
-        return $this->postJson("{$base}/{$id}/upload/finish", [], $this->enTetes($jeton));
-    }
-
-    /** Une vidéo prête, renseignée et en vente. */
-    private function published(array $fields = [], ?array $vet = null): array
-    {
-        $vet ??= $this->verifiedVet();
-        $id = $this->draft($vet['jeton']);
-        $this->upload($vet['jeton'], $id, $this->hlsPackage());
-        $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson("/api/v1/espace/videos/seller/videos/{$id}", [
-            'title' => 'Nourrir un chat senior', 'description' => 'Ce qu’il faut savoir.', 'price_cents' => 1500, 'audience' => 'owners', ...$fields,
-        ], $this->enTetes($vet['jeton']))->assertOk();
-        $this->postJson("/api/v1/espace/videos/seller/videos/{$id}/publish", [], $this->enTetes($vet['jeton']))->assertOk();
-
-        return ['id' => $id, 'vet' => $vet];
     }
 
     // ————— Vendeurs —————

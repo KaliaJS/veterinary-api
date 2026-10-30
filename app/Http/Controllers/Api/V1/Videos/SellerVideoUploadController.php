@@ -7,6 +7,7 @@ use App\Enums\VideoStatus;
 use App\Http\Requests\V1\Videos\StartUploadRequest;
 use App\Http\Requests\V1\Videos\UploadUrlsRequest;
 use App\Http\Resources\V1\VideoResource;
+use App\Jobs\AssembleVideoDownload;
 use App\Models\Video;
 use App\Services\Videos\HlsPackage;
 use Illuminate\Http\JsonResponse;
@@ -91,6 +92,8 @@ abstract class SellerVideoUploadController extends SellerVideoController
             'renditions' => $result['renditions'],
             'files_verified_at' => now(),
         ]);
+        // La version à télécharger, assemblée à part
+        AssembleVideoDownload::dispatch($model->id)->afterCommit();
 
         return VideoResource::seenBy($model, 'seller', true);
     }

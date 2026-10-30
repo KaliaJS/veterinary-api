@@ -12,6 +12,7 @@ use App\Paiements\RefusCarte;
 use App\Services\Abonnements\AbonnementSaas;
 use App\Services\Alertes\DestinatairesAlertes;
 use App\Services\Inscription\VerificationIdentite;
+use App\Services\Videos\VideoPurchases;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -83,6 +84,15 @@ class WebhooksStripe
     /** @param  array<string, mixed>  $intention */
     private function intention(array $intention, string $statut, ?string $compte = null): void
     {
+        // Achat d'une vidéo de formation : payé, elle est à l'acheteur, à vie (31.10.2026)
+        if (($intention['metadata']['objet'] ?? null) === 'video') {
+            if ($statut === 'succeeded') {
+                app(VideoPurchases::class)->onPaymentSucceeded($intention['id'], $compte);
+            }
+
+            return;
+        }
+
         // Acompte d'une réservation en ligne : payé, l'heure est réservée
         if (($intention['metadata']['objet'] ?? null) === 'acompte_rdv') {
             if ($statut === 'succeeded') {

@@ -4,6 +4,7 @@ namespace App\Services\Videos;
 
 use App\Models\Video;
 use DateTimeInterface;
+use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -20,6 +21,9 @@ class VideoStorage
 {
     /** Un nom de fichier du dossier d'une vidéo : jamais de chemin. */
     public const FILE_NAME = '/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/';
+
+    /** Parts d'un fichier assemblé dans le bucket (5 Mo au moins, sauf la dernière). */
+    private const PART_BYTES = 8 * 1024 * 1024;
 
     /** Fichiers qu'un navigateur peut envoyer : listes HLS et segments CMAF. */
     public const UPLOADABLE = '/\.(m3u8|mp4|m4s)$/';
@@ -96,6 +100,70 @@ class VideoStorage
     public function deleteAll(Video $video): void
     {
         $this->disk()->deleteDirectory($video->folder());
+    }
+
+    /**
+     * Met bout à bout des fichiers de la vidéo dans un nouveau fichier,
+     * sans tout tenir en mémoire : par parts de 8 Mo dans le bucket, par
+     * ajout sur le disque local. Rend la taille écrite.
+     *
+     * @param  list<string>  $names
+     */
+    public function concatenate(Video $video, array $names, string $target): int
+    {
+        $key = $video->folder().'/'.$target;
+        if (! $this->isS3()) {
+            $stream = fopen('php://temp', 'w+b');
+            foreach ($names as $name) {
+                $part = $this->disk()->readStream($video->folder().'/'.$name);
+                stream_copy_to_stream($part, $stream);
+                fclose($part);
+            }
+            rewind($stream);
+            $this->disk()->writeStream($key, $stream);
+            $size = (int) fstat($stream)['size'];
+            fclose($stream);
+
+            return $size;
+        }
+
+        $disk = $this->disk();
+        assert($disk instanceof AwsS3V3Adapter);
+        $client = $disk->getClient();
+        $bucket = $disk->getConfig()['bucket'];
+        $upload = $client->createMultipartUpload(['Bucket' => $bucket, 'Key' => $key, 'ContentType' => 'video/mp4']);
+        $parts = [];
+        $buffer = '';
+        $size = 0;
+        try {
+            $flush = function () use (&$buffer, &$parts, $client, $bucket, $key, $upload): void {
+                $number = count($parts) + 1;
+                $result = $client->uploadPart(['Bucket' => $bucket, 'Key' => $key, 'UploadId' => $upload['UploadId'], 'PartNumber' => $number, 'Body' => $buffer]);
+                $parts[] = ['PartNumber' => $number, 'ETag' => $result['ETag']];
+                $buffer = '';
+            };
+            foreach ($names as $name) {
+                $part = $this->disk()->readStream($video->folder().'/'.$name);
+                while (! feof($part)) {
+                    $chunk = (string) fread($part, 1024 * 1024);
+                    $buffer .= $chunk;
+                    $size += strlen($chunk);
+                    if (strlen($buffer) >= self::PART_BYTES) {
+                        $flush();
+                    }
+                }
+                fclose($part);
+            }
+            if ($buffer !== '' || $parts === []) {
+                $flush();
+            }
+            $client->completeMultipartUpload(['Bucket' => $bucket, 'Key' => $key, 'UploadId' => $upload['UploadId'], 'MultipartUpload' => ['Parts' => $parts]]);
+        } catch (\Throwable $e) {
+            $client->abortMultipartUpload(['Bucket' => $bucket, 'Key' => $key, 'UploadId' => $upload['UploadId']]);
+            throw $e;
+        }
+
+        return $size;
     }
 
     public static function contentType(string $name): string
