@@ -147,7 +147,14 @@ abstract class SellerVideoController extends Controller
 
         // Chaque morceau relu avant la vente : pas encore fait, la vidéo se mettra en vente d'elle-même ensuite
         if ($model->files_checked_at === null) {
-            $model->update(['publish_requested_at' => now(), 'publish_requested_by' => $request->user()->id, 'seller_name' => $sellerName]);
+            // Seulement sur les fichiers lus ici, toujours prêts : un nouvel envoi lancé dans un autre onglet ne s'en hérite pas
+            $requested = Video::query()->whereKey($model->id)
+                ->where('files_status', VideoFilesStatus::Ready->value)
+                ->where('upload_started_at', $model->upload_started_at)
+                ->update(['publish_requested_at' => now(), 'publish_requested_by' => $request->user()->id, 'seller_name' => $sellerName, 'updated_at' => now()]);
+            if ($requested === 0) {
+                throw ValidationException::withMessages(['files' => 'La vidéo change de fichiers : mettez-la en vente une fois le nouvel envoi contrôlé.']);
+            }
             // Relue entre-temps sans avoir vu la demande : on ne l'attend pas, la mise en vente se fait ici
             if ($model->refresh()->files_checked_at === null) {
                 RecheckVideoFiles::dispatch($model->id, 'now', $model->uploadStamp());

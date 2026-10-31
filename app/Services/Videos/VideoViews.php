@@ -65,7 +65,7 @@ class VideoViews
                 $view->counted_via_plus = $access === 'plus';
             }
             // Vue en entier : 95 % de la durée
-            if ($view->completed_at === null && $access !== 'preview' && $duration > 0 && $view->watched_seconds >= $duration * VideoView::COMPLETION_RATIO) {
+            if ($view->completed_at === null && $access !== 'preview' && $duration > 0 && $view->watched_seconds >= VideoView::requiredSeconds($duration)) {
                 $view->completed_at = now();
             }
             $view->save();

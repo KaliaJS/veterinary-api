@@ -39,7 +39,7 @@ class HlsPackage
      *
      * @param  list<string>  $keep  fichiers non cités à garder (la version à télécharger)
      * @param  bool  $everySegment  relire chaque morceau (la relecture complète), pas seulement quatre
-     * @return array{ok: true, duration: float, width: int, height: int, size: int, download_bytes: int, renditions: list<array<string, mixed>>}|array{ok: false, reason: string, transient?: true}
+     * @return array{ok: true, duration: float, width: int, height: int, size: int, kept_bytes: int, download_bytes: int, renditions: list<array<string, mixed>>}|array{ok: false, reason: string, transient?: true}
      */
     public function inspect(Video $video, array $keep = [], bool $everySegment = false): array
     {
@@ -179,6 +179,8 @@ class HlsPackage
             'width' => $renditions[0]['width'],
             'height' => $renditions[0]['height'],
             'size' => array_sum($files),
+            // Ce qui, dans la taille, vient des fichiers gardés (la version à télécharger déjà au bucket)
+            'kept_bytes' => array_sum(array_intersect_key($files, array_flip($keep))),
             'download_bytes' => $light['bytes'],
             'renditions' => array_map(fn (array $r) => array_diff_key($r, ['bytes' => true]), $renditions),
         ];

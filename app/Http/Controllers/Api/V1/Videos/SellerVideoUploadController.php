@@ -117,6 +117,11 @@ abstract class SellerVideoUploadController extends SellerVideoController
     public function finish(Request $request, string $video): VideoResource|JsonResponse
     {
         $model = $this->editable($request, $video);
+        // Déjà contrôlée (la réponse s'est perdue, l'écran redemande le contrôle) : on rend ce qui est,
+        // sans rien relire ni effacer (la version à télécharger y est peut-être déjà)
+        if ($model->files_status === VideoFilesStatus::Ready) {
+            return VideoResource::seenBy($model, 'seller', true);
+        }
         $result = app(HlsPackage::class)->inspect($model);
         // Stockage injoignable : rien n'est jugé ni effacé ; 503, pas 422 : ce n'est pas un refus, on réessaiera
         if ($result['ok'] === false && ! empty($result['transient'])) {

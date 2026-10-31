@@ -61,8 +61,11 @@ class VideoCatalogueController extends Controller
 
         return response()->json([
             'data' => $videos->getCollection()
-                ->map(fn (Video $video) => VideoResource::seenBy($video, $this->access->for($video, $user, $video->isOnSellerSide($user, $organisations)) ?? 'owned')->resolve($request))
-                ->all(),
+                ->map(fn (Video $video) => [$video, $this->access->for($video, $user, $video->isOnSellerSide($user, $organisations))])
+                // Rien sans accès : jamais une vidéo montrée comme achetée par erreur
+                ->filter(fn (array $pair) => $pair[1] !== null)
+                ->map(fn (array $pair) => VideoResource::seenBy($pair[0], $pair[1])->resolve($request))
+                ->values()->all(),
             'meta' => ['current_page' => $videos->currentPage(), 'last_page' => $videos->lastPage(), 'total' => $videos->total()],
         ]);
     }

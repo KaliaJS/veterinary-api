@@ -18,6 +18,16 @@ class VideoView extends Model
     /** Vue en entier : 95 % de la durée, ce qui ouvre le certificat. */
     public const COMPLETION_RATIO = 0.95;
 
+    /**
+     * Les secondes à avoir regardées pour le certificat : 95 % arrondis au-dessus,
+     * jamais plus que les secondes entières de la vidéo (les secondes se créditent
+     * entières : 10,9 secondes regardées comptent 10).
+     */
+    public static function requiredSeconds(float $duration): int
+    {
+        return (int) min(ceil($duration * self::COMPLETION_RATIO), floor($duration));
+    }
+
     protected $fillable = ['video_id', 'user_id', 'watched_ranges', 'watched_seconds', 'last_progress_at', 'counted_at', 'counted_via_plus', 'completed_at'];
 
     protected function casts(): array

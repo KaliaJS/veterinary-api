@@ -106,7 +106,7 @@ class PlusPool
     public function pay(CarbonImmutable $month): void
     {
         // Un lancement à la main pendant le passage planifié : l'un attend l'autre, rien ne se verse deux fois
-        Cache::lock('plus-pool-pay', 3600)->block($this->lockWait, fn () => $this->payUnlocked($month));
+        Cache::lock('plus-pool-pay', 21600)->block($this->lockWait, fn () => $this->payUnlocked($month));
     }
 
     private function payUnlocked(CarbonImmutable $month): void
@@ -170,8 +170,9 @@ class PlusPool
     private function settleLostPayouts(Collection $shares): Collection
     {
         foreach ($shares->whereNotNull('payout_group')->groupBy('payout_group') as $group => $sent) {
-            // Envoyé il y a quelques secondes (mois rattrapés à la suite) : le prestataire ne le montre peut-être pas encore
-            if (isset($this->sentThisRun[$group])) {
+            // Envoyé il y a moins d'une heure (mois rattrapés à la suite, passage lancé à la main) :
+            // le prestataire ne le montre peut-être pas encore ; il se cherche au passage suivant
+            if (isset($this->sentThisRun[$group]) || $sent->max('updated_at') > now()->subHour()) {
                 $shares = $shares->reject(fn (PlusPoolShare $share) => $share->payout_group === $group)->values();
 
                 continue;

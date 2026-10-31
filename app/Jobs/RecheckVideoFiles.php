@@ -137,10 +137,13 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
             return;
         }
         $video = $fresh;
+        // Une version à télécharger posée au bucket sans être notée (assemblage interrompu) n'est ni un ajout
+        // ni comptée : l'assemblage la refera et l'ajoutera lui-même
+        $measured = $result['ok'] ? $result['size'] - ($video->download_path === null ? $result['kept_bytes'] : 0) : 0;
         // Plus lourde qu'au contrôle : des fichiers ont été remplacés ou ajoutés depuis
-        $grown = $result['ok'] && $result['size'] > (int) $video->size_bytes + self::GROWTH_TOLERANCE;
+        $grown = $result['ok'] && $measured > (int) $video->size_bytes + self::GROWTH_TOLERANCE;
         if ($result['ok'] && ! $grown) {
-            $video->update(['size_bytes' => $result['size'], 'renditions' => $result['renditions'], 'duration_seconds' => $result['duration'], 'files_checked_at' => now()]);
+            $video->update(['size_bytes' => $measured, 'renditions' => $result['renditions'], 'duration_seconds' => $result['duration'], 'files_checked_at' => now()]);
             // La version à télécharger manque encore (assemblage raté) : une chance de plus à chaque relecture
             $this->assembleAfter = $video->download_path === null;
             $this->publishIfRequested($video->refresh(), $publisher);

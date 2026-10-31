@@ -169,9 +169,10 @@ class VideoStorage
         $this->deleteFolder($video->folder());
     }
 
-    public function deleteFolder(string $folder): void
+    /** Faux si le stockage n'a pas pu effacer (le disque ne lève pas d'exception) */
+    public function deleteFolder(string $folder): bool
     {
-        $this->disk()->deleteDirectory($folder);
+        return $this->disk()->deleteDirectory($folder);
     }
 
     /**

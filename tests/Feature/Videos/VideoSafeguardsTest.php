@@ -12,6 +12,7 @@ use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\FactureProprietaire;
 use App\Models\PlusPoolMonth;
+use App\Models\PlusPoolShare;
 use App\Models\User;
 use App\Models\Video;
 use App\Models\VideoPurchase;
@@ -1378,9 +1379,11 @@ class VideoSafeguardsTest extends TestCase
         Video::query()->sole()->forceFill(['files_checked_at' => null])->save();
         Queue::fake();
         // La relecture finit juste au moment où la demande s'écrit, sans la voir
-        Video::updated(function (Video $video): void {
-            if ($video->wasChanged('publish_requested_at') && $video->publish_requested_at !== null) {
-                Video::query()->whereKey($video->id)->update(['files_checked_at' => now()]);
+        $done = false;
+        DB::listen(function ($query) use (&$done): void {
+            if (! $done && str_starts_with($query->sql, 'update') && str_contains($query->sql, 'publish_requested_at')) {
+                $done = true;
+                Video::query()->update(['files_checked_at' => now()]);
             }
         });
 
@@ -1783,6 +1786,8 @@ class VideoSafeguardsTest extends TestCase
 
         foreach ([new RecheckVideoFiles($video->id), new AssembleVideoDownload($video->id)] as $job) {
             $job->lockWait = 0;
+            // La relecture seule : sa version à télécharger notée, elle ne lance pas d'assemblage qui buterait lui-même sur le verrou
+            Video::query()->whereKey($video->id)->update(['download_path' => $job instanceof RecheckVideoFiles ? AssembleVideoDownload::FILE : null]);
             try {
                 $job instanceof RecheckVideoFiles
                     ? $job->handle(app(HlsPackage::class), app(VideoStorage::class), app(VideoPublisher::class))
@@ -1795,6 +1800,7 @@ class VideoSafeguardsTest extends TestCase
 
         $this->assertNull($video->refresh()->download_path);
         $this->assertSame($size, $video->size_bytes);
+        $this->assertNotNull($video->files_checked_at);
     }
 
     public function test_un_assemblage_que_rattrape_un_nouvel_envoi_n_ecrit_rien_sur_lui(): void
@@ -2028,5 +2034,149 @@ class VideoSafeguardsTest extends TestCase
         $plus = $this->proprietaireAvecJeton(['formule' => 'plus']);
         $this->getJson("/api/v1/espace/videos/{$sale['id']}", $this->enTetes($plus['jeton']))->assertOk()
             ->assertJsonPath('data.viewing.required_seconds', (int) ceil(Video::query()->sole()->duration_seconds * VideoView::COMPLETION_RATIO));
+    }
+
+    /* ————— Huitième vérification, côté serveur (31.10.2026) ————— */
+
+    public function test_un_controle_final_rejoue_ne_relit_ni_n_efface_rien(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->upload($vet['jeton'], $id, $this->hlsPackage());
+        $this->finish($vet['jeton'], $id)->assertOk();
+        $video = Video::query()->sole();
+        $before = $video->only(['size_bytes', 'download_path', 'files_status']);
+        $this->assertTrue(Storage::disk('prive')->exists($video->folder().'/'.AssembleVideoDownload::FILE));
+
+        // La réponse s'est perdue : l'écran redemande le contrôle, qui ne relit rien
+        $package = $this->spy(HlsPackage::class);
+        $this->finish($vet['jeton'], $id)->assertOk()->assertJsonPath('data.files_status', 'ready');
+        $package->shouldNotHaveReceived('inspect');
+
+        $this->assertSame($before, $video->refresh()->only(['size_bytes', 'download_path', 'files_status']));
+        $this->assertTrue(Storage::disk('prive')->exists($video->folder().'/'.AssembleVideoDownload::FILE));
+        $this->app->forgetInstance(HlsPackage::class);
+        RecheckVideoFiles::dispatchSync($video->id);
+        $this->assertSame('ready', $video->refresh()->files_status->value);
+    }
+
+    public function test_une_version_a_telecharger_posee_sans_etre_notee_n_est_pas_un_ajout(): void
+    {
+        $this->published();
+        $video = Video::query()->sole();
+        // L'assemblage a écrit au bucket, puis s'est arrêté avant de le noter
+        $video->forceFill(['download_path' => null])->save();
+        $size = $video->size_bytes;
+        Storage::disk('prive')->put($video->folder().'/'.AssembleVideoDownload::FILE, str_repeat('x', 3_000_000));
+        Queue::fake();
+
+        $this->recheck($video);
+
+        $video->refresh();
+        $this->assertSame('ready', $video->files_status->value);
+        $this->assertSame('published', $video->status->value);
+        $this->assertLessThanOrEqual($size, $video->size_bytes);
+        Queue::assertPushed(AssembleVideoDownload::class);
+    }
+
+    public function test_un_assemblage_rejoue_ne_compte_pas_deux_fois_le_telechargement(): void
+    {
+        $this->published();
+        $video = Video::query()->sole();
+        $size = $video->size_bytes;
+
+        (new AssembleVideoDownload($video->id, $video->uploadStamp()))->handle(app(VideoStorage::class));
+
+        $this->assertSame($size, $video->refresh()->size_bytes);
+        $this->assertSame(AssembleVideoDownload::FILE, $video->download_path);
+    }
+
+    public function test_une_mise_en_vente_ne_se_pose_pas_sur_un_nouvel_envoi_lance_ailleurs(): void
+    {
+        $vet = $this->verifiedVet();
+        Queue::fake();
+        // L'autre onglet recommence l'envoi juste après que celui-ci a lu la vidéo : en cours, ou déjà contrôlé
+        foreach (['pending', 'ready'] as $state) {
+            $video = $this->readyDraft($vet);
+            $once = false;
+            Video::retrieved(function (Video $read) use (&$once, $video, $state): void {
+                if (! $once && $read->id === $video->id) {
+                    $once = true;
+                    Video::query()->whereKey($read->id)->update(['files_status' => $state, 'upload_started_at' => now()->addMinute()]);
+                }
+            });
+
+            $this->postJson($this->base($video->uuid).'/publish', [], $this->enTetes($vet['jeton']))->assertUnprocessable()->assertJsonValidationErrors('files');
+            $this->assertNull($video->refresh()->publish_requested_at, $state);
+        }
+    }
+
+    public function test_une_purge_de_dossier_qui_echoue_se_redit_et_se_refait(): void
+    {
+        $this->partialMock(VideoStorage::class, fn ($mock) => $mock->shouldReceive('deleteFolder')->andReturn(false));
+        $this->expectException(\RuntimeException::class);
+
+        (new PurgeVideoFolder('videos/essai'))->handle(app(VideoStorage::class));
+    }
+
+    public function test_une_video_tres_courte_se_certifie_quand_on_l_a_vue_en_entier(): void
+    {
+        $this->assertSame(10, VideoView::requiredSeconds(10.9));
+        $this->assertSame(75, VideoView::requiredSeconds(78.0));
+        $this->assertSame(29, VideoView::requiredSeconds(30.0));
+        $this->assertSame(0, VideoView::requiredSeconds(0.4));
+    }
+
+    public function test_mes_formations_ne_montre_ni_les_achats_des_autres_ni_les_achats_pas_payes_ni_les_videos_plus_qu_on_ne_peut_pas_voir(): void
+    {
+        $vet = $this->verifiedVet();
+        // Incluse dans Plus, mais son vendeur ne vend plus : elle n'est plus regardable
+        $stopped = $this->verifiedVet();
+        $vetsOnly = $this->published(['in_plus' => true, 'title' => 'Vendeur qui ne vend plus'], $stopped);
+        $stopped['user']->forceFill(['verification_veterinaire' => StatutVerificationVeterinaire::Refuse])->save();
+        $unpaid = $this->published(['title' => 'Pas payée'], $vet);
+        $others = $this->published(['title' => 'Achetée par un autre'], $vet);
+        $plus = $this->proprietaireAvecJeton(['formule' => 'plus']);
+        $someone = $this->proprietaireAvecJeton();
+        VideoPurchase::query()->create([
+            'video_id' => Video::query()->where('uuid', $unpaid['id'])->value('id'), 'user_id' => $plus['user']->id, 'amount_cents' => 1500, 'commission_cents' => 450,
+            'stripe_account_id' => 'acct_vet', 'terms_accepted_at' => now(), 'payment_intent_id' => 'pi_en_cours',
+        ]);
+        VideoPurchase::query()->create([
+            'video_id' => Video::query()->where('uuid', $others['id'])->value('id'), 'user_id' => $someone['user']->id, 'amount_cents' => 1500, 'commission_cents' => 450,
+            'stripe_account_id' => 'acct_vet', 'terms_accepted_at' => now(), 'paid_at' => now(),
+        ]);
+
+        $library = $this->getJson('/api/v1/espace/videos/library', $this->enTetes($plus['jeton']))->assertOk();
+        $ids = collect($library->json('data'))->pluck('id')->all();
+        // Ni dans la page, ni dans le compte des pages
+        $this->assertSame(0, $library->json('meta.total'));
+
+        $this->assertNotContains($vetsOnly['id'], $ids);
+        $this->assertNotContains($unpaid['id'], $ids);
+        $this->assertNotContains($others['id'], $ids);
+    }
+
+    public function test_un_groupe_de_virement_tout_juste_parti_ne_se_cherche_pas_avant_une_heure_meme_dans_un_autre_passage(): void
+    {
+        $this->travelTo('2027-02-02 08:00');
+        $seller = User::factory()->create(['verification_veterinaire' => StatutVerificationVeterinaire::Verifie, 'stripe_account_id' => 'acct_heure', 'stripe_account_ready_at' => now()]);
+        PlusPoolMonth::query()->create(['month' => '2027-01', 'net_revenue_cents' => 6000, 'pool_cents' => 3000, 'views' => 3, 'computed_at' => now()])
+            ->shares()->create(['seller_user_id' => $seller->id, 'views' => 3, 'earned_cents' => 3000]);
+        $this->gateway->perdreLaReponseDuVersement = true;
+        $this->gateway->versementsPasEncoreVisibles = true;
+
+        (new PlusPool($this->gateway))->pay(CarbonImmutable::parse('2027-01-01'));
+        // Un passage lancé à la main dix minutes plus tard, dans un autre processus
+        $this->travel(10)->minutes();
+        (new PlusPool($this->gateway))->pay(CarbonImmutable::parse('2027-01-01'));
+        $this->assertCount(1, $this->gateway->versements);
+
+        // Une heure plus tard, le prestataire le montre : il est noté, jamais refait
+        $this->travel(2)->hours();
+        $this->gateway->versementsPasEncoreVisibles = false;
+        (new PlusPool($this->gateway))->pay(CarbonImmutable::parse('2027-01-01'));
+        $this->assertCount(1, $this->gateway->versements);
+        $this->assertNotNull(PlusPoolShare::query()->sole()->paid_at);
     }
 }

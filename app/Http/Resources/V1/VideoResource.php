@@ -33,7 +33,7 @@ class VideoResource extends JsonResource
             'counted' => $view?->counted_at !== null,
             'completed' => $view?->completed_at !== null,
             // Ce qu'il faut avoir regardé pour le certificat : l'écran ne refait pas le calcul
-            'required_seconds' => $this->duration_seconds !== null ? (int) ceil($this->duration_seconds * VideoView::COMPLETION_RATIO) : null,
+            'required_seconds' => $this->duration_seconds !== null ? VideoView::requiredSeconds((float) $this->duration_seconds) : null,
             'certificate_code' => $certificate?->code,
         ];
 

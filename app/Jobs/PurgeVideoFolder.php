@@ -7,6 +7,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use RuntimeException;
 
 /**
  * Le dossier d'un brouillon supprimé pendant son envoi (31.10.2026,
@@ -29,6 +30,9 @@ class PurgeVideoFolder implements ShouldQueue
 
     public function handle(VideoStorage $storage): void
     {
-        $storage->deleteFolder($this->folder);
+        // Le disque ne lève rien sur une panne : un effacement raté se dit, et la file réessaie
+        if (! $storage->deleteFolder($this->folder)) {
+            throw new RuntimeException('Dossier de vidéo pas effacé : '.$this->folder);
+        }
     }
 }
