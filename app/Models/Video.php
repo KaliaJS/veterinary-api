@@ -6,6 +6,7 @@ use App\Auth\CalculateurPermissions;
 use App\Enums\DomainePermission;
 use App\Enums\StatutVerificationVeterinaire;
 use App\Enums\VideoAudience;
+use App\Enums\VideoCategory;
 use App\Enums\VideoFilesStatus;
 use App\Enums\VideoStatus;
 use Database\Factories\VideoFactory;
@@ -27,6 +28,7 @@ use Illuminate\Support\Str;
  *
  * @property VideoStatus $status
  * @property VideoAudience|null $audience
+ * @property VideoCategory|null $category
  * @property VideoFilesStatus $files_status
  */
 class Video extends Model
@@ -51,7 +53,7 @@ class Video extends Model
 
     protected $fillable = [
         'uuid', 'seller_user_id', 'seller_clinique_id', 'organisation_id', 'seller_name', 'created_by_user_id',
-        'title', 'description', 'price_cents', 'audience', 'in_plus', 'status', 'files_status', 'rejection_reason',
+        'title', 'description', 'price_cents', 'audience', 'category', 'poster_token', 'poster_preview', 'in_plus', 'status', 'files_status', 'rejection_reason',
         'duration_seconds', 'width', 'height', 'size_bytes', 'renditions', 'download_path',
         'files_verified_at', 'published_at', 'withdrawn_at', 'upload_started_at', 'upload_expected_bytes', 'files_checked_at', 'publish_requested_at', 'publish_requested_by',
     ];
@@ -99,6 +101,7 @@ class Video extends Model
         return [
             'status' => VideoStatus::class,
             'audience' => VideoAudience::class,
+            'category' => VideoCategory::class,
             'files_status' => VideoFilesStatus::class,
             'in_plus' => 'boolean',
             'duration_seconds' => 'decimal:3',

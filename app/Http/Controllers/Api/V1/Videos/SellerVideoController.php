@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api\V1\Videos;
 
 use App\Auth\ContexteClinique;
 use App\Enums\VideoAudience;
+use App\Enums\VideoCategory;
 use App\Enums\VideoFilesStatus;
 use App\Enums\VideoStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\V1\Videos\StoreVideoPosterRequest;
 use App\Http\Requests\V1\Videos\StoreVideoRequest;
 use App\Http\Requests\V1\Videos\UpdateVideoRequest;
 use App\Http\Resources\V1\VideoResource;
@@ -17,6 +19,7 @@ use App\Models\Video;
 use App\Services\Videos\HlsPackage;
 use App\Services\Videos\Sellers;
 use App\Services\Videos\SellerTerms;
+use App\Services\Videos\VideoPosters;
 use App\Services\Videos\VideoPublisher;
 use App\Services\Videos\VideoStorage;
 use App\Support\NativeApp;
@@ -64,6 +67,8 @@ abstract class SellerVideoController extends Controller
             // Pour l'écran : peut-il vendre, et la place qui reste
             'meta' => [
                 'verified' => $request->user()->estVerifie(),
+                // La liste fixe des catégories, dans l'ordre des rangées du catalogue
+                'categories' => VideoCategory::options(),
                 'storage' => $this->sellers->storageFor($request->user(), $this->as),
                 // Les conditions de vente : la version en vigueur, et si elle est acceptée
                 'terms' => ['version' => SellerTerms::VERSION, 'accepted' => app(SellerTerms::class)->acceptedFor($request->user(), $this->as)],
@@ -91,9 +96,9 @@ abstract class SellerVideoController extends Controller
         }
         // En vente, ce qui la décrit ne s'efface pas
         if ($model->status === VideoStatus::Published) {
-            $blank = array_filter(['title', 'description', 'price_cents', 'audience'], fn (string $key) => array_key_exists($key, $data) && blank($data[$key]));
+            $blank = array_filter(['title', 'description', 'price_cents', 'audience', 'category'], fn (string $key) => array_key_exists($key, $data) && blank($data[$key]));
             if ($blank !== []) {
-                throw ValidationException::withMessages(array_fill_keys($blank, 'Une vidéo en vente garde son titre, sa description, son prix et son public.'));
+                throw ValidationException::withMessages(array_fill_keys($blank, 'Une vidéo en vente garde son titre, sa description, son prix, son public et sa catégorie.'));
             }
         }
 
@@ -127,8 +132,50 @@ abstract class SellerVideoController extends Controller
         $model->views()->delete();
         $model->certificates()->delete();
         $model->delete();
+        app(VideoPosters::class)->delete($model->poster_token);
 
         return response()->noContent();
+    }
+
+    /**
+     * L'affiche (31.10.2026) : une image de la vidéo, tirée par le navigateur
+     * du vendeur, ou une photo. Elle remplace la précédente.
+     */
+    public function poster(StoreVideoPosterRequest $request, string $video, VideoPosters $posters): VideoResource
+    {
+        $model = $this->find($request, $video);
+        $this->sellers->assertCanManage($model, $request->user(), $this->as);
+        if ($model->status === VideoStatus::Published) {
+            NativeApp::refuse($request, 'Une vidéo en vente se modifie sur le site de Veterinary, pas dans l’app iPhone.');
+        }
+        $previous = $model->poster_token;
+        $stored = $posters->store($request->file('poster'));
+        // Seulement sur l'affiche lue ici : deux envois croisés (deux onglets) n'en perdent jamais une sur le disque
+        $replaced = Video::query()->whereKey($model->id)
+            ->where(fn (Builder $poster) => $previous === null ? $poster->whereNull('poster_token') : $poster->where('poster_token', $previous))
+            ->update(['poster_token' => $stored['token'], 'poster_preview' => $stored['preview'], 'updated_at' => now()]);
+        if ($replaced === 0) {
+            $posters->delete($stored['token']);
+            throw ValidationException::withMessages(['poster' => 'L’affiche vient de changer dans un autre onglet : réessayez.']);
+        }
+        $posters->delete($previous);
+
+        return VideoResource::seenBy($model->refresh(), 'seller', true);
+    }
+
+    /** Sans affiche : seulement hors de la vente, où chaque vidéo en a une. */
+    public function removePoster(Request $request, string $video, VideoPosters $posters): VideoResource
+    {
+        $model = $this->find($request, $video);
+        $this->sellers->assertCanManage($model, $request->user(), $this->as);
+        if ($model->status === VideoStatus::Published) {
+            throw ValidationException::withMessages(['poster' => 'Une vidéo en vente garde son affiche : remplacez-la plutôt.']);
+        }
+        $previous = $model->poster_token;
+        $model->update(['poster_token' => null, 'poster_preview' => null]);
+        $posters->delete($previous);
+
+        return VideoResource::seenBy($model, 'seller', true);
     }
 
     /** Mise en vente immédiate, sans validation à la main ; jamais depuis l'app iPhone. */

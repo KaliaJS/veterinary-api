@@ -21,7 +21,7 @@ use Throwable;
  */
 class SellerlessVideos
 {
-    public function __construct(private ViewingCertificates $certificates, private PasserellePaiement $gateway, private VideoPurchases $purchases) {}
+    public function __construct(private ViewingCertificates $certificates, private PasserellePaiement $gateway, private VideoPurchases $purchases, private VideoPosters $posters) {}
 
     /**
      * Efface une vidéo qui n'a aucun acheteur ; ses fichiers partent par la
@@ -48,6 +48,7 @@ class SellerlessVideos
             }
         }
         $folder = $video->folder();
+        $poster = $video->poster_token;
         $certified = $video->certificates()->pluck('user_id')->all();
         $video->views()->whereNotNull('completed_at')->whereNotIn('user_id', $certified)->get()
             ->each(function (VideoView $view) use ($video): void {
@@ -66,7 +67,7 @@ class SellerlessVideos
         if ($video->certificates()->exists()) {
             $video->update([
                 'status' => VideoStatus::Withdrawn, 'withdrawn_at' => $video->withdrawn_at ?? now(), 'files_status' => VideoFilesStatus::Rejected,
-                'title' => null, 'description' => null, 'seller_name' => '', 'in_plus' => false,
+                'title' => null, 'description' => null, 'seller_name' => '', 'in_plus' => false, 'poster_token' => null, 'poster_preview' => null,
                 'size_bytes' => 0, 'renditions' => null, 'download_path' => null, 'upload_started_at' => null,
                 'publish_requested_at' => null, 'publish_requested_by' => null,
             ]);
@@ -74,6 +75,7 @@ class SellerlessVideos
             $video->delete();
         }
         PurgeVideoFolder::dispatch($folder)->afterCommit();
+        $this->posters->delete($poster);
 
         return true;
     }

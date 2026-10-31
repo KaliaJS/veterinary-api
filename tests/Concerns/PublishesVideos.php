@@ -4,7 +4,9 @@ namespace Tests\Concerns;
 
 use App\Enums\StatutVerificationVeterinaire;
 use App\Models\User;
+use App\Models\Video;
 use App\Services\Videos\SellerTerms;
+use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 
 /**
@@ -57,11 +59,25 @@ trait PublishesVideos
         $id = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $id, $this->hlsPackage($seconds));
         $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson("/api/v1/espace/videos/seller/videos/{$id}", [
+        $this->fillSheet("/api/v1/espace/videos/seller/videos/{$id}", [
             'title' => 'Nourrir un chat senior', 'description' => 'Ce qu’il faut savoir.', 'price_cents' => 1500, 'audience' => 'owners', ...$fields,
-        ], $this->enTetes($vet['jeton']))->assertOk();
+        ], $this->enTetes($vet['jeton']));
         $this->postJson("/api/v1/espace/videos/seller/videos/{$id}/publish", [], $this->enTetes($vet['jeton']))->assertOk();
 
         return ['id' => $id, 'vet' => $vet];
+    }
+
+    /**
+     * La fiche remplie pour la vente : ses champs, une catégorie, et une
+     * affiche posée directement (son envoi a ses propres tests).
+     *
+     * @param  array<string, string>  $headers
+     */
+    protected function fillSheet(string $url, array $fields, array $headers): TestResponse
+    {
+        $response = $this->patchJson($url, ['category' => 'nutrition', ...$fields], $headers)->assertOk();
+        Video::query()->where('uuid', basename($url))->update(['poster_token' => Str::random(40)]);
+
+        return $response;
     }
 }

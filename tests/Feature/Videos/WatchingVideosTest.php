@@ -53,9 +53,9 @@ class WatchingVideosTest extends TestCase
         $id = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $id, $this->hlsPackage(180));
         $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson("/api/v1/espace/videos/seller/videos/{$id}", [
+        $this->fillSheet("/api/v1/espace/videos/seller/videos/{$id}", [
             'title' => 'Nourrir un chat senior', 'description' => 'Ce qu’il faut savoir.', 'price_cents' => 1500, 'audience' => 'owners', ...$fields,
-        ], $this->enTetes($vet['jeton']))->assertOk();
+        ], $this->enTetes($vet['jeton']));
         $this->postJson("/api/v1/espace/videos/seller/videos/{$id}/publish", [], $this->enTetes($vet['jeton']))->assertOk();
 
         return ['id' => $id, 'vet' => $vet];

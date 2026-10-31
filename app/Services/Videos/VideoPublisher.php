@@ -26,6 +26,8 @@ class VideoPublisher
             'description' => blank($video->description) ? 'Décrivez la vidéo.' : null,
             'price_cents' => $video->price_cents === null ? 'Fixez son prix : 2 CHF au moins.' : null,
             'audience' => $video->audience === null ? 'Choisissez à qui elle est destinée.' : null,
+            'category' => $video->category === null ? 'Choisissez sa catégorie.' : null,
+            'poster' => $video->poster_token === null ? 'Ajoutez une affiche : une image de la vidéo ou une photo.' : null,
         ]);
     }
 

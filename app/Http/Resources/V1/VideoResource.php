@@ -5,6 +5,7 @@ namespace App\Http\Resources\V1;
 use App\Models\Video;
 use App\Models\VideoView;
 use App\Models\ViewingCertificate;
+use App\Services\Videos\VideoPosters;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -61,6 +62,9 @@ class VideoResource extends JsonResource
             'description' => $this->description,
             'price_cents' => $this->price_cents,
             'audience' => $this->audience?->value,
+            'category' => $this->category?->value,
+            'category_label' => $this->category?->label(),
+            'poster' => VideoPosters::for($this->resource),
             'in_plus' => $this->in_plus,
             'status' => $this->status->value,
             'duration_seconds' => $this->duration_seconds === null ? null : (float) $this->duration_seconds,

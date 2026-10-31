@@ -120,7 +120,7 @@ class VideoSafeguardsTest extends TestCase
         $draft = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $draft, $this->hlsPackage());
         $this->finish($vet['jeton'], $draft)->assertOk();
-        $this->patchJson($this->base($draft), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->fillSheet($this->base($draft), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']));
         $owner = $this->proprietaireAvecJeton();
 
         $vet['user']->forceFill(['verification_veterinaire' => StatutVerificationVeterinaire::Refuse])->save();
@@ -141,7 +141,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($jeton, '/api/v1/videos');
         $this->upload($jeton, $id, $this->hlsPackage(), '/api/v1/videos');
         $this->finish($jeton, $id, '/api/v1/videos')->assertOk();
-        $this->patchJson("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners'], $this->enTetes($jeton))->assertOk();
+        $this->fillSheet("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners'], $this->enTetes($jeton));
         $this->postJson("/api/v1/videos/{$id}/publish", [], $this->enTetes($jeton))->assertOk()->assertJsonPath('data.status', 'published');
 
         $owner = $this->proprietaireAvecJeton();
@@ -176,7 +176,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $id, $this->hlsPackage());
         $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'both'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->fillSheet($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'both'], $this->enTetes($vet['jeton']));
         $owner = $this->proprietaireAvecJeton();
         $otherVet = $this->verifiedVet();
 
@@ -250,7 +250,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $id, $this->hlsPackage());
         $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->fillSheet($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']));
         $video = Video::query()->sole();
         Storage::disk('prive')->put($video->folder().'/init-1.mp4', $this->initSegment(3840, 2160, 'hvc1'));
 
@@ -467,7 +467,7 @@ class VideoSafeguardsTest extends TestCase
         $this->play($employeJeton, $id)->assertNotFound();
 
         // En vente et incluse dans Plus : il la regarde comme tout abonné, et sa vue compte
-        $this->patchJson("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners', 'in_plus' => true], $this->enTetes($jeton))->assertOk();
+        $this->fillSheet("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners', 'in_plus' => true], $this->enTetes($jeton));
         $this->postJson("/api/v1/videos/{$id}/publish", [], $this->enTetes($jeton))->assertOk();
         $this->play($employeJeton, $id)->assertJsonPath('data.access', 'plus');
         for ($at = 0; $at < 90; $at += 15) {
@@ -489,7 +489,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($jeton, '/api/v1/videos');
         $this->upload($jeton, $id, $this->hlsPackage(), '/api/v1/videos');
         $this->finish($jeton, $id, '/api/v1/videos')->assertOk();
-        $this->patchJson("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners'], $this->enTetes($jeton))->assertOk();
+        $this->fillSheet("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners'], $this->enTetes($jeton));
 
         ['user' => $other, 'jeton' => $otherJeton] = $this->administrateurAvecJeton($clinique);
         $this->postJson("/api/v1/videos/{$id}/publish", [], $this->enTetes($otherJeton))->assertUnprocessable()->assertJsonValidationErrors('seller');
@@ -506,7 +506,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($jeton, '/api/v1/videos');
         $this->upload($jeton, $id, $this->hlsPackage(), '/api/v1/videos');
         $this->finish($jeton, $id, '/api/v1/videos')->assertOk();
-        $this->patchJson("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners'], $this->enTetes($jeton))->assertOk();
+        $this->fillSheet("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners'], $this->enTetes($jeton));
         $this->postJson("/api/v1/videos/{$id}/publish", [], $this->enTetes($jeton))->assertOk();
 
         $stranger = $this->proprietaireAvecJeton();
@@ -701,7 +701,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($jeton, '/api/v1/videos');
         $this->upload($jeton, $id, $this->hlsPackage(), '/api/v1/videos');
         $this->finish($jeton, $id, '/api/v1/videos')->assertOk();
-        $this->patchJson("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners', 'in_plus' => true], $this->enTetes($jeton))->assertOk();
+        $this->fillSheet("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners', 'in_plus' => true], $this->enTetes($jeton));
         $this->postJson("/api/v1/videos/{$id}/publish", [], $this->enTetes($jeton))->assertOk();
 
         $this->assertSame(['acct_societe_'.$clinique->id], $this->gateway->virementsDemandes);
@@ -827,7 +827,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($jeton, '/api/v1/videos');
         $this->upload($jeton, $id, $this->hlsPackage(), '/api/v1/videos');
         $this->finish($jeton, $id, '/api/v1/videos')->assertOk();
-        $this->patchJson("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners'], $this->enTetes($jeton))->assertOk();
+        $this->fillSheet("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners'], $this->enTetes($jeton));
         $this->postJson("/api/v1/videos/{$id}/publish", [], $this->enTetes($jeton))->assertOk();
         $owner = $this->proprietaireAvecJeton();
         $this->getJson('/api/v1/espace/videos', $this->enTetes($owner['jeton']))->assertJsonCount(1, 'data');
@@ -890,7 +890,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $id, $this->hlsPackage());
         $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->fillSheet($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']));
         $this->partialMock(VideoStorage::class, fn ($mock) => $mock->shouldReceive('read')->andReturn(null));
 
         $this->postJson($this->base($id).'/publish', [], $this->enTetes($vet['jeton']))->assertStatus(503);
@@ -928,7 +928,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $id, $this->hlsPackage());
         $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->fillSheet($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']));
         Video::query()->sole()->forceFill(['files_checked_at' => null])->save();
         Queue::fake();
 
@@ -1174,7 +1174,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $id, $this->hlsPackage());
         $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->fillSheet($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']));
         $video = Video::query()->sole();
         $video->forceFill(['files_checked_at' => null])->save();
         Queue::fake();
@@ -1195,7 +1195,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $id, $this->hlsPackage());
         $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->fillSheet($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']));
         $video = Video::query()->sole();
         $video->forceFill(['files_checked_at' => null])->save();
         Queue::fake();
@@ -1218,7 +1218,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $id, $this->hlsPackage());
         $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->fillSheet($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']));
         Queue::assertPushed(RecheckVideoFiles::class, 3);
 
         // La relecture de tout de suite n'a pas encore tourné : la mise en vente ne la double pas
@@ -1388,7 +1388,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $id, $this->hlsPackage());
         $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->fillSheet($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']));
         Video::query()->sole()->forceFill(['files_checked_at' => null])->save();
         Queue::fake();
         // La relecture finit juste au moment où la demande s'écrit, sans la voir
@@ -1410,7 +1410,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($vet['jeton']);
         $this->upload($vet['jeton'], $id, $this->hlsPackage());
         $this->finish($vet['jeton'], $id)->assertOk();
-        $this->patchJson($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->fillSheet($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']));
         $video = Video::query()->sole();
         $video->forceFill(['files_checked_at' => null])->save();
         Queue::fake();
@@ -1460,7 +1460,7 @@ class VideoSafeguardsTest extends TestCase
         $id = $this->draft($vet['jeton'], $base);
         $this->upload($vet['jeton'], $id, $this->hlsPackage(), $base);
         $this->finish($vet['jeton'], $id, $base)->assertOk();
-        $this->patchJson("{$base}/{$id}", ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->fillSheet("{$base}/{$id}", ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']));
         $video = Video::query()->where('uuid', $id)->firstOrFail();
         $video->forceFill(['files_checked_at' => null])->save();
 

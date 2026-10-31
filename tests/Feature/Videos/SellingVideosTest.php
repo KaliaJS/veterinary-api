@@ -346,7 +346,7 @@ class SellingVideosTest extends TestCase
             $this->call('PUT', $url['url'], [], [], [], [], $this->hlsPackage()[$url['name']]);
         }
         $this->postJson("/api/v1/espace/videos/seller/videos/{$id}/upload/finish", [], $iphone)->assertOk();
-        $this->patchJson("/api/v1/espace/videos/seller/videos/{$id}", ['description' => 'x', 'price_cents' => 900, 'audience' => 'owners'], $iphone)->assertOk();
+        $this->fillSheet("/api/v1/espace/videos/seller/videos/{$id}", ['description' => 'x', 'price_cents' => 900, 'audience' => 'owners'], $iphone);
 
         $this->postJson("/api/v1/espace/videos/seller/videos/{$id}/publish", [], $iphone)
             ->assertUnprocessable()->assertJsonValidationErrors(['platform' => 'La mise en vente se fait sur le site de Veterinary, pas dans l’app iPhone.']);

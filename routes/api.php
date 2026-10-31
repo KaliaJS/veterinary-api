@@ -170,12 +170,14 @@ use App\Http\Controllers\Api\V1\Videos\PersonalVideoUploadController;
 use App\Http\Controllers\Api\V1\Videos\SellerAccountController;
 use App\Http\Controllers\Api\V1\Videos\VideoCatalogueController;
 use App\Http\Controllers\Api\V1\Videos\VideoLocalFileController;
+use App\Http\Controllers\Api\V1\Videos\VideoPosterController;
 use App\Http\Controllers\Api\V1\Videos\VideoPurchaseController;
 use App\Http\Controllers\Api\V1\Videos\VideoViewingController;
 use App\Http\Controllers\Api\V1\VisioController;
 use App\Http\Controllers\Api\V1\VisioPubliqueController;
 use App\Http\Controllers\Api\V1\VisiteController;
 use App\Http\Controllers\Api\V1\VitrineController;
+use App\Services\Videos\VideoPosters;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -293,6 +295,8 @@ Route::prefix('v1')->group(function (): void {
                 Route::get('{name}', [VideoViewingController::class, 'media'])->name('videos.hls.media');
             });
         Route::get('certificates/{code}', [VideoViewingController::class, 'verify'])->middleware('throttle:30,1');
+        // Affiches des vidéos : publiques, en cache, au dossier imprévisible (31.10.2026)
+        Route::get('videos/posters/{token}/{width}.webp', [VideoPosterController::class, 'show'])->where(['token' => VideoPosters::TOKEN, 'width' => '640|1280|1920'])->name('videos.poster')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
         // Catalogue des formules et des packs : prix et limites, sans compte (28.10.2026)
         Route::get('offres', [OrganisationController::class, 'offres']);
@@ -345,6 +349,8 @@ Route::prefix('v1')->group(function (): void {
         // et la vente en son nom pour un vétérinaire vérifié
         Route::prefix('videos')->group(function (): void {
             Route::get('/', [VideoCatalogueController::class, 'index']);
+            // L'accueil de l'écran « Vidéos » : ses rangées (continuer, les siennes, nouveautés, une par catégorie)
+            Route::get('home', [VideoCatalogueController::class, 'home']);
             Route::get('library', [VideoCatalogueController::class, 'library']);
             Route::get('seller/account', [SellerAccountController::class, 'show']);
             Route::post('seller/account', [SellerAccountController::class, 'store'])->middleware('throttle:20,1');
@@ -355,6 +361,8 @@ Route::prefix('v1')->group(function (): void {
                 Route::delete('/', [PersonalVideoController::class, 'destroy']);
                 Route::post('publish', [PersonalVideoController::class, 'publish']);
                 Route::post('withdraw', [PersonalVideoController::class, 'withdraw']);
+                Route::post('poster', [PersonalVideoController::class, 'poster'])->middleware('throttle:30,1');
+                Route::delete('poster', [PersonalVideoController::class, 'removePoster']);
                 Route::post('upload/start', [PersonalVideoUploadController::class, 'start'])->middleware('throttle:30,1');
                 Route::post('upload/urls', [PersonalVideoUploadController::class, 'urls'])->middleware('throttle:600,1');
                 Route::get('upload/files', [PersonalVideoUploadController::class, 'files']);
@@ -449,6 +457,8 @@ Route::prefix('v1')->group(function (): void {
                 Route::post('publish', [ClinicVideoController::class, 'publish']);
                 // Retirer reste possible quand l'organisation est fermée : sinon la vidéo reviendrait en vente à la réouverture
                 Route::post('withdraw', [ClinicVideoController::class, 'withdraw'])->withoutMiddleware('organisation.ouverte');
+                Route::post('poster', [ClinicVideoController::class, 'poster'])->middleware('throttle:30,1');
+                Route::delete('poster', [ClinicVideoController::class, 'removePoster']);
                 Route::post('upload/start', [ClinicVideoUploadController::class, 'start'])->middleware('throttle:30,1');
                 Route::post('upload/urls', [ClinicVideoUploadController::class, 'urls'])->middleware('throttle:600,1');
                 Route::get('upload/files', [ClinicVideoUploadController::class, 'files']);
