@@ -100,7 +100,7 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
             'status' => $video->status === VideoStatus::Published ? ($withdraw ? VideoStatus::Withdrawn : VideoStatus::Draft) : $video->status,
             'withdrawn_at' => $withdraw ? now() : $video->withdrawn_at,
         ]);
-        VideoUpdated::announce($video, $wasRequested ? 'La vidéo n’a pas pu être relue, le stockage ne répond pas : elle n’est pas mise en vente. Réessayez plus tard.' : null);
+        VideoUpdated::announce($video, $wasRequested ? '« '.$video->title.' » n’a pas pu être relue, le stockage ne répond pas : elle n’est pas mise en vente. Réessayez plus tard.' : null);
     }
 
     public function handle(HlsPackage $package, VideoStorage $storage, VideoPublisher $publisher): void
@@ -185,7 +185,8 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
         } catch (ValidationException $e) {
             $reasons = implode(' ', array_merge(...array_values($e->errors())));
             $video->update(['publish_requested_at' => null, 'publish_requested_by' => null]);
-            $this->notice = 'La vidéo n’a pas pu être mise en vente. '.$reasons;
+            // Le titre : sur le canal de la clinique, chacun de ceux qui gèrent ses vidéos le reçoit
+            $this->notice = '« '.$video->title.' » n’a pas pu être mise en vente. '.$reasons;
             report(new RuntimeException("Vidéo {$video->id} relue mais pas mise en vente : ".$reasons));
         }
     }

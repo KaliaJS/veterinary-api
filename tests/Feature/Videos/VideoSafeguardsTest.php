@@ -318,8 +318,8 @@ class VideoSafeguardsTest extends TestCase
         ]);
         $this->postJson($this->base($sale['id']).'/withdraw', [], $this->enTetes($sale['vet']['jeton']))->assertOk();
 
-        $this->getJson('/api/v1/espace/videos/purchased', $this->enTetes($owner['jeton']))->assertOk()
-            ->assertJsonPath('data.0.id', $sale['id'])->assertJsonPath('data.0.status', 'withdrawn');
+        $this->getJson('/api/v1/espace/videos/library', $this->enTetes($owner['jeton']))->assertOk()
+            ->assertJsonPath('data.0.id', $sale['id'])->assertJsonPath('data.0.status', 'withdrawn')->assertJsonPath('data.0.access', 'owned');
     }
 
     public function test_les_adresses_des_morceaux_expirent_avec_la_lecture_et_le_telechargement_en_une_heure(): void
@@ -1677,7 +1677,8 @@ class VideoSafeguardsTest extends TestCase
 
         $this->assertSame('draft', $video->refresh()->status->value);
         $this->assertNull($video->publish_requested_at);
-        Events::assertDispatched(VideoUpdated::class, fn (VideoUpdated $e): bool => str_contains((string) $e->broadcastWith()['notice'], 'ne peut plus publier pour la clinique'));
+        Events::assertDispatched(VideoUpdated::class, fn (VideoUpdated $e): bool => str_contains((string) $e->broadcastWith()['notice'], 'ne peut plus publier pour la clinique')
+            && str_contains((string) $e->broadcastWith()['notice'], '« Nourrir un chat senior »'));
         $this->assertNotNull($clinique->id);
     }
 
@@ -1729,5 +1730,39 @@ class VideoSafeguardsTest extends TestCase
         $video = Video::query()->sole();
         $this->assertSame('pending', $video->files_status->value);
         $this->assertNotEmpty(Storage::disk('prive')->allFiles($video->folder()));
+    }
+
+    /* ————— Septième vérification (31.10.2026) ————— */
+
+    public function test_mes_formations_donne_a_un_abonne_plus_toutes_les_videos_incluses_au_dela_des_24_dernieres(): void
+    {
+        $vet = $this->verifiedVet();
+        $old = $this->published(['in_plus' => true, 'title' => 'La plus ancienne'], $vet);
+        $this->travel(1)->minutes();
+        // 25 vidéos plus récentes, hors de Plus, qui la repoussent en page 2 du catalogue
+        Video::factory()->count(25)->create(['seller_user_id' => $vet['user']->id, 'status' => 'published', 'audience' => 'owners', 'price_cents' => 500, 'published_at' => now()]);
+        $plus = $this->proprietaireAvecJeton(['formule' => 'plus']);
+        $free = $this->proprietaireAvecJeton();
+
+        $this->getJson('/api/v1/espace/videos', $this->enTetes($plus['jeton']))->assertOk()->assertJsonMissing(['id' => $old['id']]);
+        $library = $this->getJson('/api/v1/espace/videos/library', $this->enTetes($plus['jeton']))->assertOk();
+        $library->assertJsonPath('data.0.id', $old['id'])->assertJsonPath('data.0.access', 'plus')->assertJsonPath('meta.total', 1);
+
+        // Sans Plus, rien que ses achats
+        $this->getJson('/api/v1/espace/videos/library', $this->enTetes($free['jeton']))->assertOk()->assertJsonPath('meta.total', 0);
+    }
+
+    public function test_une_mise_en_vente_demandee_que_la_panne_empeche_se_dit_au_vendeur(): void
+    {
+        $vet = $this->verifiedVet();
+        $video = $this->readyDraft($vet);
+        Queue::fake();
+        $this->postJson($this->base($video->uuid).'/publish', [], $this->enTetes($vet['jeton']))->assertStatus(202);
+        Events::fake([VideoUpdated::class]);
+
+        (new RecheckVideoFiles($video->id))->failed(new \RuntimeException('stockage'));
+
+        Events::assertDispatched(VideoUpdated::class, fn (VideoUpdated $e): bool => str_contains((string) $e->broadcastWith()['notice'], '« Nourrir un chat senior » n’a pas pu être relue')
+            && $e->broadcastWith()['publish_requested'] === false);
     }
 }

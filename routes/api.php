@@ -345,7 +345,7 @@ Route::prefix('v1')->group(function (): void {
         // et la vente en son nom pour un vétérinaire vérifié
         Route::prefix('videos')->group(function (): void {
             Route::get('/', [VideoCatalogueController::class, 'index']);
-            Route::get('purchased', [VideoCatalogueController::class, 'purchased']);
+            Route::get('library', [VideoCatalogueController::class, 'library']);
             Route::get('seller/account', [SellerAccountController::class, 'show']);
             Route::post('seller/account', [SellerAccountController::class, 'store'])->middleware('throttle:20,1');
             Route::get('seller/videos', [PersonalVideoController::class, 'index']);

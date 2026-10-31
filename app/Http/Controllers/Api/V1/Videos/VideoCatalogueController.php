@@ -9,6 +9,7 @@ use App\Models\Video;
 use App\Models\VideoView;
 use App\Models\ViewingCertificate;
 use App\Services\Videos\VideoAccess;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -35,16 +36,33 @@ class VideoCatalogueController extends Controller
         ]);
     }
 
-    /** Ses achats : à vie, même retirés de la vente. */
-    public function purchased(Request $request): JsonResponse
+    /**
+     * « Mes formations » (septième vérification) : ses achats, à vie, même
+     * retirés de la vente, et, pour un abonné Plus, toutes les vidéos
+     * incluses qu'il peut regarder ; par pages, les plus récentes d'abord.
+     * Dans l'app iPhone, sans catalogue, c'est le seul chemin vers elles.
+     */
+    public function library(Request $request): JsonResponse
     {
         $user = $request->user();
         $videos = Video::query()
-            ->whereHas('purchases', fn ($purchase) => $purchase->where('user_id', $user->id)->whereNotNull('paid_at'))
-            ->latest('id')
-            ->get();
+            ->where(function (Builder $mine) use ($user): void {
+                $mine->whereHas('purchases', fn (Builder $purchase) => $purchase->where('user_id', $user->id)->whereNotNull('paid_at'));
+                if ($user->aPlus()) {
+                    $mine->orWhere(fn (Builder $plus) => Video::visibleTo($plus, $user)->where('in_plus', true));
+                }
+            })
+            ->with(['sellerUser', 'organisation', 'purchases' => fn ($purchase) => $purchase->where('user_id', $user->id)->whereNotNull('paid_at')])
+            ->orderByDesc('published_at')->orderByDesc('id')
+            ->paginate(24);
+        $organisations = Video::organisationsOf($user);
 
-        return response()->json(['data' => $videos->map(fn (Video $video) => VideoResource::seenBy($video, 'owned')->resolve($request))->all()]);
+        return response()->json([
+            'data' => $videos->getCollection()
+                ->map(fn (Video $video) => VideoResource::seenBy($video, $this->access->for($video, $user, $video->isOnSellerSide($user, $organisations)) ?? 'owned')->resolve($request))
+                ->all(),
+            'meta' => ['current_page' => $videos->currentPage(), 'last_page' => $videos->lastPage(), 'total' => $videos->total()],
+        ]);
     }
 
     public function show(Request $request, string $video): VideoResource|JsonResponse
