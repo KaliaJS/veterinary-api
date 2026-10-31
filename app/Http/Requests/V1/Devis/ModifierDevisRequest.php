@@ -9,7 +9,8 @@ use Illuminate\Validation\Rule;
 
 /**
  * Seul un brouillon se modifie (le contrôleur garde le statut). Les
- * lignes, si présentes, remplacent le jeu complet.
+ * lignes, si présentes, remplacent le jeu complet. Patient et lignes
+ * restent facultatifs dans un brouillon : exigés à l'envoi (01.11.2026).
  */
 class ModifierDevisRequest extends FormRequest
 {
@@ -19,9 +20,9 @@ class ModifierDevisRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'patient_id' => ['sometimes', $this->existeDansLOrganisation('patients')],
+            'patient_id' => ['sometimes', 'nullable', $this->existeDansLOrganisation('patients')],
             'motif' => ['sometimes', 'string', 'max:255'],
-            'lignes' => ['sometimes', 'array', 'min:1'],
+            'lignes' => ['sometimes', 'array'],
             'lignes.*.libelle' => ['required', 'string', 'max:255'],
             'lignes.*.quantite' => ['sometimes', 'integer', 'min:1', 'max:999'],
             'lignes.*.prix_chf' => ['required', 'numeric', 'min:0', 'max:99999'],

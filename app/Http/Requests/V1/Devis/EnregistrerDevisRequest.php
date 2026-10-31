@@ -15,9 +15,9 @@ class EnregistrerDevisRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'patient_id' => ['required', $this->existeDansLOrganisation('patients')],
+            'patient_id' => ['nullable', $this->existeDansLOrganisation('patients')],
             'motif' => ['sometimes', 'string', 'max:255'],
-            'lignes' => ['required', 'array', 'min:1'],
+            'lignes' => ['present', 'array'],
             'lignes.*.libelle' => ['required', 'string', 'max:255'],
             'lignes.*.quantite' => ['sometimes', 'integer', 'min:1', 'max:999'],
             'lignes.*.prix_chf' => ['required', 'numeric', 'min:0', 'max:99999'],

@@ -11,6 +11,7 @@ use App\Models\DevisLigne;
 use App\Models\Patient;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -45,13 +46,19 @@ class DevisTest extends TestCase
         ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
     }
 
+    /** Un brouillon reçoit une prestation : sans elle il ne s'envoie pas (01.11.2026) */
     private function devis(array $attributs = []): Devis
     {
-        return Devis::factory()->create([
+        $devis = Devis::factory()->create([
             'organisation_id' => $this->clinique->societe->organisation_id,
             'patient_id' => $this->patient->id,
             ...$attributs,
         ]);
+        if (($attributs['statut'] ?? 'brouillon') === 'brouillon') {
+            DevisLigne::factory()->create(['devis_id' => $devis->id]);
+        }
+
+        return $devis;
     }
 
     public function test_creer_un_devis_numerote_en_brouillon_et_derive_les_totaux(): void
@@ -81,6 +88,37 @@ class DevisTest extends TestCase
             ->assertJsonPath('data.en_tete.nom', $this->clinique->raison_sociale ?: $this->clinique->nom)
             ->assertJsonPath('data.montant_remise', 66)
             ->assertJsonPath('data.montant_acompte', 178.2);
+    }
+
+    /** Un brouillon se commence sans patient ni prestation (01.11.2026, demande de Jim) ; il ne part pas ainsi. */
+    public function test_un_brouillon_se_commence_sans_patient_mais_ne_part_pas_sans_lui(): void
+    {
+        $id = $this->postJson('/api/v1/facturation/devis', ['motif' => 'Détartrage', 'lignes' => []], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.statut', 'brouillon')
+            ->assertJsonPath('data.patient_id', null)
+            ->assertJsonPath('data.total_ttc', 0)
+            ->json('data.id');
+
+        $this->postJson("/api/v1/facturation/devis/{$id}/envoyer", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['patient_id' => 'Choisissez le patient avant d’envoyer le devis.']);
+
+        $this->patchJson("/api/v1/facturation/devis/{$id}", ['patient_id' => $this->patient->id], $this->enTetes($this->jeton))->assertOk();
+        $this->postJson("/api/v1/facturation/devis/{$id}/envoyer", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['lignes' => 'Ajoutez au moins une prestation avant d’envoyer le devis.']);
+
+        $this->patchJson("/api/v1/facturation/devis/{$id}", ['lignes' => [['libelle' => 'Détartrage', 'prix_chf' => 180, 'type' => 'acte']]], $this->enTetes($this->jeton))->assertOk();
+        $this->postJson("/api/v1/facturation/devis/{$id}/envoyer", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'envoye');
+
+        // Le patient se retire d'un brouillon, aussi
+        $brouillon = $this->devis();
+        $this->patchJson("/api/v1/facturation/devis/{$brouillon->id}", ['patient_id' => null], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.patient_id', null);
     }
 
     /** Le formulaire chiffré par le serveur avant l'enregistrement : les mêmes montants que le devis enregistré (24.10.2026). */
@@ -178,6 +216,37 @@ class DevisTest extends TestCase
         Mail::assertSent(DevisEnvoye::class, fn (DevisEnvoye $mail) => $mail->hasTo('lea@exemple.ch') && $mail->devis->is($devis));
         $this->assertNotNull($devis->refresh()->envoye_le);
         $this->assertStringContainsString('/espace/documents?devis='.$devis->id, (new DevisEnvoye($devis))->render());
+    }
+
+    /** L'objet du devis s'écrit tel quel dans l'e-mail : ni lien ni gras fabriqués, ni signes effacés. */
+    public function test_l_objet_du_devis_s_ecrit_tel_quel_dans_l_e_mail(): void
+    {
+        $devis = $this->devis(['motif' => 'Détartrage (3 dents) *urgent* [voir](https://exemple.ch)']);
+
+        $html = (new DevisEnvoye($devis->load(['clinique', 'patient'])))->render();
+
+        $this->assertStringContainsString('Détartrage (3 dents) *urgent* [voir](https://exemple.ch)', $html);
+        $this->assertStringNotContainsString('<em>urgent</em>', $html);
+        $this->assertStringNotContainsString('href="https://exemple.ch"', $html);
+    }
+
+    /** L'équipe enregistre un accord pendant que le client refuse en ligne : la réponse du client reste. */
+    public function test_l_accord_de_l_equipe_n_ecrase_pas_la_reponse_du_client(): void
+    {
+        $devis = $this->devis(['statut' => 'envoye', 'canal' => 'portail', 'valide_jusquau' => aujourdhui()->addDays(30)]);
+        $fait = false;
+        DB::listen(function ($requete) use (&$fait, $devis): void {
+            if (! $fait && str_starts_with(strtolower($requete->sql), 'select') && preg_match('/from [`"]devis[`"]/', $requete->sql) === 1) {
+                $fait = true;
+                DB::table('devis')->where('id', $devis->id)->update(['statut' => 'refuse', 'refuse_le' => now(), 'refuse_par' => 'Léa Martin, depuis son espace client']);
+            }
+        });
+
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/accepter", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['statut' => 'Le client vient de répondre à ce devis : rechargez-le.']);
+        $this->assertSame('refuse', $devis->refresh()->statut->value);
+        $this->assertNull($devis->signe_le);
     }
 
     /** L'e-mail ne part pas : le devis reste envoyé, la réponse le dit pour que l'équipe relance. */

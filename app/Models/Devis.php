@@ -12,7 +12,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * Devis — NIVEAU ORGANISATION, patient obligatoire. Cycle : brouillon
+ * Devis — NIVEAU ORGANISATION ; patient et lignes facultatifs dans un
+ * brouillon, exigés à l'envoi (01.11.2026). Cycle : brouillon
  * (seul modifiable et supprimable) → envoyé (canal selon le compte du
  * propriétaire) → accepté / refusé ; `expire` est DÉRIVÉ d'un envoyé
  * hors validité, jamais stocké. Remise en pourcentage, totaux dérivés.

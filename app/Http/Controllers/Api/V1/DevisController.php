@@ -76,7 +76,7 @@ class DevisController extends Controller
                 'clinique_id' => app(ContexteClinique::class)->cliniqueId(),
                 'numero' => $this->numeroteur->attribuer(PieceNumerotee::Devis),
                 'emis_le' => aujourdhui(),
-                'patient_id' => $donnees['patient_id'],
+                'patient_id' => $donnees['patient_id'] ?? null,
                 'motif' => $donnees['motif'] ?? 'Devis de soins',
                 'remise_pct' => $donnees['remise_pct'] ?? 0,
                 'alea_pct' => $donnees['alea_pct'] ?? 0,

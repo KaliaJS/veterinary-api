@@ -176,7 +176,8 @@ class DocumentsProprietaire
                     'date' => $d->emis_le->toDateString(),
                     'titre' => 'Devis '.mb_strtolower($d->motif ?? $d->numero).', '.chf($d->totalTtc()).' ('.$d->patient->nom.')',
                     'sous_ligne' => match ($effectif) {
-                        StatutDevis::Envoye->value => 'EN ATTENTE DE VOTRE SIGNATURE',
+                        // Celui qui gère un animal réclamé par puce ne répond pas : rien ne lui est demandé
+                        StatutDevis::Envoye->value => $estSaFiche ? 'EN ATTENTE DE VOTRE SIGNATURE' : 'EN ATTENTE DE LA RÉPONSE DU PROPRIÉTAIRE',
                         // Signé par le client dans son espace, ou accepté par l'équipe
                         // pour lui (au téléphone, au comptoir) : jamais confondus (24.10.2026)
                         StatutDevis::Accepte->value => (str_starts_with((string) $d->signe_par, 'Signature électronique') ? 'SIGNÉ ÉLECTRONIQUEMENT' : 'ACCEPTÉ, ENREGISTRÉ PAR LA CLINIQUE')

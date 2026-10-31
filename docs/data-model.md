@@ -1010,7 +1010,7 @@ caisse.
 | `id` | PK | |
 | `n` | string unique | « DV-2026-018 » |
 | `date` | date | |
-| `pat`, `sp`, `ow` | dénormalisés → `patient_id` | |
+| `pat`, `sp`, `ow` | dénormalisés → `patient_id` nullable | Facultatif dans un brouillon (01.11.2026), exigé à l'envoi avec au moins une ligne |
 | `motif` | string | « Ostéosynthèse fémur droit » |
 | `lines` | table enfant | Même forme que les lignes de facture |
 | `remise` | tinyint % | Remise commerciale |

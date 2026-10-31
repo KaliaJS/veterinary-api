@@ -42,6 +42,13 @@ class CycleDevisController extends Controller
         if ($devis->statut !== StatutDevis::Brouillon) {
             throw ValidationException::withMessages(['statut' => 'Seul un brouillon s’envoie.']);
         }
+        // Un brouillon peut se commencer sans patient ni prestation, pas partir ainsi
+        if ($devis->patient_id === null) {
+            throw ValidationException::withMessages(['patient_id' => 'Choisissez le patient avant d’envoyer le devis.']);
+        }
+        if (! $devis->lignes()->exists()) {
+            throw ValidationException::withMessages(['lignes' => 'Ajoutez au moins une prestation avant d’envoyer le devis.']);
+        }
 
         $client = $devis->patient->client()->with('user')->first();
         $proprietaireALEspaceClient = $client?->user_id !== null;
@@ -116,7 +123,7 @@ class CycleDevisController extends Controller
         // électronique du client (23.10.2026), on dit qui l'a enregistré
         $parQui = app(ContexteClinique::class)->employe()->nom ?? 'la clinique';
 
-        $devis->update([
+        $this->repondre($devis, [
             'statut' => StatutDevis::Accepte,
             'signe_le' => now(),
             'signe_par' => $devis->canal === CanalDevis::Portail
@@ -135,13 +142,29 @@ class CycleDevisController extends Controller
             throw ValidationException::withMessages(['statut' => 'Seul un devis envoyé se refuse.']);
         }
 
-        $devis->update([
+        $this->repondre($devis, [
             'statut' => StatutDevis::Refuse,
             'refuse_le' => now(),
             'refuse_par' => 'Refus enregistré par '.(app(ContexteClinique::class)->employe()->nom ?? 'la clinique'),
         ]);
 
         return new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe']));
+    }
+
+    /**
+     * La réponse enregistrée par l'équipe, seulement si le devis attend
+     * encore : le client qui répond en ligne au même instant n'est jamais
+     * écrasé (comme dans son espace).
+     *
+     * @param  array<string, mixed>  $valeurs
+     */
+    private function repondre(Devis $devis, array $valeurs): void
+    {
+        $ecrits = Devis::query()->whereKey($devis->id)->where('statut', StatutDevis::Envoye)->update($valeurs);
+        if ($ecrits !== 1) {
+            throw ValidationException::withMessages(['statut' => 'Le client vient de répondre à ce devis : rechargez-le.']);
+        }
+        $devis->refresh();
     }
 
     /** Repart en brouillon daté du jour — validité, canal, signature et factures remis à zéro. */

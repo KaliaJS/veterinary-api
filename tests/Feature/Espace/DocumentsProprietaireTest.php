@@ -107,6 +107,8 @@ class DocumentsProprietaireTest extends TestCase
         // Il le voit, mais la liste ne lui propose pas d'y répondre
         $item = collect($this->getJson('/api/v1/espace/documents', $this->enTetes($jeton))->assertOk()->json('data'))->firstWhere('type', 'DEVIS');
         $this->assertFalse($item['a_signer']);
+        // Rien ne lui est demandé : pas « en attente de votre signature »
+        $this->assertSame('EN ATTENTE DE LA RÉPONSE DU PROPRIÉTAIRE', $item['sous_ligne']);
     }
 
     public function test_la_demande_de_renouvellement_est_unique_et_traitee_par_le_renouvellement_clinique(): void
