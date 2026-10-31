@@ -7,6 +7,7 @@ use App\Models\FactureProprietaire;
 use App\Models\PlusPoolMonth;
 use App\Models\PlusPoolShare;
 use App\Models\User;
+use App\Models\VideoView;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
 use Carbon\CarbonImmutable;
@@ -170,11 +171,10 @@ class PlusPool
     {
         Cache::lock('plus-pool-pay', 21600)->block($this->lockWait, function () use ($user): void {
             $seller = 'user:'.$user->id;
-            // Le mois passé pas encore calculé (effacement le 1er, avant le passage de 05:00) : calculé
-            // maintenant, sa part en fait partie
-            $previous = CarbonImmutable::now('Europe/Zurich')->subMonthNoOverflow()->startOfMonth();
-            if (! PlusPoolMonth::query()->where('month', $previous->format('Y-m'))->exists()) {
-                $this->compute($previous);
+            // Les mois finis pas encore calculés (effacement le 1er avant le passage de 05:00, ou un passage
+            // manqué) : calculés maintenant, sa part en fait partie
+            foreach ($this->missingMonths(CarbonImmutable::now('Europe/Zurich')->startOfMonth()) as $missing) {
+                $this->compute($missing);
             }
             $shares = PlusPoolShare::query()->with('month')->whereNull('paid_at')->where('earned_cents', '>', 0)->where('seller_user_id', $user->id)->get();
             // Rattachées à son compte de paiement : ce qui ne peut pas partir ce soir (refus, compte pas
@@ -205,6 +205,36 @@ class PlusPool
                 report($e);
             }
         });
+    }
+
+    /**
+     * Les mois finis avant celui-ci, depuis la première vue comptée grâce à
+     * Plus, dont la cagnotte n'a jamais été faite.
+     *
+     * @return list<CarbonImmutable>
+     */
+    public function missingMonths(CarbonImmutable $before): array
+    {
+        $first = VideoView::query()->where('counted_via_plus', true)->min('counted_at');
+        if ($first === null) {
+            return [];
+        }
+        $done = PlusPoolMonth::query()->pluck('month')->all();
+        $missing = [];
+        for ($month = CarbonImmutable::parse($first)->setTimezone('Europe/Zurich')->startOfMonth(); $month < $before; $month = $month->addMonthNoOverflow()) {
+            if (! in_array($month->format('Y-m'), $done, true)) {
+                $missing[] = $month;
+            }
+        }
+
+        return $missing;
+    }
+
+    /** Ce qui reste dû, en centimes, au compte d'un vendeur parti. */
+    public function owedTo(string $account): int
+    {
+        return (int) PlusPoolShare::query()->whereNull('paid_at')->whereNull('seller_user_id')->whereNull('seller_clinique_id')
+            ->where('stripe_account_id', $account)->sum('earned_cents');
     }
 
     /**

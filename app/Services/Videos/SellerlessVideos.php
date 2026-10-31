@@ -8,6 +8,7 @@ use App\Jobs\PurgeVideoFolder;
 use App\Models\User;
 use App\Models\Video;
 use App\Models\VideoView;
+use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -29,15 +30,21 @@ class SellerlessVideos
      */
     public function erase(Video $video): bool
     {
-        // Des intentions encore ouvertes : annulées (un vieil onglet ne les paiera plus) ; une qui ne
-        // s'annule plus est relue, payée, la vidéo a désormais un acheteur
+        // Des intentions encore ouvertes : annulées (un vieil onglet ne les paiera plus). Une qui ne
+        // s'annule plus est relue : seulement tombée, la vidéo s'efface ; payée, en cours à la banque ou
+        // illisible, elle reste (la tâche de nuit des comptes à fermer la relira)
         foreach ($video->purchases()->whereNull('paid_at')->whereNotNull('payment_intent_id')->get() as $purchase) {
             try {
                 $this->gateway->pourCompte($purchase->stripe_account_id)->annulerIntention((string) $purchase->payment_intent_id);
-            } catch (Throwable) {
-                if ($this->purchases->confirm($purchase)['paid']) {
+            } catch (ErreurPaiement $e) {
+                if ($e->estPassagere() || $e->cleRefusee()) {
+                    throw $e;
+                }
+                if (! $this->purchases->confirm($purchase)['failed']) {
                     return false;
                 }
+            } catch (Throwable) {
+                return false;
             }
         }
         $folder = $video->folder();

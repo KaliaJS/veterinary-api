@@ -35,7 +35,19 @@ class CloseSellerAccounts extends Command
     {
         SellerAccountClosure::query()->whereNull('closed_at')->orderBy('id')->each(function (SellerAccountClosure $closure) use ($gateway, $purchases, $videos, $pool): void {
             try {
+                // Fermé entre-temps (à la main, après le signalement) : noté ; une part encore due se signale
+                if ($gateway->pourCompte(null)->compteVendeurFerme($closure->stripe_account_id)) {
+                    $closure->update(['closed_at' => now()]);
+                    if ($pool->owedTo($closure->stripe_account_id) > 0) {
+                        report(new RuntimeException("Compte de paiement {$closure->stripe_account_id} fermé avec une part de cagnotte encore due : à verser autrement"));
+                    }
+
+                    return;
+                }
                 $pending = $this->settlePending($closure->stripe_account_id, $gateway, $purchases, $videos);
+                if ($pending > 0) {
+                    $closure->update(['last_error' => 'paiement encore en cours']);
+                }
                 // Sa part de la cagnotte encore due (refusée, compte pas prêt) : versée avant de fermer
                 if ($pending === 0 && $pool->payDeparted($closure->stripe_account_id)) {
                     $this->close($closure, $gateway);

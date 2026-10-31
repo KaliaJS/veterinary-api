@@ -380,8 +380,13 @@ class SuppressionCompte
                 continue;
             }
             if (! $this->videosSansVendeur->erase($video)) {
-                // Payée à l'instant : elle reste à son acheteur, comme une vidéo achetée
-                $video->update(['status' => $video->status === VideoStatus::Published ? VideoStatus::Withdrawn : $video->status, 'seller_user_id' => null]);
+                // Payée à l'instant, ou en cours à la banque : elle reste à son acheteur, comme une vidéo achetée
+                $video->update([
+                    'status' => $video->status === VideoStatus::Published ? VideoStatus::Withdrawn : $video->status,
+                    'withdrawn_at' => $video->status === VideoStatus::Published ? now() : $video->withdrawn_at,
+                    'publish_requested_at' => null, 'publish_requested_by' => null,
+                    'seller_user_id' => null,
+                ]);
             }
         }
     }

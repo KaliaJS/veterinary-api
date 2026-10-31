@@ -2,8 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Models\PlusPoolMonth;
-use App\Models\VideoView;
 use App\Services\Videos\PlusPool;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
@@ -34,7 +32,7 @@ class PayPlusPool extends Command
         }
         // Un mois manqué (planificateur arrêté le 1er) se rattrape au passage suivant, dans l'ordre
         if (! is_string($argument)) {
-            foreach ($this->missedMonths($month) as $missed) {
+            foreach ($pool->missingMonths($month) as $missed) {
                 $done = $pool->run($missed);
                 $this->info($done->month.' (rattrapé) : cagnotte de '.number_format($done->pool_cents / 100, 2).' CHF pour '.$done->views.' vues.');
             }
@@ -43,28 +41,5 @@ class PayPlusPool extends Command
         $this->info($row->month.' : cagnotte de '.number_format($row->pool_cents / 100, 2).' CHF pour '.$row->views.' vues.');
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Les mois finis avant celui-ci, depuis la première vue comptée grâce à
-     * Plus, dont la cagnotte n'a jamais été faite.
-     *
-     * @return list<CarbonImmutable>
-     */
-    private function missedMonths(CarbonImmutable $before): array
-    {
-        $first = VideoView::query()->where('counted_via_plus', true)->min('counted_at');
-        if ($first === null) {
-            return [];
-        }
-        $done = PlusPoolMonth::query()->pluck('month')->all();
-        $missed = [];
-        for ($month = CarbonImmutable::parse($first)->setTimezone('Europe/Zurich')->startOfMonth(); $month < $before; $month = $month->addMonthNoOverflow()) {
-            if (! in_array($month->format('Y-m'), $done, true)) {
-                $missed[] = $month;
-            }
-        }
-
-        return $missed;
     }
 }
