@@ -177,6 +177,18 @@ class PasserelleStripeRequetesTest extends TestCase
         $this->assertArrayNotHasKey('Stripe-Account', $fermeture['entetes']);
     }
 
+    public function test_un_compte_de_vendeur_ferme_se_reconnait_a_sa_lecture(): void
+    {
+        $this->http->repondre(['id' => 'acct_vendeur', 'object' => 'v2.core.account', 'closed' => true]);
+        $this->assertTrue($this->passerelle()->compteVendeurFerme('acct_vendeur'));
+        $lecture = $this->http->derniere();
+        $this->assertSame(['get', '/v2/core/accounts/acct_vendeur'], [strtolower($lecture['methode']), $lecture['chemin']]);
+        $this->assertArrayNotHasKey('Stripe-Account', $lecture['entetes']);
+
+        $this->http->repondre(['id' => 'acct_vendeur', 'object' => 'v2.core.account', 'closed' => false]);
+        $this->assertFalse($this->passerelle()->compteVendeurFerme('acct_vendeur'));
+    }
+
     public function test_un_remboursement_partiel_ou_entier_ne_rend_jamais_la_commission(): void
     {
         $this->passerelle()->rembourser('pi_entier', 'rendu-1');

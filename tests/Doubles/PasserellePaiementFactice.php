@@ -297,6 +297,13 @@ class PasserellePaiementFactice implements PasserellePaiement
         $this->comptesFermes[] = $compte;
     }
 
+    public function compteVendeurFerme(string $compte): bool
+    {
+        $this->noter(__FUNCTION__, $compte, null, plateforme: true);
+
+        return in_array($compte, $this->comptesFermes, true);
+    }
+
     /** Le prestataire ne montre pas encore les versements tout juste faits (quelques secondes) */
     public bool $versementsPasEncoreVisibles = false;
 

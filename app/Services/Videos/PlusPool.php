@@ -7,6 +7,7 @@ use App\Models\FactureProprietaire;
 use App\Models\PlusPoolMonth;
 use App\Models\PlusPoolShare;
 use App\Models\User;
+use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
@@ -178,7 +179,16 @@ class PlusPool
 
                 return;
             }
-            $this->transfer($seller, $shares, $account, now('Europe/Zurich')->format('Y-m'));
+            try {
+                $this->transfer($seller, $shares, $account, now('Europe/Zurich')->format('Y-m'));
+            } catch (ErreurPaiement $e) {
+                if ($e->estPassagere() || $e->cleRefusee()) {
+                    throw $e;
+                }
+                // Refusé net (le compte ne reçoit pas de virements, solde de la plateforme insuffisant) :
+                // signalé avec le compte et le montant, à verser à la main ; l'effacement continue
+                report(new RuntimeException('Part de cagnotte de '.number_format($shares->sum('earned_cents') / 100, 2)." CHF pour le compte {$account} d'un vendeur qui s'en va : refusée, à verser à la main", 0, $e));
+            }
         });
     }
 

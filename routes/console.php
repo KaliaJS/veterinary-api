@@ -38,6 +38,8 @@ Schedule::command('transcriptions:purger')->dailyAt('03:30')->timezone('Europe/Z
 Schedule::command('factures:purger-plus')->monthlyOn(1, '04:15')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 // Comptes dont la suppression a été demandée il y a 30 jours (27.10.2026)
 Schedule::command('comptes:effacer')->dailyAt(SuppressionCompte::HEURE_EFFACEMENT)->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
+// Les comptes de paiement des vendeurs effacés : fermés quand plus rien n'y est en cours (31.10.2026)
+Schedule::command('videos:close-seller-accounts')->dailyAt('04:30')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 // Point du matin sur le stock (seuils, péremptions), avant l'ouverture des cliniques
 Schedule::command('alertes:stock')->dailyAt('07:00')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 

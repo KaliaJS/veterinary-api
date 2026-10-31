@@ -3,9 +3,7 @@
 namespace App\Services\Comptes;
 
 use App\Auth\CompteRevueApple;
-use App\Enums\VideoFilesStatus;
 use App\Enums\VideoStatus;
-use App\Jobs\PurgeVideoFolder;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Document;
@@ -13,10 +11,10 @@ use App\Models\Employe;
 use App\Models\FactureProprietaire;
 use App\Models\MessageClientele;
 use App\Models\Patient;
+use App\Models\SellerAccountClosure;
 use App\Models\User;
 use App\Models\Video;
 use App\Models\VideoPurchase;
-use App\Models\VideoView;
 use App\Notifications\CodeSuppressionCompte;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleAbonnement;
@@ -24,8 +22,8 @@ use App\Paiements\PasserelleIdentite;
 use App\Paiements\PasserellePaiement;
 use App\Services\Abonnements\AbonnementSaas;
 use App\Services\Videos\PlusPool;
+use App\Services\Videos\SellerlessVideos;
 use App\Services\Videos\VideoPurchases;
-use App\Services\Videos\ViewingCertificates;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -34,7 +32,6 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use RuntimeException;
 
 /**
  * Suppression du compte par son titulaire (App Store, règle 5.1.1(v) ;
@@ -79,6 +76,7 @@ class SuppressionCompte
         private PasserellePaiement $paiements,
         private VideoPurchases $achatsVideos,
         private PlusPool $cagnotte,
+        private SellerlessVideos $videosSansVendeur,
     ) {}
 
     /** Un code neuf, cinq essais neufs ; aucun e-mail pour l'adresse de revue. Rend vrai si un e-mail est parti. */
@@ -230,8 +228,8 @@ class SuppressionCompte
             $clientSupprime = true;
         }
 
-        $dossiersVideos = [];
-        $fichiers = DB::transaction(function () use ($user, &$dossiersVideos, $paiementsEnSuspens): ?array {
+        $compteVendeur = $user->stripe_account_id;
+        $fichiers = DB::transaction(function () use ($user, $paiementsEnSuspens): ?array {
             // Relue sous verrou : une connexion à cet instant gagne
             if (User::query()->whereKey($user->id)->lockForUpdate()->value('suppression_demandee_le') === null) {
                 return null;
@@ -270,7 +268,7 @@ class SuppressionCompte
             }
 
             // Les vidéos qu'il vendait en son nom (31.10.2026, neuvième vérification) : son image et sa voix
-            $dossiersVideos = $this->detacherVideos($user, $paiementsEnSuspens);
+            $this->detacherVideos($user, $paiementsEnSuspens);
 
             // Ancien membre d'équipe : une trace sans connexion, prénom seul
             // (décision de Jim, 27.10.2026), à laquelle restent liées sa fiche
@@ -299,9 +297,10 @@ class SuppressionCompte
             return false;
         }
         Storage::disk('prive')->delete($fichiers);
-        // Les fichiers des vidéos sans acheteur : par la file, qui réessaie si le stockage ne répond pas
-        foreach ($dossiersVideos as $dossier) {
-            PurgeVideoFolder::dispatch($dossier);
+        // Son compte de paiement, fermé par la tâche de nuit (videos:close-seller-accounts) quand plus aucun
+        // paiement n'y est en cours et que son solde lui est versé
+        if ($compteVendeur !== null) {
+            SellerAccountClosure::query()->firstOrCreate(['stripe_account_id' => $compteVendeur], ['requested_at' => now()]);
         }
 
         return true;
@@ -323,12 +322,6 @@ class SuppressionCompte
         $ouverts = VideoPurchase::query()->whereNull('paid_at')->whereNotNull('payment_intent_id')
             ->whereHas('video', fn ($video) => $video->where('seller_user_id', $user->id))->get();
         foreach ($ouverts as $achat) {
-            // Sur un compte déjà fermé (nuit précédente) : plus d'appel possible, il reste en suspens
-            if ($user->stripe_account_id === null || $achat->stripe_account_id !== $user->stripe_account_id) {
-                $enSuspens[$achat->video_id] = true;
-
-                continue;
-            }
             if ($this->achatsVideos->confirm($achat)['paid']) {
                 continue;
             }
@@ -338,12 +331,17 @@ class SuppressionCompte
                 if ($e->estPassagere() || $e->cleRefusee()) {
                     throw $e;
                 }
-                // Refusée : payée entre-temps, ou en cours à la banque ; relue encore une fois (payée, l'achat l'est aussi)
-                $this->achatsVideos->confirm($achat);
+                // Refusée : payée entre-temps, déjà annulée (réponse perdue une nuit d'avant), ou en cours à la banque
+                $etat = $this->achatsVideos->confirm($achat);
                 if ($achat->refresh()->paid_at !== null) {
                     continue;
                 }
-                report($e);
+                if ($etat['failed']) {
+                    $achat->delete();
+
+                    continue;
+                }
+                // En cours à la banque : la tâche de nuit des comptes à fermer le relira
                 $enSuspens[$achat->video_id] = true;
 
                 continue;
@@ -352,81 +350,37 @@ class SuppressionCompte
             $achat->delete();
         }
         if ($user->stripe_account_id !== null) {
-            $compte = $user->stripe_account_id;
             // Sa part de la cagnotte Plus déjà calculée, versée avant la fermeture, même sous 10 CHF
             // (décision de Jim) ; un versement en route ou une panne : l'effacement attend la nuit suivante
             $this->cagnotte->settleSeller($user);
-            try {
-                $this->paiements->pourCompte(null)->fermerCompteVendeur($compte);
-            } catch (ErreurPaiement $e) {
-                if ($e->estPassagere() || $e->cleRefusee()) {
-                    throw $e;
-                }
-                // Refusé (solde encore à verser…) : signalé avec son identifiant, à fermer à la main
-                report(new RuntimeException("Compte de paiement {$compte} d'un vendeur effacé pas fermé chez Stripe : à fermer à la main", 0, $e));
-            }
-            // Noté tout de suite : la nuit suivante ne le refait pas ; reconnecté, le vendeur en ouvre un neuf
-            $user->forceFill(['stripe_account_id' => null, 'stripe_account_ready_at' => null])->save();
         }
 
         return array_keys($enSuspens);
     }
 
     /**
-     * Ses vidéos de vendeur. Sans acheteur, elles s'effacent avec leurs
-     * fichiers (la fiche reste vide si des certificats délivrés s'y
-     * rattachent, pour qu'ils se vérifient encore) ; achetées, elles restent
-     * à ceux qui les ont payées, hors de la vente (décision de Jim). Rend les
-     * dossiers à effacer au bucket.
+     * Ses vidéos de vendeur. Sans acheteur, elles s'effacent (SellerlessVideos) ;
+     * achetées, ou un paiement encore en cours à la banque, elles restent à
+     * leurs acheteurs, hors de la vente, avec son nom, mais ne lui sont plus
+     * rattachées (une trace d'ancien membre n'a plus de part de cagnotte).
      *
      * @param  list<int>  $paiementsEnSuspens  vidéos dont un paiement n'a pu être ni conclu ni annulé
-     * @return list<string>
      */
-    private function detacherVideos(User $user, array $paiementsEnSuspens): array
+    private function detacherVideos(User $user, array $paiementsEnSuspens): void
     {
-        $dossiers = [];
         foreach (Video::query()->where('seller_user_id', $user->id)->get() as $video) {
-            // Acheteurs payés, ou un paiement encore en suspens : les autres viennent d'être relus ou annulés
             if (in_array($video->id, $paiementsEnSuspens, true) || $video->purchases()->whereNotNull('paid_at')->exists()) {
                 $video->update([
                     'status' => $video->status === VideoStatus::Published ? VideoStatus::Withdrawn : $video->status,
                     'withdrawn_at' => $video->status === VideoStatus::Published ? now() : $video->withdrawn_at,
                     'publish_requested_at' => null, 'publish_requested_by' => null,
+                    'seller_user_id' => null,
                 ]);
 
                 continue;
             }
-            $dossiers[] = $video->folder();
-            // Qui l'a vue en entier sans avoir encore demandé son certificat le reçoit : il le garde
-            $certifies = $video->certificates()->pluck('user_id')->all();
-            $video->views()->whereNotNull('completed_at')->whereNotIn('user_id', $certifies)->get()
-                ->each(function (VideoView $view) use ($video): void {
-                    $personne = User::query()->find($view->user_id);
-                    if ($personne === null) {
-                        return;
-                    }
-                    try {
-                        app(ViewingCertificates::class)->issue($video, $personne);
-                    } catch (ValidationException) {
-                        // Sa propre vidéo, ou plus regardable : pas de certificat
-                    }
-                });
-            $video->views()->delete();
-            // Des intentions jamais payées (annulées plus haut, ou de plus d'un jour) : elles ne retiennent rien
-            $video->purchases()->delete();
-            if ($video->certificates()->exists()) {
-                $video->update([
-                    'status' => VideoStatus::Withdrawn, 'withdrawn_at' => $video->withdrawn_at ?? now(), 'files_status' => VideoFilesStatus::Rejected,
-                    'title' => null, 'description' => null, 'seller_name' => '', 'in_plus' => false,
-                    'size_bytes' => 0, 'renditions' => null, 'download_path' => null, 'upload_started_at' => null,
-                    'publish_requested_at' => null, 'publish_requested_by' => null,
-                ]);
-            } else {
-                $video->delete();
-            }
+            $this->videosSansVendeur->erase($video);
         }
-
-        return $dossiers;
     }
 
     /**

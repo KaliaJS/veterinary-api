@@ -282,6 +282,11 @@ class PasserelleStripe implements PasserellePaiement
         $this->appel(fn () => $this->client->v2->core->accounts->close($compte, ['applied_configurations' => ['merchant', 'recipient']]));
     }
 
+    public function compteVendeurFerme(string $compte): bool
+    {
+        return (bool) ($this->appel(fn () => $this->client->v2->core->accounts->retrieve($compte))->closed ?? false);
+    }
+
     public function versementDuGroupe(string $groupe): ?string
     {
         $trouves = $this->appel(fn () => $this->client->transfers->all(['transfer_group' => $groupe, 'limit' => 1]));

@@ -125,6 +125,9 @@ interface PasserellePaiement
      */
     public function fermerCompteVendeur(string $compte): void;
 
+    /** Le compte de paiement d'un vendeur est-il déjà fermé chez le prestataire (une réponse perdue en route) ? */
+    public function compteVendeurFerme(string $compte): bool;
+
     /** Le versement déjà fait sous ce groupe, s'il existe (une réponse perdue en route). */
     public function versementDuGroupe(string $groupe): ?string;
 
