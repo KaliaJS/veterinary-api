@@ -38,7 +38,7 @@ class DocumentsProprietaire
         return collect()
             ->concat($this->ordonnances($patientIds))
             ->concat($this->factures($clientIds))
-            ->concat($this->devis($patientIds))
+            ->concat($this->devis($patientIds, $clientIds))
             ->concat($this->carnets($patientIds))
             ->concat($this->documents($patientIds))
             ->sortByDesc(fn (array $d) => (($d['a_signer'] ?? false) ? '9999' : '').($d['date'] ?? '').sprintf('%09d', $d['id']))
@@ -148,24 +148,27 @@ class DocumentsProprietaire
 
     /**
      * @param  list<int>  $patientIds
+     * @param  list<int>  $clientIds
      * @return Collection<int, covariant array<string, mixed>>
      */
-    private function devis(array $patientIds): Collection
+    private function devis(array $patientIds, array $clientIds = []): Collection
     {
         if ($patientIds === []) {
             return collect();
         }
 
         return Devis::withoutGlobalScopes()
-            ->with(['patient', 'lignes', 'clinique.societe'])
+            ->with(['patient.client', 'lignes', 'clinique.societe'])
             ->whereIn('patient_id', $patientIds)
             ->where('canal', CanalDevis::Portail)
             ->whereIn('statut', [StatutDevis::Envoye, StatutDevis::Accepte, StatutDevis::Refuse])
             ->orderByDesc('emis_le')
             ->get()
-            ->map(function (Devis $d): array {
+            ->map(function (Devis $d) use ($clientIds): array {
                 $effectif = $d->statutEffectif();
-                $aSigner = $effectif === StatutDevis::Envoye->value;
+                // Seul le client de la fiche répond (pas celui qui gère un animal réclamé par puce), comme à la signature
+                $estSaFiche = in_array((int) $d->patient->client_id, $clientIds, true);
+                $aSigner = $effectif === StatutDevis::Envoye->value && $estSaFiche;
 
                 return [
                     'type' => 'DEVIS',
@@ -186,6 +189,16 @@ class DocumentsProprietaire
                         'numero' => $d->numero,
                         'en_tete' => $d->clinique->enTeteDocument(),
                         'patient' => $d->patient->nom,
+                        'espece' => $d->patient->espece,
+                        'statut' => $effectif,
+                        // Le propriétaire, comme sur le devis de la clinique (31.10.2026) ; seulement à lui-même,
+                        // jamais à qui gère l'animal (réclamé par puce) au nom d'une autre fiche
+                        'proprietaire' => $estSaFiche && $d->patient->client !== null ? [
+                            'nom' => $d->patient->client->nom_affiche,
+                            'adresse' => implode(', ', array_filter([$d->patient->client->rue, trim(($d->patient->client->npa ?? '').' '.($d->patient->client->localite ?? ''))])),
+                        ] : null,
+                        'envoye_le' => $d->envoye_le?->toIso8601String(),
+                        'refuse_le' => $d->refuse_le?->toIso8601String(),
                         'motif' => $d->motif,
                         'emis_le' => $d->emis_le->toDateString(),
                         'valide_jusquau' => $d->valide_jusquau?->toDateString(),
@@ -203,7 +216,7 @@ class DocumentsProprietaire
                         'montant_acompte' => $d->montantAcompte(),
                         'total_avec_alea' => $d->totalAvecAlea(),
                         'taux_tva' => $d->tauxTva(),
-                        'lignes' => $d->lignes->map(fn ($l): array => ['libelle' => $l->libelle, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf, 'total_chf' => round($l->quantite * (float) $l->prix_chf, 2)])->values()->all(),
+                        'lignes' => $d->lignes->map(fn ($l): array => ['libelle' => $l->libelle, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf, 'total_chf' => round($l->quantite * (float) $l->prix_chf, 2), 'type' => $l->type])->values()->all(),
                     ],
                 ];
             });

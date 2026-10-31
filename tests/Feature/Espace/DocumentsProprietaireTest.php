@@ -77,7 +77,7 @@ class DocumentsProprietaireTest extends TestCase
         $max = Patient::factory()->create(['client_id' => $fiche->id]);
         $devis = Devis::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail, 'signe_le' => null]);
 
-        $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", [], $this->enTetes($jeton))
+        $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", ['accepte' => true], $this->enTetes($jeton))
             ->assertOk()
             ->assertJsonPath('data.statut', 'accepte');
 
@@ -86,11 +86,11 @@ class DocumentsProprietaireTest extends TestCase
         $this->assertStringContainsString('espace client', $devis->signe_par);
 
         // Déjà signé : refusé. Un devis papier, ou d'un autre compte : introuvable.
-        $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", [], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Ce devis n’est plus en attente de signature.']);
+        $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", ['accepte' => true], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Ce devis n’est plus en attente de signature.']);
         $papier = Devis::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Papier]);
-        $this->postJson("/api/v1/espace/devis/{$papier->id}/signer", [], $this->enTetes($jeton))->assertNotFound();
+        $this->postJson("/api/v1/espace/devis/{$papier->id}/signer", ['accepte' => true], $this->enTetes($jeton))->assertNotFound();
         $autre = Devis::factory()->create(['statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail]);
-        $this->postJson("/api/v1/espace/devis/{$autre->id}/signer", [], $this->enTetes($jeton))->assertNotFound();
+        $this->postJson("/api/v1/espace/devis/{$autre->id}/signer", ['accepte' => true], $this->enTetes($jeton))->assertNotFound();
     }
 
     public function test_qui_gere_un_animal_reclame_ne_signe_pas_au_nom_du_client_de_la_fiche(): void
@@ -101,8 +101,12 @@ class DocumentsProprietaireTest extends TestCase
         $rex = Patient::factory()->create(['client_id' => $ficheDUnAutre->id, 'proprietaire_id' => $user->id]);
         $devis = Devis::factory()->create(['patient_id' => $rex->id, 'organisation_id' => $ficheDUnAutre->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail]);
 
-        $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", [], $this->enTetes($jeton))->assertNotFound();
+        $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", ['accepte' => true], $this->enTetes($jeton))->assertNotFound();
+        $this->postJson("/api/v1/espace/devis/{$devis->id}/refuser", [], $this->enTetes($jeton))->assertNotFound();
         $this->assertSame(StatutDevis::Envoye, $devis->fresh()->statut);
+        // Il le voit, mais la liste ne lui propose pas d'y répondre
+        $item = collect($this->getJson('/api/v1/espace/documents', $this->enTetes($jeton))->assertOk()->json('data'))->firstWhere('type', 'DEVIS');
+        $this->assertFalse($item['a_signer']);
     }
 
     public function test_la_demande_de_renouvellement_est_unique_et_traitee_par_le_renouvellement_clinique(): void

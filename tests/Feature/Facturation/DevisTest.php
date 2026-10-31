@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Facturation;
 
+use App\Mail\DevisEnvoye;
 use App\Mail\RelanceDevis;
 use App\Models\Client;
 use App\Models\Clinique;
@@ -153,11 +154,72 @@ class DevisTest extends TestCase
 
     public function test_l_envoi_passe_au_papier_sans_compte_espace_client(): void
     {
+        Mail::fake();
         $devis = $this->devis();
 
         $this->postJson("/api/v1/facturation/devis/{$devis->id}/envoyer", [], $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonPath('data.canal', 'papier');
+            ->assertJsonPath('data.canal', 'papier')
+            ->assertJsonPath('meta.email', null);
+        Mail::assertNothingSent();
+    }
+
+    /** Sur l'espace client, l'envoi prévient le propriétaire par e-mail (31.10.2026) ; le suivi garde la date. */
+    public function test_l_envoi_sur_l_espace_client_previent_le_proprietaire_par_e_mail(): void
+    {
+        Mail::fake();
+        $this->patient->client->update(['user_id' => User::factory()->create(['email' => 'lea@exemple.ch'])->id]);
+        $devis = $this->devis();
+
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/envoyer", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('meta.email', 'envoye')
+            ->assertJsonPath('data.canal', 'portail');
+        Mail::assertSent(DevisEnvoye::class, fn (DevisEnvoye $mail) => $mail->hasTo('lea@exemple.ch') && $mail->devis->is($devis));
+        $this->assertNotNull($devis->refresh()->envoye_le);
+        $this->assertStringContainsString('/espace/documents?devis='.$devis->id, (new DevisEnvoye($devis))->render());
+    }
+
+    /** L'e-mail ne part pas : le devis reste envoyé, la réponse le dit pour que l'équipe relance. */
+    public function test_un_e_mail_qui_ne_part_pas_ne_bloque_pas_l_envoi(): void
+    {
+        $this->patient->client->update(['user_id' => User::factory()->create()->id]);
+        $devis = $this->devis();
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP indisponible'));
+
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/envoyer", [], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'envoye')
+            ->assertJsonPath('meta.email', 'echec');
+    }
+
+    /** La relance qui ne part pas ne s'inscrit pas au suivi. */
+    public function test_une_relance_qui_ne_part_pas_ne_s_inscrit_pas(): void
+    {
+        $this->patient->client->update(['user_id' => User::factory()->create()->id]);
+        $devis = $this->devis(['statut' => 'envoye', 'canal' => 'portail', 'valide_jusquau' => aujourdhui()->addDays(30)]);
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('SMTP indisponible'));
+
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/relancer", [], $this->enTetes($this->jeton))->assertStatus(503);
+        $this->assertNull($devis->refresh()->relance_le);
+    }
+
+    public function test_la_relance_et_le_refus_de_l_equipe_s_inscrivent_au_suivi(): void
+    {
+        Mail::fake();
+        $this->patient->client->update(['user_id' => User::factory()->create()->id]);
+        $devis = $this->devis();
+        $entetes = $this->enTetes($this->jeton);
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/envoyer", [], $entetes)->assertOk();
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/relancer", [], $entetes)->assertOk();
+        $this->assertNotNull($devis->refresh()->relance_le);
+
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/refuser", [], $entetes)
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'refuse');
+        $devis->refresh();
+        $this->assertNotNull($devis->refuse_le);
+        $this->assertStringStartsWith('Refus enregistré par ', $devis->refuse_par);
     }
 
     public function test_seul_un_brouillon_se_modifie(): void
@@ -278,6 +340,20 @@ class DevisTest extends TestCase
         // Chacune ne se facture qu'une fois.
         $this->postJson("/api/v1/facturation/devis/{$devis->id}/facturer-acompte", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors('acompte');
         $this->postJson("/api/v1/facturation/devis/{$devis->id}/facturer-finale", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors('facture');
+    }
+
+    /** Facture finale sans acompte d'abord : plus d'acompte ensuite, il serait facturé deux fois (31.10.2026) */
+    public function test_pas_d_acompte_apres_la_facture_finale(): void
+    {
+        $devis = $this->devis(['statut' => 'accepte', 'canal' => 'papier', 'signe_le' => now(), 'acompte_pct' => 30]);
+        DevisLigne::factory()->create(['devis_id' => $devis->id, 'libelle' => 'Chirurgie : forfait bloc', 'prix_chf' => 400]);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/facturer-finale", [], $entetes)->assertCreated();
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/facturer-acompte", [], $entetes)
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('acompte');
+        $this->assertNull($devis->refresh()->acompte_facture_id);
     }
 
     public function test_seul_un_devis_accepte_se_facture(): void

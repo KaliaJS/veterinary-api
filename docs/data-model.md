@@ -1021,11 +1021,19 @@ caisse.
 | `st` | enum | `brouillon` → `envoye` → `accepte` \| `refuse` ; `expire` est **dérivé** (envoyé + validité dépassée), pas stocké |
 | `canal` | enum nullable | `portail` (espace client) \| `papier` — choisi automatiquement selon le compte du propriétaire |
 | `signedAt`, `signedBy` | datetime + string | Acceptation (signature électronique portail ou « bon pour accord » papier) |
+| `sentAt`, `remindedAt` | datetime | Suivi (31.10.2026) : `envoye_le` à l'envoi, `relance_le` à la dernière relance par e-mail |
+| `refusedAt`, `refusedBy`, `refusalReason` | datetime + string + text | Refus : par l'équipe (« Refus enregistré par … ») ou par le client dans son espace (« Refusé par … dans son espace client »), avec son mot facultatif (`motif_refus`) |
 | `acompteInv`, `factureInv` | FK nullable → factures | Acompte facturé / facture finale (la finale déduit remise et acompte en lignes négatives) |
 
 Cycle implémenté : brouillon (seul supprimable) → envoi (canal selon
-compte) → acceptation (portail ou papier) / refus / expiration dérivée ;
-relance ; duplication (repart en brouillon) ; PDF.
+compte ; sur le portail, un e-mail `DevisEnvoye` prévient le
+propriétaire, `meta.email` dit s'il est parti) → acceptation (portail
+ou papier) / refus / expiration dérivée ; relance ; duplication (repart
+en brouillon) ; PDF. Dans son espace, le propriétaire accepte
+(`POST espace/devis/{id}/signer`, `accepte` coché obligatoire, signature
+au nom de sa fiche client) ou refuse (`POST espace/devis/{id}/refuser`,
+`motif` facultatif) ; l'événement `devis.mis-a-jour` part aussitôt sur
+le canal privé `clinique.{id}` (Reverb).
 
 ---
 

@@ -8,6 +8,7 @@ use App\Enums\PieceNumerotee;
 use App\Enums\StatutDevis;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\DevisResource;
+use App\Mail\DevisEnvoye;
 use App\Mail\RelanceDevis;
 use App\Models\Devis;
 use App\Services\Numeroteur;
@@ -29,6 +30,11 @@ class CycleDevisController extends Controller
 {
     public function __construct(private Numeroteur $numeroteur) {}
 
+    /**
+     * Envoi : sur l'espace client, un e-mail prévient le propriétaire (31.10.2026,
+     * décision de Jim) ; s'il ne part pas, le devis reste envoyé et la réponse
+     * le dit (`meta.email`), l'équipe relancera.
+     */
     public function envoyer(Request $request, Devis $devis): DevisResource
     {
         $this->authorize('update', $devis);
@@ -37,15 +43,29 @@ class CycleDevisController extends Controller
             throw ValidationException::withMessages(['statut' => 'Seul un brouillon s’envoie.']);
         }
 
-        $proprietaireALEspaceClient = $devis->patient->client->user_id !== null;
+        $client = $devis->patient->client()->with('user')->first();
+        $proprietaireALEspaceClient = $client?->user_id !== null;
 
         $devis->update([
             'statut' => StatutDevis::Envoye,
             'canal' => $proprietaireALEspaceClient ? CanalDevis::Portail : CanalDevis::Papier,
             'valide_jusquau' => aujourdhui()->addDays($devis->validite_jours),
+            'envoye_le' => now(),
         ]);
 
-        return new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe']));
+        $email = null;
+        $adresse = $proprietaireALEspaceClient ? ($client->user?->email ?: $client->email) : null;
+        if ($adresse) {
+            try {
+                Mail::to($adresse)->send(new DevisEnvoye($devis->load(['clinique', 'patient'])));
+                $email = 'envoye';
+            } catch (Throwable $e) {
+                report($e);
+                $email = 'echec';
+            }
+        }
+
+        return (new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe'])))->additional(['meta' => ['email' => $email]]);
     }
 
     /**
@@ -70,6 +90,7 @@ class CycleDevisController extends Controller
         }
         try {
             Mail::to($adresse)->send(new RelanceDevis($devis->load(['clinique', 'patient'])));
+            $devis->update(['relance_le' => now()]);
         } catch (Throwable $e) {
             Cache::forget('devis-relance:'.$devis->id.':'.aujourdhui()->toDateString());
             report($e);
@@ -114,7 +135,11 @@ class CycleDevisController extends Controller
             throw ValidationException::withMessages(['statut' => 'Seul un devis envoyé se refuse.']);
         }
 
-        $devis->update(['statut' => StatutDevis::Refuse]);
+        $devis->update([
+            'statut' => StatutDevis::Refuse,
+            'refuse_le' => now(),
+            'refuse_par' => 'Refus enregistré par '.(app(ContexteClinique::class)->employe()->nom ?? 'la clinique'),
+        ]);
 
         return new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe']));
     }

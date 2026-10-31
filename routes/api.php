@@ -448,6 +448,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('commandes', [BoutiqueProprietaireController::class, 'commandes']);
         Route::post('commandes', [BoutiqueProprietaireController::class, 'passer'])->middleware('throttle:espace-commandes');
         Route::post('devis/{devis}/signer', [DocumentProprietaireController::class, 'signerDevis']);
+        Route::post('devis/{devis}/refuser', [DocumentProprietaireController::class, 'refuserDevis']);
         Route::post('ordonnances/{ordonnance}/renouvellement', [DocumentProprietaireController::class, 'demanderRenouvellement']);
         Route::post('demandes', [CliniqueProprietaireController::class, 'deposer'])->middleware('throttle:espace-demandes');
         Route::get('demandes', [DemandeProprietaireController::class, 'index']);

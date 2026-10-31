@@ -22,7 +22,7 @@ class IdentifiantsNumeriquesTest extends TestCase
 
         $this->getJson('/api/v1/espace/animaux/abc', $entetes)->assertNotFound();
         $this->postJson('/api/v1/espace/rendez-vous/abc/annuler', [], $entetes)->assertNotFound();
-        $this->postJson('/api/v1/espace/devis/abc/signer', [], $entetes)->assertNotFound();
+        $this->postJson('/api/v1/espace/devis/abc/signer', ['accepte' => true], $entetes)->assertNotFound();
     }
 
     public function test_un_identifiant_qui_n_est_pas_un_nombre_est_introuvable_cote_clinique(): void

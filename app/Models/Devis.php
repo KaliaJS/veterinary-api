@@ -27,8 +27,8 @@ class Devis extends Model
     protected $fillable = [
         'organisation_id', 'clinique_id', 'numero', 'emis_le', 'patient_id', 'motif',
         'remise_pct', 'alea_pct', 'validite_jours', 'valide_jusquau',
-        'acompte_pct', 'conditions', 'statut', 'canal', 'signe_le',
-        'signe_par', 'acompte_facture_id', 'facture_finale_id',
+        'acompte_pct', 'conditions', 'statut', 'canal', 'envoye_le', 'relance_le', 'signe_le',
+        'signe_par', 'refuse_le', 'refuse_par', 'motif_refus', 'acompte_facture_id', 'facture_finale_id',
     ];
 
     /** Miroir des défauts de la base. */
@@ -51,7 +51,10 @@ class Devis extends Model
             'acompte_pct' => 'integer',
             'statut' => StatutDevis::class,
             'canal' => CanalDevis::class,
+            'envoye_le' => 'datetime',
+            'relance_le' => 'datetime',
             'signe_le' => 'datetime',
+            'refuse_le' => 'datetime',
         ];
     }
 

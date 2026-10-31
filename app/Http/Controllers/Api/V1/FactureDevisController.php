@@ -38,6 +38,11 @@ class FactureDevisController extends Controller
                 throw ValidationException::withMessages(['acompte' => 'L’acompte est déjà facturé : '.$devis->acompteFacture->numero.'.']);
             }
 
+            // La facture finale porte déjà tout le devis : un acompte après elle serait facturé deux fois (31.10.2026)
+            if ($devis->facture_finale_id !== null) {
+                throw ValidationException::withMessages(['acompte' => 'La facture finale existe déjà ('.$devis->factureFinale->numero.') : plus d’acompte à facturer.']);
+            }
+
             return $this->creation->acompteDeDevis($devis, $request->user());
         });
 

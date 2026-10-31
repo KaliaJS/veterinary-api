@@ -135,7 +135,7 @@ class RefusDevisTest extends TestCase
         $this->postJson("/api/v1/facturation/devis/{$devis->id}/envoyer", [], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.canal', 'portail');
         $this->postJson("/api/v1/facturation/devis/{$devis->id}/refuser", [], $this->enTetes($this->jeton))->assertOk();
 
-        $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", [], $this->enTetes($jetonProprietaire))
+        $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", ['accepte' => true], $this->enTetes($jetonProprietaire))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('statut');
 
