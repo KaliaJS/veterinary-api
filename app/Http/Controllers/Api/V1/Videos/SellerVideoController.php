@@ -111,6 +111,10 @@ abstract class SellerVideoController extends Controller
         $series = $this->find($request, $video);
         abort_unless($series->isSeries(), 404);
         $this->sellers->assertCanManage($series, $request->user(), $this->as);
+        // Une série en vente ne se modifie pas dans l'app iPhone, son ordre non plus (comme une vidéo en vente)
+        if ($series->status === VideoStatus::Published) {
+            NativeApp::refuse($request, 'Une série en vente se modifie sur le site de Veterinary, pas dans l’app iPhone.');
+        }
         $ids = $request->validate(['episodes' => ['required', 'array'], 'episodes.*' => ['uuid']])['episodes'];
         DB::transaction(function () use ($series, $ids): void {
             $episodes = Video::query()->where('series_id', $series->id)->lockForUpdate()->get()->keyBy('uuid');
@@ -198,6 +202,13 @@ abstract class SellerVideoController extends Controller
             if ($model->hasBuyers()) {
                 throw ValidationException::withMessages(['status' => 'Cette série a été achetée : ses épisodes restent à ceux qui l’ont achetée.']);
             }
+            // Une série en vente garde au moins un épisode : sans lui, elle disparaîtrait du catalogue sans rien dire
+            $series = $model->series;
+            $isLastOnSale = $series?->status === VideoStatus::Published && $model->status === VideoStatus::Published
+                && ! $series->episodes()->where('status', VideoStatus::Published->value)->whereKeyNot($model->id)->exists();
+            if ($isLastOnSale) {
+                throw ValidationException::withMessages(['status' => 'La série est en vente : elle garde au moins un épisode. Retirez-la de la vente pour supprimer celui-ci.']);
+            }
             $this->eraseEpisode($model);
 
             return response()->noContent();
@@ -207,12 +218,6 @@ abstract class SellerVideoController extends Controller
             throw ValidationException::withMessages(['status' => $model->isSeries()
                 ? 'Une série mise en vente ne s’efface pas : retirez-la de la vente, ceux qui l’ont achetée la gardent.'
                 : 'Une vidéo mise en vente ne s’efface pas : retirez-la de la vente, ceux qui l’ont achetée la gardent.']);
-        }
-        // Une série en brouillon part avec ses épisodes
-        if ($model->isSeries()) {
-            foreach (Video::query()->where('series_id', $model->id)->get() as $episode) {
-                $this->eraseEpisode($episode);
-            }
         }
         // Tout sous le verrou de l'affiche : celle qu'un autre onglet vient de poser part avec le brouillon,
         // et un geste trop long ailleurs arrête l'effacement avant qu'il commence (rien à moitié)
@@ -224,6 +229,13 @@ abstract class SellerVideoController extends Controller
             if ($claimed === 0) {
                 abort_unless(Video::query()->whereKey($model->id)->exists(), 404);
                 throw ValidationException::withMessages(['status' => 'Une vidéo mise en vente ne s’efface pas : retirez-la de la vente, ceux qui l’ont achetée la gardent.']);
+            }
+            // Une série en brouillon part avec ses épisodes, seulement une fois retenue : une mise en vente lancée
+            // au même moment ne la trouve plus en brouillon, et ses épisodes ne partent jamais pour rien
+            if ($model->isSeries()) {
+                foreach (Video::query()->where('series_id', $model->id)->get() as $episode) {
+                    $this->eraseEpisode($episode);
+                }
             }
             $this->storage->deleteAll($model);
             // Des adresses d'envoi encore valables écriraient dans le dossier : on l'efface encore une fois expirées

@@ -48,8 +48,10 @@ class SellerlessVideos
                 return false;
             }
         }
-        // Une série : ses épisodes partent avec elle (avant elle, ils s'y rattachent)
+        // Une série : qui l'a vue en entier reçoit son certificat d'abord (ses vues sont sur les épisodes) ;
+        // puis ses épisodes partent avec elle (avant elle, ils s'y rattachent)
         if ($video->isSeries()) {
+            $this->certifySeriesViewers($video);
             foreach (Video::query()->where('series_id', $video->id)->get() as $episode) {
                 $this->erase($episode);
             }
@@ -85,5 +87,25 @@ class SellerlessVideos
         $this->posters->delete($poster);
 
         return true;
+    }
+
+    /** Qui a vu en entier chaque épisode ajouté d'une série, sans avoir demandé son certificat : il le reçoit. */
+    private function certifySeriesViewers(Video $series): void
+    {
+        $episodes = $series->episodes()->where('status', VideoStatus::Published->value)->pluck('id');
+        $certified = $series->certificates()->pluck('user_id')->all();
+        $viewers = VideoView::query()->whereIn('video_id', $episodes)->whereNotNull('completed_at')->whereNotIn('user_id', $certified)
+            ->distinct()->pluck('user_id');
+        foreach ($viewers as $userId) {
+            $person = User::query()->find($userId);
+            if ($person === null) {
+                continue;
+            }
+            try {
+                $this->certificates->issueForSeries($series, $person);
+            } catch (ValidationException) {
+                // Pas tous les épisodes vus, ou sa propre série : pas de certificat
+            }
+        }
     }
 }

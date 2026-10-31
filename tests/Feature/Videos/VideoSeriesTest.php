@@ -464,6 +464,143 @@ class VideoSeriesTest extends TestCase
         $this->getJson(self::SELLER, $this->enTetes($vet['jeton']))->assertJsonPath('meta.terms', ['version' => '2026-10-31-series', 'accepted' => false]);
     }
 
+    // ————— Vérification des cases (31.10.2026 au soir) —————
+
+    public function test_l_acheteur_garde_un_episode_sorti_de_la_vente_et_le_voit_dans_la_liste_les_autres_non(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet);
+        $second = $this->readyEpisode($vet, $series, 'Deux');
+        $this->postJson(self::SELLER."/{$second}/publish", [], $this->enTetes($vet['jeton']))->assertOk();
+        ['user' => $buyer, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->own($buyer, $series);
+        // La relecture l'a sorti de la vente (ses fichiers restent lisibles)
+        Video::query()->where('uuid', $second)->update(['status' => 'withdrawn', 'withdrawn_at' => now()]);
+
+        $this->postJson("/api/v1/espace/videos/{$second}/play", [], $this->enTetes($jeton))->assertOk()->assertJsonPath('data.scope', 'full');
+        $this->assertSame(['Épisode 1', 'Deux'], array_column($this->getJson("/api/v1/espace/videos/{$series}", $this->enTetes($jeton))->json('data.episodes'), 'title'));
+        ['jeton' => $other] = $this->proprietaireAvecJeton();
+        $this->postJson("/api/v1/espace/videos/{$second}/play", [], $this->enTetes($other))->assertNotFound();
+        $this->assertSame(['Épisode 1'], array_column($this->getJson("/api/v1/espace/videos/{$series}", $this->enTetes($other))->json('data.episodes'), 'title'));
+        // Un épisode jamais ajouté (en préparation, ses fichiers pourtant prêts) ne lui est jamais donné
+        $draft = $this->readyEpisode($vet, $series, 'En préparation');
+        $this->postJson("/api/v1/espace/videos/{$draft}/play", [], $this->enTetes($jeton))->assertNotFound();
+    }
+
+    public function test_chaque_episode_achete_se_telecharge_et_dit_quand_il_a_ete_regarde(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet);
+        $episode = Video::query()->where('kind', 'episode')->sole();
+        $episode->forceFill(['download_path' => 'download.mp4'])->save();
+        ['user' => $buyer, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        VideoView::query()->create(['video_id' => $episode->id, 'user_id' => $buyer->id, 'watched_ranges' => [[0, 12]], 'watched_seconds' => 12, 'last_progress_at' => now()]);
+
+        $listed = $this->getJson("/api/v1/espace/videos/{$series}", $this->enTetes($jeton))->json('data.episodes.0');
+        $this->assertFalse($listed['can_download']);
+        $this->assertNotNull($listed['viewing']['last_watched_at']);
+        $this->getJson("/api/v1/espace/videos/{$episode->uuid}/download", $this->enTetes($jeton))->assertNotFound();
+
+        $this->own($buyer, $series);
+        $this->assertTrue($this->getJson("/api/v1/espace/videos/{$series}", $this->enTetes($jeton))->json('data.episodes.0.can_download'));
+        $this->getJson("/api/v1/espace/videos/{$episode->uuid}/download", $this->enTetes($jeton))->assertOk()->assertJsonStructure(['data' => ['url']]);
+    }
+
+    public function test_a_l_effacement_du_vendeur_qui_a_vu_toute_la_serie_recoit_son_certificat(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet, ['title' => 'Gratuite', 'price_cents' => 0]);
+        $episode = Video::query()->where('kind', 'episode')->sole();
+        ['user' => $viewer] = $this->proprietaireAvecJeton();
+        ['user' => $halfway] = $this->proprietaireAvecJeton();
+        $this->completed($viewer, $episode);
+        VideoView::query()->create(['video_id' => $episode->id, 'user_id' => $halfway->id, 'watched_ranges' => [[0, 5]], 'watched_seconds' => 5, 'last_progress_at' => now()]);
+
+        $vet['user']->refresh()->forceFill(['suppression_demandee_le' => now()->subDays(31)])->save();
+        $this->assertTrue(app(SuppressionCompte::class)->effacer($vet['user']));
+
+        $certificate = ViewingCertificate::query()->where('user_id', $viewer->id)->sole();
+        $this->assertSame('Gratuite', $certificate->video_title);
+        $this->assertFalse(ViewingCertificate::query()->where('user_id', $halfway->id)->exists());
+        $this->getJson('/api/v1/public/certificates/'.$certificate->code)->assertOk()->assertJsonPath('data.video_title', 'Gratuite');
+    }
+
+    public function test_une_serie_retiree_vue_en_entier_rouvre_sa_fenetre_pour_le_certificat(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet, ['title' => 'Retirée', 'in_plus' => true]);
+        $episode = Video::query()->where('kind', 'episode')->sole();
+        ['user' => $viewer, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->completed($viewer, $episode);
+        $this->postJson(self::SELLER."/{$series}/withdraw", [], $this->enTetes($vet['jeton']))->assertOk();
+
+        $this->getJson("/api/v1/espace/videos/{$series}", $this->enTetes($jeton))->assertOk()->assertJsonPath('data.access', null)->assertJsonPath('data.viewing.completed', true);
+        $this->postJson("/api/v1/espace/videos/{$series}/certificate", [], $this->enTetes($jeton))->assertOk();
+        // Pas vue en entier : rien
+        ['jeton' => $other] = $this->proprietaireAvecJeton();
+        $this->getJson("/api/v1/espace/videos/{$series}", $this->enTetes($other))->assertNotFound();
+    }
+
+    public function test_continuer_a_voir_ne_se_laisse_pas_cacher_par_un_lancement_par_erreur_et_laisse_la_minute_gratuite_finie(): void
+    {
+        $this->withoutMiddleware(ThrottleRequests::class);
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet);
+        $second = $this->readyEpisode($vet, $series, 'Deux');
+        $this->postJson(self::SELLER."/{$second}/publish", [], $this->enTetes($vet['jeton']))->assertOk();
+        $episodes = Video::query()->where('kind', 'episode')->orderBy('episode_number')->get();
+        ['user' => $owner, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->own($owner, $series);
+        // L'épisode 1 regardé un moment, puis l'épisode 2 lancé 3 secondes (le plus récent)
+        VideoView::query()->create(['video_id' => $episodes[0]->id, 'user_id' => $owner->id, 'watched_ranges' => [[0, 20]], 'watched_seconds' => 20, 'last_progress_at' => now()->subMinute()]);
+        VideoView::query()->create(['video_id' => $episodes[1]->id, 'user_id' => $owner->id, 'watched_ranges' => [[0, 3]], 'watched_seconds' => 3, 'last_progress_at' => now()]);
+        $continue = collect($this->getJson('/api/v1/espace/videos/home', $this->enTetes($jeton))->json('data.rows'))->keyBy('key')['continue']['videos'];
+        $this->assertSame($episodes[0]->uuid, $continue[0]['resume']['episode_id']);
+
+        // Sans la série : la minute gratuite d'un épisode, finie, quitte la rangée
+        ['user' => $visitor, 'jeton' => $visitorToken] = $this->proprietaireAvecJeton();
+        VideoView::query()->create(['video_id' => $episodes[0]->id, 'user_id' => $visitor->id, 'watched_ranges' => [[0, 60]], 'watched_seconds' => 60, 'last_progress_at' => now()]);
+        $rows = collect($this->getJson('/api/v1/espace/videos/home', $this->enTetes($visitorToken))->json('data.rows'))->keyBy('key');
+        $this->assertFalse($rows->has('continue'));
+        VideoView::query()->where('user_id', $visitor->id)->update(['watched_seconds' => 30]);
+        $rows = collect($this->getJson('/api/v1/espace/videos/home', $this->enTetes($visitorToken))->json('data.rows'))->keyBy('key');
+        $this->assertSame([$series], array_column($rows['continue']['videos'], 'id'));
+    }
+
+    public function test_une_serie_en_vente_garde_au_moins_un_episode(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet);
+        $only = Video::query()->where('kind', 'episode')->sole()->uuid;
+        $this->deleteJson(self::SELLER."/{$only}", [], $this->enTetes($vet['jeton']))->assertUnprocessable()
+            ->assertJsonValidationErrors(['status' => 'La série est en vente : elle garde au moins un épisode. Retirez-la de la vente pour supprimer celui-ci.']);
+        // Avec un autre épisode ajouté, il s'efface
+        $second = $this->readyEpisode($vet, $series, 'Deux');
+        $this->postJson(self::SELLER."/{$second}/publish", [], $this->enTetes($vet['jeton']))->assertOk();
+        $this->deleteJson(self::SELLER."/{$only}", [], $this->enTetes($vet['jeton']))->assertNoContent();
+    }
+
+    public function test_l_ordre_d_une_serie_en_vente_ne_se_change_pas_dans_l_app_iphone(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet);
+        $second = $this->readyEpisode($vet, $series, 'Deux');
+        $first = Video::query()->where('kind', 'episode')->where('episode_number', 1)->value('uuid');
+        $iphone = $this->enTetes($vet['jeton']) + ['X-Veterinary-Platform' => 'ios'];
+        $this->postJson(self::SELLER."/{$series}/episodes/order", ['episodes' => [$second, $first]], $iphone)->assertUnprocessable();
+        $this->postJson(self::SELLER."/{$series}/episodes/order", ['episodes' => [$second, $first]], $this->enTetes($vet['jeton']))->assertOk();
+    }
+
+    public function test_une_serie_ne_se_met_en_vente_qu_avec_ses_conditions_acceptees(): void
+    {
+        $vet = $this->verifiedVet();
+        $vet['user']->forceFill(['video_terms_version' => null, 'video_terms_accepted_at' => null])->save();
+        $series = $this->newSeries($vet);
+        $this->readyEpisode($vet, $series, 'Un');
+        $this->postJson(self::SELLER."/{$series}/publish", [], $this->enTetes($vet['jeton']))->assertUnprocessable()->assertJsonValidationErrors(['terms']);
+        $this->postJson(self::SELLER."/{$series}/publish", ['accept_terms' => true], $this->enTetes($vet['jeton']))->assertOk()->assertJsonPath('data.status', 'published');
+    }
+
     // ————— Outils —————
 
     /** Une série en brouillon, sa fiche remplie ; rend son identifiant. */

@@ -82,7 +82,10 @@ class VideoResource extends JsonResource
                 'poster' => VideoPosters::for($episode),
                 'status' => $episode->status->value,
                 'files_status' => $this->isSeller ? $episode->files_status->value : null,
-                'viewing' => ['watched_seconds' => $view->watched_seconds ?? 0, 'completed' => $view?->completed_at !== null],
+                // Le moment de la dernière lecture : l'écran reprend l'épisode le plus récent, comme « Continuer à voir »
+                'viewing' => ['watched_seconds' => $view->watched_seconds ?? 0, 'completed' => $view?->completed_at !== null, 'last_watched_at' => $view?->last_progress_at?->toIso8601String()],
+                // Achetée : chaque épisode se télécharge en 720p, une fois sa version prête
+                'can_download' => $this->access === 'owned' && $episode->download_path !== null,
             ];
         }
         $this->episodes = $list;

@@ -47,16 +47,20 @@ class VideoAccess
     /**
      * Un épisode (séries, 31.10.2026) : ce que donne sa série. Achetée, ses
      * épisodes ajoutés à la série sont à l'acheteur, même ceux d'après son
-     * achat ; jamais un épisode encore en préparation.
+     * achat, et même s'ils ont quitté la vente depuis (comme une vidéo
+     * achetée) ; jamais un épisode encore en préparation.
      */
     private function forEpisode(Video $episode, ?User $user): ?string
     {
         $series = $episode->series;
-        if ($series === null || $episode->status !== VideoStatus::Published) {
+        if ($series === null) {
             return null;
         }
         if ($user !== null && $series->isOwnedBy($user)) {
-            return 'owned';
+            return self::wasAdded($episode) ? 'owned' : null;
+        }
+        if ($episode->status !== VideoStatus::Published) {
+            return null;
         }
         if ($series->status !== VideoStatus::Published || ! $series->isForAudienceOf($user) || ! $series->isSellerEligible()) {
             return null;
@@ -69,5 +73,11 @@ class VideoAccess
         }
 
         return 'preview';
+    }
+
+    /** Un épisode ajouté à sa série un jour (en vente, ou sorti de la vente depuis) : ses acheteurs le gardent. */
+    public static function wasAdded(Video $episode): bool
+    {
+        return $episode->published_at !== null && in_array($episode->status, [VideoStatus::Published, VideoStatus::Withdrawn], true);
     }
 }

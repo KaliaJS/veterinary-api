@@ -55,12 +55,16 @@ class ContinueWatching
             }
             if ($video->isEpisode()) {
                 $series = $video->series;
-                if ($series === null || isset($seenSeries[$series->id])) {
+                // Un épisode lancé par erreur, ou dont la minute gratuite est finie, ne décide pas de la série :
+                // un autre épisode, regardé avant, peut encore la faire paraître
+                $isMisclick = $view->completed_at === null && $view->watched_seconds < self::MIN_SECONDS;
+                $isPreviewOver = $view->completed_at === null && $access === 'preview' && $view->watched_seconds >= Video::PREVIEW_SECONDS - 5;
+                if ($series === null || isset($seenSeries[$series->id]) || $isMisclick || $isPreviewOver) {
                     continue;
                 }
                 $seenSeries[$series->id] = true;
                 $episode = $view->completed_at === null ? $video : $this->nextEpisode($series, $video, $user, $completedByVideo);
-                if ($episode === null || ($episode->is($video) && $view->watched_seconds < self::MIN_SECONDS)) {
+                if ($episode === null) {
                     continue;
                 }
                 $seriesAccess = $this->access->for($series, $user, $series->isOnSellerSide($user, $organisations));

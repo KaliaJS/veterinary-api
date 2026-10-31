@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\Video;
 use App\Models\VideoView;
 use App\Models\ViewingCertificate;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -70,8 +71,7 @@ class ViewingCertificates
         if ($existing !== null) {
             return $existing;
         }
-        $episodes = $series->episodes()->where('status', VideoStatus::Published->value)->get();
-        $completed = VideoView::query()->where('user_id', $user->id)->whereIn('video_id', $episodes->pluck('id'))->whereNotNull('completed_at')->get();
+        [$episodes, $completed] = $this->seriesProgress($series, $user);
         if ($episodes->isEmpty() || $completed->count() < $episodes->count()) {
             throw ValidationException::withMessages(['certificate' => 'Le certificat de la série se délivre une fois tous ses épisodes regardés en entier.']);
         }
@@ -87,6 +87,27 @@ class ViewingCertificates
             'duration_seconds' => $episodes->sum(fn (Video $episode) => (float) $episode->duration_seconds),
             'watched_at' => $completed->max('completed_at'),
         ]);
+    }
+
+    /** Chacun des épisodes ajoutés de la série vu en entier par cette personne. */
+    public function hasCompletedSeries(Video $series, User $user): bool
+    {
+        [$episodes, $completed] = $this->seriesProgress($series, $user);
+
+        return $episodes->isNotEmpty() && $completed->count() >= $episodes->count();
+    }
+
+    /**
+     * Les épisodes ajoutés d'une série, et les vues finies de la personne parmi eux.
+     *
+     * @return array{0: Collection<int, Video>, 1: Collection<int, VideoView>}
+     */
+    private function seriesProgress(Video $series, User $user): array
+    {
+        $episodes = $series->episodes()->where('status', VideoStatus::Published->value)->get();
+        $completed = VideoView::query()->where('user_id', $user->id)->whereIn('video_id', $episodes->pluck('id'))->whereNotNull('completed_at')->get();
+
+        return [$episodes, $completed];
     }
 
     private function code(): string

@@ -15,6 +15,7 @@ use App\Models\ViewingCertificate;
 use App\Services\Videos\ContinueWatching;
 use App\Services\Videos\VideoAccess;
 use App\Services\Videos\VideoSellerProfile;
+use App\Services\Videos\ViewingCertificates;
 use App\Support\NativeApp;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -33,7 +34,12 @@ use Illuminate\Validation\Rule;
  */
 class VideoCatalogueController extends Controller
 {
-    public function __construct(private VideoAccess $access, private ContinueWatching $continueWatching, private VideoSellerProfile $sellerProfile) {}
+    public function __construct(
+        private VideoAccess $access,
+        private ContinueWatching $continueWatching,
+        private VideoSellerProfile $sellerProfile,
+        private ViewingCertificates $certificates,
+    ) {}
 
     /** Rangées de l'accueil : autant de vidéos au plus par rangée. */
     public const ROW_SIZE = 20;
@@ -158,7 +164,17 @@ class VideoCatalogueController extends Controller
         $certificate = $user === null ? null : ViewingCertificate::query()->where('video_id', $model->id)->where('user_id', $user->id)->first();
         // Une série : ses épisodes ajoutés (tous pour son vendeur), où en est la personne, et le certificat de la série
         if ($model->isSeries() && $access !== null) {
-            $episodes = $model->episodes()->when($access !== 'seller', fn ($episode) => $episode->where('status', VideoStatus::Published->value))->get();
+            // Le vendeur voit tout ; l'acheteur, chaque épisode ajouté un jour (même sorti de la vente) ; les autres, ceux en vente
+            $episodes = $model->episodes()->get()->filter(fn (Video $episode) => match ($access) {
+                'seller' => true,
+                'owned' => VideoAccess::wasAdded($episode),
+                default => $episode->status === VideoStatus::Published,
+            })->values();
+            // Achetée : la version à télécharger d'un épisode qui manque encore (assemblage raté pendant une panne) se relance
+            if ($access === 'owned') {
+                $episodes->filter(fn (Video $episode) => $episode->download_path === null && $episode->files_status === VideoFilesStatus::Ready)
+                    ->each(fn (Video $episode) => AssembleVideoDownload::dispatch($episode->id, $episode->uploadStamp()));
+            }
             $views = $user === null ? [] : VideoView::query()->where('user_id', $user->id)->whereIn('video_id', $episodes->pluck('id'))->get()->keyBy('video_id')->all();
 
             return VideoResource::seenBy($model, $access, $access === 'seller')->withEpisodes($episodes, $views, $certificate)
@@ -178,8 +194,12 @@ class VideoCatalogueController extends Controller
         }
         // Plus regardable (retirée, sortie de Plus) : qui l'a vue en entier y retrouve son certificat,
         // sans rien voir de ce que la vidéo est devenue depuis (titre figé du certificat, pas de prix ni de public).
-        // Repartie en brouillon (refusée, en cours de renvoi) : seul un certificat déjà délivré la rouvre
-        $hasWatched = $view?->completed_at !== null && $model->status !== VideoStatus::Draft;
+        // Repartie en brouillon (refusée, en cours de renvoi) : seul un certificat déjà délivré la rouvre.
+        // Une série : vue en entier, c'est chacun de ses épisodes ajoutés vu en entier
+        $isCompleted = $model->isSeries()
+            ? $user !== null && $this->certificates->hasCompletedSeries($model, $user)
+            : $view?->completed_at !== null;
+        $hasWatched = $isCompleted && $model->status !== VideoStatus::Draft;
         abort_if($model->published_at === null || (! $hasWatched && $certificate === null), 404);
 
         return response()->json(['data' => [
@@ -190,7 +210,7 @@ class VideoCatalogueController extends Controller
             'viewing' => [
                 'watched_seconds' => $view->watched_seconds ?? 0,
                 'counted' => $view?->counted_at !== null,
-                'completed' => $view?->completed_at !== null,
+                'completed' => $isCompleted,
                 'certificate_code' => $certificate?->code,
             ],
         ]]);
