@@ -4,6 +4,7 @@ namespace Tests\Concerns;
 
 use App\Enums\StatutVerificationVeterinaire;
 use App\Models\User;
+use App\Services\Videos\SellerTerms;
 use Illuminate\Testing\TestResponse;
 
 /**
@@ -20,6 +21,8 @@ trait PublishesVideos
         if ($readyAccount) {
             $vet['user']->forceFill(['stripe_account_id' => 'acct_vet_'.$vet['user']->id, 'stripe_account_ready_at' => now()])->save();
         }
+        // Les conditions de vente des vidéos déjà acceptées (leur propre essai les prend sans)
+        $vet['user']->forceFill(['video_terms_version' => SellerTerms::VERSION, 'video_terms_accepted_at' => now()])->save();
 
         return $vet;
     }

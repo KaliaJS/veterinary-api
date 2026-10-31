@@ -16,6 +16,7 @@ use App\Jobs\RecheckVideoFiles;
 use App\Models\Video;
 use App\Services\Videos\HlsPackage;
 use App\Services\Videos\Sellers;
+use App\Services\Videos\SellerTerms;
 use App\Services\Videos\VideoPublisher;
 use App\Services\Videos\VideoStorage;
 use App\Support\NativeApp;
@@ -64,6 +65,8 @@ abstract class SellerVideoController extends Controller
             'meta' => [
                 'verified' => $request->user()->estVerifie(),
                 'storage' => $this->sellers->storageFor($request->user(), $this->as),
+                // Les conditions de vente : la version en vigueur, et si elle est acceptée
+                'terms' => ['version' => SellerTerms::VERSION, 'accepted' => app(SellerTerms::class)->acceptedFor($request->user(), $this->as)],
             ],
         ]);
     }
@@ -129,11 +132,18 @@ abstract class SellerVideoController extends Controller
     }
 
     /** Mise en vente immédiate, sans validation à la main ; jamais depuis l'app iPhone. */
-    public function publish(Request $request, string $video, VideoPublisher $publisher): VideoResource|JsonResponse
+    public function publish(Request $request, string $video, VideoPublisher $publisher, SellerTerms $terms): VideoResource|JsonResponse
     {
         NativeApp::refuse($request, 'La mise en vente se fait sur le site de Veterinary, pas dans l’app iPhone.');
         $model = $this->find($request, $video);
         $this->sellers->assertCanManage($model, $request->user(), $this->as);
+        // Les conditions de vente acceptées une fois (et de nouveau quand elles changent), cochées à la mise en vente
+        if (! $terms->isAccepted($model)) {
+            if (! $request->boolean('accept_terms')) {
+                throw ValidationException::withMessages(['terms' => 'Pour mettre en vente, acceptez les conditions de vente des vidéos de formation.']);
+            }
+            $terms->accept($model, $request->user());
+        }
 
         if ($model->files_status !== VideoFilesStatus::Ready) {
             throw ValidationException::withMessages(['files' => 'La vidéo n’est pas encore prête : terminez son envoi.']);

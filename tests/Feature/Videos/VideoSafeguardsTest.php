@@ -24,6 +24,7 @@ use App\Paiements\PasserellePaiement;
 use App\Services\Comptes\SuppressionCompte;
 use App\Services\Videos\HlsPackage;
 use App\Services\Videos\PlusPool;
+use App\Services\Videos\SellerTerms;
 use App\Services\Videos\VideoPlayback;
 use App\Services\Videos\VideoPublisher;
 use App\Services\Videos\VideoStorage;
@@ -102,6 +103,8 @@ class VideoSafeguardsTest extends TestCase
         ['user' => $admin, 'jeton' => $jeton] = $this->administrateurAvecJeton($clinique);
         $admin->forceFill(['verification_veterinaire' => StatutVerificationVeterinaire::Verifie])->save();
         $clinique->societe->forceFill(['stripe_compte_id' => 'acct_societe_'.$clinique->id, 'paiements_actifs' => true])->save();
+        // Les conditions de vente des vidéos déjà acceptées pour l'organisation (leur propre essai les prend sans)
+        $clinique->societe->organisation->forceFill(['video_terms_version' => SellerTerms::VERSION, 'video_terms_accepted_at' => now()])->save();
 
         return ['clinique' => $clinique, 'jeton' => $jeton];
     }
@@ -2574,5 +2577,113 @@ class VideoSafeguardsTest extends TestCase
         $this->gateway->erreurs['annulerIntention'] = new ErreurPaiement('Compte fermé', 'account_closed', 403);
         $this->assertTrue(app(SuppressionCompte::class)->effacer($vet['user']->refresh()));
         $this->assertSame('withdrawn', Video::query()->sole()->status->value);
+    }
+
+    /* ————— Décision de Jim du 31.10.2026 (matin) : le solde de la cagnotte à l'effacement ————— */
+
+    public function test_a_l_effacement_la_cagnotte_deja_calculee_est_versee_meme_sous_10_chf_avant_la_fermeture(): void
+    {
+        $vet = $this->verifiedVet();
+        $account = $vet['user']->stripe_account_id;
+        PlusPoolMonth::query()->create(['month' => '2026-09', 'net_revenue_cents' => 1200, 'pool_cents' => 600, 'views' => 2, 'computed_at' => now()])
+            ->shares()->create(['seller_user_id' => $vet['user']->id, 'views' => 2, 'earned_cents' => 600]);
+
+        $this->eraseSeller($vet);
+
+        $this->assertSame([['compte' => $account, 'centimes' => 600]], array_map(fn ($v) => ['compte' => $v['compte'], 'centimes' => $v['centimes']], $this->gateway->versements));
+        $this->assertNotNull(PlusPoolShare::query()->sole()->paid_at);
+        $this->assertSame([$account], $this->gateway->comptesFermes);
+        // Versé avant la fermeture du compte de paiement
+        $order = array_column($this->gateway->appels, 'methode');
+        $this->assertLessThan(array_search('fermerCompteVendeur', $order, true), array_search('transferer', $order, true));
+    }
+
+    public function test_un_versement_de_cagnotte_encore_en_route_fait_attendre_l_effacement(): void
+    {
+        $vet = $this->verifiedVet();
+        PlusPoolMonth::query()->create(['month' => '2026-09', 'net_revenue_cents' => 6000, 'pool_cents' => 3000, 'views' => 2, 'computed_at' => now()])
+            ->shares()->create(['seller_user_id' => $vet['user']->id, 'views' => 2, 'earned_cents' => 3000, 'payout_group' => 'plus-pool-user-en-route']);
+        $vet['user']->refresh()->forceFill(['suppression_demandee_le' => now()->subDays(31)])->save();
+
+        try {
+            app(SuppressionCompte::class)->effacer($vet['user']);
+            $this->fail('Effacé avec un versement en route');
+        } catch (\RuntimeException) {
+        }
+
+        $this->assertNotNull(User::query()->find($vet['user']->id)?->stripe_account_id);
+        $this->assertSame([], $this->gateway->comptesFermes);
+    }
+
+    public function test_les_vues_d_une_video_sans_vendeur_reviennent_aux_autres_vendeurs(): void
+    {
+        $this->travelTo('2026-11-15 10:00');
+        $gone = $this->published(['in_plus' => true, 'title' => 'Vendeur parti']);
+        $kept = $this->published(['in_plus' => true, 'title' => 'Vendeur présent']);
+        $goneVideo = Video::query()->where('uuid', $gone['id'])->firstOrFail();
+        $keptVideo = Video::query()->where('uuid', $kept['id'])->firstOrFail();
+        foreach ([$goneVideo, $keptVideo] as $video) {
+            VideoView::query()->create(['video_id' => $video->id, 'user_id' => $this->proprietaireAvecJeton()['user']->id, 'watched_seconds' => 90, 'counted_at' => now(), 'counted_via_plus' => true]);
+        }
+        // Le vendeur de la première a effacé son compte : la vidéo achetée reste, sans vendeur
+        $goneVideo->forceFill(['seller_user_id' => null])->save();
+
+        $month = app(PlusPool::class)->compute(CarbonImmutable::parse('2026-11-01'));
+
+        $this->assertSame(1, $month->views);
+        $this->assertSame([$keptVideo->seller_user_id], $month->shares()->pluck('seller_user_id')->all());
+    }
+
+    /* ————— Conditions de vente des vidéos (31.10.2026, demande de Jim) ————— */
+
+    public function test_la_premiere_mise_en_vente_demande_d_accepter_les_conditions_de_vente_une_seule_fois(): void
+    {
+        $vet = $this->verifiedVet();
+        $vet['user']->forceFill(['video_terms_version' => null, 'video_terms_accepted_at' => null])->save();
+        $video = $this->readyDraft($vet);
+        $video->forceFill(['files_checked_at' => now()])->save();
+        $this->getJson('/api/v1/espace/videos/seller/videos', $this->enTetes($vet['jeton']))
+            ->assertJsonPath('meta.terms', ['version' => SellerTerms::VERSION, 'accepted' => false]);
+
+        $this->postJson($this->base($video->uuid).'/publish', [], $this->enTetes($vet['jeton']))->assertUnprocessable()->assertJsonValidationErrors('terms');
+        $this->assertSame('draft', $video->refresh()->status->value);
+
+        $this->postJson($this->base($video->uuid).'/publish', ['accept_terms' => true], $this->enTetes($vet['jeton']))->assertOk()->assertJsonPath('data.status', 'published');
+        $user = $vet['user']->refresh();
+        $this->assertSame(SellerTerms::VERSION, $user->video_terms_version);
+        $this->assertNotNull($user->video_terms_accepted_at);
+        $this->getJson('/api/v1/espace/videos/seller/videos', $this->enTetes($vet['jeton']))->assertJsonPath('meta.terms.accepted', true);
+
+        // Une deuxième vidéo : plus rien à cocher
+        $second = $this->readyDraft($vet);
+        $second->forceFill(['files_checked_at' => now()])->save();
+        $this->postJson($this->base($second->uuid).'/publish', [], $this->enTetes($vet['jeton']))->assertOk();
+    }
+
+    public function test_une_nouvelle_version_des_conditions_se_reaccepte(): void
+    {
+        $vet = $this->verifiedVet();
+        $vet['user']->forceFill(['video_terms_version' => '2026-01-01'])->save();
+        $video = $this->readyDraft($vet);
+        $video->forceFill(['files_checked_at' => now()])->save();
+
+        $this->postJson($this->base($video->uuid).'/publish', [], $this->enTetes($vet['jeton']))->assertUnprocessable()->assertJsonValidationErrors('terms');
+    }
+
+    public function test_pour_une_clinique_les_conditions_s_acceptent_pour_l_organisation_par_qui_publie(): void
+    {
+        ['clinique' => $clinique, 'jeton' => $jeton] = $this->clinicSeller();
+        $organisation = $clinique->societe->organisation;
+        $organisation->forceFill(['video_terms_version' => null, 'video_terms_accepted_at' => null])->save();
+        $video = $this->readyDraft(['jeton' => $jeton], '/api/v1/videos');
+        $video->forceFill(['files_checked_at' => now()])->save();
+
+        $this->postJson("/api/v1/videos/{$video->uuid}/publish", [], $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors('terms');
+        $this->postJson("/api/v1/videos/{$video->uuid}/publish", ['accept_terms' => true], $this->enTetes($jeton))->assertOk();
+
+        $organisation->refresh();
+        $this->assertSame(SellerTerms::VERSION, $organisation->video_terms_version);
+        $this->assertSame(Employe::withoutGlobalScopes()->where('organisation_id', $organisation->id)->value('user_id'), $organisation->video_terms_accepted_by);
+        $this->getJson('/api/v1/videos', $this->enTetes($jeton))->assertJsonPath('meta.terms.accepted', true);
     }
 }

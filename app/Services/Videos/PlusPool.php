@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -73,6 +74,8 @@ class PlusPool
         $views = DB::table('video_views')
             ->join('videos', 'videos.id', '=', 'video_views.video_id')
             ->where('video_views.counted_via_plus', true)
+            // Une vidéo dont le vendeur a effacé son compte ne prend rien : sa part revient aux autres vendeurs
+            ->where(fn ($seller) => $seller->whereNotNull('videos.seller_user_id')->orWhereNotNull('videos.seller_clinique_id'))
             ->where('video_views.counted_at', '>=', $from)->where('video_views.counted_at', '<', $to)
             ->groupBy('videos.seller_user_id', 'videos.seller_clinique_id')
             ->get(['videos.seller_user_id', 'videos.seller_clinique_id', DB::raw('count(*) as views')]);
@@ -139,24 +142,63 @@ class PlusPool
                 // Pas encore de compte prêt : versé dès qu'il le sera
                 continue;
             }
-            // Noté avant l'appel : si la réponse se perd, le mois suivant retrouve le versement au lieu de le refaire
-            $group = 'plus-pool-'.str_replace(':', '-', $seller).'-'.Str::lower((string) Str::ulid());
-            $this->sentThisRun[$group] = true;
-            PlusPoolShare::query()->whereIn('id', $shares->modelKeys())->update(['payout_group' => $group, 'stripe_account_id' => $account]);
             try {
-                // Recevoir des virements : demandé à chaque fois (sans effet si c'est déjà fait)
-                $this->gateway->pourCompte(null)->demanderVirementsRecus($account);
-                $transfer = $this->gateway->pourCompte(null)->transferer($account, $amount, $group, [
-                    'objet' => 'cagnotte_plus', 'seller' => $seller, 'month' => $month->format('Y-m'),
-                ], $group);
+                $this->transfer($seller, $shares, $account, $month->format('Y-m'));
             } catch (Throwable $e) {
                 // Une panne : la part attend le mois suivant, les autres vendeurs passent
                 report($e);
-
-                continue;
             }
-            PlusPoolShare::query()->whereIn('id', $shares->modelKeys())->update(['paid_at' => now(), 'transfer_id' => $transfer]);
         }
+    }
+
+    /**
+     * Le solde d'un vendeur qui efface son compte (décision de Jim,
+     * 31.10.2026) : tout ce qui est déjà calculé lui est versé maintenant,
+     * même sous 10 CHF, avant que son compte de paiement se ferme. Les jours
+     * du mois en cours ne se calculent qu'à la fin du mois : ils ne sont pas
+     * versés. Un versement encore en route, ou une panne : une exception,
+     * l'effacement attend la nuit suivante. Sans compte de paiement prêt,
+     * rien ne peut être versé : c'est signalé.
+     */
+    public function settleSeller(User $user): void
+    {
+        Cache::lock('plus-pool-pay', 21600)->block($this->lockWait, function () use ($user): void {
+            $seller = 'user:'.$user->id;
+            $shares = PlusPoolShare::query()->with('month')->whereNull('paid_at')->where('earned_cents', '>', 0)->where('seller_user_id', $user->id)->get();
+            if ($shares->contains(fn (PlusPoolShare $share) => $share->payout_group !== null && $share->updated_at > now()->subHour())) {
+                throw new RuntimeException("Versement de la cagnotte du vendeur {$user->id} encore en route : effacement repris la nuit suivante");
+            }
+            $shares = $this->settleLostPayouts($shares);
+            if ($shares->isEmpty()) {
+                return;
+            }
+            $account = $this->account($seller);
+            if ($account === null) {
+                report(new RuntimeException("Part de cagnotte du vendeur {$user->id} sans compte de paiement prêt : pas versée"));
+
+                return;
+            }
+            $this->transfer($seller, $shares, $account, now('Europe/Zurich')->format('Y-m'));
+        });
+    }
+
+    /**
+     * Verse ces parts. Le groupe est noté avant l'appel : si la réponse se
+     * perd, un passage suivant retrouve le versement au lieu de le refaire.
+     *
+     * @param  Collection<int, PlusPoolShare>  $shares
+     */
+    private function transfer(string $seller, Collection $shares, string $account, string $month): void
+    {
+        $group = 'plus-pool-'.str_replace(':', '-', $seller).'-'.Str::lower((string) Str::ulid());
+        $this->sentThisRun[$group] = true;
+        PlusPoolShare::query()->whereIn('id', $shares->modelKeys())->update(['payout_group' => $group, 'stripe_account_id' => $account]);
+        // Recevoir des virements : demandé à chaque fois (sans effet si c'est déjà fait)
+        $this->gateway->pourCompte(null)->demanderVirementsRecus($account);
+        $transfer = $this->gateway->pourCompte(null)->transferer($account, (int) $shares->sum('earned_cents'), $group, [
+            'objet' => 'cagnotte_plus', 'seller' => $seller, 'month' => $month,
+        ], $group);
+        PlusPoolShare::query()->whereIn('id', $shares->modelKeys())->update(['paid_at' => now(), 'transfer_id' => $transfer]);
     }
 
     /**

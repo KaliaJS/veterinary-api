@@ -23,6 +23,7 @@ use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserelleIdentite;
 use App\Paiements\PasserellePaiement;
 use App\Services\Abonnements\AbonnementSaas;
+use App\Services\Videos\PlusPool;
 use App\Services\Videos\VideoPurchases;
 use App\Services\Videos\ViewingCertificates;
 use Carbon\CarbonImmutable;
@@ -77,6 +78,7 @@ class SuppressionCompte
         private PasserelleIdentite $identite,
         private PasserellePaiement $paiements,
         private VideoPurchases $achatsVideos,
+        private PlusPool $cagnotte,
     ) {}
 
     /** Un code neuf, cinq essais neufs ; aucun e-mail pour l'adresse de revue. Rend vrai si un e-mail est parti. */
@@ -351,6 +353,9 @@ class SuppressionCompte
         }
         if ($user->stripe_account_id !== null) {
             $compte = $user->stripe_account_id;
+            // Sa part de la cagnotte Plus déjà calculée, versée avant la fermeture, même sous 10 CHF
+            // (décision de Jim) ; un versement en route ou une panne : l'effacement attend la nuit suivante
+            $this->cagnotte->settleSeller($user);
             try {
                 $this->paiements->pourCompte(null)->fermerCompteVendeur($compte);
             } catch (ErreurPaiement $e) {
