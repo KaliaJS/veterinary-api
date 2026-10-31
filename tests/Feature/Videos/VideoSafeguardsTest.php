@@ -553,7 +553,8 @@ class VideoSafeguardsTest extends TestCase
         $this->upload($vet['jeton'], $id, $this->hlsPackage());
         $this->partialMock(VideoStorage::class, fn ($mock) => $mock->shouldReceive('read')->andReturn(null));
 
-        $this->finish($vet['jeton'], $id)->assertUnprocessable()->assertJsonValidationErrors('files');
+        // 503 : pas un refus, le navigateur garde sa copie et réessaiera
+        $this->finish($vet['jeton'], $id)->assertStatus(503)->assertJsonPath('message', 'Le stockage ne répond pas pour le moment : réessayez dans un instant.');
         $video = Video::query()->sole();
         $this->assertSame('pending', $video->files_status->value);
         $this->assertNotEmpty(Storage::disk('prive')->allFiles($video->folder()));
@@ -841,5 +842,21 @@ class VideoSafeguardsTest extends TestCase
 
         // 12 CHF moins 65 centimes estimés, 30 jours sur 365
         $this->assertSame((int) floor((1200 - 65) * 30 / 365), PlusPoolMonth::query()->sole()->net_revenue_cents);
+    }
+
+    public function test_une_panne_du_stockage_a_la_mise_en_vente_ne_refuse_ni_n_efface_rien(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->upload($vet['jeton'], $id, $this->hlsPackage());
+        $this->finish($vet['jeton'], $id)->assertOk();
+        $this->patchJson($this->base($id), ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->partialMock(VideoStorage::class, fn ($mock) => $mock->shouldReceive('read')->andReturn(null));
+
+        $this->postJson($this->base($id).'/publish', [], $this->enTetes($vet['jeton']))->assertStatus(503);
+        $video = Video::query()->sole();
+        $this->assertSame('ready', $video->files_status->value);
+        $this->assertSame('draft', $video->status->value);
+        $this->assertNotEmpty(Storage::disk('prive')->allFiles($video->folder()));
     }
 }

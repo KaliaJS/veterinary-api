@@ -95,9 +95,9 @@ abstract class SellerVideoUploadController extends SellerVideoController
     {
         $model = $this->editable($request, $video);
         $result = app(HlsPackage::class)->inspect($model);
-        // Stockage injoignable : rien n'est jugé ni effacé, l'envoi se termine plus tard
+        // Stockage injoignable : rien n'est jugé ni effacé ; 503, pas 422 : ce n'est pas un refus, on réessaiera
         if ($result['ok'] === false && ! empty($result['transient'])) {
-            throw ValidationException::withMessages(['files' => $result['reason']]);
+            return response()->json(['message' => $result['reason']], 503);
         }
         if ($result['ok'] === false) {
             return $this->reject($model, $result['reason']);

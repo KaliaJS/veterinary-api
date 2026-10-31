@@ -132,7 +132,7 @@ abstract class SellerVideoController extends Controller
         // Relue avant d'être vendue : rien n'a été remplacé depuis le contrôle
         $check = app(HlsPackage::class)->inspect($model, [AssembleVideoDownload::FILE]);
         if ($check['ok'] === false && ! empty($check['transient'])) {
-            throw ValidationException::withMessages(['files' => $check['reason']]);
+            abort(503, $check['reason']);
         }
         if ($check['ok'] === false) {
             $this->storage->deleteAll($model);
