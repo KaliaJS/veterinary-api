@@ -72,7 +72,8 @@ class VideoResource extends JsonResource
         $completed = 0;
         foreach ($episodes as $episode) {
             $view = $views[$episode->id] ?? null;
-            $completed += $view?->completed_at !== null ? 1 : 0;
+            // Ce qui compte pour le certificat : les épisodes en vente (l'acheteur voit aussi ceux qui en sont sortis)
+            $completed += $view?->completed_at !== null && $episode->status->value === 'published' ? 1 : 0;
             $list[] = [
                 'id' => $episode->uuid,
                 'number' => $episode->episode_number,

@@ -146,9 +146,10 @@ abstract class SellerVideoController extends Controller
         if ($model->status === VideoStatus::Published) {
             NativeApp::refuse($request, 'Une vidéo en vente se modifie sur le site de Veterinary, pas dans l’app iPhone.');
         }
-        // En vente, ce qui la décrit ne s'efface pas
+        // En vente, ce qui la décrit ne s'efface pas (un épisode n'a pas à avoir de description : elle s'efface)
+        $kept = $model->isEpisode() ? ['title'] : ['title', 'description', 'price_cents', 'audience', 'category'];
         if ($model->status === VideoStatus::Published) {
-            $blank = array_filter(['title', 'description', 'price_cents', 'audience', 'category'], fn (string $key) => array_key_exists($key, $data) && blank($data[$key]));
+            $blank = array_filter($kept, fn (string $key) => array_key_exists($key, $data) && blank($data[$key]));
             if ($blank !== []) {
                 throw ValidationException::withMessages(array_fill_keys($blank, 'Une vidéo en vente garde son titre, sa description, son prix, son public et sa catégorie.'));
             }
@@ -174,7 +175,7 @@ abstract class SellerVideoController extends Controller
         }
         // Ce qu'une vidéo en vente doit garder, vidé : seulement si elle n'est toujours pas en vente au moment
         // de l'écriture (une mise en vente dans un autre onglet l'emporte, la fiche reste complète)
-        $blanked = array_filter(['title', 'description', 'price_cents', 'audience', 'category'], fn (string $key) => array_key_exists($key, $data) && blank($data[$key]));
+        $blanked = array_filter($kept, fn (string $key) => array_key_exists($key, $data) && blank($data[$key]));
         if ($blanked !== []) {
             $written = Video::query()->whereKey($model->id)->where('status', '!=', VideoStatus::Published->value)
                 ->update([...$data, 'updated_at' => now()]);
@@ -202,13 +203,20 @@ abstract class SellerVideoController extends Controller
             if ($model->hasBuyers()) {
                 throw ValidationException::withMessages(['status' => 'Cette série a été achetée : ses épisodes restent à ceux qui l’ont achetée.']);
             }
-            // Une série en vente garde au moins un épisode : sans lui, elle disparaîtrait du catalogue sans rien dire
-            $series = $model->series;
-            $isLastOnSale = $series?->status === VideoStatus::Published && $model->status === VideoStatus::Published
-                && ! $series->episodes()->where('status', VideoStatus::Published->value)->whereKeyNot($model->id)->exists();
-            if ($isLastOnSale) {
-                throw ValidationException::withMessages(['status' => 'La série est en vente : elle garde au moins un épisode. Retirez-la de la vente pour supprimer celui-ci.']);
-            }
+            // Une série en vente garde au moins un épisode : sans lui, elle disparaîtrait du catalogue sans rien dire.
+            // Sous le verrou de la série, l'épisode est d'abord retenu (repassé en brouillon) : deux suppressions
+            // lancées au même moment ne retirent jamais ensemble ses deux derniers épisodes
+            DB::transaction(function () use ($model): void {
+                $series = Video::query()->whereKey($model->series_id)->lockForUpdate()->first();
+                $current = Video::query()->whereKey($model->id)->lockForUpdate()->first();
+                abort_if($current === null, 404);
+                $isLastOnSale = $series?->status === VideoStatus::Published && $current->status === VideoStatus::Published
+                    && ! Video::query()->where('series_id', $series->id)->where('status', VideoStatus::Published->value)->whereKeyNot($current->id)->exists();
+                if ($isLastOnSale) {
+                    throw ValidationException::withMessages(['status' => 'La série est en vente : elle garde au moins un épisode. Retirez-la de la vente pour supprimer celui-ci.']);
+                }
+                $current->update(['status' => VideoStatus::Draft]);
+            });
             $this->eraseEpisode($model);
 
             return response()->noContent();

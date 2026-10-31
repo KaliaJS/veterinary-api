@@ -71,7 +71,9 @@ class ContinueWatching
                 if ($seriesAccess === null) {
                     continue;
                 }
-                $items[] = ['item' => $series, 'access' => $seriesAccess, 'view' => $episode->is($video) ? $view : null, 'episode' => $episode];
+                // Un épisode plus ancien laissé en route (repris après le dernier) : sa propre part vue
+                $episodeView = $episode->is($video) ? $view : VideoView::query()->where('video_id', $episode->id)->where('user_id', $user->id)->first();
+                $items[] = ['item' => $series, 'access' => $seriesAccess, 'view' => $episodeView, 'episode' => $episode];
             } else {
                 if ($view->completed_at !== null || $view->watched_seconds < self::MIN_SECONDS) {
                     continue;
@@ -92,16 +94,18 @@ class ContinueWatching
 
     /**
      * L'épisode qui suit un épisode vu en entier, pas encore vu lui-même ;
-     * null si la série est finie.
+     * sinon un plus ancien pas encore vu en entier (comme la fenêtre de la
+     * série le propose) ; null si la série est vue en entier.
      *
      * @param  Collection<int, int>  $completedByVideo
      */
     private function nextEpisode(Video $series, Video $after, User $user, Collection $completedByVideo): ?Video
     {
-        return $series->episodes()->where('status', VideoStatus::Published->value)
-            ->where('episode_number', '>', (int) $after->episode_number)
-            ->get()
-            ->first(fn (Video $episode) => ! $completedByVideo->has($episode->id)
-                && ! VideoView::query()->where('video_id', $episode->id)->where('user_id', $user->id)->whereNotNull('completed_at')->exists());
+        $episodes = $series->episodes()->where('status', VideoStatus::Published->value)->get();
+        $isUnseen = fn (Video $episode) => ! $completedByVideo->has($episode->id)
+            && ! VideoView::query()->where('video_id', $episode->id)->where('user_id', $user->id)->whereNotNull('completed_at')->exists();
+
+        return $episodes->first(fn (Video $episode) => $episode->episode_number > (int) $after->episode_number && $isUnseen($episode))
+            ?? $episodes->first($isUnseen);
     }
 }

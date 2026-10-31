@@ -984,7 +984,9 @@ class VideoSafeguardsTest extends TestCase
 
         $data = $this->getJson("/api/v1/espace/videos/{$sale['id']}", $this->enTetes($plus['jeton']))->assertOk()->json('data');
         $this->assertSame('Nourrir un chat senior', $data['title']);
-        $this->assertSame(['id', 'title', 'seller', 'access', 'viewing'], array_keys($data));
+        // Le genre (vidéo ou série) en plus : la fenêtre dit « Cette série ne se regarde plus » (deuxième passage des séries)
+        $this->assertSame(['id', 'kind', 'title', 'seller', 'access', 'viewing'], array_keys($data));
+        $this->assertSame('video', $data['kind']);
 
         // Un ancien administrateur qui avait vu un brouillon en entier : rien
         ['clinique' => $clinique, 'jeton' => $jeton] = $this->clinicSeller();

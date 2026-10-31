@@ -107,6 +107,7 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
             'status' => $video->status === VideoStatus::Published ? ($withdraw ? VideoStatus::Withdrawn : VideoStatus::Draft) : $video->status,
             'withdrawn_at' => $withdraw ? now() : $video->withdrawn_at,
         ]);
+        $this->keepSeriesWithEpisodes($video);
         VideoUpdated::announce($video, $wasRequested ? $this->named($video).' n’a pas pu être relue, le stockage ne répond pas : elle n’est pas mise en vente. Réessayez plus tard.' : null);
     }
 
@@ -178,6 +179,20 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
             'publish_requested_at' => null,
             'publish_requested_by' => null,
         ]);
+        $this->keepSeriesWithEpisodes($video);
+    }
+
+    /**
+     * Un épisode reparti en brouillon : sa série en vente ne reste jamais sans épisode (invisible au
+     * catalogue sans que son vendeur le sache) ; elle quitte la vente, et y revient une fois l'épisode renvoyé.
+     */
+    private function keepSeriesWithEpisodes(Video $video): void
+    {
+        $series = $video->isEpisode() ? $video->series : null;
+        if ($series?->status === VideoStatus::Published && ! $series->episodes()->where('status', VideoStatus::Published->value)->exists()) {
+            $series->update(['status' => VideoStatus::Withdrawn, 'withdrawn_at' => now()]);
+            VideoUpdated::announce($series->refresh(), 'La série « '.$series->title.' » n’a plus d’épisode en vente : elle quitte la vente. Renvoyez l’épisode, puis remettez-la en vente.');
+        }
     }
 
     /**

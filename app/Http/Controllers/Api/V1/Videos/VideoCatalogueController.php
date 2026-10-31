@@ -204,6 +204,7 @@ class VideoCatalogueController extends Controller
 
         return response()->json(['data' => [
             'id' => $model->uuid,
+            'kind' => $model->kind->value,
             'title' => $certificate->video_title ?? $model->title,
             'seller' => ['name' => $certificate->seller_name ?? $model->seller_name],
             'access' => null,

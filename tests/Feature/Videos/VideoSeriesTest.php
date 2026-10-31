@@ -3,6 +3,7 @@
 namespace Tests\Feature\Videos;
 
 use App\Enums\StatutVerificationVeterinaire;
+use App\Jobs\RecheckVideoFiles;
 use App\Models\Clinique;
 use App\Models\User;
 use App\Models\Video;
@@ -599,6 +600,96 @@ class VideoSeriesTest extends TestCase
         $this->readyEpisode($vet, $series, 'Un');
         $this->postJson(self::SELLER."/{$series}/publish", [], $this->enTetes($vet['jeton']))->assertUnprocessable()->assertJsonValidationErrors(['terms']);
         $this->postJson(self::SELLER."/{$series}/publish", ['accept_terms' => true], $this->enTetes($vet['jeton']))->assertOk()->assertJsonPath('data.status', 'published');
+    }
+
+    // ————— Deuxième passage de vérification —————
+
+    public function test_la_liste_des_episodes_dit_leur_numero_image_titre_duree_description_et_part_vue(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet, [], 'Les besoins');
+        $episode = Video::query()->where('kind', 'episode')->sole();
+        $episode->forceFill(['description' => 'Ce qu’il mange.'])->save();
+        ['user' => $viewer, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        VideoView::query()->create(['video_id' => $episode->id, 'user_id' => $viewer->id, 'watched_ranges' => [[0, 12]], 'watched_seconds' => 12, 'last_progress_at' => now()]);
+
+        $listed = $this->getJson("/api/v1/espace/videos/{$series}", $this->enTetes($jeton))->json('data.episodes.0');
+
+        $this->assertSame(1, $listed['number']);
+        $this->assertSame('Les besoins', $listed['title']);
+        $this->assertSame('Ce qu’il mange.', $listed['description']);
+        $this->assertEqualsWithDelta(30.0, $listed['duration_seconds'], 0.5);
+        $this->assertStringContainsString('/videos/posters/', (string) $listed['poster']['url']);
+        $this->assertSame(12, $listed['viewing']['watched_seconds']);
+    }
+
+    public function test_un_episode_sorti_de_la_vente_ne_compte_pas_pour_le_certificat_de_l_acheteur(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet);
+        $second = $this->readyEpisode($vet, $series, 'Deux');
+        $this->postJson(self::SELLER."/{$second}/publish", [], $this->enTetes($vet['jeton']))->assertOk();
+        ['user' => $buyer, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->own($buyer, $series);
+        $out = Video::query()->where('uuid', $second)->sole();
+        $out->update(['status' => 'withdrawn', 'withdrawn_at' => now()]);
+        $this->completed($buyer, $out);
+
+        $viewing = $this->getJson("/api/v1/espace/videos/{$series}", $this->enTetes($jeton))->json('data.viewing');
+        $this->assertFalse($viewing['completed']);
+        $this->assertSame(0, $viewing['completed_episodes']);
+    }
+
+    public function test_la_relecture_qui_renvoie_le_seul_episode_en_brouillon_retire_la_serie_de_la_vente(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet);
+        $episode = Video::query()->where('kind', 'episode')->sole();
+        // Une adresse donnée avant le contrôle écrit encore : une 4K en HEVC remplace la 1080p
+        Storage::disk('prive')->put($episode->folder().'/init-1.mp4', $this->initSegment(3840, 2160, 'hvc1'));
+        RecheckVideoFiles::dispatchSync($episode->id);
+
+        $this->assertSame('draft', $episode->refresh()->status->value);
+        $this->assertSame('withdrawn', Video::query()->where('uuid', $series)->value('status')->value);
+    }
+
+    public function test_un_episode_en_vente_peut_perdre_sa_description_jamais_son_titre(): void
+    {
+        $vet = $this->verifiedVet();
+        $this->publishedSeries($vet);
+        $episode = Video::query()->where('kind', 'episode')->sole();
+        $episode->forceFill(['description' => 'Texte'])->save();
+        $this->patchJson(self::SELLER."/{$episode->uuid}", ['description' => null], $this->enTetes($vet['jeton']))->assertOk();
+        $this->patchJson(self::SELLER."/{$episode->uuid}", ['title' => null], $this->enTetes($vet['jeton']))->assertUnprocessable()->assertJsonValidationErrors(['title']);
+    }
+
+    public function test_la_fenetre_d_une_serie_plus_regardable_se_dit_serie(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet, ['title' => 'Retirée']);
+        ['user' => $viewer, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->completed($viewer, Video::query()->where('kind', 'episode')->sole());
+        $this->postJson(self::SELLER."/{$series}/withdraw", [], $this->enTetes($vet['jeton']))->assertOk();
+        $this->getJson("/api/v1/espace/videos/{$series}", $this->enTetes($jeton))->assertOk()->assertJsonPath('data.kind', 'series');
+    }
+
+    public function test_continuer_a_voir_reprend_un_episode_plus_ancien_laisse_en_route(): void
+    {
+        $this->withoutMiddleware(ThrottleRequests::class);
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet);
+        $second = $this->readyEpisode($vet, $series, 'Deux');
+        $this->postJson(self::SELLER."/{$second}/publish", [], $this->enTetes($vet['jeton']))->assertOk();
+        $episodes = Video::query()->where('kind', 'episode')->orderBy('episode_number')->get();
+        ['user' => $owner, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->own($owner, $series);
+        // Le premier commencé (40 s), puis le dernier vu en entier, plus tard
+        VideoView::query()->create(['video_id' => $episodes[0]->id, 'user_id' => $owner->id, 'watched_ranges' => [[0, 40]], 'watched_seconds' => 40, 'last_progress_at' => now()->subHour()]);
+        VideoView::query()->create(['video_id' => $episodes[1]->id, 'user_id' => $owner->id, 'watched_ranges' => [[0, 30]], 'watched_seconds' => 30, 'last_progress_at' => now(), 'completed_at' => now()]);
+
+        $continue = collect($this->getJson('/api/v1/espace/videos/home', $this->enTetes($jeton))->json('data.rows'))->keyBy('key')['continue']['videos'];
+        $this->assertSame($episodes[0]->uuid, $continue[0]['resume']['episode_id']);
+        $this->assertSame(40, $continue[0]['resume']['watched_seconds']);
     }
 
     // ————— Outils —————
