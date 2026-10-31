@@ -2501,16 +2501,19 @@ class VideoSafeguardsTest extends TestCase
         $this->eraseSeller($vet);
         $closure = SellerAccountClosure::query()->where('stripe_account_id', $account)->firstOrFail();
 
-        // Une panne : rien de noté, la nuit suivante réessaie
+        // Une panne : notée, la nuit suivante réessaie
         $this->gateway->erreurs['fermerCompteVendeur'] = new ErreurPaiement('Stripe ne répond pas.', 'api_error', 503);
-        $this->artisan('videos:close-seller-accounts')->assertSuccessful();
-        $this->assertSame(0, $closure->refresh()->attempts);
-        // Un refus (solde pas encore versé) : compté, retenté
-        $this->gateway->erreurs['fermerCompteVendeur'] = new ErreurPaiement('Solde à verser', 'balance_not_zero', 400);
         $this->artisan('videos:close-seller-accounts')->assertSuccessful();
         $closure->refresh();
         $this->assertSame(1, $closure->attempts);
-        $this->assertSame('balance_not_zero', $closure->last_error);
+        $this->assertSame('api_error', $closure->last_error);
+        $this->assertNull($closure->closed_at);
+        // Un refus (solde pas encore versé) : compté, retenté
+        $this->gateway->erreurs['fermerCompteVendeur'] = new ErreurPaiement('Solde à verser', 'cannot_delete_account_with_balance', 400);
+        $this->artisan('videos:close-seller-accounts')->assertSuccessful();
+        $closure->refresh();
+        $this->assertSame(2, $closure->attempts);
+        $this->assertSame('cannot_delete_account_with_balance', $closure->last_error);
         $this->assertNull($closure->closed_at);
         // Toujours ouvert après 60 jours : signalé une fois, à fermer à la main
         $this->travel(61)->days();
@@ -2775,5 +2778,131 @@ class VideoSafeguardsTest extends TestCase
         $month = app(PlusPool::class)->compute(CarbonImmutable::parse('2026-11-01'));
         $this->assertSame(0, $month->views);
         $this->assertSame(0, $month->shares()->count());
+    }
+
+    /* ————— Treizième vérification (31.10.2026) ————— */
+
+    public function test_un_vendeur_efface_le_1er_avant_le_calcul_recoit_sa_part_du_mois_passe(): void
+    {
+        $this->travelTo('2026-11-20 10:00');
+        $vet = $this->verifiedVet();
+        $other = $this->verifiedVet();
+        $mine = $this->published(['in_plus' => true], $vet);
+        $theirs = $this->published(['in_plus' => true], $other);
+        foreach ([$mine['id'], $theirs['id']] as $id) {
+            VideoView::query()->create(['video_id' => Video::query()->where('uuid', $id)->value('id'), 'user_id' => $this->proprietaireAvecJeton()['user']->id, 'watched_seconds' => 90, 'counted_at' => now(), 'counted_via_plus' => true]);
+        }
+        $plusUser = $this->proprietaireAvecJeton(['formule' => 'plus']);
+        FactureProprietaire::query()->forceCreate([
+            'user_id' => $plusUser['user']->id, 'numero' => 'P-2026-777', 'emise_le' => now(), 'libelle' => 'Plus', 'montant' => 24, 'montant_ht' => 24, 'statut' => 'payee', 'paye_le' => now(),
+            'stripe_paiement_id' => null, 'periode_debut' => '2026-11-01', 'periode_fin' => '2026-12-01', 'metadonnees' => ['type' => 'abonnement', 'formule' => 'plus'],
+        ]);
+
+        // Effacé le 1er décembre à 03:45, avant le calcul de 05:00
+        $this->travelTo('2026-12-01 03:45');
+        $this->eraseSeller($vet);
+
+        $this->assertNotNull(PlusPoolMonth::query()->where('month', '2026-11')->first());
+        $this->assertSame([$vet['user']->stripe_account_id], array_values(array_unique(array_column($this->gateway->versements, 'compte'))));
+    }
+
+    public function test_une_part_refusee_a_l_effacement_est_versee_avant_la_fermeture_du_compte(): void
+    {
+        $vet = $this->verifiedVet();
+        $account = $vet['user']->stripe_account_id;
+        PlusPoolMonth::query()->create(['month' => '2026-09', 'net_revenue_cents' => 6000, 'pool_cents' => 3000, 'views' => 2, 'computed_at' => now()])
+            ->shares()->create(['seller_user_id' => $vet['user']->id, 'views' => 2, 'earned_cents' => 3000]);
+        // Le compte ne reçoit pas encore de virements : refusé le soir de l'effacement
+        $this->gateway->erreurs['transferer'] = new ErreurPaiement('Le compte ne reçoit pas de virements', 'transfers_not_allowed', 400);
+        $this->eraseSeller($vet);
+
+        // La nuit (plus d'une heure après) : refusé de nouveau, le compte reste ouvert
+        $this->travel(2)->hours();
+        $this->artisan('videos:close-seller-accounts')->assertSuccessful();
+        $this->assertSame([], $this->gateway->comptesFermes);
+        // Les virements activés : la part part, puis le compte se ferme
+        unset($this->gateway->erreurs['transferer']);
+        $this->travel(2)->hours();
+        $this->artisan('videos:close-seller-accounts')->assertSuccessful();
+        $this->assertSame([['compte' => $account, 'centimes' => 3000]], array_map(fn ($v) => ['compte' => $v['compte'], 'centimes' => $v['centimes']], $this->gateway->versements));
+        $this->assertNotNull(PlusPoolShare::query()->sole()->paid_at);
+        $this->assertSame([$account], $this->gateway->comptesFermes);
+    }
+
+    public function test_un_achat_tombe_apres_l_effacement_a_son_intention_annulee(): void
+    {
+        $vet = $this->verifiedVet();
+        $sale = $this->published([], $vet);
+        $buyer = $this->proprietaireAvecJeton();
+        $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase", ['accept_terms' => true], $this->enTetes($buyer['jeton']))->assertOk();
+        $purchase = VideoPurchase::query()->sole();
+        $this->gateway->conclure($purchase->payment_intent_id, 'processing');
+        $this->gateway->erreurs['annulerIntention'] = new ErreurPaiement('Déjà en cours', 'payment_intent_unexpected_state', 400);
+        $this->eraseSeller($vet);
+
+        // La banque refuse : l'intention revient « à payer » ; la tâche l'annule avant de supprimer l'achat
+        unset($this->gateway->erreurs['annulerIntention']);
+        $this->gateway->conclure($purchase->payment_intent_id, 'requires_payment_method');
+        $this->artisan('videos:close-seller-accounts')->assertSuccessful();
+
+        $this->assertSame('canceled', $this->gateway->pourCompte($purchase->stripe_account_id)->lireIntention($purchase->payment_intent_id)['statut']);
+        $this->assertSame(0, VideoPurchase::query()->count());
+    }
+
+    public function test_une_video_retenue_par_un_autre_acheteur_ne_s_efface_pas_quand_un_paiement_tombe(): void
+    {
+        $vet = $this->verifiedVet();
+        $sale = $this->published([], $vet);
+        $video = Video::query()->sole();
+        $paid = $this->paidBuyer($video);
+        $pending = $this->proprietaireAvecJeton();
+        $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase", ['accept_terms' => true], $this->enTetes($pending['jeton']))->assertOk();
+        $intent = VideoPurchase::query()->whereNull('paid_at')->sole()->payment_intent_id;
+        $this->gateway->conclure($intent, 'processing');
+        $this->gateway->erreurs['annulerIntention'] = new ErreurPaiement('Déjà en cours', 'payment_intent_unexpected_state', 400);
+        $this->eraseSeller($vet);
+        unset($this->gateway->erreurs['annulerIntention']);
+        $this->gateway->conclure($intent, 'requires_payment_method');
+
+        $this->artisan('videos:close-seller-accounts')->assertSuccessful();
+
+        $this->assertNotNull(Video::query()->find($video->id));
+        // La tâche va au bout sans erreur : le compte se ferme
+        $this->assertSame([$vet['user']->stripe_account_id], $this->gateway->comptesFermes);
+        $this->play($paid['jeton'], $sale['id'])->assertOk()->assertJsonPath('data.scope', 'full');
+        // Son nom reste affiché à son acheteur
+        $this->getJson("/api/v1/espace/videos/{$sale['id']}", $this->enTetes($paid['jeton']))->assertJsonPath('data.seller.name', $vet['user']->name);
+    }
+
+    public function test_la_mise_en_vente_differee_attend_les_nouvelles_conditions(): void
+    {
+        $vet = $this->verifiedVet();
+        $video = $this->readyDraft($vet);
+        Queue::fake();
+        $this->postJson($this->base($video->uuid).'/publish', [], $this->enTetes($vet['jeton']))->assertStatus(202);
+        // Une nouvelle version des conditions paraît pendant la relecture
+        $vet['user']->forceFill(['video_terms_version' => '2026-01-01'])->save();
+        Events::fake([VideoUpdated::class]);
+
+        $this->recheck($video);
+
+        $this->assertSame('draft', $video->refresh()->status->value);
+        Events::assertDispatched(VideoUpdated::class, fn (VideoUpdated $e): bool => str_contains((string) $e->broadcastWith()['notice'], 'conditions de vente des vidéos ont changé'));
+    }
+
+    public function test_une_part_d_un_compte_pas_encore_pret_a_l_effacement_est_versee_avant_la_fermeture(): void
+    {
+        $vet = $this->verifiedVet();
+        $account = $vet['user']->stripe_account_id;
+        $vet['user']->forceFill(['stripe_account_ready_at' => null])->save();
+        PlusPoolMonth::query()->create(['month' => '2026-09', 'net_revenue_cents' => 1200, 'pool_cents' => 600, 'views' => 2, 'computed_at' => now()])
+            ->shares()->create(['seller_user_id' => $vet['user']->id, 'views' => 2, 'earned_cents' => 600]);
+
+        $this->eraseSeller($vet);
+        $this->assertSame([], $this->gateway->versements);
+
+        $this->artisan('videos:close-seller-accounts')->assertSuccessful();
+        $this->assertSame([['compte' => $account, 'centimes' => 600]], array_map(fn ($v) => ['compte' => $v['compte'], 'centimes' => $v['centimes']], $this->gateway->versements));
+        $this->assertSame([$account], $this->gateway->comptesFermes);
     }
 }

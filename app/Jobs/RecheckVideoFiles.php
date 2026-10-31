@@ -8,6 +8,7 @@ use App\Events\VideoUpdated;
 use App\Models\User;
 use App\Models\Video;
 use App\Services\Videos\HlsPackage;
+use App\Services\Videos\SellerTerms;
 use App\Services\Videos\VideoPublisher;
 use App\Services\Videos\VideoStorage;
 use Illuminate\Bus\Queueable;
@@ -192,6 +193,10 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
         }
         try {
             $this->assertRequesterMayPublish($video);
+            // Les conditions de vente ont changé pendant la relecture : à réaccepter avant la mise en vente
+            if (! app(SellerTerms::class)->isAccepted($video)) {
+                throw ValidationException::withMessages(['terms' => 'Les conditions de vente des vidéos ont changé : acceptez-les en mettant la vidéo en vente à nouveau.']);
+            }
             $publisher->publish($video, (string) $video->seller_name);
         } catch (ValidationException $e) {
             $reasons = implode(' ', array_merge(...array_values($e->errors())));

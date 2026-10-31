@@ -229,7 +229,7 @@ class SuppressionCompte
         }
 
         $compteVendeur = $user->stripe_account_id;
-        $fichiers = DB::transaction(function () use ($user, $paiementsEnSuspens): ?array {
+        $fichiers = DB::transaction(function () use ($user, $paiementsEnSuspens, $compteVendeur): ?array {
             // Relue sous verrou : une connexion à cet instant gagne
             if (User::query()->whereKey($user->id)->lockForUpdate()->value('suppression_demandee_le') === null) {
                 return null;
@@ -269,6 +269,11 @@ class SuppressionCompte
 
             // Les vidéos qu'il vendait en son nom (31.10.2026, neuvième vérification) : son image et sa voix
             $this->detacherVideos($user, $paiementsEnSuspens);
+            // Son compte de paiement, fermé par la tâche de nuit (videos:close-seller-accounts) quand plus aucun
+            // paiement n'y est en cours, que sa part de cagnotte est versée et que son solde lui est versé
+            if ($compteVendeur !== null) {
+                SellerAccountClosure::query()->firstOrCreate(['stripe_account_id' => $compteVendeur], ['requested_at' => now()]);
+            }
 
             // Ancien membre d'équipe : une trace sans connexion, prénom seul
             // (décision de Jim, 27.10.2026), à laquelle restent liées sa fiche
@@ -297,11 +302,6 @@ class SuppressionCompte
             return false;
         }
         Storage::disk('prive')->delete($fichiers);
-        // Son compte de paiement, fermé par la tâche de nuit (videos:close-seller-accounts) quand plus aucun
-        // paiement n'y est en cours et que son solde lui est versé
-        if ($compteVendeur !== null) {
-            SellerAccountClosure::query()->firstOrCreate(['stripe_account_id' => $compteVendeur], ['requested_at' => now()]);
-        }
 
         return true;
     }

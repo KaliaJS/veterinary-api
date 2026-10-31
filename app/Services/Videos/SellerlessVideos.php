@@ -8,7 +8,9 @@ use App\Jobs\PurgeVideoFolder;
 use App\Models\User;
 use App\Models\Video;
 use App\Models\VideoView;
+use App\Paiements\PasserellePaiement;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Les vidéos d'un vendeur qui a effacé son compte (31.10.2026) : sans
@@ -18,7 +20,7 @@ use Illuminate\Validation\ValidationException;
  */
 class SellerlessVideos
 {
-    public function __construct(private ViewingCertificates $certificates) {}
+    public function __construct(private ViewingCertificates $certificates, private PasserellePaiement $gateway) {}
 
     /** Efface une vidéo qui n'a aucun acheteur ; ses fichiers partent par la file, qui réessaie. */
     public function erase(Video $video): void
@@ -38,7 +40,14 @@ class SellerlessVideos
                 }
             });
         $video->views()->delete();
-        // Des intentions jamais payées (annulées, ou de plus d'un jour) : elles ne retiennent rien
+        // Des intentions jamais payées : annulées (ouvertes à l'instant, un vieil onglet ne les paiera plus), puis supprimées
+        foreach ($video->purchases()->whereNull('paid_at')->whereNotNull('payment_intent_id')->get() as $purchase) {
+            try {
+                $this->gateway->pourCompte($purchase->stripe_account_id)->annulerIntention((string) $purchase->payment_intent_id);
+            } catch (Throwable) {
+                // Déjà annulée, ou le prestataire ne répond pas : elle expirera sans rien donner
+            }
+        }
         $video->purchases()->whereNull('paid_at')->delete();
         if ($video->certificates()->exists()) {
             $video->update([

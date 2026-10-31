@@ -117,7 +117,8 @@ class PlusPool
     {
         $month = $month->setTimezone('Europe/Zurich')->startOfMonth();
         $yearEnd = (int) $month->format('n') === 12;
-        $unpaid = PlusPoolShare::query()->with('month')->whereNull('paid_at')->where('earned_cents', '>', 0)->get()
+        $unpaid = PlusPoolShare::query()->with('month')->whereNull('paid_at')->where('earned_cents', '>', 0)
+            ->where(fn ($seller) => $seller->whereNotNull('seller_user_id')->orWhereNotNull('seller_clinique_id'))->get()
             ->groupBy(fn (PlusPoolShare $share) => $share->seller_user_id !== null ? 'user:'.$share->seller_user_id : 'clinique:'.$share->seller_clinique_id);
 
         foreach ($unpaid as $seller => $shares) {
@@ -165,7 +166,18 @@ class PlusPool
     {
         Cache::lock('plus-pool-pay', 21600)->block($this->lockWait, function () use ($user): void {
             $seller = 'user:'.$user->id;
+            // Le mois passé pas encore calculé (effacement le 1er, avant le passage de 05:00) : calculé
+            // maintenant, sa part en fait partie
+            $previous = CarbonImmutable::now('Europe/Zurich')->subMonthNoOverflow()->startOfMonth();
+            if (! PlusPoolMonth::query()->where('month', $previous->format('Y-m'))->exists()) {
+                $this->compute($previous);
+            }
             $shares = PlusPoolShare::query()->with('month')->whereNull('paid_at')->where('earned_cents', '>', 0)->where('seller_user_id', $user->id)->get();
+            // Rattachées à son compte de paiement : ce qui ne peut pas partir ce soir (refus, compte pas
+            // prêt) part avant la fermeture du compte, par la tâche de nuit (payDeparted)
+            if ($user->stripe_account_id !== null) {
+                PlusPoolShare::query()->whereIn('id', $shares->modelKeys())->update(['stripe_account_id' => $user->stripe_account_id]);
+            }
             if ($shares->contains(fn (PlusPoolShare $share) => $share->payout_group !== null && $share->updated_at > now()->subHour())) {
                 throw new RuntimeException("Versement de la cagnotte du vendeur {$user->id} encore en route : effacement repris la nuit suivante");
             }
@@ -175,8 +187,7 @@ class PlusPool
             }
             $account = $this->account($seller);
             if ($account === null) {
-                report(new RuntimeException("Part de cagnotte du vendeur {$user->id} sans compte de paiement prêt : pas versée"));
-
+                // Pas encore prêt : la tâche de nuit retente avant de fermer le compte
                 return;
             }
             try {
@@ -185,10 +196,42 @@ class PlusPool
                 if ($e->estPassagere() || $e->cleRefusee()) {
                     throw $e;
                 }
-                // Refusé net (le compte ne reçoit pas de virements, solde de la plateforme insuffisant) :
-                // signalé avec le compte et le montant, à verser à la main ; l'effacement continue
-                report(new RuntimeException('Part de cagnotte de '.number_format($shares->sum('earned_cents') / 100, 2)." CHF pour le compte {$account} d'un vendeur qui s'en va : refusée, à verser à la main", 0, $e));
+                // Refusé net (le compte ne reçoit pas encore de virements, solde de la plateforme insuffisant) :
+                // l'effacement continue, la tâche de nuit retente avant de fermer le compte
+                report($e);
             }
+        });
+    }
+
+    /**
+     * Ce qui reste dû au compte d'un vendeur effacé (versement refusé, ou
+     * compte pas prêt le soir de l'effacement) : versé avant la fermeture du
+     * compte. Rend vrai quand plus rien n'est dû ; un refus ou un versement
+     * encore en route : faux, la nuit suivante retente.
+     */
+    public function payDeparted(string $account): bool
+    {
+        return Cache::lock('plus-pool-pay', 21600)->block($this->lockWait, function () use ($account): bool {
+            $shares = PlusPoolShare::query()->with('month')->whereNull('paid_at')->where('earned_cents', '>', 0)
+                ->whereNull('seller_user_id')->whereNull('seller_clinique_id')->where('stripe_account_id', $account)->get();
+            if ($shares->contains(fn (PlusPoolShare $share) => $share->payout_group !== null && $share->updated_at > now()->subHour())) {
+                return false;
+            }
+            $shares = $this->settleLostPayouts($shares);
+            if ($shares->isEmpty()) {
+                return true;
+            }
+            try {
+                $this->transfer('departed:'.$account, $shares, $account, now('Europe/Zurich')->format('Y-m'));
+            } catch (ErreurPaiement $e) {
+                if ($e->estPassagere() || $e->cleRefusee()) {
+                    throw $e;
+                }
+
+                return false;
+            }
+
+            return true;
         });
     }
 
