@@ -23,7 +23,7 @@ class ViewingCertificates
     {
         // Pas de certificat de son propre brouillon, ni de sa propre vidéo
         if ($video->published_at === null || $video->isOnSellerSide($user)) {
-            throw ValidationException::withMessages(['certificat' => 'Le certificat se délivre pour une vidéo de formation suivie, pas pour la sienne.']);
+            throw ValidationException::withMessages(['certificate' => 'Le certificat se délivre pour une vidéo de formation suivie, pas pour la sienne.']);
         }
         $existing = ViewingCertificate::query()->where('video_id', $video->id)->where('user_id', $user->id)->first();
         if ($existing !== null) {
@@ -31,7 +31,7 @@ class ViewingCertificates
         }
         $view = VideoView::query()->where('video_id', $video->id)->where('user_id', $user->id)->first();
         if ($view?->completed_at === null) {
-            throw ValidationException::withMessages(['certificat' => 'Le certificat se délivre une fois la vidéo regardée en entier.']);
+            throw ValidationException::withMessages(['certificate' => 'Le certificat se délivre une fois la vidéo regardée en entier.']);
         }
 
         return ViewingCertificate::query()->create([

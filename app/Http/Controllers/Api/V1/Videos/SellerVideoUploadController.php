@@ -45,7 +45,7 @@ abstract class SellerVideoUploadController extends SellerVideoController
             'files_status' => VideoFilesStatus::Pending, 'rejection_reason' => null, 'size_bytes' => 0,
             'upload_started_at' => now(), 'upload_expected_bytes' => (int) $request->validated('estimated_bytes'),
             'duration_seconds' => null, 'width' => null, 'height' => null, 'renditions' => null,
-            'download_path' => null, 'files_verified_at' => null,
+            'download_path' => null, 'files_verified_at' => null, 'files_checked_at' => null,
         ]);
 
         return response()->json(['data' => ['url_minutes' => self::URL_MINUTES]]);
@@ -118,10 +118,13 @@ abstract class SellerVideoUploadController extends SellerVideoController
             'size_bytes' => $result['size'],
             'renditions' => $result['renditions'],
             'files_verified_at' => now(),
+            'files_checked_at' => null,
         ]);
         // La version à télécharger, assemblée à part
         AssembleVideoDownload::dispatch($model->id)->afterCommit();
-        // Les dernières adresses d'envoi expirent dans 15 minutes : on relit tout après
+        // Chaque morceau relu tout de suite (la mise en vente l'attend), puis encore une fois
+        // quand les dernières adresses d'envoi ont expiré (15 minutes)
+        RecheckVideoFiles::dispatch($model->id)->afterCommit();
         RecheckVideoFiles::dispatch($model->id)->delay(now()->addMinutes(self::URL_MINUTES + 1))->afterCommit();
 
         return VideoResource::seenBy($model, 'seller', true);

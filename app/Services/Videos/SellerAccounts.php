@@ -26,7 +26,7 @@ class SellerAccounts
     public function open(User $user): User
     {
         if (! $user->estVerifie()) {
-            throw ValidationException::withMessages(['compte' => 'Vendre une vidéo demande un compte de vétérinaire vérifié : vérifiez votre identité dans Réglages, Profil.']);
+            throw ValidationException::withMessages(['account' => 'Vendre une vidéo demande un compte de vétérinaire vérifié : vérifiez votre identité dans Réglages, Profil.']);
         }
 
         DB::transaction(function () use ($user): void {
@@ -63,7 +63,7 @@ class SellerAccounts
     public function session(User $user): string
     {
         if ($user->stripe_account_id === null) {
-            throw ValidationException::withMessages(['compte' => 'Le compte de paiement n’est pas encore ouvert.']);
+            throw ValidationException::withMessages(['account' => 'Le compte de paiement n’est pas encore ouvert.']);
         }
 
         return $this->gateway->pourCompte(null)->creerSessionCompte($user->stripe_account_id, self::COMPONENTS);

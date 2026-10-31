@@ -46,16 +46,31 @@ class VideoCatalogueController extends Controller
         return response()->json(['data' => $videos->map(fn (Video $video) => VideoResource::seenBy($video, 'owned')->resolve($request))->all()]);
     }
 
-    public function show(Request $request, string $video): VideoResource
+    public function show(Request $request, string $video): VideoResource|JsonResponse
     {
         $user = $request->user();
         $model = Video::query()->where('uuid', $video)->firstOrFail();
         $access = $this->access->for($model, $user, $model->isOnSellerSide($user));
         $view = VideoView::query()->where('video_id', $model->id)->where('user_id', $user->id)->first();
         $certificate = ViewingCertificate::query()->where('video_id', $model->id)->where('user_id', $user->id)->first();
-        // Plus regardable (retirée, sortie de Plus) : qui l'a vue en entier y retrouve son certificat
-        abort_if($access === null && $view?->completed_at === null && $certificate === null, 404);
+        if ($access !== null) {
+            return VideoResource::seenBy($model, $access, $access === 'seller')->withViewing($view, $certificate);
+        }
+        // Plus regardable (retirée, sortie de Plus) : qui l'a vue en entier y retrouve son certificat,
+        // sans rien voir de ce que la vidéo est devenue depuis (titre figé du certificat, pas de prix ni de public)
+        abort_if($model->published_at === null || ($view?->completed_at === null && $certificate === null), 404);
 
-        return VideoResource::seenBy($model, $access, $access === 'seller')->withViewing($view, $certificate);
+        return response()->json(['data' => [
+            'id' => $model->uuid,
+            'title' => $certificate->video_title ?? $model->title,
+            'seller' => ['name' => $certificate->seller_name ?? $model->seller_name],
+            'access' => null,
+            'viewing' => [
+                'watched_seconds' => $view->watched_seconds ?? 0,
+                'counted' => $view?->counted_at !== null,
+                'completed' => $view?->completed_at !== null,
+                'certificate_code' => $certificate?->code,
+            ],
+        ]]);
     }
 }

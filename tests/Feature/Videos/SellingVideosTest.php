@@ -43,7 +43,7 @@ class SellingVideosTest extends TestCase
     {
         ['jeton' => $owner] = $this->proprietaireAvecJeton();
         $this->postJson('/api/v1/espace/videos/seller/videos', ['title' => 'Essai'], $this->enTetes($owner))
-            ->assertUnprocessable()->assertJsonValidationErrors(['vendeur' => 'Vendre une vidéo demande un compte de vétérinaire vérifié : vérifiez votre identité dans Réglages, Profil.']);
+            ->assertUnprocessable()->assertJsonValidationErrors(['seller' => 'Vendre une vidéo demande un compte de vétérinaire vérifié : vérifiez votre identité dans Réglages, Profil.']);
 
         $vet = $this->verifiedVet();
         $this->postJson('/api/v1/espace/videos/seller/videos', ['title' => 'Essai'], $this->enTetes($vet['jeton']))
@@ -60,7 +60,7 @@ class SellingVideosTest extends TestCase
         $clinique = Clinique::factory()->create();
         ['user' => $admin, 'jeton' => $jeton] = $this->administrateurAvecJeton($clinique);
         $this->postJson('/api/v1/videos', ['title' => 'Essai'], $this->enTetes($jeton))
-            ->assertUnprocessable()->assertJsonValidationErrors('vendeur');
+            ->assertUnprocessable()->assertJsonValidationErrors('seller');
 
         $admin->forceFill(['verification_veterinaire' => StatutVerificationVeterinaire::Verifie])->save();
         $id = $this->postJson('/api/v1/videos', ['title' => 'Essai'], $this->enTetes($jeton))
@@ -91,7 +91,7 @@ class SellingVideosTest extends TestCase
         $this->assertSame($compte, $vet['user']->refresh()->stripe_account_id);
 
         ['jeton' => $owner] = $this->proprietaireAvecJeton();
-        $this->postJson('/api/v1/espace/videos/seller/account', [], $this->enTetes($owner))->assertUnprocessable()->assertJsonValidationErrors('compte');
+        $this->postJson('/api/v1/espace/videos/seller/account', [], $this->enTetes($owner))->assertUnprocessable()->assertJsonValidationErrors('account');
     }
 
     private function comptesCreesType(): ?string

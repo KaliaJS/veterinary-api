@@ -3,6 +3,7 @@
 namespace App\Services\Videos;
 
 use App\Models\Video;
+use Throwable;
 
 /**
  * Le paquet HLS envoyé par le navigateur (31.10.2026) : une liste
@@ -36,11 +37,18 @@ class HlsPackage
      * Vérifie le dossier de la vidéo. Rend les qualités et la durée, ou la
      * raison du refus, dite à son vendeur.
      *
+     * @param  list<string>  $keep  fichiers non cités à garder (la version à télécharger)
+     * @param  bool  $everySegment  relire chaque morceau (la relecture complète), pas seulement quatre
      * @return array{ok: true, duration: float, width: int, height: int, size: int, download_bytes: int, renditions: list<array<string, mixed>>}|array{ok: false, reason: string, transient?: true}
      */
-    public function inspect(Video $video, array $keep = []): array
+    public function inspect(Video $video, array $keep = [], bool $everySegment = false): array
     {
-        $files = $this->storage->files($video);
+        try {
+            $files = $this->storage->files($video);
+        } catch (Throwable) {
+            // La liste elle-même ne répond pas : une panne, pas un mauvais paquet
+            return $this->unavailable();
+        }
         if (! isset($files[self::MASTER])) {
             return $this->refuse('La liste de lecture principale manque : renvoyez la vidéo.');
         }
@@ -88,7 +96,7 @@ class HlsPackage
             $bytes = $files[$playlist] + $files[$init];
             // Quelques morceaux relus : un vrai fragment MP4, pas n'importe quel fichier
             $heads = [];
-            foreach ($this->sample($media['segments']) as $segment) {
+            foreach ($everySegment ? $media['segments'] : $this->sample($media['segments']) as $segment) {
                 if (! isset($files[$segment['uri']])) {
                     continue;
                 }

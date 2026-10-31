@@ -11,6 +11,7 @@ use App\Http\Requests\V1\Videos\StoreVideoRequest;
 use App\Http\Requests\V1\Videos\UpdateVideoRequest;
 use App\Http\Resources\V1\VideoResource;
 use App\Jobs\AssembleVideoDownload;
+use App\Jobs\RecheckVideoFiles;
 use App\Models\Video;
 use App\Paiements\PasserellePaiement;
 use App\Services\Videos\HlsPackage;
@@ -81,6 +82,10 @@ abstract class SellerVideoController extends Controller
         $this->sellers->assertCanManage($model, $request->user(), $this->as);
         $data = $request->validated();
 
+        // Dans l'app iPhone, rien ne se met en vente : une vidéo en vente ne s'y modifie pas non plus
+        if ($model->status === VideoStatus::Published) {
+            NativeApp::refuse($request, 'Une vidéo en vente se modifie sur le site de Veterinary, pas dans l’app iPhone.');
+        }
         // En vente, ce qui la décrit ne s'efface pas
         if ($model->status === VideoStatus::Published) {
             $blank = array_filter(['title', 'description', 'price_cents', 'audience'], fn (string $key) => array_key_exists($key, $data) && blank($data[$key]));
@@ -107,7 +112,8 @@ abstract class SellerVideoController extends Controller
     {
         $model = $this->find($request, $video);
         $this->sellers->assertCanManage($model, $request->user(), $this->as);
-        if ($model->status !== VideoStatus::Draft) {
+        // Une vidéo qui a été en vente ne s'efface jamais : achats et certificats en dépendent
+        if ($model->status !== VideoStatus::Draft || $model->published_at !== null) {
             throw ValidationException::withMessages(['status' => 'Une vidéo mise en vente ne s’efface pas : retirez-la de la vente, ceux qui l’ont achetée la gardent.']);
         }
         $this->storage->deleteAll($model);
@@ -128,6 +134,11 @@ abstract class SellerVideoController extends Controller
 
         if ($model->files_status !== VideoFilesStatus::Ready) {
             throw ValidationException::withMessages(['files' => 'La vidéo n’est pas encore prête : terminez son envoi.']);
+        }
+        // Chaque morceau relu avant la vente ; pas encore fait (ou interrompu par une panne) : on relance
+        if ($model->files_checked_at === null) {
+            RecheckVideoFiles::dispatch($model->id);
+            throw ValidationException::withMessages(['files' => 'La vidéo se relit encore en entier : elle se met en vente dans un instant, réessayez.']);
         }
         // Relue avant d'être vendue : rien n'a été remplacé depuis le contrôle
         $check = app(HlsPackage::class)->inspect($model, [AssembleVideoDownload::FILE]);

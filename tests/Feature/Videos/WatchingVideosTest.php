@@ -192,7 +192,7 @@ class WatchingVideosTest extends TestCase
         $this->assertSame([], $this->gateway->appelsDe('rembourser'));
         // Ni un second achat
         $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase", ['accept_terms' => true], $this->enTetes($owner['jeton']))
-            ->assertUnprocessable()->assertJsonValidationErrors('achat');
+            ->assertUnprocessable()->assertJsonValidationErrors('purchase');
     }
 
     public function test_une_video_achetee_se_regarde_par_un_lien_signe_qui_expire(): void
@@ -432,7 +432,7 @@ class WatchingVideosTest extends TestCase
 
         $this->play($vet['jeton'], $sale['id'])->assertOk();
         $this->watch($vet['jeton'], $sale['id'], 0, 100)->assertJsonPath('data.completed', false);
-        $this->postJson($certificate, [], $this->enTetes($vet['jeton']))->assertUnprocessable()->assertJsonValidationErrors('certificat');
+        $this->postJson($certificate, [], $this->enTetes($vet['jeton']))->assertUnprocessable()->assertJsonValidationErrors('certificate');
         // 169 secondes sur 180 : 94 %, pas encore en entier
         $this->watch($vet['jeton'], $sale['id'], 100, 169)->assertJsonPath('data.completed', false);
         // 171 secondes sur 180 : 95 %

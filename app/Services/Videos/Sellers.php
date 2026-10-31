@@ -80,7 +80,7 @@ class Sellers
     public function assertStillSelling(Video $video): void
     {
         if (! $video->isSellerEligible()) {
-            throw ValidationException::withMessages(['achat' => 'Cette vidéo n’est momentanément plus en vente.']);
+            throw ValidationException::withMessages(['purchase' => 'Cette vidéo n’est momentanément plus en vente.']);
         }
     }
 
@@ -90,7 +90,7 @@ class Sellers
         if ($video->seller_user_id !== null) {
             $seller = $video->sellerUser;
             if ($seller?->stripe_account_id === null || $seller->stripe_account_ready_at === null) {
-                throw ValidationException::withMessages(['compte' => 'Le vendeur n’a pas encore de compte de paiement actif.']);
+                throw ValidationException::withMessages(['account' => 'Le vendeur n’a pas encore de compte de paiement actif.']);
             }
 
             return $seller->stripe_account_id;
@@ -98,7 +98,7 @@ class Sellers
 
         $societe = $video->sellerClinique?->societe;
         if (! $societe?->stripe_compte_id || ! $societe->paiements_actifs) {
-            throw ValidationException::withMessages(['compte' => 'Les paiements en ligne ne sont pas encore activés pour cette clinique : un administrateur les active dans Réglages, Paiements.']);
+            throw ValidationException::withMessages(['account' => 'Les paiements en ligne ne sont pas encore activés pour cette clinique : un administrateur les active dans Réglages, Paiements.']);
         }
 
         return $societe->stripe_compte_id;
@@ -153,7 +153,7 @@ class Sellers
     private function assertVerified(User $user): void
     {
         if (! $user->estVerifie()) {
-            throw ValidationException::withMessages(['vendeur' => 'Vendre une vidéo demande un compte de vétérinaire vérifié : vérifiez votre identité dans Réglages, Profil.']);
+            throw ValidationException::withMessages(['seller' => 'Vendre une vidéo demande un compte de vétérinaire vérifié : vérifiez votre identité dans Réglages, Profil.']);
         }
     }
 
@@ -161,14 +161,14 @@ class Sellers
     {
         $clinique = $this->context->clinique();
         if ($clinique === null) {
-            throw ValidationException::withMessages(['vendeur' => 'Ouvrez Veterinary dans la clinique qui vend la vidéo.']);
+            throw ValidationException::withMessages(['seller' => 'Ouvrez Veterinary dans la clinique qui vend la vidéo.']);
         }
         if (! $this->context->permet(DomainePermission::Organisation)) {
-            throw ValidationException::withMessages(['vendeur' => 'Vendre au nom de la clinique demande le droit Administration.']);
+            throw ValidationException::withMessages(['seller' => 'Vendre au nom de la clinique demande le droit Administration.']);
         }
         $organisation = Organisation::query()->find($this->context->organisationId());
         if ($organisation === null || ! $organisation->estOuverte()) {
-            throw ValidationException::withMessages(['vendeur' => 'Votre organisation n’est pas encore ouverte : elle ne vend pas encore de vidéos.']);
+            throw ValidationException::withMessages(['seller' => 'Votre organisation n’est pas encore ouverte : elle ne vend pas encore de vidéos.']);
         }
 
         return $clinique;

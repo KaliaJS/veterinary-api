@@ -51,7 +51,7 @@ class Video extends Model
         'uuid', 'seller_user_id', 'seller_clinique_id', 'organisation_id', 'seller_name', 'created_by_user_id',
         'title', 'description', 'price_cents', 'audience', 'in_plus', 'status', 'files_status', 'rejection_reason',
         'duration_seconds', 'width', 'height', 'size_bytes', 'renditions', 'download_path',
-        'files_verified_at', 'published_at', 'withdrawn_at', 'upload_started_at', 'upload_expected_bytes',
+        'files_verified_at', 'published_at', 'withdrawn_at', 'upload_started_at', 'upload_expected_bytes', 'files_checked_at',
     ];
 
     protected static function booted(): void
@@ -72,6 +72,7 @@ class Video extends Model
             'renditions' => 'array',
             'files_verified_at' => 'datetime',
             'upload_started_at' => 'datetime',
+            'files_checked_at' => 'datetime',
             'published_at' => 'datetime',
             'withdrawn_at' => 'datetime',
         ];

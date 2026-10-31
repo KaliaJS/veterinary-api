@@ -99,12 +99,14 @@ class PlusPool
     {
         $month = $month->setTimezone('Europe/Zurich')->startOfMonth();
         $yearEnd = (int) $month->format('n') === 12;
-        $unpaid = PlusPoolShare::query()->whereNull('paid_at')->where('earned_cents', '>', 0)->get()
+        $unpaid = PlusPoolShare::query()->with('month')->whereNull('paid_at')->where('earned_cents', '>', 0)->get()
             ->groupBy(fn (PlusPoolShare $share) => $share->seller_user_id !== null ? 'user:'.$share->seller_user_id : 'clinique:'.$share->seller_clinique_id);
 
         foreach ($unpaid as $seller => $shares) {
             $amount = (int) $shares->sum('earned_cents');
-            if ($amount < self::MIN_PAYOUT_CENTS && ! $yearEnd) {
+            // Une part d'une année passée (versement de décembre raté) se verse toujours, même sous 10 CHF
+            $fromPastYear = $shares->contains(fn (PlusPoolShare $share) => substr((string) $share->month?->month, 0, 4) < $month->format('Y'));
+            if ($amount < self::MIN_PAYOUT_CENTS && ! $yearEnd && ! $fromPastYear) {
                 continue;
             }
             $account = $this->account($seller);
@@ -116,7 +118,7 @@ class PlusPool
                 // Recevoir des virements : demandé à chaque fois (sans effet si c'est déjà fait)
                 $this->gateway->pourCompte(null)->demanderVirementsRecus($account);
                 $transfer = $this->gateway->pourCompte(null)->transferer($account, $amount, 'plus-pool-'.$seller.'-'.$shares->pluck('id')->implode('-'), [
-                    'objet' => 'cagnotte_plus', 'vendeur' => $seller, 'mois' => $month->format('Y-m'),
+                    'objet' => 'cagnotte_plus', 'seller' => $seller, 'month' => $month->format('Y-m'),
                 ]);
             } catch (Throwable $e) {
                 // Une panne : la part attend le mois suivant, les autres vendeurs passent

@@ -50,18 +50,22 @@ class RecheckVideoFiles implements ShouldQueue
         if ($video === null || $video->files_status !== VideoFilesStatus::Ready) {
             return;
         }
-        if ($video->purchases()->whereNotNull('paid_at')->exists()) {
-            if ($video->status === VideoStatus::Published) {
-                $video->update(['status' => VideoStatus::Withdrawn, 'withdrawn_at' => now()]);
-            }
-
-            return;
-        }
+        // Une panne longue n'est pas un mauvais fichier : rien ne s'efface, la vidéo quitte la vente
+        // le temps d'être relue (la mise en vente relance la relecture)
+        report(new RuntimeException("Vidéo {$video->id} pas relue après tous les essais : hors de la vente en attendant", 0, $exception));
         $video->update([
-            'files_status' => VideoFilesStatus::Rejected,
-            'rejection_reason' => 'La vidéo n’a pas pu être relue après l’envoi : renvoyez-la.',
-            'status' => $video->status === VideoStatus::Published ? VideoStatus::Draft : $video->status,
+            'files_checked_at' => null,
+            'status' => $video->status === VideoStatus::Published
+                ? ($this->hasBuyers($video) ? VideoStatus::Withdrawn : VideoStatus::Draft)
+                : $video->status,
         ]);
+    }
+
+    /** Des acheteurs : payés, ou en train de payer (une intention ouverte depuis moins d'un jour) */
+    private function hasBuyers(Video $video): bool
+    {
+        return $video->purchases()->where(fn ($purchase) => $purchase->whereNotNull('paid_at')
+            ->orWhere(fn ($open) => $open->whereNotNull('payment_intent_id')->where('updated_at', '>', now()->subDay())))->exists();
     }
 
     public function handle(HlsPackage $package, VideoStorage $storage): void
@@ -70,7 +74,7 @@ class RecheckVideoFiles implements ShouldQueue
         if ($video === null || $video->files_status !== VideoFilesStatus::Ready) {
             return;
         }
-        $result = $package->inspect($video, [AssembleVideoDownload::FILE]);
+        $result = $package->inspect($video, [AssembleVideoDownload::FILE], everySegment: true);
         if ($result['ok'] === false && ! empty($result['transient'])) {
             // Rien n'est jugé sur une panne : la file réessaiera
             throw new RuntimeException('Stockage injoignable pendant la relecture de la vidéo '.$video->id);
@@ -78,14 +82,14 @@ class RecheckVideoFiles implements ShouldQueue
         // Plus lourde qu'au contrôle : des fichiers ont été remplacés ou ajoutés depuis
         $grown = $result['ok'] && $result['size'] > (int) $video->size_bytes + self::GROWTH_TOLERANCE;
         if ($result['ok'] && ! $grown) {
-            $video->update(['size_bytes' => $result['size'], 'renditions' => $result['renditions'], 'duration_seconds' => $result['duration']]);
+            $video->update(['size_bytes' => $result['size'], 'renditions' => $result['renditions'], 'duration_seconds' => $result['duration'], 'files_checked_at' => now()]);
 
             return;
         }
         $reason = $result['ok'] ? 'Des fichiers ont été ajoutés après le contrôle : renvoyez la vidéo.' : $result['reason'];
 
         // Achetée entre-temps : jamais effacée, ceux qui l'ont payée la gardent ; elle quitte seulement la vente
-        if ($video->purchases()->whereNotNull('paid_at')->exists()) {
+        if ($this->hasBuyers($video)) {
             report(new RuntimeException("Vidéo {$video->id} modifiée après le contrôle, déjà achetée : retirée de la vente ({$reason})"));
             if ($video->status === VideoStatus::Published) {
                 $video->update(['status' => VideoStatus::Withdrawn, 'withdrawn_at' => now()]);

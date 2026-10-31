@@ -37,10 +37,10 @@ class VideoPurchases
             abort(404);
         }
         if ($video->isOnSellerSide($user)) {
-            throw ValidationException::withMessages(['achat' => 'C’est votre vidéo : vous la regardez déjà en entier.']);
+            throw ValidationException::withMessages(['purchase' => 'C’est votre vidéo : vous la regardez déjà en entier.']);
         }
         if ($video->isOwnedBy($user)) {
-            throw ValidationException::withMessages(['achat' => 'Vous avez déjà acheté cette vidéo.']);
+            throw ValidationException::withMessages(['purchase' => 'Vous avez déjà acheté cette vidéo.']);
         }
         // Un vendeur qui n'est plus vérifié, ou une organisation fermée, ne vend plus
         $this->sellers->assertStillSelling($video);
@@ -62,7 +62,7 @@ class VideoPurchases
         $previous = $purchase->payment_intent_id;
         $previousAccount = $purchase->stripe_account_id;
         if ($previous !== null && $this->settle($purchase, $previous)) {
-            throw ValidationException::withMessages(['achat' => 'Vous avez déjà acheté cette vidéo.']);
+            throw ValidationException::withMessages(['purchase' => 'Vous avez déjà acheté cette vidéo.']);
         }
 
         $intent = $this->gateway->pourCompte($account)->creerIntentionEnLigne($amount, [
