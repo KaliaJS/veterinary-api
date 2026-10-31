@@ -56,9 +56,11 @@ class ViewingCertificates
         return $code;
     }
 
-    /** Pour la page publique : ce que le certificat atteste. */
+    /** Le code tel qu'on le tape (minuscules, espaces, sans tirets), remis au format ABCD-EFGH-JKLM. */
     public static function normalize(string $code): string
     {
-        return Str::upper(trim($code));
+        $raw = (string) preg_replace('/[^A-Z0-9]/', '', Str::upper($code));
+
+        return strlen($raw) === 12 ? implode('-', str_split($raw, 4)) : Str::upper(trim($code));
     }
 }

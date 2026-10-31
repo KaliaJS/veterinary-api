@@ -56,6 +56,8 @@ abstract class SellerVideoUploadController extends SellerVideoController
             throw ValidationException::withMessages(['files' => 'La vidéo est déjà envoyée et contrôlée : pour la changer, recommencez l’envoi.']);
         }
         $expires = now()->addMinutes(self::URL_MINUTES);
+        // Un long envoi reste en cours : la purge des envois abandonnés ne le prend pas
+        $model->touch();
 
         return response()->json(['data' => array_map(fn (string $name) => [
             'name' => $name,

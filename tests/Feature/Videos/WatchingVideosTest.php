@@ -471,6 +471,9 @@ class WatchingVideosTest extends TestCase
         $this->getJson('/api/v1/public/certificates/'.strtolower($code))->assertOk()
             ->assertJsonPath('data.holder_name', 'Marc Dubois')
             ->assertJsonPath('data.video_title', 'Nourrir un chat senior');
+        // Tapé sans tirets, avec des espaces
+        $this->getJson('/api/v1/public/certificates/'.rawurlencode(strtolower(str_replace('-', ' ', $code))))->assertOk()->assertJsonPath('data.code', $code);
+        $this->getJson('/api/v1/public/certificates/'.str_replace('-', '', $code))->assertOk();
         $this->getJson('/api/v1/public/certificates/AAAA-BBBB-CCCC')->assertNotFound();
     }
 

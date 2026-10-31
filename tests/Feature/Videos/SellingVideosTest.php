@@ -215,6 +215,20 @@ class SellingVideosTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['duration_seconds' => 'Une vidéo dure 3 heures au plus.']);
     }
 
+    public function test_un_long_envoi_qui_demande_encore_des_adresses_n_est_pas_abandonne(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->postJson("/api/v1/espace/videos/seller/videos/{$id}/upload/start", ['duration_seconds' => 30, 'estimated_bytes' => 100], $this->enTetes($vet['jeton']))->assertOk();
+        $this->travel(23)->hours();
+        $this->postJson("/api/v1/espace/videos/seller/videos/{$id}/upload/urls", ['files' => ['init-1.mp4']], $this->enTetes($vet['jeton']))->assertOk();
+        $this->travel(2)->hours();
+
+        $this->artisan('videos:purge-abandoned-uploads')->assertSuccessful();
+        $this->assertSame(1, Video::query()->where('uuid', $id)->count());
+        $this->assertTrue(Video::query()->where('uuid', $id)->firstOrFail()->updated_at->gt(now()->subDay()));
+    }
+
     public function test_les_envois_abandonnes_sont_effaces_automatiquement(): void
     {
         $vet = $this->verifiedVet();
