@@ -3,6 +3,9 @@
 namespace App\Services\Comptes;
 
 use App\Auth\CompteRevueApple;
+use App\Enums\VideoFilesStatus;
+use App\Enums\VideoStatus;
+use App\Jobs\PurgeVideoFolder;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Document;
@@ -11,6 +14,7 @@ use App\Models\FactureProprietaire;
 use App\Models\MessageClientele;
 use App\Models\Patient;
 use App\Models\User;
+use App\Models\Video;
 use App\Notifications\CodeSuppressionCompte;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleAbonnement;
@@ -210,7 +214,8 @@ class SuppressionCompte
             $clientSupprime = true;
         }
 
-        $fichiers = DB::transaction(function () use ($user): ?array {
+        $dossiersVideos = [];
+        $fichiers = DB::transaction(function () use ($user, &$dossiersVideos): ?array {
             // Relue sous verrou : une connexion à cet instant gagne
             if (User::query()->whereKey($user->id)->lockForUpdate()->value('suppression_demandee_le') === null) {
                 return null;
@@ -248,6 +253,9 @@ class SuppressionCompte
                 $animal->delete();
             }
 
+            // Les vidéos qu'il vendait en son nom (31.10.2026, neuvième vérification) : son image et sa voix
+            $dossiersVideos = $this->detacherVideos($user);
+
             // Ancien membre d'équipe : une trace sans connexion, prénom seul
             // (décision de Jim, 27.10.2026), à laquelle restent liées sa fiche
             // d'équipe et chaque pièce qu'il a signée. Sinon, le compte part
@@ -275,8 +283,53 @@ class SuppressionCompte
             return false;
         }
         Storage::disk('prive')->delete($fichiers);
+        // Les fichiers des vidéos sans acheteur : par la file, qui réessaie si le stockage ne répond pas
+        foreach ($dossiersVideos as $dossier) {
+            PurgeVideoFolder::dispatch($dossier);
+        }
 
         return true;
+    }
+
+    /**
+     * Ses vidéos de vendeur. Sans acheteur, elles s'effacent avec leurs
+     * fichiers (la fiche reste vide si des certificats délivrés s'y
+     * rattachent, pour qu'ils se vérifient encore) ; achetées, elles restent
+     * à ceux qui les ont payées, hors de la vente (décision de Jim). Rend les
+     * dossiers à effacer au bucket.
+     *
+     * @return list<string>
+     */
+    private function detacherVideos(User $user): array
+    {
+        $dossiers = [];
+        foreach (Video::query()->where('seller_user_id', $user->id)->get() as $video) {
+            if ($video->hasBuyers()) {
+                $video->update([
+                    'status' => $video->status === VideoStatus::Published ? VideoStatus::Withdrawn : $video->status,
+                    'withdrawn_at' => $video->status === VideoStatus::Published ? now() : $video->withdrawn_at,
+                    'publish_requested_at' => null, 'publish_requested_by' => null,
+                ]);
+
+                continue;
+            }
+            $dossiers[] = $video->folder();
+            $video->views()->delete();
+            if ($video->certificates()->exists()) {
+                $video->update([
+                    'status' => VideoStatus::Withdrawn, 'withdrawn_at' => $video->withdrawn_at ?? now(), 'files_status' => VideoFilesStatus::Rejected,
+                    'title' => null, 'description' => null, 'seller_name' => '', 'in_plus' => false,
+                    'size_bytes' => 0, 'renditions' => null, 'download_path' => null, 'upload_started_at' => null,
+                    'publish_requested_at' => null, 'publish_requested_by' => null,
+                ]);
+            } else {
+                // Des intentions jamais payées (plus d'un jour) : elles ne retiennent rien
+                $video->purchases()->delete();
+                $video->delete();
+            }
+        }
+
+        return $dossiers;
     }
 
     /**

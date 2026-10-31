@@ -120,6 +120,9 @@ abstract class SellerVideoUploadController extends SellerVideoController
         // Déjà contrôlée (la réponse s'est perdue, l'écran redemande le contrôle) : on rend ce qui est,
         // sans rien relire ni effacer (la version à télécharger y est peut-être déjà)
         if ($model->files_status === VideoFilesStatus::Ready) {
+            // La première requête a pu s'arrêter avant de lancer ses tâches : relancées, elles sont uniques
+            $this->dispatchChecks($model);
+
             return VideoResource::seenBy($model, 'seller', true);
         }
         $result = app(HlsPackage::class)->inspect($model);
@@ -148,14 +151,24 @@ abstract class SellerVideoUploadController extends SellerVideoController
             'files_verified_at' => now(),
             'files_checked_at' => null,
         ]);
-        // La version à télécharger, assemblée à part
-        AssembleVideoDownload::dispatch($model->id, $model->uploadStamp())->afterCommit();
+        $this->dispatchChecks($model);
+
+        return VideoResource::seenBy($model, 'seller', true);
+    }
+
+    /** La version à télécharger, assemblée à part, et les relectures de chaque morceau (tout de suite, après l'expiration des adresses, deux heures plus tard). */
+    private function dispatchChecks(Video $model): void
+    {
+        // La version à télécharger, assemblée à part (pas une deuxième fois si elle est déjà là)
+        if ($model->download_path === null) {
+            AssembleVideoDownload::dispatch($model->id, $model->uploadStamp())->afterCommit();
+        }
         // Chaque morceau relu tout de suite (la mise en vente l'attend), puis encore une fois
         // quand les dernières adresses d'envoi ont expiré (15 minutes)
         RecheckVideoFiles::dispatch($model->id, 'now', $model->uploadStamp())->afterCommit();
         RecheckVideoFiles::dispatch($model->id, 'late', $model->uploadStamp())->delay(now()->addMinutes(self::URL_MINUTES + 1))->afterCommit();
-
-        return VideoResource::seenBy($model, 'seller', true);
+        // Le bucket juge l'échéance au début d'un dépôt : un dépôt lent commencé à la dernière minute se relit aussi
+        RecheckVideoFiles::dispatch($model->id, 'final', $model->uploadStamp())->delay(now()->addHours(2))->afterCommit();
     }
 
     /** Un brouillon de ce vendeur, qui peut encore l'envoyer. */

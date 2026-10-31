@@ -69,7 +69,7 @@ trait BuildsHlsPackages
             while ($remaining > 0.0001) {
                 $length = min($segment, $remaining);
                 $name = sprintf('segment-%d-%05d.m4s', $n, $i);
-                $playlist .= sprintf("#EXTINF:%.3f,\n%s\n", $length, $name);
+                $playlist .= sprintf("#EXTINF:%.3F,\n%s\n", $length, $name);
                 $files[$name] = $this->fragment($seconds - $remaining, str_repeat(chr(64 + $n), 900));
                 $remaining -= $length;
                 $i++;
