@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Api\V1\Videos;
 
+use App\Enums\VideoFilesStatus;
 use App\Enums\VideoStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\VideoResource;
+use App\Jobs\AssembleVideoDownload;
 use App\Models\Video;
 use App\Models\VideoView;
 use App\Models\ViewingCertificate;
@@ -73,6 +75,11 @@ class VideoCatalogueController extends Controller
         $view = VideoView::query()->where('video_id', $model->id)->where('user_id', $user->id)->first();
         $certificate = ViewingCertificate::query()->where('video_id', $model->id)->where('user_id', $user->id)->first();
         if ($access !== null) {
+            // Achetée, sa version à télécharger manque encore (assemblage raté pendant une panne) : on la relance
+            if ($access === 'owned' && $model->download_path === null && $model->files_status === VideoFilesStatus::Ready) {
+                AssembleVideoDownload::dispatch($model->id, $model->uploadStamp());
+            }
+
             return VideoResource::seenBy($model, $access, $access === 'seller')->withViewing($view, $certificate);
         }
         // Plus regardable (retirée, sortie de Plus) : qui l'a vue en entier y retrouve son certificat,

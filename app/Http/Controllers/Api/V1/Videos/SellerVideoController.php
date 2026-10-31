@@ -118,9 +118,8 @@ abstract class SellerVideoController extends Controller
         }
         $this->storage->deleteAll($model);
         // Des adresses d'envoi encore valables écriraient dans le dossier : on l'efface encore une fois expirées
-        if ($model->upload_started_at !== null) {
-            PurgeVideoFolder::dispatch($model->folder())->delay(now()->addMinutes(SellerVideoUploadController::URL_MINUTES + 1));
-        }
+        // (toujours : le guet a pu oublier l'envoi en le refusant, ses adresses écrivent encore)
+        PurgeVideoFolder::dispatch($model->folder())->delay(now()->addMinutes(SellerVideoUploadController::URL_MINUTES + 1));
         // Un brouillon ne se vend pas : seules les lectures du vendeur s'y rattachent
         $model->views()->delete();
         $model->certificates()->delete();

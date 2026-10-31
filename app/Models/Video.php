@@ -9,11 +9,13 @@ use App\Enums\VideoAudience;
 use App\Enums\VideoFilesStatus;
 use App\Enums\VideoStatus;
 use Database\Factories\VideoFactory;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
@@ -60,6 +62,17 @@ class Video extends Model
      * deux envois lancés ensemble ne se verraient pas l'un l'autre.
      */
     public const STORAGE_SQL = "CASE WHEN files_status = 'pending' AND upload_started_at IS NOT NULL AND COALESCE(upload_expected_bytes, 0) > size_bytes THEN COALESCE(upload_expected_bytes, 0) ELSE size_bytes END";
+
+    /**
+     * Les fichiers de la vidéo, un seul travail à la fois (septième
+     * vérification) : la relecture et l'assemblage du téléchargement lisent
+     * puis écrivent sa taille, jamais entrelacés, quel que soit le nombre de
+     * processus de la file.
+     */
+    public static function filesLock(int $id): Lock
+    {
+        return Cache::lock('video-files-'.$id, 1200);
+    }
 
     /** L'envoi en cours, reconnu à son heure de départ : une relecture ne juge que le sien. */
     public function uploadStamp(): ?int

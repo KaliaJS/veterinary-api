@@ -141,6 +141,30 @@ class PasserelleStripeRequetesTest extends TestCase
         $this->assertArrayNotHasKey('Idempotency-Key', $this->http->derniere()['entetes']);
     }
 
+    public function test_un_versement_de_la_cagnotte_porte_son_groupe_et_sa_cle_et_se_retrouve_par_son_groupe(): void
+    {
+        $plateforme = $this->passerelle(null);
+        $this->http->repondre(['id' => 'tr_1', 'object' => 'transfer']);
+
+        $this->assertSame('tr_1', $plateforme->transferer('acct_vendeur', 3000, 'plus-pool-user-1-abc', ['objet' => 'cagnotte_plus'], 'plus-pool-user-1-abc'));
+        $versement = $this->http->derniere();
+        $this->assertSame(['post', '/v1/transfers'], [strtolower($versement['methode']), $versement['chemin']]);
+        $this->assertSame('plus-pool-user-1-abc', $versement['entetes']['Idempotency-Key'] ?? null);
+        $this->assertArrayNotHasKey('Stripe-Account', $versement['entetes']);
+        $this->assertSame(['amount' => 3000, 'currency' => 'chf', 'destination' => 'acct_vendeur', 'transfer_group' => 'plus-pool-user-1-abc'], array_intersect_key($versement['params'], array_flip(['amount', 'currency', 'destination', 'transfer_group'])));
+
+        // Retrouvé par son groupe, au niveau de la plateforme
+        $this->http->repondre(['object' => 'list', 'data' => [['id' => 'tr_1', 'object' => 'transfer']], 'has_more' => false, 'url' => '/v1/transfers']);
+        $this->assertSame('tr_1', $plateforme->versementDuGroupe('plus-pool-user-1-abc'));
+        $lecture = $this->http->derniere();
+        $this->assertSame(['get', '/v1/transfers'], [strtolower($lecture['methode']), $lecture['chemin']]);
+        $this->assertSame('plus-pool-user-1-abc', $lecture['params']['transfer_group'] ?? null);
+        $this->assertArrayNotHasKey('Stripe-Account', $lecture['entetes']);
+
+        $this->http->repondre(['object' => 'list', 'data' => [], 'has_more' => false, 'url' => '/v1/transfers']);
+        $this->assertNull($plateforme->versementDuGroupe('plus-pool-user-1-autre'));
+    }
+
     public function test_un_remboursement_partiel_ou_entier_ne_rend_jamais_la_commission(): void
     {
         $this->passerelle()->rembourser('pi_entier', 'rendu-1');

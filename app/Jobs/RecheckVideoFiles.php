@@ -56,6 +56,12 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
     /** Ce que la relecture a refusé sans que le vendeur soit là : dit à son écran */
     private ?string $notice = null;
 
+    /** Secondes d'attente du verrou des fichiers (l'assemblage du téléchargement en cours) */
+    public int $lockWait = 600;
+
+    /** La version à télécharger manque : son assemblage part une fois le verrou des fichiers rendu */
+    private bool $assembleAfter = false;
+
     /**
      * @param  string  $pass  « now » au contrôle et à la mise en vente, « late » après l'expiration des adresses
      * @param  int|null  $upload  l'envoi relu, reconnu à son heure de départ : un nouvel envoi a ses propres
@@ -100,7 +106,7 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
             'status' => $video->status === VideoStatus::Published ? ($withdraw ? VideoStatus::Withdrawn : VideoStatus::Draft) : $video->status,
             'withdrawn_at' => $withdraw ? now() : $video->withdrawn_at,
         ]);
-        VideoUpdated::announce($video, $wasRequested ? '« '.$video->title.' » n’a pas pu être relue, le stockage ne répond pas : elle n’est pas mise en vente. Réessayez plus tard.' : null);
+        VideoUpdated::announce($video, $wasRequested ? $this->named($video).' n’a pas pu être relue, le stockage ne répond pas : elle n’est pas mise en vente. Réessayez plus tard.' : null);
     }
 
     public function handle(HlsPackage $package, VideoStorage $storage, VideoPublisher $publisher): void
@@ -109,7 +115,11 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
         if ($video === null) {
             return;
         }
-        $this->check($video, $package, $storage, $publisher);
+        // Jamais en même temps que l'assemblage du téléchargement : chacun lit puis écrit la taille
+        Video::filesLock($this->videoId)->block($this->lockWait, fn () => $this->check($video, $package, $storage, $publisher));
+        if ($this->assembleAfter) {
+            AssembleVideoDownload::dispatch($video->id, $video->uploadStamp());
+        }
         // Relue, mise en vente, retirée ou refusée : l'écran du vendeur suit
         VideoUpdated::announce($video->refresh(), $this->notice);
     }
@@ -132,9 +142,7 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
         if ($result['ok'] && ! $grown) {
             $video->update(['size_bytes' => $result['size'], 'renditions' => $result['renditions'], 'duration_seconds' => $result['duration'], 'files_checked_at' => now()]);
             // La version à télécharger manque encore (assemblage raté) : une chance de plus à chaque relecture
-            if ($video->download_path === null) {
-                AssembleVideoDownload::dispatch($video->id);
-            }
+            $this->assembleAfter = $video->download_path === null;
             $this->publishIfRequested($video->refresh(), $publisher);
 
             return;
@@ -186,9 +194,15 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
             $reasons = implode(' ', array_merge(...array_values($e->errors())));
             $video->update(['publish_requested_at' => null, 'publish_requested_by' => null]);
             // Le titre : sur le canal de la clinique, chacun de ceux qui gèrent ses vidéos le reçoit
-            $this->notice = '« '.$video->title.' » n’a pas pu être mise en vente. '.$reasons;
+            $this->notice = $this->named($video).' n’a pas pu être mise en vente. '.$reasons;
             report(new RuntimeException("Vidéo {$video->id} relue mais pas mise en vente : ".$reasons));
         }
+    }
+
+    /** La vidéo nommée dans un avis : son titre, ou « La vidéo » s'il a été vidé entre-temps. */
+    private function named(Video $video): string
+    {
+        return blank($video->title) ? 'La vidéo' : '« '.$video->title.' »';
     }
 
     /** Une vidéo de clinique : qui l'a demandée doit encore pouvoir la publier (identité vérifiée, droit Organisation). */

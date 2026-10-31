@@ -97,7 +97,19 @@ class PlusPool
     }
 
     /** Verse à chaque vendeur ce qui lui est dû : dès 10 CHF, ou tout en fin d'année. */
+    /** Secondes d'attente d'un autre passage en cours */
+    public int $lockWait = 120;
+
+    /** @var array<string, true> Groupes envoyés pendant ce passage : leur réponse perdue se cherche au passage suivant, pas tout de suite */
+    private array $sentThisRun = [];
+
     public function pay(CarbonImmutable $month): void
+    {
+        // Un lancement à la main pendant le passage planifié : l'un attend l'autre, rien ne se verse deux fois
+        Cache::lock('plus-pool-pay', 3600)->block($this->lockWait, fn () => $this->payUnlocked($month));
+    }
+
+    private function payUnlocked(CarbonImmutable $month): void
     {
         $month = $month->setTimezone('Europe/Zurich')->startOfMonth();
         $yearEnd = (int) $month->format('n') === 12;
@@ -129,6 +141,7 @@ class PlusPool
             }
             // Noté avant l'appel : si la réponse se perd, le mois suivant retrouve le versement au lieu de le refaire
             $group = 'plus-pool-'.str_replace(':', '-', $seller).'-'.Str::lower((string) Str::ulid());
+            $this->sentThisRun[$group] = true;
             PlusPoolShare::query()->whereIn('id', $shares->modelKeys())->update(['payout_group' => $group, 'stripe_account_id' => $account]);
             try {
                 // Recevoir des virements : demandé à chaque fois (sans effet si c'est déjà fait)
@@ -157,6 +170,12 @@ class PlusPool
     private function settleLostPayouts(Collection $shares): Collection
     {
         foreach ($shares->whereNotNull('payout_group')->groupBy('payout_group') as $group => $sent) {
+            // Envoyé il y a quelques secondes (mois rattrapés à la suite) : le prestataire ne le montre peut-être pas encore
+            if (isset($this->sentThisRun[$group])) {
+                $shares = $shares->reject(fn (PlusPoolShare $share) => $share->payout_group === $group)->values();
+
+                continue;
+            }
             $transfer = $this->gateway->pourCompte(null)->versementDuGroupe((string) $group);
             if ($transfer !== null) {
                 PlusPoolShare::query()->whereIn('id', $sent->modelKeys())->update(['paid_at' => now(), 'transfer_id' => $transfer]);

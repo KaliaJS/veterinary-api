@@ -282,9 +282,15 @@ class PasserellePaiementFactice implements PasserellePaiement
         return $id;
     }
 
+    /** Le prestataire ne montre pas encore les versements tout juste faits (quelques secondes) */
+    public bool $versementsPasEncoreVisibles = false;
+
     public function versementDuGroupe(string $groupe): ?string
     {
         $this->noter(__FUNCTION__, null, null, plateforme: true);
+        if ($this->versementsPasEncoreVisibles) {
+            return null;
+        }
 
         return collect($this->versements)->firstWhere('groupe', $groupe)['id'] ?? null;
     }

@@ -71,7 +71,7 @@ class VideoPurchases
             'objet' => 'video',
             'video_purchase_id' => (string) $purchase->id,
             'video' => $video->uuid,
-        ], 'video-purchase-'.$purchase->id.'-'.$amount.'-'.$account.'-'.now()->format('Ymd'), $commission);
+        ], 'video-purchase-'.$purchase->id.'-'.$amount.'-'.$account.'-'.now()->format('Ymd').'-'.($previous ?? 'first'), $commission);
         if ($previous !== null && $previous !== $intent['id']) {
             try {
                 $this->gateway->pourCompte($previousAccount)->annulerIntention($previous);

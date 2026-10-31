@@ -41,17 +41,24 @@ abstract class SellerVideoUploadController extends SellerVideoController
             throw ValidationException::withMessages(['estimated_bytes' => 'Votre stockage est plein : cette vidéo ne tient pas dans ce qui reste.']);
         }
 
-        // Un nouvel envoi remplace les fichiers d'avant ; ce qu'on en avait regardé ne vaut pas pour les nouveaux
-        $this->storage->deleteAll($model);
-        $model->views()->update(['watched_ranges' => null, 'watched_seconds' => 0, 'completed_at' => null]);
-        $model->update([
-            'files_status' => VideoFilesStatus::Pending, 'rejection_reason' => null, 'size_bytes' => 0,
+        // D'abord la vidéo passe en envoi, seulement si elle est encore en brouillon : une mise en vente
+        // au même instant (autre onglet) l'emporte, ou bien échoue faute de fichiers prêts ; jamais en vente sans fichiers
+        $started = Video::query()->whereKey($model->id)->where('status', VideoStatus::Draft->value)->update([
+            'files_status' => VideoFilesStatus::Pending->value, 'rejection_reason' => null, 'size_bytes' => 0,
             'upload_started_at' => now(), 'upload_expected_bytes' => (int) $request->validated('estimated_bytes'),
             'duration_seconds' => null, 'width' => null, 'height' => null, 'renditions' => null,
             'download_path' => null, 'files_verified_at' => null, 'files_checked_at' => null,
             // Une demande de mise en vente valait pour les fichiers d'avant
             'publish_requested_at' => null, 'publish_requested_by' => null,
+            'updated_at' => now(),
         ]);
+        if ($started === 0) {
+            throw ValidationException::withMessages(['status' => 'La vidéo vient d’être mise en vente : ses fichiers ne changent plus.']);
+        }
+        $model->refresh();
+        // Puis les fichiers d'avant s'effacent ; ce qu'on en avait regardé ne vaut pas pour les nouveaux
+        $this->storage->deleteAll($model);
+        $model->views()->update(['watched_ranges' => null, 'watched_seconds' => 0, 'completed_at' => null]);
 
         return response()->json(['data' => ['url_minutes' => self::URL_MINUTES]]);
     }
@@ -137,7 +144,7 @@ abstract class SellerVideoUploadController extends SellerVideoController
             'files_checked_at' => null,
         ]);
         // La version à télécharger, assemblée à part
-        AssembleVideoDownload::dispatch($model->id)->afterCommit();
+        AssembleVideoDownload::dispatch($model->id, $model->uploadStamp())->afterCommit();
         // Chaque morceau relu tout de suite (la mise en vente l'attend), puis encore une fois
         // quand les dernières adresses d'envoi ont expiré (15 minutes)
         RecheckVideoFiles::dispatch($model->id, 'now', $model->uploadStamp())->afterCommit();
