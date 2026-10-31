@@ -32,6 +32,17 @@ class VideoResource extends JsonResource
     /** @var array{watched_seconds: int, counted: bool, completed: bool, certificate_code: ?string}|null */
     private ?array $viewing = null;
 
+    /** Qui présente la vidéo, dans sa fenêtre (VideoSellerProfile). @var array<string, mixed>|null */
+    private ?array $sellerProfile = null;
+
+    /** @param  array<string, mixed>  $profile */
+    public function withSellerProfile(array $profile): self
+    {
+        $this->sellerProfile = $profile;
+
+        return $this;
+    }
+
     /** Où en est la personne (vidéo ouverte seule) : secondes vues, vue comptée, vue en entier, certificat. */
     public function withViewing(?VideoView $view, ?ViewingCertificate $certificate): self
     {
@@ -155,6 +166,9 @@ class VideoResource extends JsonResource
         }
         if ($this->viewing !== null) {
             $data['viewing'] = $this->viewing;
+        }
+        if ($this->sellerProfile !== null) {
+            $data['seller'] = $this->sellerProfile;
         }
         if ($isSeller) {
             $data['files_status'] = $this->files_status->value;

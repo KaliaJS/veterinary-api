@@ -295,6 +295,15 @@ Route::prefix('v1')->group(function (): void {
                 Route::get('{name}', [VideoViewingController::class, 'media'])->name('videos.hls.media');
             });
         Route::get('certificates/{code}', [VideoViewingController::class, 'verify'])->middleware('throttle:30,1');
+        // L'écran « Vidéos » sans compte, depuis l'accueil du site (31.10.2026, demande de Jim) : les vidéos
+        // des clients et l'aperçu qui se lance tout seul ; regarder, acheter et le reste demandent un compte.
+        // Leurs compteurs à part : parcourir les vidéos ne bloque ni la boutique ni l'annuaire
+        Route::prefix('videos')->whereUuid('video')->withoutMiddleware('throttle:60,1')->middleware('throttle:120,1,public-videos')->group(function (): void {
+            Route::get('/', [VideoCatalogueController::class, 'index']);
+            Route::get('home', [VideoCatalogueController::class, 'home']);
+            Route::get('{video}', [VideoCatalogueController::class, 'show']);
+            Route::get('{video}/teaser', [VideoViewingController::class, 'teaser'])->withoutMiddleware('throttle:120,1,public-videos')->middleware('throttle:240,1,public-video-teaser');
+        });
         // Affiches des vidéos : publiques, en cache, au dossier imprévisible (31.10.2026)
         Route::get('videos/posters/{token}/{width}.webp', [VideoPosterController::class, 'show'])->where(['token' => VideoPosters::TOKEN, 'width' => '640|1280|1920'])->name('videos.poster')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);

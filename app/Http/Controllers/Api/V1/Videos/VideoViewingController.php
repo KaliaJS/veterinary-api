@@ -34,12 +34,17 @@ class VideoViewingController extends Controller
         private VideoStorage $storage,
     ) {}
 
-    /** @return array{0: Video, 1: string} */
+    /**
+     * Sur l'adresse publique de l'aperçu (`/public/videos/{id}/teaser`), personne :
+     * un visiteur sans compte voit ce qui est destiné aux clients.
+     *
+     * @return array{0: Video, 1: string}
+     */
     private function watchable(Request $request, string $uuid): array
     {
         $video = Video::query()->where('uuid', $uuid)->firstOrFail();
-        $user = $request->user();
-        $access = $this->access->for($video, $user, $video->isOnSellerSide($user));
+        $user = $request->is('api/v1/public/*') ? null : $request->user();
+        $access = $this->access->for($video, $user, $user !== null && $video->isOnSellerSide($user));
         abort_if($access === null || $video->files_status !== VideoFilesStatus::Ready, 404);
 
         return [$video, $access];

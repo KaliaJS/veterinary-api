@@ -105,6 +105,22 @@ class VideoFreeTest extends TestCase
         $this->assertSame(['new', 'free', 'category'], $rows->keys()->all());
     }
 
+    public function test_les_gratuites_forment_une_categorie_a_part_avec_leur_nombre(): void
+    {
+        $vet = $this->verifiedVet();
+        $free = $this->published(['price_cents' => 0, 'title' => 'Gratuite', 'category' => 'cats'], $vet)['id'];
+        $this->published(['price_cents' => 0, 'title' => 'Gratuite pour vétos', 'audience' => 'vets'], $vet);
+        $this->published(['price_cents' => 900, 'title' => 'Payante', 'category' => 'cats'], $vet);
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+
+        $this->assertSame([$free], array_column($this->getJson('/api/v1/espace/videos?free=1', $this->enTetes($jeton))->assertOk()->json('data'), 'id'));
+        $this->assertSame([$free], array_column($this->getJson('/api/v1/public/videos?free=1')->assertOk()->json('data'), 'id'));
+        $this->assertCount(2, $this->getJson('/api/v1/espace/videos?free=0', $this->enTetes($jeton))->json('data'));
+        $this->assertSame(1, $this->getJson('/api/v1/espace/videos/home', $this->enTetes($jeton))->json('data.free_total'));
+        $this->assertSame(1, $this->getJson('/api/v1/public/videos/home')->json('data.free_total'));
+        $this->getJson('/api/v1/espace/videos?free=peut-etre', $this->enTetes($jeton))->assertUnprocessable();
+    }
+
     public function test_une_serie_gratuite_donne_ses_episodes_a_tous(): void
     {
         $vet = $this->verifiedVet();

@@ -283,10 +283,11 @@ class Video extends Model
      * @param  Builder<self>  $query
      * @return Builder<self>
      */
-    public static function visibleTo(Builder $query, User $user): Builder
+    public static function visibleTo(Builder $query, ?User $user): Builder
     {
         $audiences = [VideoAudience::Owners->value, VideoAudience::Both->value];
-        if ($user->estVerifie()) {
+        // Un visiteur sans compte voit ce qui est destiné aux clients
+        if ($user?->estVerifie()) {
             $audiences[] = VideoAudience::Vets->value;
         }
 
@@ -328,7 +329,7 @@ class Video extends Model
     }
 
     /** Destinée à cette personne : le même filtre que le catalogue, pour une seule vidéo. */
-    public function isForAudienceOf(User $user): bool
+    public function isForAudienceOf(?User $user): bool
     {
         if ($this->isEpisode()) {
             return $this->series?->isForAudienceOf($user) ?? false;
@@ -337,6 +338,6 @@ class Video extends Model
             return false;
         }
 
-        return $this->audience->includesOwners() || ($this->audience->includesVets() && $user->estVerifie());
+        return $this->audience->includesOwners() || ($this->audience->includesVets() && (bool) $user?->estVerifie());
     }
 }
