@@ -278,8 +278,12 @@ class PasserelleStripe implements PasserellePaiement
 
     public function fermerCompteVendeur(string $compte): void
     {
-        // Les deux configurations ouvertes à la création : encaisser (merchant) et recevoir des virements (recipient)
-        $this->appel(fn () => $this->client->v2->core->accounts->close($compte, ['applied_configurations' => ['merchant', 'recipient']]));
+        // Stripe exige toutes les configurations du compte (sinon configs_must_match_to_close) : relues
+        // chez lui plutôt que supposées. Un solde ou des opérations en cours font refuser la fermeture
+        // (cannot_delete_account_with_balance, pending_transactions_cannot_be_deleted) : la tâche de nuit retente
+        $lu = $this->appel(fn () => $this->client->v2->core->accounts->retrieve($compte));
+        $configurations = array_values((array) ($lu->applied_configurations ?? [])) ?: ['merchant', 'recipient'];
+        $this->appel(fn () => $this->client->v2->core->accounts->close($compte, ['applied_configurations' => $configurations]));
     }
 
     public function compteVendeurFerme(string $compte): bool

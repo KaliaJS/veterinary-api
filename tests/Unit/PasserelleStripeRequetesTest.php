@@ -165,16 +165,35 @@ class PasserelleStripeRequetesTest extends TestCase
         $this->assertNull($plateforme->versementDuGroupe('plus-pool-user-1-autre'));
     }
 
-    public function test_le_compte_de_paiement_d_un_vendeur_efface_se_ferme_au_niveau_de_la_plateforme(): void
+    public function test_le_compte_de_paiement_d_un_vendeur_efface_se_ferme_avec_toutes_ses_configurations_relues(): void
     {
+        $this->http->repondre(['id' => 'acct_vendeur', 'object' => 'v2.core.account', 'closed' => false, 'applied_configurations' => ['merchant', 'recipient', 'customer']]);
         $this->http->repondre(['id' => 'acct_vendeur', 'object' => 'v2.core.account', 'closed' => true]);
 
         $this->passerelle()->fermerCompteVendeur('acct_vendeur');
 
-        $fermeture = $this->http->derniere();
+        [$lecture, $fermeture] = array_slice($this->http->requetes, -2);
+        $this->assertSame(['get', '/v2/core/accounts/acct_vendeur'], [strtolower($lecture['methode']), $lecture['chemin']]);
         $this->assertSame(['post', '/v2/core/accounts/acct_vendeur/close', 'v2'], [strtolower($fermeture['methode']), $fermeture['chemin'], $fermeture['mode']]);
-        $this->assertSame(['merchant', 'recipient'], $fermeture['params']['applied_configurations']);
+        // Toutes les configurations du compte, telles que Stripe les donne
+        $this->assertSame(['merchant', 'recipient', 'customer'], $fermeture['params']['applied_configurations']);
         $this->assertArrayNotHasKey('Stripe-Account', $fermeture['entetes']);
+    }
+
+    public function test_un_compte_avec_un_solde_ne_se_ferme_pas_et_le_dit(): void
+    {
+        $this->http->repondre(['id' => 'acct_vendeur', 'object' => 'v2.core.account', 'closed' => false, 'applied_configurations' => ['merchant', 'recipient']]);
+        $this->http->echouer(400, 'invalid_request_error', 'cannot_delete_account_with_balance', 'The account has a cash balance.');
+
+        try {
+            $this->passerelle()->fermerCompteVendeur('acct_vendeur');
+            $this->fail('Fermé avec un solde');
+        } catch (ErreurPaiement $e) {
+            $this->assertSame('cannot_delete_account_with_balance', $e->codeStripe);
+            $this->assertSame(400, $e->statutHttp);
+            $this->assertFalse($e->estPassagere());
+            $this->assertFalse($e->cleRefusee());
+        }
     }
 
     public function test_un_compte_de_vendeur_ferme_se_reconnait_a_sa_lecture(): void
