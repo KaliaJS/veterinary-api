@@ -3,6 +3,8 @@
 namespace App\Http\Resources\V1;
 
 use App\Models\Video;
+use App\Models\VideoView;
+use App\Models\ViewingCertificate;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -20,6 +22,22 @@ class VideoResource extends JsonResource
     private bool $isSeller = false;
 
     /** Vue par quelqu'un : ce qu'il peut en faire, et s'il en est le vendeur. */
+    /** @var array{watched_seconds: int, counted: bool, completed: bool, certificate_code: ?string}|null */
+    private ?array $viewing = null;
+
+    /** Où en est la personne (vidéo ouverte seule) : secondes vues, vue comptée, vue en entier, certificat. */
+    public function withViewing(?VideoView $view, ?ViewingCertificate $certificate): self
+    {
+        $this->viewing = [
+            'watched_seconds' => $view->watched_seconds ?? 0,
+            'counted' => $view?->counted_at !== null,
+            'completed' => $view?->completed_at !== null,
+            'certificate_code' => $certificate?->code,
+        ];
+
+        return $this;
+    }
+
     public static function seenBy(Video $video, ?string $access, bool $isSeller = false): self
     {
         $resource = new self($video);
@@ -51,6 +69,9 @@ class VideoResource extends JsonResource
             'access' => $access,
             'can_download' => $access === 'owned' && $this->download_path !== null,
         ];
+        if ($this->viewing !== null) {
+            $data['viewing'] = $this->viewing;
+        }
         if ($isSeller) {
             $data['files_status'] = $this->files_status->value;
             $data['rejection_reason'] = $this->rejection_reason;

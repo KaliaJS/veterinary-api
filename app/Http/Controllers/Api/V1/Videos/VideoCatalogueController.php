@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1\Videos;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\VideoResource;
 use App\Models\Video;
+use App\Models\VideoView;
+use App\Models\ViewingCertificate;
 use App\Services\Videos\VideoAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,6 +50,9 @@ class VideoCatalogueController extends Controller
         $access = $this->access->for($model, $user, $model->seller_user_id === $user->id);
         abort_if($access === null, 404);
 
-        return VideoResource::seenBy($model, $access, $access === 'seller');
+        return VideoResource::seenBy($model, $access, $access === 'seller')->withViewing(
+            VideoView::query()->where('video_id', $model->id)->where('user_id', $user->id)->first(),
+            ViewingCertificate::query()->where('video_id', $model->id)->where('user_id', $user->id)->first(),
+        );
     }
 }

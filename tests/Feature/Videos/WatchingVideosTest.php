@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\Video;
 use App\Models\VideoPurchase;
 use App\Models\VideoView;
+use App\Models\ViewingCertificate;
 use App\Paiements\PasserellePaiement;
 use App\Services\Videos\Mp4InitReader;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -432,6 +433,12 @@ class WatchingVideosTest extends TestCase
             ->assertJsonPath('data.seller_name', Video::query()->sole()->seller_name)
             ->assertJsonPath('data.duration_seconds', 180)
             ->assertJsonStructure(['data' => ['code', 'watched_at']]);
+
+        // La vidéo ouverte dit où il en est, et son certificat
+        $this->getJson("/api/v1/espace/videos/{$sale['id']}", $this->enTetes($vet['jeton']))->assertOk()
+            ->assertJsonPath('data.viewing.completed', true)
+            ->assertJsonPath('data.viewing.counted', true)
+            ->assertJsonPath('data.viewing.certificate_code', ViewingCertificate::query()->sole()->code);
 
         // Sans identité vérifiée : pas de GLN
         $this->play($owner['jeton'], $sale['id'])->assertOk();

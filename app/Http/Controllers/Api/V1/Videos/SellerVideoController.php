@@ -53,7 +53,14 @@ abstract class SellerVideoController extends Controller
     {
         $videos = $this->scope($request)->latest('id')->get();
 
-        return response()->json(['data' => $videos->map(fn (Video $video) => VideoResource::seenBy($video, 'seller', true)->resolve($request))->all()]);
+        return response()->json([
+            'data' => $videos->map(fn (Video $video) => VideoResource::seenBy($video, 'seller', true)->resolve($request))->all(),
+            // Pour l'écran : peut-il vendre, et la place qui reste
+            'meta' => [
+                'verified' => $request->user()->estVerifie(),
+                'storage' => $this->sellers->storageFor($request->user(), $this->as),
+            ],
+        ]);
     }
 
     public function store(StoreVideoRequest $request): JsonResponse

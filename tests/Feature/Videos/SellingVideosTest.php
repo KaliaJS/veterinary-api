@@ -231,6 +231,20 @@ class SellingVideosTest extends TestCase
         $this->assertSame(1, Video::query()->where('uuid', $abandonne)->count(), 'Le brouillon reste.');
     }
 
+    public function test_l_ecran_du_vendeur_sait_s_il_peut_vendre_et_la_place_qui_lui_reste(): void
+    {
+        ['jeton' => $owner] = $this->proprietaireAvecJeton();
+        $this->getJson('/api/v1/espace/videos/seller/videos', $this->enTetes($owner))->assertOk()
+            ->assertJsonPath('meta.verified', false);
+
+        $sale = $this->published();
+        $size = (int) Video::query()->sole()->size_bytes;
+        $this->getJson('/api/v1/espace/videos/seller/videos', $this->enTetes($sale['vet']['jeton']))->assertOk()
+            ->assertJsonPath('meta.verified', true)
+            ->assertJsonPath('meta.storage.used', $size)
+            ->assertJsonPath('meta.storage.limit', 100 * 1000 ** 3);
+    }
+
     public function test_un_envoi_qui_depasserait_le_stockage_est_refuse_avant_de_commencer(): void
     {
         // Un vétérinaire : 100 Go à lui

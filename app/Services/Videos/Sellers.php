@@ -94,15 +94,38 @@ class Sellers
      */
     public function storage(Video $video): array
     {
-        if ($video->seller_user_id !== null) {
-            return [
-                'used' => (int) Video::query()->where('seller_user_id', $video->seller_user_id)->sum('size_bytes'),
-                'limit' => Video::PERSONAL_STORAGE_BYTES,
-            ];
+        return $video->seller_user_id !== null
+            ? $this->personalStorage($video->seller_user_id)
+            : $this->organisationStorage(Organisation::query()->findOrFail($video->organisation_id));
+    }
+
+    /**
+     * La place du vendeur, pour l'écran : la sienne ou celle de l'organisation.
+     *
+     * @return array{used: int, limit: int}|null
+     */
+    public function storageFor(User $user, string $as): ?array
+    {
+        if ($as === 'me') {
+            return $this->personalStorage($user->id);
         }
+        $organisation = Organisation::query()->find($this->context->organisationId());
 
-        $organisation = Organisation::query()->findOrFail($video->organisation_id);
+        return $organisation === null ? null : $this->organisationStorage($organisation);
+    }
 
+    /** @return array{used: int, limit: int} */
+    private function personalStorage(int $userId): array
+    {
+        return [
+            'used' => (int) Video::query()->where('seller_user_id', $userId)->sum('size_bytes'),
+            'limit' => Video::PERSONAL_STORAGE_BYTES,
+        ];
+    }
+
+    /** @return array{used: int, limit: int} */
+    private function organisationStorage(Organisation $organisation): array
+    {
         return [
             'used' => $organisation->stockageOctets(),
             'limit' => (FormuleSaas::STOCKAGE_GO + (int) $organisation->quota_extra_stockage_go) * 1000 ** 3,
