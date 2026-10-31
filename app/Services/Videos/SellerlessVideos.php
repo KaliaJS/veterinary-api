@@ -20,11 +20,26 @@ use Throwable;
  */
 class SellerlessVideos
 {
-    public function __construct(private ViewingCertificates $certificates, private PasserellePaiement $gateway) {}
+    public function __construct(private ViewingCertificates $certificates, private PasserellePaiement $gateway, private VideoPurchases $purchases) {}
 
-    /** Efface une vidéo qui n'a aucun acheteur ; ses fichiers partent par la file, qui réessaie. */
-    public function erase(Video $video): void
+    /**
+     * Efface une vidéo qui n'a aucun acheteur ; ses fichiers partent par la
+     * file, qui réessaie. Un paiement conclu au même instant (l'annulation
+     * refusée, relu payé) l'arrête : faux, la vidéo reste à son acheteur.
+     */
+    public function erase(Video $video): bool
     {
+        // Des intentions encore ouvertes : annulées (un vieil onglet ne les paiera plus) ; une qui ne
+        // s'annule plus est relue, payée, la vidéo a désormais un acheteur
+        foreach ($video->purchases()->whereNull('paid_at')->whereNotNull('payment_intent_id')->get() as $purchase) {
+            try {
+                $this->gateway->pourCompte($purchase->stripe_account_id)->annulerIntention((string) $purchase->payment_intent_id);
+            } catch (Throwable) {
+                if ($this->purchases->confirm($purchase)['paid']) {
+                    return false;
+                }
+            }
+        }
         $folder = $video->folder();
         $certified = $video->certificates()->pluck('user_id')->all();
         $video->views()->whereNotNull('completed_at')->whereNotIn('user_id', $certified)->get()
@@ -40,14 +55,6 @@ class SellerlessVideos
                 }
             });
         $video->views()->delete();
-        // Des intentions jamais payées : annulées (ouvertes à l'instant, un vieil onglet ne les paiera plus), puis supprimées
-        foreach ($video->purchases()->whereNull('paid_at')->whereNotNull('payment_intent_id')->get() as $purchase) {
-            try {
-                $this->gateway->pourCompte($purchase->stripe_account_id)->annulerIntention((string) $purchase->payment_intent_id);
-            } catch (Throwable) {
-                // Déjà annulée, ou le prestataire ne répond pas : elle expirera sans rien donner
-            }
-        }
         $video->purchases()->whereNull('paid_at')->delete();
         if ($video->certificates()->exists()) {
             $video->update([
@@ -60,5 +67,7 @@ class SellerlessVideos
             $video->delete();
         }
         PurgeVideoFolder::dispatch($folder)->afterCommit();
+
+        return true;
     }
 }

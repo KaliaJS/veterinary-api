@@ -39,6 +39,9 @@ class CloseSellerAccounts extends Command
                 // Sa part de la cagnotte encore due (refusée, compte pas prêt) : versée avant de fermer
                 if ($pending === 0 && $pool->payDeparted($closure->stripe_account_id)) {
                     $this->close($closure, $gateway);
+                } elseif ($pending === 0) {
+                    // Noté : le signalement à 60 jours dira qu'une part reste due (une fermeture à la main la perdrait)
+                    $closure->update(['attempts' => $closure->attempts + 1, 'last_error' => 'part de cagnotte encore due']);
                 }
             } catch (ErreurPaiement $e) {
                 // Une panne ou un refus durable : noté, retenté la nuit suivante ; signalé à 60 jours
@@ -78,8 +81,15 @@ class CloseSellerAccounts extends Command
                 if ($e->estPassagere() || $e->cleRefusee()) {
                     throw $e;
                 }
-                // Déjà annulée, ou payée à l'instant : relue, payée, l'achat reste
-                if ($purchases->confirm($purchase)['paid']) {
+                // Déjà annulée, ou repayée à l'instant dans un vieil onglet : relue ; payée, l'achat reste ;
+                // de nouveau en cours, elle attend la nuit suivante
+                $again = $purchases->confirm($purchase);
+                if ($again['paid']) {
+                    continue;
+                }
+                if (! $again['failed']) {
+                    $pending++;
+
                     continue;
                 }
             }

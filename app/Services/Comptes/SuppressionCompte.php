@@ -379,7 +379,10 @@ class SuppressionCompte
 
                 continue;
             }
-            $this->videosSansVendeur->erase($video);
+            if (! $this->videosSansVendeur->erase($video)) {
+                // Payée à l'instant : elle reste à son acheteur, comme une vidéo achetée
+                $video->update(['status' => $video->status === VideoStatus::Published ? VideoStatus::Withdrawn : $video->status, 'seller_user_id' => null]);
+            }
         }
     }
 
@@ -397,6 +400,8 @@ class SuppressionCompte
             'proprietaire_factures' => 'user_id', 'revocations_app_store' => 'user_id',
             // Ses achats de vidéos restent pour les comptes du vendeur, sans lui (31.10.2026)
             'video_purchases' => 'user_id',
+            // Ses parts de cagnotte : rattachées à son compte de paiement, versées avant sa fermeture (31.10.2026)
+            'plus_pool_shares' => 'seller_user_id',
         ] as $table => $colonne) {
             DB::table($table)->where($colonne, $user->id)->update([$colonne => null]);
         }

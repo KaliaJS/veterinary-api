@@ -37,10 +37,14 @@ class PlusPool
     public function run(CarbonImmutable $month): PlusPoolMonth
     {
         $month = $month->setTimezone('Europe/Zurich')->startOfMonth();
-        $pool = PlusPoolMonth::query()->where('month', $month->format('Y-m'))->first() ?? $this->compute($month);
-        $this->pay($month);
 
-        return $pool;
+        // Calcul et versements sous le verrou de l'effacement d'un vendeur, qui peut calculer le même mois
+        return Cache::lock('plus-pool-pay', 21600)->block($this->lockWait, function () use ($month): PlusPoolMonth {
+            $pool = PlusPoolMonth::query()->where('month', $month->format('Y-m'))->first() ?? $this->compute($month);
+            $this->payUnlocked($month);
+
+            return $pool;
+        });
     }
 
     public function compute(CarbonImmutable $month): PlusPoolMonth
