@@ -2,10 +2,9 @@
 
 namespace App\Http\Requests\V1\Videos;
 
-use App\Services\Videos\VideoPosters;
 use Illuminate\Foundation\Http\FormRequest;
 
-/** L'affiche d'une vidéo : image matricielle (pas de SVG), 8 Mo au plus, assez grande pour rester nette. */
+/** L'affiche d'une vidéo : image matricielle (pas de SVG), 8 Mo au plus ; sa taille minimale se juge une fois redressée (VideoPosters). */
 class StoreVideoPosterRequest extends FormRequest
 {
     public function authorize(): bool
@@ -17,8 +16,8 @@ class StoreVideoPosterRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'poster' => ['required', 'file', 'image', 'mimes:png,jpg,jpeg,webp', 'max:8192',
-                'dimensions:min_width='.VideoPosters::MIN_WIDTH.',min_height='.VideoPosters::MIN_HEIGHT.',max_width=8000,max_height=8000'],
+            // La taille minimale se juge sur la photo redressée, à l'enregistrement (VideoPosters::store)
+            'poster' => ['required', 'file', 'image', 'mimes:png,jpg,jpeg,webp', 'max:8192', 'dimensions:max_width=8000,max_height=8000'],
         ];
     }
 
@@ -30,7 +29,7 @@ class StoreVideoPosterRequest extends FormRequest
             'poster.mimes' => 'L’affiche doit être une image PNG, JPG ou WebP.',
             'poster.image' => 'L’affiche doit être une image PNG, JPG ou WebP.',
             'poster.max' => 'L’affiche ne doit pas dépasser 8 Mo.',
-            'poster.dimensions' => 'L’affiche doit mesurer au moins '.VideoPosters::MIN_WIDTH.' × '.VideoPosters::MIN_HEIGHT.' pixels.',
+            'poster.dimensions' => 'L’affiche mesure au plus 8000 pixels de côté.',
         ];
     }
 }

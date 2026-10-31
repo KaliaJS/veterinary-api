@@ -3,6 +3,7 @@
 namespace Tests\Feature\Videos;
 
 use App\Enums\StatutVerificationVeterinaire;
+use App\Enums\VideoStatus;
 use App\Models\Clinique;
 use App\Models\User;
 use App\Models\Video;
@@ -12,10 +13,12 @@ use App\Models\ViewingCertificate;
 use App\Paiements\PasserellePaiement;
 use App\Services\Comptes\SuppressionCompte;
 use App\Services\Videos\VideoPosters;
+use App\Services\Videos\VideoPublisher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Tests\Concerns\BuildsHlsPackages;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Concerns\PublishesVideos;
@@ -94,7 +97,7 @@ class VideoCatalogueRowsTest extends TestCase
 
         $response = $this->get("/api/v1/public/videos/posters/{$first}/640.webp")->assertOk();
         $this->assertSame('image/webp', $response->headers->get('Content-Type'));
-        $this->assertStringContainsString('immutable', (string) $response->headers->get('Cache-Control'));
+        $this->assertStringContainsString('public', (string) $response->headers->get('Cache-Control'));
         $this->get('/api/v1/public/videos/posters/'.Str::random(40).'/640.webp')->assertNotFound();
         $this->get("/api/v1/public/videos/posters/{$first}/800.webp")->assertNotFound();
 
@@ -135,6 +138,73 @@ class VideoCatalogueRowsTest extends TestCase
         $this->deleteJson("/api/v1/videos/{$id}/poster", [], $this->enTetes($jeton))->assertOk()->assertJsonPath('data.poster', null);
     }
 
+    public function test_la_taille_minimale_se_juge_sur_la_photo_redressee(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+
+        // 640 × 360 tournée d'un quart (EXIF) : 360 × 640 une fois redressée, trop étroite en 16:9
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => $this->rotatedPhoto(640, 360)], $this->enTetes($vet['jeton']) + ['Accept' => 'application/json'])
+            ->assertUnprocessable()->assertJsonValidationErrors(['poster' => 'L’affiche doit mesurer au moins 640 × 360 pixels.']);
+        $this->assertSame([], Storage::disk('prive')->allFiles('video-posters'));
+
+        // 360 × 1280 tournée : 1280 × 360 une fois redressée, assez grande
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => $this->rotatedPhoto(360, 1280)], $this->enTetes($vet['jeton']))->assertOk();
+        $token = Video::query()->where('uuid', $id)->value('poster_token');
+        $this->assertSame([640, 360], array_slice(getimagesizefromstring((string) Storage::disk('prive')->get("video-posters/{$token}/640.webp")), 0, 2));
+    }
+
+    public function test_retirer_l_affiche_pendant_qu_un_autre_onglet_la_remplace_ne_laisse_aucun_dossier_sans_video(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('a.jpg', 1280, 720)], $this->enTetes($vet['jeton']))->assertOk();
+        $this->replacedRightAfterReading($id);
+
+        $this->deleteJson(self::SELLER."/{$id}/poster", [], $this->enTetes($vet['jeton']))->assertOk();
+
+        $this->assertNoOrphanPoster();
+        $this->assertNull(Video::query()->where('uuid', $id)->value('poster_token'));
+    }
+
+    public function test_un_brouillon_efface_pendant_qu_un_autre_onglet_change_l_affiche_ne_laisse_aucun_dossier(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('a.jpg', 1280, 720)], $this->enTetes($vet['jeton']))->assertOk();
+        $this->replacedRightAfterReading($id);
+
+        $this->deleteJson(self::SELLER."/{$id}", [], $this->enTetes($vet['jeton']))->assertNoContent();
+
+        $this->assertSame([], Storage::disk('prive')->allFiles('video-posters'));
+    }
+
+    public function test_deux_affiches_envoyees_en_meme_temps_ne_laissent_aucun_dossier_sans_video(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('a.jpg', 1280, 720)], $this->enTetes($vet['jeton']))->assertOk();
+        $this->replacedRightAfterReading($id);
+
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('c.jpg', 1280, 720)], $this->enTetes($vet['jeton']))->assertOk();
+
+        $this->assertNoOrphanPoster();
+        $this->assertCount(1, Storage::disk('prive')->directories('video-posters'));
+    }
+
+    public function test_une_affiche_remplacee_ne_reste_pas_un_an_dans_les_caches(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('a.jpg', 1280, 720)], $this->enTetes($vet['jeton']))->assertOk();
+        $token = Video::query()->where('uuid', $id)->value('poster_token');
+
+        $cache = (string) $this->get("/api/v1/public/videos/posters/{$token}/640.webp")->assertOk()->headers->get('Cache-Control');
+
+        $this->assertStringNotContainsString('immutable', $cache);
+        $this->assertStringContainsString('max-age=86400', $cache);
+    }
+
     // ————— Catégorie et mise en vente —————
 
     public function test_la_mise_en_vente_demande_une_categorie_et_une_affiche(): void
@@ -158,6 +228,26 @@ class VideoCatalogueRowsTest extends TestCase
 
         $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('a.jpg', 1280, 720)], $this->enTetes($vet['jeton']))->assertOk();
         $this->postJson(self::SELLER."/{$id}/publish", [], $this->enTetes($vet['jeton']))->assertOk()->assertJsonPath('data.status', 'published');
+    }
+
+    public function test_une_affiche_ou_une_categorie_retiree_pendant_la_mise_en_vente_l_arrete(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->upload($vet['jeton'], $id, $this->hlsPackage());
+        $this->finish($vet['jeton'], $id)->assertOk();
+        $this->fillSheet(self::SELLER."/{$id}", ['description' => 'Texte', 'price_cents' => 500, 'audience' => 'owners'], $this->enTetes($vet['jeton']));
+        $video = Video::query()->where('uuid', $id)->sole();
+        // Lue avec son affiche et sa catégorie ; un autre onglet les retire avant l'écriture finale
+        Video::query()->whereKey($video->id)->update(['poster_token' => null, 'category' => null]);
+
+        try {
+            app(VideoPublisher::class)->publish($video, 'Dr Essai');
+            $this->fail('La mise en vente aurait dû s’arrêter.');
+        } catch (ValidationException $e) {
+            $this->assertSame(['category', 'poster'], array_keys($e->errors()));
+        }
+        $this->assertSame(VideoStatus::Draft, $video->refresh()->status);
     }
 
     public function test_une_categorie_hors_de_la_liste_est_refusee(): void
@@ -260,6 +350,7 @@ class VideoCatalogueRowsTest extends TestCase
         $described = $this->onSale($vet, 'Un repas équilibré', 'nutrition', 'Les croquettes du matin.');
         $horse = $this->onSale($vet, 'Le box', 'horses');
         $anaesthesia = $this->onSale($vet, 'Le réveil', 'anaesthesia');
+        Video::query()->update(['seller_name' => 'Dr Essai']);
         Video::query()->where('uuid', $horse)->update(['seller_name' => 'Clinique des Saules']);
         ['jeton' => $owner] = $this->proprietaireAvecJeton();
         $search = fn (string $q) => $this->getJson('/api/v1/espace/videos?q='.urlencode($q), $this->enTetes($owner))->assertOk()->json('data.*.id');
@@ -273,6 +364,10 @@ class VideoCatalogueRowsTest extends TestCase
         $this->assertSame([$title], $search('dentisterie'));
         $this->assertSame([$described], $search('ALIMENT'));
         $this->assertSame([$anaesthesia], $search('anesthesie'));
+        // Moins de quatre lettres ne remontent pas des catégories entières pendant qu'on tape
+        $this->assertSame([], $search('che'));
+        $this->assertSame([$horse], $search('chev'));
+        $this->assertSame([], $search('evaux'));
         // Un « % » ou un « _ » n'est jamais un joker
         $this->assertSame([], $search('den%s'));
         $this->assertSame([], $search('dent_s'));
@@ -315,6 +410,19 @@ class VideoCatalogueRowsTest extends TestCase
         ], $home['categories']);
         $this->assertSame('owned', $home['rows'][4]['videos'][1]['access']);
         $this->assertSame('preview', $home['rows'][3]['videos'][0]['access']);
+    }
+
+    public function test_ses_brouillons_ne_paraissent_pas_dans_continuer_a_regarder(): void
+    {
+        $vet = $this->verifiedVet();
+        $sale = $this->onSale($vet, 'En vente', 'cats');
+        $draft = $this->draft($vet['jeton']);
+        $this->viewOf($vet['user'], $draft, 20);
+        $this->viewOf($vet['user'], $sale, 20);
+
+        $rows = collect($this->getJson('/api/v1/espace/videos/home', $this->enTetes($vet['jeton']))->json('data.rows'))->keyBy('key');
+
+        $this->assertSame([$sale], array_column($rows['continue']['videos'], 'id'));
     }
 
     public function test_l_accueil_d_un_proprietaire_ne_montre_pas_les_videos_pour_veterinaires_et_cache_les_rangees_vides(): void
@@ -407,6 +515,48 @@ class VideoCatalogueRowsTest extends TestCase
             'video_id' => $video->id, 'user_id' => $user->id, 'watched_ranges' => [[0, $seconds]], 'watched_seconds' => $seconds,
             'last_progress_at' => now(), 'completed_at' => $completed ? now() : null,
         ]);
+    }
+
+    /**
+     * Un autre onglet remplace l'affiche juste après que la requête a lu la
+     * vidéo : la première lecture du modèle déclenche le remplacement.
+     */
+    private function replacedRightAfterReading(string $id): void
+    {
+        $isDone = false;
+        Video::retrieved(function (Video $video) use ($id, &$isDone): void {
+            if ($isDone || $video->uuid !== $id) {
+                return;
+            }
+            $isDone = true;
+            // Ce que fait l'autre onglet : sa nouvelle affiche à la place de l'ancienne, qu'il efface
+            $stored = app(VideoPosters::class)->store(UploadedFile::fake()->image('b.jpg', 1280, 720));
+            $previous = Video::query()->whereKey($video->id)->value('poster_token');
+            Video::query()->whereKey($video->id)->update(['poster_token' => $stored['token'], 'poster_preview' => $stored['preview']]);
+            app(VideoPosters::class)->delete($previous);
+        });
+    }
+
+    /** Chaque dossier d'affiche sur le disque appartient à une vidéo. */
+    private function assertNoOrphanPoster(): void
+    {
+        $tokens = Video::query()->whereNotNull('poster_token')->pluck('poster_token')->all();
+        foreach (Storage::disk('prive')->directories('video-posters') as $folder) {
+            $this->assertContains(basename($folder), $tokens, "Dossier d'affiche sans vidéo : {$folder}");
+        }
+    }
+
+    /** Une photo JPEG marquée tournée d'un quart de tour (EXIF Orientation 6). */
+    private function rotatedPhoto(int $width, int $height): UploadedFile
+    {
+        $source = UploadedFile::fake()->image('source.jpg', $width, $height);
+        $jpeg = (string) file_get_contents($source->getRealPath());
+        $payload = "Exif\0\0MM\0*\0\0\0\x08\0\x01\x01\x12\0\x03\0\0\0\x01\0\x06\0\0\0\0\0\0";
+        $path = tempnam(sys_get_temp_dir(), 'poster').'.jpg';
+        file_put_contents($path, substr($jpeg, 0, 2)."\xFF\xE1".pack('n', strlen($payload) + 2).$payload.substr($jpeg, 2));
+        $this->assertSame(6, @exif_read_data($path)['Orientation'] ?? null);
+
+        return new UploadedFile($path, 'photo.jpg', 'image/jpeg', null, true);
     }
 
     /** Une photo JPEG qui porte une position GPS dans ses données EXIF. */

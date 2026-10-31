@@ -131,8 +131,12 @@ abstract class SellerVideoController extends Controller
         // Un brouillon ne se vend pas : seules les lectures du vendeur s'y rattachent
         $model->views()->delete();
         $model->certificates()->delete();
-        $model->delete();
-        app(VideoPosters::class)->delete($model->poster_token);
+        // L'affiche relue sous le verrou : celle qu'un autre onglet vient de poser part avec le brouillon
+        VideoPosters::lock($model->id)->block(10, function () use ($model): void {
+            $poster = Video::query()->whereKey($model->id)->value('poster_token');
+            $model->delete();
+            app(VideoPosters::class)->delete($poster);
+        });
 
         return response()->noContent();
     }
@@ -148,17 +152,13 @@ abstract class SellerVideoController extends Controller
         if ($model->status === VideoStatus::Published) {
             NativeApp::refuse($request, 'Une vidéo en vente se modifie sur le site de Veterinary, pas dans l’app iPhone.');
         }
-        $previous = $model->poster_token;
-        $stored = $posters->store($request->file('poster'));
-        // Seulement sur l'affiche lue ici : deux envois croisés (deux onglets) n'en perdent jamais une sur le disque
-        $replaced = Video::query()->whereKey($model->id)
-            ->where(fn (Builder $poster) => $previous === null ? $poster->whereNull('poster_token') : $poster->where('poster_token', $previous))
-            ->update(['poster_token' => $stored['token'], 'poster_preview' => $stored['preview'], 'updated_at' => now()]);
-        if ($replaced === 0) {
-            $posters->delete($stored['token']);
-            throw ValidationException::withMessages(['poster' => 'L’affiche vient de changer dans un autre onglet : réessayez.']);
-        }
-        $posters->delete($previous);
+        // Un geste à la fois sur l'affiche, relue sous le verrou : deux envois croisés n'oublient aucun dossier
+        VideoPosters::lock($model->id)->block(10, function () use ($request, $model, $posters): void {
+            $stored = $posters->store($request->file('poster'));
+            $previous = Video::query()->whereKey($model->id)->value('poster_token');
+            Video::query()->whereKey($model->id)->update(['poster_token' => $stored['token'], 'poster_preview' => $stored['preview'], 'updated_at' => now()]);
+            $posters->delete($previous);
+        });
 
         return VideoResource::seenBy($model->refresh(), 'seller', true);
     }
@@ -171,11 +171,13 @@ abstract class SellerVideoController extends Controller
         if ($model->status === VideoStatus::Published) {
             throw ValidationException::withMessages(['poster' => 'Une vidéo en vente garde son affiche : remplacez-la plutôt.']);
         }
-        $previous = $model->poster_token;
-        $model->update(['poster_token' => null, 'poster_preview' => null]);
-        $posters->delete($previous);
+        VideoPosters::lock($model->id)->block(10, function () use ($model, $posters): void {
+            $previous = Video::query()->whereKey($model->id)->value('poster_token');
+            Video::query()->whereKey($model->id)->update(['poster_token' => null, 'poster_preview' => null, 'updated_at' => now()]);
+            $posters->delete($previous);
+        });
 
-        return VideoResource::seenBy($model, 'seller', true);
+        return VideoResource::seenBy($model->refresh(), 'seller', true);
     }
 
     /** Mise en vente immédiate, sans validation à la main ; jamais depuis l'app iPhone. */

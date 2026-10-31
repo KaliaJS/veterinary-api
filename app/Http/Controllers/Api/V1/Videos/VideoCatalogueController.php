@@ -74,7 +74,8 @@ class VideoCatalogueController extends Controller
         // Commencées, pas finies, regardables en entier : la plus récente d'abord
         $views = VideoView::query()->where('user_id', $user->id)->where('watched_seconds', '>', 0)->whereNull('completed_at')
             ->orderByDesc('last_progress_at')->limit(self::ROW_SIZE * 2)->get()->keyBy('video_id');
-        $started = Video::query()->whereIn('id', $views->keys())->with($this->relations($user))->get()
+        // Jamais un brouillon : celui que son vendeur regarde sur la page de vente n'est pas dans l'écran des propriétaires
+        $started = Video::query()->whereIn('id', $views->keys())->where('status', '!=', VideoStatus::Draft->value)->with($this->relations($user))->get()
             ->sortByDesc(fn (Video $video) => $views[$video->id]->last_progress_at?->getTimestamp() ?? 0)->values();
         $organisations = Video::organisationsOf($user);
         $continue = $started
@@ -212,8 +213,10 @@ class VideoCatalogueController extends Controller
 
     /**
      * Une recherche : dans le titre, la description, le nom du vendeur, et
-     * les catégories dont le nom la contient (« chat » trouve la catégorie
-     * Chats), sans tenir compte des accents ni des majuscules pour celles-ci.
+     * les catégories dont un mot commence par elle (« chat » trouve la
+     * catégorie Chats, « secours » Premiers secours), sans tenir compte des
+     * accents ni des majuscules. Quatre lettres au moins pour une catégorie :
+     * pendant qu'on tape « chiot », « chi » ne remonte ni Chiens ni Chirurgie.
      *
      * @param  Builder<Video>  $query
      */
@@ -221,8 +224,9 @@ class VideoCatalogueController extends Controller
     {
         $like = '%'.$search.'%';
         $needle = Str::lower(Str::ascii($search));
-        $categories = array_values(array_map(fn (VideoCategory $category) => $category->value,
-            array_filter(VideoCategory::cases(), fn (VideoCategory $category) => str_contains(Str::lower(Str::ascii($category->label())), $needle))));
+        $categories = mb_strlen($needle) < 4 ? [] : array_values(array_map(fn (VideoCategory $category) => $category->value,
+            array_filter(VideoCategory::cases(), fn (VideoCategory $category) => collect(explode(' ', Str::lower(Str::ascii($category->label()))))
+                ->contains(fn (string $word) => str_starts_with($word, $needle)))));
         $query->where(fn (Builder $match) => $match
             ->where('title', 'like', $like)
             ->orWhere('description', 'like', $like)

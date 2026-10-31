@@ -50,19 +50,24 @@ class VideoPublisher
             }
         }
 
-        // Seulement si ses fichiers sont toujours prêts : une relecture qui les refuse au même moment l'emporte
-        $published = Video::query()->whereKey($video->id)->where('files_status', VideoFilesStatus::Ready->value)->update([
-            'status' => VideoStatus::Published->value,
-            'published_at' => $video->published_at ?? now(),
-            'withdrawn_at' => null,
-            'publish_requested_at' => null,
-            'publish_requested_by' => null,
-            'seller_name' => $sellerName,
-            'updated_at' => now(),
-        ]);
+        // Seulement si ses fichiers sont toujours prêts et sa fiche toujours complète : une relecture qui les
+        // refuse, ou un autre onglet qui retire l'affiche ou la catégorie, au même moment, l'emporte
+        $published = Video::query()->whereKey($video->id)->where('files_status', VideoFilesStatus::Ready->value)
+            ->whereNotNull('title')->whereNotNull('description')->whereNotNull('price_cents')->whereNotNull('audience')
+            ->whereNotNull('category')->whereNotNull('poster_token')
+            ->update([
+                'status' => VideoStatus::Published->value,
+                'published_at' => $video->published_at ?? now(),
+                'withdrawn_at' => null,
+                'publish_requested_at' => null,
+                'publish_requested_by' => null,
+                'seller_name' => $sellerName,
+                'updated_at' => now(),
+            ]);
         $video->refresh();
         if ($published === 0) {
-            throw ValidationException::withMessages(['files' => 'La vidéo n’est plus prête : ses fichiers ont été refusés à la relecture.']);
+            $missing = $this->missing($video);
+            throw ValidationException::withMessages($missing !== [] ? $missing : ['files' => 'La vidéo n’est plus prête : ses fichiers ont été refusés à la relecture.']);
         }
     }
 }

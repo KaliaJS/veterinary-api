@@ -6,9 +6,12 @@ use App\Jobs\PurgeVideoFolder;
 use App\Models\Video;
 use App\Services\Photos\ImageReencodee;
 use GdImage;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * L'affiche d'une vidéo de formation (31.10.2026) : une image tirée de la
@@ -47,6 +50,11 @@ final class VideoPosters
     public function store(UploadedFile $file): array
     {
         $image = self::crop(ImageReencodee::lire($file));
+        // Jugée redressée et recadrée (vérification du 31.10.2026) : une photo tournée par ses données EXIF
+        // n'a plus les dimensions qu'elle annonce, et c'est l'affiche rangée qui doit rester nette
+        if (imagesx($image) < self::MIN_WIDTH || imagesy($image) < self::MIN_HEIGHT) {
+            throw ValidationException::withMessages(['poster' => self::tooSmall()]);
+        }
         $token = Str::random(40);
         foreach (self::WIDTHS as $width) {
             Storage::disk(self::DISK)->put(self::path($token, $width), ImageReencodee::webp(ImageReencodee::reduire($image, $width), self::QUALITY));
@@ -54,6 +62,21 @@ final class VideoPosters
         $preview = 'data:image/webp;base64,'.base64_encode(ImageReencodee::webp(ImageReencodee::reduire($image, self::PREVIEW_WIDTH), self::PREVIEW_QUALITY));
 
         return ['token' => $token, 'preview' => $preview];
+    }
+
+    public static function tooSmall(): string
+    {
+        return 'L’affiche doit mesurer au moins '.self::MIN_WIDTH.' × '.self::MIN_HEIGHT.' pixels.';
+    }
+
+    /**
+     * Un seul geste à la fois sur l'affiche d'une vidéo (envoyer, retirer,
+     * effacer le brouillon) : deux onglets qui se croisent ne laissent
+     * jamais un dossier sans vidéo sur le disque.
+     */
+    public static function lock(int $videoId): Lock
+    {
+        return Cache::lock('video-poster-'.$videoId, 60);
     }
 
     /** Efface son dossier, une fois la transaction conclue, par la file qui réessaie. */

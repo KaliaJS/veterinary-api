@@ -10,8 +10,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * L'affiche d'une vidéo de formation (31.10.2026), comme la photo d'une
- * clinique : une route publique en cache, qui ne sert que les versions
- * WebP d'une affiche encore rattachée à une vidéo.
+ * clinique : une route publique en cache (un jour), qui ne sert que les
+ * versions WebP d'une affiche encore rattachée à une vidéo.
  */
 class VideoPosterController extends Controller
 {
@@ -23,7 +23,8 @@ class VideoPosterController extends Controller
 
         return Storage::disk('prive')->response($path, null, [
             'Content-Type' => 'image/webp',
-            'Cache-Control' => 'public, max-age=31536000, immutable',
+            // Un jour, pas un an (vérification du 31.10.2026) : une affiche remplacée ou retirée ne reste pas servie par les caches
+            'Cache-Control' => 'public, max-age=86400',
         ]);
     }
 }
