@@ -93,13 +93,31 @@ class VideoPurchases
     }
 
     /** Le paiement vérifié auprès du prestataire : payé, la vidéo est à lui, à vie. Sans effet sinon. */
-    public function confirm(VideoPurchase $purchase): VideoPurchase
+    /**
+     * Au retour d'un paiement qui a demandé une étape de plus (TWINT,
+     * 3-D Secure) : payé, en cours, ou n'a pas abouti (annulé, refusé : rien
+     * n'a été débité, huitième vérification).
+     *
+     * @return array{paid: bool, failed: bool}
+     */
+    public function confirm(VideoPurchase $purchase): array
     {
-        if ($purchase->payment_intent_id !== null) {
-            $this->settle($purchase, $purchase->payment_intent_id);
+        $intent = $purchase->payment_intent_id;
+        if ($intent === null) {
+            return ['paid' => false, 'failed' => false];
+        }
+        if ($this->settle($purchase, $intent)) {
+            return ['paid' => true, 'failed' => false];
+        }
+        try {
+            $state = $this->gateway->pourCompte($purchase->stripe_account_id)->lireIntention($intent);
+        } catch (Throwable $e) {
+            report($e);
+
+            return ['paid' => false, 'failed' => false];
         }
 
-        return $purchase->refresh();
+        return ['paid' => false, 'failed' => in_array($state['statut'], ['requires_payment_method', 'canceled'], true)];
     }
 
     /**

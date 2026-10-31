@@ -29,8 +29,7 @@ class VideoPurchaseController extends Controller
     {
         $model = Video::query()->where('uuid', $video)->firstOrFail();
         $purchase = VideoPurchase::query()->where('video_id', $model->id)->where('user_id', $request->user()->id)->firstOrFail();
-        $purchase = $this->purchases->confirm($purchase);
 
-        return response()->json(['data' => ['paid' => $purchase->paid_at !== null]]);
+        return response()->json(['data' => $this->purchases->confirm($purchase)]);
     }
 }

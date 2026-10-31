@@ -2003,4 +2003,30 @@ class VideoSafeguardsTest extends TestCase
         $this->assertNull(VideoView::query()->sole()->completed_at);
         $this->postJson("/api/v1/espace/videos/{$sale['id']}/certificate", [], $this->enTetes($free['jeton']))->assertUnprocessable();
     }
+
+    /* ————— Huitième vérification (31.10.2026) ————— */
+
+    public function test_au_retour_d_un_paiement_qui_n_a_pas_abouti_l_ecran_le_sait(): void
+    {
+        $sale = $this->published();
+        $buyer = $this->proprietaireAvecJeton();
+        $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase", ['accept_terms' => true], $this->enTetes($buyer['jeton']))->assertOk();
+        $intent = VideoPurchase::query()->sole()->payment_intent_id;
+        $confirm = fn () => $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase/confirm", [], $this->enTetes($buyer['jeton']))->assertOk();
+
+        // Encore en cours (TWINT pas encore confirmé)
+        $this->gateway->conclure($intent, 'processing');
+        $confirm()->assertJsonPath('data.paid', false)->assertJsonPath('data.failed', false);
+        // Annulé dans l'app de la banque : rien n'a été débité
+        $this->gateway->conclure($intent, 'requires_payment_method');
+        $confirm()->assertJsonPath('data.paid', false)->assertJsonPath('data.failed', true);
+    }
+
+    public function test_le_seuil_du_certificat_vient_du_serveur(): void
+    {
+        $sale = $this->published(['in_plus' => true], null, 30);
+        $plus = $this->proprietaireAvecJeton(['formule' => 'plus']);
+        $this->getJson("/api/v1/espace/videos/{$sale['id']}", $this->enTetes($plus['jeton']))->assertOk()
+            ->assertJsonPath('data.viewing.required_seconds', (int) ceil(Video::query()->sole()->duration_seconds * VideoView::COMPLETION_RATIO));
+    }
 }
