@@ -7,6 +7,7 @@ use App\Models\Video;
 use App\Services\Photos\ImageReencodee;
 use GdImage;
 use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
@@ -77,6 +78,27 @@ final class VideoPosters
     public static function lock(int $videoId): Lock
     {
         return Cache::lock('video-poster-'.$videoId, 60);
+    }
+
+    /** Ce qu'un geste attend qu'un autre finisse (secondes) ; au-delà, il s'arrête sans rien faire. */
+    public static int $lockWait = 10;
+
+    /**
+     * Le geste, sous le verrou de l'affiche ; un autre qui dure trop : 409,
+     * et rien n'est fait à moitié.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $action
+     * @return T
+     */
+    public static function exclusively(int $videoId, callable $action): mixed
+    {
+        try {
+            return self::lock($videoId)->block(self::$lockWait, $action);
+        } catch (LockTimeoutException) {
+            abort(409, 'Un autre onglet modifie cette vidéo : réessayez dans un instant.');
+        }
     }
 
     /** Efface son dossier, une fois la transaction conclue, par la file qui réessaie. */

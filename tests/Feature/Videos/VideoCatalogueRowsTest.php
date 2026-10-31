@@ -179,7 +179,7 @@ class VideoCatalogueRowsTest extends TestCase
         $this->assertSame([], Storage::disk('prive')->allFiles('video-posters'));
     }
 
-    public function test_deux_affiches_envoyees_en_meme_temps_ne_laissent_aucun_dossier_sans_video(): void
+    public function test_deux_affiches_envoyees_en_meme_temps_la_derniere_l_emporte_sans_faux_refus_ni_dossier_sans_video(): void
     {
         $vet = $this->verifiedVet();
         $id = $this->draft($vet['jeton']);
@@ -190,6 +190,91 @@ class VideoCatalogueRowsTest extends TestCase
 
         $this->assertNoOrphanPoster();
         $this->assertCount(1, Storage::disk('prive')->directories('video-posters'));
+    }
+
+    public function test_une_affiche_envoyee_pendant_que_l_autre_onglet_efface_le_brouillon_ne_reste_pas_sur_le_disque(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->rightAfterReading($id, fn (Video $video) => Video::query()->whereKey($video->id)->delete());
+
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('a.jpg', 1280, 720)], $this->enTetes($vet['jeton']) + ['Accept' => 'application/json'])->assertNotFound();
+
+        $this->assertSame([], Storage::disk('prive')->allFiles('video-posters'));
+    }
+
+    public function test_retirer_l_affiche_pendant_qu_un_autre_onglet_met_en_vente_est_refuse(): void
+    {
+        $sale = $this->published();
+        Video::query()->where('uuid', $sale['id'])->update(['status' => 'draft']);
+        $token = Video::query()->where('uuid', $sale['id'])->value('poster_token');
+        $this->rightAfterReading($sale['id'], fn (Video $video) => Video::query()->whereKey($video->id)->update(['status' => 'published']));
+
+        $this->deleteJson(self::SELLER."/{$sale['id']}/poster", [], $this->enTetes($sale['vet']['jeton']))
+            ->assertUnprocessable()->assertJsonValidationErrors(['poster' => 'Une vidéo en vente garde son affiche : remplacez-la plutôt.']);
+
+        $this->assertSame($token, Video::query()->where('uuid', $sale['id'])->value('poster_token'));
+    }
+
+    public function test_vider_la_categorie_pendant_qu_un_autre_onglet_met_en_vente_est_refuse(): void
+    {
+        $sale = $this->published();
+        Video::query()->where('uuid', $sale['id'])->update(['status' => 'draft']);
+        $this->rightAfterReading($sale['id'], fn (Video $video) => Video::query()->whereKey($video->id)->update(['status' => 'published']));
+
+        $this->patchJson(self::SELLER."/{$sale['id']}", ['category' => null, 'price_cents' => 900], $this->enTetes($sale['vet']['jeton']))
+            ->assertUnprocessable()->assertJsonValidationErrors(['category']);
+
+        $video = Video::query()->where('uuid', $sale['id'])->sole();
+        $this->assertSame('nutrition', $video->category?->value);
+        $this->assertSame(1500, $video->price_cents);
+    }
+
+    public function test_un_autre_geste_trop_long_sur_l_affiche_ne_laisse_rien_a_moitie(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->readyDraftFor($vet);
+        $video = Video::query()->where('uuid', $id)->sole();
+        $this->viewOf($vet['user'], $id, 10);
+        $files = Storage::disk('prive')->allFiles($video->folder());
+        VideoPosters::$lockWait = 0;
+        $held = VideoPosters::lock($video->id);
+        $this->assertTrue($held->get());
+
+        try {
+            $this->deleteJson(self::SELLER."/{$id}", [], $this->enTetes($vet['jeton']))
+                ->assertStatus(409)->assertJsonPath('message', 'Un autre onglet modifie cette vidéo : réessayez dans un instant.');
+            $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('a.jpg', 1280, 720)], $this->enTetes($vet['jeton']) + ['Accept' => 'application/json'])->assertStatus(409);
+            $this->deleteJson(self::SELLER."/{$id}/poster", [], $this->enTetes($vet['jeton']))->assertStatus(409);
+        } finally {
+            $held->release();
+            VideoPosters::$lockWait = 10;
+        }
+
+        // Rien n'est parti : ni la vidéo, ni ses fichiers, ni ses lectures
+        $this->assertTrue(Video::query()->whereKey($video->id)->exists());
+        $this->assertSame($files, Storage::disk('prive')->allFiles($video->folder()));
+        $this->assertSame(1, VideoView::query()->where('video_id', $video->id)->count());
+        $this->assertSame([], Storage::disk('prive')->allFiles('video-posters'));
+    }
+
+    public function test_l_affiche_prise_d_elle_meme_ne_remplace_jamais_une_affiche_deja_choisie(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('photo.jpg', 1280, 720)], $this->enTetes($vet['jeton']))->assertOk();
+        $chosen = Video::query()->where('uuid', $id)->value('poster_token');
+
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('image.jpg', 1280, 720), 'only_if_none' => '1'], $this->enTetes($vet['jeton']))
+            ->assertOk()->assertJsonPath('data.poster.url', route('videos.poster', ['token' => $chosen, 'width' => 1280]));
+
+        $this->assertSame($chosen, Video::query()->where('uuid', $id)->value('poster_token'));
+        $this->assertCount(1, Storage::disk('prive')->directories('video-posters'));
+
+        // Sans affiche, elle se pose
+        $this->deleteJson(self::SELLER."/{$id}/poster", [], $this->enTetes($vet['jeton']))->assertOk();
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('image.jpg', 1280, 720), 'only_if_none' => '1'], $this->enTetes($vet['jeton']))->assertOk();
+        $this->assertNotNull(Video::query()->where('uuid', $id)->value('poster_token'));
     }
 
     public function test_une_affiche_remplacee_ne_reste_pas_un_an_dans_les_caches(): void
@@ -350,6 +435,8 @@ class VideoCatalogueRowsTest extends TestCase
         $described = $this->onSale($vet, 'Un repas équilibré', 'nutrition', 'Les croquettes du matin.');
         $horse = $this->onSale($vet, 'Le box', 'horses');
         $anaesthesia = $this->onSale($vet, 'Le réveil', 'anaesthesia');
+        $exotic = $this->onSale($vet, 'Le furet', 'exotic');
+        $firstAid = $this->onSale($vet, 'La piqûre', 'first_aid');
         Video::query()->update(['seller_name' => 'Dr Essai']);
         Video::query()->where('uuid', $horse)->update(['seller_name' => 'Clinique des Saules']);
         ['jeton' => $owner] = $this->proprietaireAvecJeton();
@@ -368,6 +455,11 @@ class VideoCatalogueRowsTest extends TestCase
         $this->assertSame([], $search('che'));
         $this->assertSame([$horse], $search('chev'));
         $this->assertSame([], $search('evaux'));
+        // Le nom affiché d'une catégorie, même court ou en plusieurs mots, la trouve
+        $this->assertSame([$exotic], $search('NAC'));
+        $this->assertSame([$firstAid], $search('premiers secours'));
+        $this->assertSame([$firstAid], $search('Secours'));
+        $this->assertSame([$firstAid], $search('premiers sec'));
         // Un « % » ou un « _ » n'est jamais un joker
         $this->assertSame([], $search('den%s'));
         $this->assertSame([], $search('dent_s'));
@@ -515,6 +607,29 @@ class VideoCatalogueRowsTest extends TestCase
             'video_id' => $video->id, 'user_id' => $user->id, 'watched_ranges' => [[0, $seconds]], 'watched_seconds' => $seconds,
             'last_progress_at' => now(), 'completed_at' => $completed ? now() : null,
         ]);
+    }
+
+    /** Un autre onglet agit juste après que la requête a lu la vidéo : la première lecture du modèle le déclenche. */
+    private function rightAfterReading(string $id, callable $action): void
+    {
+        $isDone = false;
+        Video::retrieved(function (Video $video) use ($id, $action, &$isDone): void {
+            if ($isDone || $video->uuid !== $id) {
+                return;
+            }
+            $isDone = true;
+            $action($video);
+        });
+    }
+
+    /** Un brouillon prêt (fichiers envoyés et contrôlés) ; rend son identifiant. */
+    private function readyDraftFor(array $vet): string
+    {
+        $id = $this->draft($vet['jeton']);
+        $this->upload($vet['jeton'], $id, $this->hlsPackage());
+        $this->finish($vet['jeton'], $id)->assertOk();
+
+        return $id;
     }
 
     /**

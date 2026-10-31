@@ -213,20 +213,28 @@ class VideoCatalogueController extends Controller
 
     /**
      * Une recherche : dans le titre, la description, le nom du vendeur, et
-     * les catégories dont un mot commence par elle (« chat » trouve la
-     * catégorie Chats, « secours » Premiers secours), sans tenir compte des
-     * accents ni des majuscules. Quatre lettres au moins pour une catégorie :
-     * pendant qu'on tape « chiot », « chi » ne remonte ni Chiens ni Chirurgie.
+     * les catégories, sans tenir compte des accents ni des majuscules. Une
+     * catégorie se trouve par son nom entier (« NAC », « premiers secours »)
+     * ou par le début de son nom ou d'un de ses mots, dès quatre lettres
+     * (« chat » trouve Chats, « secours » Premiers secours) : pendant qu'on
+     * tape « chiot », « chi » ne remonte ni Chiens ni Chirurgie.
      *
      * @param  Builder<Video>  $query
      */
     private function search(Builder $query, string $search): void
     {
         $like = '%'.$search.'%';
-        $needle = Str::lower(Str::ascii($search));
-        $categories = mb_strlen($needle) < 4 ? [] : array_values(array_map(fn (VideoCategory $category) => $category->value,
-            array_filter(VideoCategory::cases(), fn (VideoCategory $category) => collect(explode(' ', Str::lower(Str::ascii($category->label()))))
-                ->contains(fn (string $word) => str_starts_with($word, $needle)))));
+        $needle = Str::squish(Str::lower(Str::ascii($search)));
+        $matches = function (VideoCategory $category) use ($needle): bool {
+            $label = Str::lower(Str::ascii($category->label()));
+            if ($label === $needle) {
+                return true;
+            }
+
+            return mb_strlen($needle) >= 4 && (str_starts_with($label, $needle)
+                || collect(explode(' ', $label))->contains(fn (string $word) => str_starts_with($word, $needle)));
+        };
+        $categories = array_values(array_map(fn (VideoCategory $category) => $category->value, array_filter(VideoCategory::cases(), $matches)));
         $query->where(fn (Builder $match) => $match
             ->where('title', 'like', $like)
             ->orWhere('description', 'like', $like)

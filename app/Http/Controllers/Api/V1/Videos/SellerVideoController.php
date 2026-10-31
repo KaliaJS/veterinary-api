@@ -110,6 +110,18 @@ abstract class SellerVideoController extends Controller
             }
             $data['in_plus'] = false;
         }
+        // Ce qu'une vidéo en vente doit garder, vidé : seulement si elle n'est toujours pas en vente au moment
+        // de l'écriture (une mise en vente dans un autre onglet l'emporte, la fiche reste complète)
+        $blanked = array_filter(['title', 'description', 'price_cents', 'audience', 'category'], fn (string $key) => array_key_exists($key, $data) && blank($data[$key]));
+        if ($blanked !== []) {
+            $written = Video::query()->whereKey($model->id)->where('status', '!=', VideoStatus::Published->value)
+                ->update([...$data, 'updated_at' => now()]);
+            if ($written === 0) {
+                throw ValidationException::withMessages(array_fill_keys(array_values($blanked), 'Une vidéo en vente garde son titre, sa description, son prix, son public et sa catégorie.'));
+            }
+
+            return VideoResource::seenBy($model->refresh(), 'seller', true);
+        }
         $model->update($data);
 
         return VideoResource::seenBy($model, 'seller', true);
@@ -124,15 +136,16 @@ abstract class SellerVideoController extends Controller
         if ($model->status !== VideoStatus::Draft || $model->published_at !== null) {
             throw ValidationException::withMessages(['status' => 'Une vidéo mise en vente ne s’efface pas : retirez-la de la vente, ceux qui l’ont achetée la gardent.']);
         }
-        $this->storage->deleteAll($model);
-        // Des adresses d'envoi encore valables écriraient dans le dossier : on l'efface encore une fois expirées
-        // (toujours : le guet a pu oublier l'envoi en le refusant, ses adresses écrivent encore)
-        PurgeVideoFolder::dispatch($model->folder())->delay(now()->addMinutes(SellerVideoUploadController::URL_MINUTES + 1));
-        // Un brouillon ne se vend pas : seules les lectures du vendeur s'y rattachent
-        $model->views()->delete();
-        $model->certificates()->delete();
-        // L'affiche relue sous le verrou : celle qu'un autre onglet vient de poser part avec le brouillon
-        VideoPosters::lock($model->id)->block(10, function () use ($model): void {
+        // Tout sous le verrou de l'affiche : celle qu'un autre onglet vient de poser part avec le brouillon,
+        // et un geste trop long ailleurs arrête l'effacement avant qu'il commence (rien à moitié)
+        VideoPosters::exclusively($model->id, function () use ($model): void {
+            $this->storage->deleteAll($model);
+            // Des adresses d'envoi encore valables écriraient dans le dossier : on l'efface encore une fois expirées
+            // (toujours : le guet a pu oublier l'envoi en le refusant, ses adresses écrivent encore)
+            PurgeVideoFolder::dispatch($model->folder())->delay(now()->addMinutes(SellerVideoUploadController::URL_MINUTES + 1));
+            // Un brouillon ne se vend pas : seules les lectures du vendeur s'y rattachent
+            $model->views()->delete();
+            $model->certificates()->delete();
             $poster = Video::query()->whereKey($model->id)->value('poster_token');
             $model->delete();
             app(VideoPosters::class)->delete($poster);
@@ -152,12 +165,19 @@ abstract class SellerVideoController extends Controller
         if ($model->status === VideoStatus::Published) {
             NativeApp::refuse($request, 'Une vidéo en vente se modifie sur le site de Veterinary, pas dans l’app iPhone.');
         }
-        // Un geste à la fois sur l'affiche, relue sous le verrou : deux envois croisés n'oublient aucun dossier
-        VideoPosters::lock($model->id)->block(10, function () use ($request, $model, $posters): void {
+        // Un geste à la fois sur l'affiche, relue sous le verrou : deux envois croisés n'oublient aucun dossier,
+        // un brouillon effacé entre-temps n'en reçoit pas. Prise d'elle-même au montage (only_if_none) :
+        // jamais à la place d'une affiche déjà choisie
+        $onlyIfNone = $request->boolean('only_if_none');
+        VideoPosters::exclusively($model->id, function () use ($request, $model, $posters, $onlyIfNone): void {
+            $current = Video::query()->whereKey($model->id)->first(['id', 'poster_token']);
+            abort_if($current === null, 404);
+            if ($onlyIfNone && $current->poster_token !== null) {
+                return;
+            }
             $stored = $posters->store($request->file('poster'));
-            $previous = Video::query()->whereKey($model->id)->value('poster_token');
             Video::query()->whereKey($model->id)->update(['poster_token' => $stored['token'], 'poster_preview' => $stored['preview'], 'updated_at' => now()]);
-            $posters->delete($previous);
+            $posters->delete($current->poster_token);
         });
 
         return VideoResource::seenBy($model->refresh(), 'seller', true);
@@ -171,9 +191,14 @@ abstract class SellerVideoController extends Controller
         if ($model->status === VideoStatus::Published) {
             throw ValidationException::withMessages(['poster' => 'Une vidéo en vente garde son affiche : remplacez-la plutôt.']);
         }
-        VideoPosters::lock($model->id)->block(10, function () use ($model, $posters): void {
+        VideoPosters::exclusively($model->id, function () use ($model, $posters): void {
             $previous = Video::query()->whereKey($model->id)->value('poster_token');
-            Video::query()->whereKey($model->id)->update(['poster_token' => null, 'poster_preview' => null, 'updated_at' => now()]);
+            // Seulement hors de la vente, au moment même de l'écriture : une mise en vente faite entre-temps l'emporte
+            $removed = Video::query()->whereKey($model->id)->where('status', '!=', VideoStatus::Published->value)
+                ->update(['poster_token' => null, 'poster_preview' => null, 'updated_at' => now()]);
+            if ($removed === 0) {
+                throw ValidationException::withMessages(['poster' => 'Une vidéo en vente garde son affiche : remplacez-la plutôt.']);
+            }
             $posters->delete($previous);
         });
 
