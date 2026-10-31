@@ -9,8 +9,10 @@ use App\Models\PlusPoolShare;
 use App\Models\User;
 use App\Paiements\PasserellePaiement;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -103,6 +105,17 @@ class PlusPool
             ->groupBy(fn (PlusPoolShare $share) => $share->seller_user_id !== null ? 'user:'.$share->seller_user_id : 'clinique:'.$share->seller_clinique_id);
 
         foreach ($unpaid as $seller => $shares) {
+            // Un versement parti dont la réponse s'est perdue : retrouvé par son groupe, il ne se refait pas
+            try {
+                $shares = $this->settleLostPayouts($shares);
+            } catch (Throwable $e) {
+                report($e);
+
+                continue;
+            }
+            if ($shares->isEmpty()) {
+                continue;
+            }
             $amount = (int) $shares->sum('earned_cents');
             // Une part d'une année passée (versement de décembre raté) se verse toujours, même sous 10 CHF
             $fromPastYear = $shares->contains(fn (PlusPoolShare $share) => substr((string) $share->month?->month, 0, 4) < $month->format('Y'));
@@ -114,20 +127,47 @@ class PlusPool
                 // Pas encore de compte prêt : versé dès qu'il le sera
                 continue;
             }
+            // Noté avant l'appel : si la réponse se perd, le mois suivant retrouve le versement au lieu de le refaire
+            $group = 'plus-pool-'.str_replace(':', '-', $seller).'-'.Str::lower((string) Str::ulid());
+            PlusPoolShare::query()->whereIn('id', $shares->modelKeys())->update(['payout_group' => $group, 'stripe_account_id' => $account]);
             try {
                 // Recevoir des virements : demandé à chaque fois (sans effet si c'est déjà fait)
                 $this->gateway->pourCompte(null)->demanderVirementsRecus($account);
-                $transfer = $this->gateway->pourCompte(null)->transferer($account, $amount, 'plus-pool-'.$seller.'-'.$shares->pluck('id')->implode('-'), [
+                $transfer = $this->gateway->pourCompte(null)->transferer($account, $amount, $group, [
                     'objet' => 'cagnotte_plus', 'seller' => $seller, 'month' => $month->format('Y-m'),
-                ]);
+                ], $group);
             } catch (Throwable $e) {
                 // Une panne : la part attend le mois suivant, les autres vendeurs passent
                 report($e);
 
                 continue;
             }
-            PlusPoolShare::query()->whereIn('id', $shares->modelKeys())->update(['paid_at' => now(), 'transfer_id' => $transfer, 'stripe_account_id' => $account]);
+            PlusPoolShare::query()->whereIn('id', $shares->modelKeys())->update(['paid_at' => now(), 'transfer_id' => $transfer]);
         }
+    }
+
+    /**
+     * Les parts déjà envoyées sous un groupe, sans réponse : versées pour de
+     * bon (le prestataire connaît le groupe), elles sont marquées payées ;
+     * jamais arrivées, elles redeviennent à verser. Rend ce qui reste à verser.
+     *
+     * @param  Collection<int, PlusPoolShare>  $shares
+     * @return Collection<int, PlusPoolShare>
+     */
+    private function settleLostPayouts(Collection $shares): Collection
+    {
+        foreach ($shares->whereNotNull('payout_group')->groupBy('payout_group') as $group => $sent) {
+            $transfer = $this->gateway->pourCompte(null)->versementDuGroupe((string) $group);
+            if ($transfer !== null) {
+                PlusPoolShare::query()->whereIn('id', $sent->modelKeys())->update(['paid_at' => now(), 'transfer_id' => $transfer]);
+                $shares = $shares->reject(fn (PlusPoolShare $share) => $share->payout_group === $group)->values();
+            } else {
+                PlusPoolShare::query()->whereIn('id', $sent->modelKeys())->update(['payout_group' => null]);
+                $sent->each(fn (PlusPoolShare $share) => $share->payout_group = null);
+            }
+        }
+
+        return $shares;
     }
 
     /** Les frais du prestataire sur un paiement, relus une seule fois (la facture compte douze mois). */

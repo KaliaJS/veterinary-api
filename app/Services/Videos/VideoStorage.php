@@ -143,6 +143,22 @@ class VideoStorage
         return $heads;
     }
 
+    /**
+     * Un fichier de la vidéo à lire en flux ; illisible (stockage en panne) :
+     * une exception, jamais un morceau sauté sans rien dire.
+     *
+     * @return resource
+     */
+    private function readable(Video $video, string $name)
+    {
+        $stream = $this->disk()->readStream($video->folder().'/'.$name);
+        if (! is_resource($stream)) {
+            throw new \RuntimeException("Fichier illisible : {$name}");
+        }
+
+        return $stream;
+    }
+
     public function delete(Video $video, string $name): void
     {
         $this->disk()->delete($video->folder().'/'.$name);
@@ -150,7 +166,12 @@ class VideoStorage
 
     public function deleteAll(Video $video): void
     {
-        $this->disk()->deleteDirectory($video->folder());
+        $this->deleteFolder($video->folder());
+    }
+
+    public function deleteFolder(string $folder): void
+    {
+        $this->disk()->deleteDirectory($folder);
     }
 
     /**
@@ -166,7 +187,7 @@ class VideoStorage
         if (! $this->isS3()) {
             $stream = fopen('php://temp', 'w+b');
             foreach ($names as $name) {
-                $part = $this->disk()->readStream($video->folder().'/'.$name);
+                $part = $this->readable($video, $name);
                 stream_copy_to_stream($part, $stream);
                 fclose($part);
             }
@@ -194,7 +215,7 @@ class VideoStorage
                 $buffer = '';
             };
             foreach ($names as $name) {
-                $part = $this->disk()->readStream($video->folder().'/'.$name);
+                $part = $this->readable($video, $name);
                 while (! feof($part)) {
                     $chunk = (string) fread($part, 1024 * 1024);
                     $buffer .= $chunk;

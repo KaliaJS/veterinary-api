@@ -2,6 +2,7 @@
 
 namespace App\Services\Videos;
 
+use App\Enums\VideoFilesStatus;
 use App\Enums\VideoStatus;
 use App\Models\Video;
 use App\Paiements\PasserellePaiement;
@@ -47,12 +48,19 @@ class VideoPublisher
             }
         }
 
-        $video->update([
-            'status' => VideoStatus::Published,
+        // Seulement si ses fichiers sont toujours prêts : une relecture qui les refuse au même moment l'emporte
+        $published = Video::query()->whereKey($video->id)->where('files_status', VideoFilesStatus::Ready->value)->update([
+            'status' => VideoStatus::Published->value,
             'published_at' => $video->published_at ?? now(),
             'withdrawn_at' => null,
             'publish_requested_at' => null,
+            'publish_requested_by' => null,
             'seller_name' => $sellerName,
+            'updated_at' => now(),
         ]);
+        $video->refresh();
+        if ($published === 0) {
+            throw ValidationException::withMessages(['files' => 'La vidéo n’est plus prête : ses fichiers ont été refusés à la relecture.']);
+        }
     }
 }

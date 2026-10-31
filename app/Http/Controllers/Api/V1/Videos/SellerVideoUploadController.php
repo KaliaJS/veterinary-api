@@ -25,7 +25,7 @@ use Throwable;
 abstract class SellerVideoUploadController extends SellerVideoController
 {
     /** Durée de validité d'une adresse d'envoi. */
-    private const URL_MINUTES = 15;
+    public const URL_MINUTES = 15;
 
     /** Marge au-delà de la place annoncée (listes, arrondis de l'estimation) */
     private const DEPOSIT_MARGIN = 50_000_000;
@@ -35,7 +35,8 @@ abstract class SellerVideoUploadController extends SellerVideoController
     {
         $model = $this->editable($request, $video);
         $storage = $this->sellers->storage($model);
-        $after = $storage['used'] - (int) $model->size_bytes + (int) $request->validated('estimated_bytes');
+        // Les autres envois en cours comptent pour la place qu'ils ont annoncée
+        $after = $storage['used'] - $model->storageBytes() + (int) $request->validated('estimated_bytes');
         if ($after > $storage['limit']) {
             throw ValidationException::withMessages(['estimated_bytes' => 'Votre stockage est plein : cette vidéo ne tient pas dans ce qui reste.']);
         }
@@ -48,6 +49,8 @@ abstract class SellerVideoUploadController extends SellerVideoController
             'upload_started_at' => now(), 'upload_expected_bytes' => (int) $request->validated('estimated_bytes'),
             'duration_seconds' => null, 'width' => null, 'height' => null, 'renditions' => null,
             'download_path' => null, 'files_verified_at' => null, 'files_checked_at' => null,
+            // Une demande de mise en vente valait pour les fichiers d'avant
+            'publish_requested_at' => null, 'publish_requested_by' => null,
         ]);
 
         return response()->json(['data' => ['url_minutes' => self::URL_MINUTES]]);
@@ -69,7 +72,7 @@ abstract class SellerVideoUploadController extends SellerVideoController
         $deposited = array_sum($this->listed($model));
         $storage = $this->sellers->storage($model);
         $announced = (int) ($model->upload_expected_bytes ?? 0);
-        if ($deposited > $announced * 1.5 + self::DEPOSIT_MARGIN || $storage['limit'] < $storage['used'] - (int) $model->size_bytes + $deposited) {
+        if ($deposited > $announced * 1.5 + self::DEPOSIT_MARGIN || $storage['limit'] < $storage['used'] - $model->storageBytes() + $deposited) {
             throw ValidationException::withMessages(['files' => 'La vidéo dépasse la place annoncée ou votre stockage : recommencez l’envoi.']);
         }
         $expires = now()->addMinutes(self::URL_MINUTES);
@@ -118,7 +121,7 @@ abstract class SellerVideoUploadController extends SellerVideoController
 
         // La place réelle, avec la version à télécharger qui s'y ajoutera
         $storage = $this->sellers->storage($model);
-        if ($storage['limit'] < $storage['used'] - (int) $model->size_bytes + $result['size'] + $result['download_bytes']) {
+        if ($storage['limit'] < $storage['used'] - $model->storageBytes() + $result['size'] + $result['download_bytes']) {
             return $this->reject($model, 'Votre stockage est plein : la vidéo a été effacée.');
         }
 
@@ -137,8 +140,8 @@ abstract class SellerVideoUploadController extends SellerVideoController
         AssembleVideoDownload::dispatch($model->id)->afterCommit();
         // Chaque morceau relu tout de suite (la mise en vente l'attend), puis encore une fois
         // quand les dernières adresses d'envoi ont expiré (15 minutes)
-        RecheckVideoFiles::dispatch($model->id)->afterCommit();
-        RecheckVideoFiles::dispatch($model->id, 'late')->delay(now()->addMinutes(self::URL_MINUTES + 1))->afterCommit();
+        RecheckVideoFiles::dispatch($model->id, 'now', $model->uploadStamp())->afterCommit();
+        RecheckVideoFiles::dispatch($model->id, 'late', $model->uploadStamp())->delay(now()->addMinutes(self::URL_MINUTES + 1))->afterCommit();
 
         return VideoResource::seenBy($model, 'seller', true);
     }
@@ -162,7 +165,7 @@ abstract class SellerVideoUploadController extends SellerVideoController
     private function reject(Video $video, string $reason): JsonResponse
     {
         $this->storage->deleteAll($video);
-        $video->update(['files_status' => VideoFilesStatus::Rejected, 'rejection_reason' => $reason, 'size_bytes' => 0, 'renditions' => null]);
+        $video->update(['files_status' => VideoFilesStatus::Rejected, 'rejection_reason' => $reason, 'size_bytes' => 0, 'renditions' => null, 'publish_requested_at' => null, 'publish_requested_by' => null]);
 
         return response()->json(['message' => $reason, 'errors' => ['files' => [$reason]]], 422);
     }

@@ -53,7 +53,11 @@ class VideoPlayback
         if ($rendition === null) {
             return null;
         }
-        $text = (string) $this->storage->read($video, $name);
+        $text = $this->storage->read($video, $name);
+        // Le stockage ne répond pas : une panne (503), pas une vidéo vide qui semblerait finie
+        if ($text === null || $text === '') {
+            abort(503, 'Le stockage des vidéos ne répond pas : réessayez dans un instant.');
+        }
         $until = CarbonImmutable::createFromTimestamp($expires);
         $out = [];
         $elapsed = 0.0;

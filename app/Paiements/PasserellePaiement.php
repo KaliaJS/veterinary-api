@@ -112,10 +112,14 @@ interface PasserellePaiement
     /**
      * Verse au compte d'un vendeur, depuis le solde de la plateforme (la
      * cagnotte Plus des vidéos, 31.10.2026). Rend l'identifiant du versement.
+     * `$groupe` (transfer_group) le retrouve si la réponse se perd.
      *
      * @param  array<string, string>  $metadonnees
      */
-    public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees): string;
+    public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees, ?string $groupe = null): string;
+
+    /** Le versement déjà fait sous ce groupe, s'il existe (une réponse perdue en route). */
+    public function versementDuGroupe(string $groupe): ?string;
 
     /** @return array{paiements: bool, virements: bool, a_completer: bool} */
     public function lireComptePaiement(string $compte): array;

@@ -51,8 +51,28 @@ class Video extends Model
         'uuid', 'seller_user_id', 'seller_clinique_id', 'organisation_id', 'seller_name', 'created_by_user_id',
         'title', 'description', 'price_cents', 'audience', 'in_plus', 'status', 'files_status', 'rejection_reason',
         'duration_seconds', 'width', 'height', 'size_bytes', 'renditions', 'download_path',
-        'files_verified_at', 'published_at', 'withdrawn_at', 'upload_started_at', 'upload_expected_bytes', 'files_checked_at', 'publish_requested_at',
+        'files_verified_at', 'published_at', 'withdrawn_at', 'upload_started_at', 'upload_expected_bytes', 'files_checked_at', 'publish_requested_at', 'publish_requested_by',
     ];
+
+    /**
+     * Ce qu'une vidéo occupe dans le stockage du vendeur : un envoi en cours
+     * compte pour la place qu'il a annoncée (sixième vérification), sinon
+     * deux envois lancés ensemble ne se verraient pas l'un l'autre.
+     */
+    public const STORAGE_SQL = "CASE WHEN files_status = 'pending' AND upload_started_at IS NOT NULL AND COALESCE(upload_expected_bytes, 0) > size_bytes THEN COALESCE(upload_expected_bytes, 0) ELSE size_bytes END";
+
+    /** L'envoi en cours, reconnu à son heure de départ : une relecture ne juge que le sien. */
+    public function uploadStamp(): ?int
+    {
+        return $this->upload_started_at?->getTimestamp();
+    }
+
+    public function storageBytes(): int
+    {
+        $announced = $this->files_status === VideoFilesStatus::Pending && $this->upload_started_at !== null ? (int) $this->upload_expected_bytes : 0;
+
+        return max((int) $this->size_bytes, $announced);
+    }
 
     protected static function booted(): void
     {
@@ -74,6 +94,7 @@ class Video extends Model
             'upload_started_at' => 'datetime',
             'files_checked_at' => 'datetime',
             'publish_requested_at' => 'datetime',
+            'publish_requested_by' => 'integer',
             'published_at' => 'datetime',
             'withdrawn_at' => 'datetime',
         ];

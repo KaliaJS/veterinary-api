@@ -40,7 +40,7 @@ class WatchVideoUploads extends Command
                         $deposited = array_sum($storage->files($video));
                         $limits = $sellers->storage($video);
                         $announced = (int) ($video->upload_expected_bytes ?? 0);
-                        if ($deposited <= $announced * 1.5 + self::MARGIN && $limits['limit'] >= $limits['used'] - (int) $video->size_bytes + $deposited) {
+                        if ($deposited <= $announced * 1.5 + self::MARGIN && $limits['limit'] >= $limits['used'] - $video->storageBytes() + $deposited) {
                             continue;
                         }
                         report(new RuntimeException("Envoi de la vidéo {$video->id} au-delà de sa place : {$deposited} octets pour {$announced} annoncés"));

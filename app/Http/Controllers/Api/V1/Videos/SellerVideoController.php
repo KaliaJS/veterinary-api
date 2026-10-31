@@ -11,6 +11,7 @@ use App\Http\Requests\V1\Videos\StoreVideoRequest;
 use App\Http\Requests\V1\Videos\UpdateVideoRequest;
 use App\Http\Resources\V1\VideoResource;
 use App\Jobs\AssembleVideoDownload;
+use App\Jobs\PurgeVideoFolder;
 use App\Jobs\RecheckVideoFiles;
 use App\Models\Video;
 use App\Services\Videos\HlsPackage;
@@ -116,6 +117,10 @@ abstract class SellerVideoController extends Controller
             throw ValidationException::withMessages(['status' => 'Une vidéo mise en vente ne s’efface pas : retirez-la de la vente, ceux qui l’ont achetée la gardent.']);
         }
         $this->storage->deleteAll($model);
+        // Des adresses d'envoi encore valables écriraient dans le dossier : on l'efface encore une fois expirées
+        if ($model->upload_started_at !== null) {
+            PurgeVideoFolder::dispatch($model->folder())->delay(now()->addMinutes(SellerVideoUploadController::URL_MINUTES + 1));
+        }
         // Un brouillon ne se vend pas : seules les lectures du vendeur s'y rattachent
         $model->views()->delete();
         $model->certificates()->delete();
@@ -143,10 +148,10 @@ abstract class SellerVideoController extends Controller
 
         // Chaque morceau relu avant la vente : pas encore fait, la vidéo se mettra en vente d'elle-même ensuite
         if ($model->files_checked_at === null) {
-            $model->update(['publish_requested_at' => now(), 'seller_name' => $sellerName]);
+            $model->update(['publish_requested_at' => now(), 'publish_requested_by' => $request->user()->id, 'seller_name' => $sellerName]);
             // Relue entre-temps sans avoir vu la demande : on ne l'attend pas, la mise en vente se fait ici
             if ($model->refresh()->files_checked_at === null) {
-                RecheckVideoFiles::dispatch($model->id);
+                RecheckVideoFiles::dispatch($model->id, 'now', $model->uploadStamp());
 
                 return VideoResource::seenBy($model, 'seller', true)->response()->setStatusCode(202);
             }
@@ -160,7 +165,11 @@ abstract class SellerVideoController extends Controller
             // Achetée : jamais effacée, ceux qui l'ont payée la gardent ; elle reste seulement hors de la vente
             if (! $model->hasBuyers()) {
                 $this->storage->deleteAll($model);
-                $model->update(['files_status' => VideoFilesStatus::Rejected, 'rejection_reason' => $check['reason'], 'size_bytes' => 0, 'renditions' => null, 'download_path' => null]);
+                // Repart en brouillon (même retirée) : le vendeur peut la renvoyer
+                $model->update([
+                    'files_status' => VideoFilesStatus::Rejected, 'rejection_reason' => $check['reason'], 'size_bytes' => 0, 'renditions' => null, 'download_path' => null,
+                    'status' => VideoStatus::Draft, 'publish_requested_at' => null, 'publish_requested_by' => null,
+                ]);
             }
             throw ValidationException::withMessages(['files' => $check['reason']]);
         }

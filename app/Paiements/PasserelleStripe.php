@@ -263,16 +263,24 @@ class PasserelleStripe implements PasserellePaiement
         ]));
     }
 
-    public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees): string
+    public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees, ?string $groupe = null): string
     {
-        $versement = $this->appel(fn () => $this->client->transfers->create([
+        $versement = $this->appel(fn () => $this->client->transfers->create(array_filter([
             'amount' => $centimes,
             'currency' => 'chf',
             'destination' => $compte,
             'metadata' => $metadonnees,
-        ], ['idempotency_key' => $cleIdempotence]));
+            'transfer_group' => $groupe,
+        ], fn ($valeur) => $valeur !== null), ['idempotency_key' => $cleIdempotence]));
 
         return $versement->id;
+    }
+
+    public function versementDuGroupe(string $groupe): ?string
+    {
+        $trouves = $this->appel(fn () => $this->client->transfers->all(['transfer_group' => $groupe, 'limit' => 1]));
+
+        return $trouves->data[0]->id ?? null;
     }
 
     public function lireComptePaiement(string $compte): array

@@ -288,6 +288,8 @@ class WatchingVideosTest extends TestCase
 
     public function test_on_ne_gagne_pas_une_minute_en_une_seconde_et_l_apercu_ne_compte_jamais(): void
     {
+        // L'horloge figée : le temps réel des requêtes ne s'ajoute pas au temps crédité
+        $this->freezeTime();
         $sale = $this->onSale(['in_plus' => true]);
         $plus = $this->proprietaireAvecJeton(['formule' => 'plus']);
         $free = $this->proprietaireAvecJeton();

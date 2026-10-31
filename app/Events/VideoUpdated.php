@@ -23,7 +23,8 @@ class VideoUpdated implements ShouldBroadcastNow
     public function __construct(public string $channel, public array $data) {}
 
     /** Le canal du vendeur : le compte du vétérinaire, ou les vidéos de l'organisation. */
-    public static function announce(Video $video): void
+    /** @param  string|null  $notice  ce que la relecture a refusé sans le vendeur (mise en vente qui n'a pas pu se faire) */
+    public static function announce(Video $video, ?string $notice = null): void
     {
         $channel = $video->seller_user_id !== null ? 'utilisateur.'.$video->seller_user_id : 'organisation.'.$video->organisation_id.'.videos';
         $data = [
@@ -31,6 +32,8 @@ class VideoUpdated implements ShouldBroadcastNow
             'status' => $video->status->value,
             'files_status' => $video->files_status->value,
             'publish_requested' => $video->publish_requested_at !== null,
+            'rejection_reason' => $video->rejection_reason,
+            'notice' => $notice,
         ];
         TempsReel::diffuser(fn () => self::dispatch($channel, $data));
     }

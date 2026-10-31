@@ -2,6 +2,7 @@
 
 namespace App\Services\Videos;
 
+use App\Enums\VideoFilesStatus;
 use App\Enums\VideoStatus;
 use App\Models\User;
 use App\Models\Video;
@@ -33,7 +34,8 @@ class VideoPurchases
      */
     public function open(Video $video, User $user): array
     {
-        if ($video->status !== VideoStatus::Published || ! $video->isForAudienceOf($user) || $video->price_cents === null) {
+        // Ses fichiers refusés à la relecture au moment d'une mise en vente : elle ne s'achète pas
+        if ($video->status !== VideoStatus::Published || $video->files_status !== VideoFilesStatus::Ready || ! $video->isForAudienceOf($user) || $video->price_cents === null) {
             abort(404);
         }
         if ($video->isOnSellerSide($user)) {

@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
+use Illuminate\Support\Facades\DB;
 
 class Organisation extends Model
 {
@@ -279,7 +280,7 @@ class Organisation extends Model
             ->sum('taille_octets');
 
         // Les vidéos de formation vendues par ses cliniques (31.10.2026)
-        $videos = (int) Video::query()->where('organisation_id', $this->id)->sum('size_bytes');
+        $videos = (int) Video::query()->where('organisation_id', $this->id)->sum(DB::raw(Video::STORAGE_SQL));
 
         return (int) $this->stockage_autres_octets + $pdf + $videos + (int) ClicheDicom::query()
             ->join('examens_imagerie', 'examens_imagerie.id', '=', 'cliches_dicom.examen_imagerie_id')

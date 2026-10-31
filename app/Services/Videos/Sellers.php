@@ -9,6 +9,7 @@ use App\Models\Clinique;
 use App\Models\Organisation;
 use App\Models\User;
 use App\Models\Video;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -136,7 +137,7 @@ class Sellers
     private function personalStorage(int $userId): array
     {
         return [
-            'used' => (int) Video::query()->where('seller_user_id', $userId)->sum('size_bytes'),
+            'used' => (int) Video::query()->where('seller_user_id', $userId)->sum(DB::raw(Video::STORAGE_SQL)),
             'limit' => Video::PERSONAL_STORAGE_BYTES,
         ];
     }

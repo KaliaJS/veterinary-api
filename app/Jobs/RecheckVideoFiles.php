@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\VideoFilesStatus;
 use App\Enums\VideoStatus;
 use App\Events\VideoUpdated;
+use App\Models\User;
 use App\Models\Video;
 use App\Services\Videos\HlsPackage;
 use App\Services\Videos\VideoPublisher;
@@ -43,8 +44,8 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
     /** Trois heures de vidéo, chaque morceau relu en entier : largement de quoi faire */
     public int $timeout = 900;
 
-    /** Le verrou tombe de lui-même si une relecture meurt sans le rendre */
-    public int $uniqueFor = 3600;
+    /** Le verrou couvre tous les essais et leurs attentes (un peu plus de deux heures), puis tombe de lui-même */
+    public int $uniqueFor = 10800;
 
     /** Une panne du stockage : on réessaie dans 5, 15 puis 45 minutes */
     public array $backoff = [300, 900, 2700];
@@ -52,47 +53,65 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
     /** Ce que la vidéo peut peser de plus qu'au contrôle sans qu'on y voie un ajout (arrondis, listes) */
     private const GROWTH_TOLERANCE = 1_000_000;
 
-    /** @param  string  $pass  « now » au contrôle et à la mise en vente, « late » après l'expiration des adresses */
-    public function __construct(public int $videoId, public string $pass = 'now') {}
+    /** Ce que la relecture a refusé sans que le vendeur soit là : dit à son écran */
+    private ?string $notice = null;
+
+    /**
+     * @param  string  $pass  « now » au contrôle et à la mise en vente, « late » après l'expiration des adresses
+     * @param  int|null  $upload  l'envoi relu, reconnu à son heure de départ : un nouvel envoi a ses propres
+     *                            relectures (sixième vérification) ; null : l'envoi du moment
+     */
+    public function __construct(public int $videoId, public string $pass = 'now', public ?int $upload = null) {}
 
     public function uniqueId(): string
     {
-        return $this->videoId.'-'.$this->pass;
+        return $this->videoId.'-'.$this->pass.'-'.($this->upload ?? 0);
+    }
+
+    /** La vidéo, si elle porte encore, prêts, les fichiers de l'envoi que cette relecture juge. */
+    private function current(): ?Video
+    {
+        $video = Video::query()->find($this->videoId);
+
+        return $video !== null && $video->files_status === VideoFilesStatus::Ready
+            && ($this->upload === null || $video->uploadStamp() === $this->upload) ? $video : null;
     }
 
     /**
      * Relue nulle part après tous les essais : on ne vend pas ce qu'on n'a pas
-     * pu relire. Sans acheteur, elle repart en brouillon refusé (la purge en
-     * efface les fichiers) ; achetée, elle quitte seulement la vente.
+     * pu relire. Rien ne s'efface ; sans acheteur, elle repart en brouillon,
+     * achetée, elle quitte seulement la vente.
      */
     public function failed(?Throwable $exception): void
     {
-        $video = Video::query()->find($this->videoId);
-        if ($video === null || $video->files_status !== VideoFilesStatus::Ready) {
+        $video = $this->current();
+        if ($video === null) {
             return;
         }
         // Une panne longue n'est pas un mauvais fichier : rien ne s'efface, la vidéo quitte la vente
         // le temps d'être relue (la mise en vente relance la relecture)
         report(new RuntimeException("Vidéo {$video->id} pas relue après tous les essais : hors de la vente en attendant", 0, $exception));
         $withdraw = $video->status === VideoStatus::Published && $video->hasBuyers();
+        $wasRequested = $video->publish_requested_at !== null;
         $video->update([
             'files_checked_at' => null,
             'publish_requested_at' => null,
+            'publish_requested_by' => null,
             'status' => $video->status === VideoStatus::Published ? ($withdraw ? VideoStatus::Withdrawn : VideoStatus::Draft) : $video->status,
             'withdrawn_at' => $withdraw ? now() : $video->withdrawn_at,
         ]);
-        VideoUpdated::announce($video);
+        VideoUpdated::announce($video, $wasRequested ? 'La vidéo n’a pas pu être relue, le stockage ne répond pas : elle n’est pas mise en vente. Réessayez plus tard.' : null);
     }
 
     public function handle(HlsPackage $package, VideoStorage $storage, VideoPublisher $publisher): void
     {
-        $video = Video::query()->find($this->videoId);
-        if ($video === null || $video->files_status !== VideoFilesStatus::Ready) {
+        $video = $this->current();
+        if ($video === null) {
             return;
         }
         $this->check($video, $package, $storage, $publisher);
         // Relue, mise en vente, retirée ou refusée : l'écran du vendeur suit
-        VideoUpdated::announce($video->refresh());
+        VideoUpdated::announce($video->refresh(), $this->notice);
     }
 
     private function check(Video $video, HlsPackage $package, VideoStorage $storage, VideoPublisher $publisher): void
@@ -102,10 +121,20 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
             // Rien n'est jugé sur une panne : la file réessaiera
             throw new RuntimeException('Stockage injoignable pendant la relecture de la vidéo '.$video->id);
         }
+        // Un nouvel envoi a commencé pendant la lecture : ce paquet n'est plus le sien, ses propres relectures le jugeront
+        $fresh = $this->current();
+        if ($fresh === null) {
+            return;
+        }
+        $video = $fresh;
         // Plus lourde qu'au contrôle : des fichiers ont été remplacés ou ajoutés depuis
         $grown = $result['ok'] && $result['size'] > (int) $video->size_bytes + self::GROWTH_TOLERANCE;
         if ($result['ok'] && ! $grown) {
             $video->update(['size_bytes' => $result['size'], 'renditions' => $result['renditions'], 'duration_seconds' => $result['duration'], 'files_checked_at' => now()]);
+            // La version à télécharger manque encore (assemblage raté) : une chance de plus à chaque relecture
+            if ($video->download_path === null) {
+                AssembleVideoDownload::dispatch($video->id);
+            }
             $this->publishIfRequested($video->refresh(), $publisher);
 
             return;
@@ -116,7 +145,7 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
         // La remettre en vente relance une relecture complète : rien ne se revend sans être relu
         if ($video->hasBuyers()) {
             report(new RuntimeException("Vidéo {$video->id} modifiée après le contrôle, déjà achetée : retirée de la vente ({$reason})"));
-            $video->update(['files_checked_at' => null, 'publish_requested_at' => null]);
+            $video->update(['files_checked_at' => null, 'publish_requested_at' => null, 'publish_requested_by' => null]);
             if ($video->status === VideoStatus::Published) {
                 $video->update(['status' => VideoStatus::Withdrawn, 'withdrawn_at' => now()]);
             }
@@ -128,19 +157,22 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
         $video->update([
             'files_status' => VideoFilesStatus::Rejected,
             'rejection_reason' => $reason,
-            'status' => $video->status === VideoStatus::Published ? VideoStatus::Draft : $video->status,
+            // En vente ou retirée, sans acheteur : repart en brouillon, le vendeur peut la renvoyer
+            'status' => in_array($video->status, [VideoStatus::Published, VideoStatus::Withdrawn], true) ? VideoStatus::Draft : $video->status,
             'size_bytes' => 0,
             'renditions' => null,
             'download_path' => null,
             'files_checked_at' => null,
             'publish_requested_at' => null,
+            'publish_requested_by' => null,
         ]);
     }
 
     /**
      * La mise en vente demandée pendant la relecture. Refusée entre-temps
-     * (fiche vidée, vendeur qui ne vend plus, compte fermé) : la demande
-     * tombe, la vidéo reste en brouillon et l'écran du vendeur le montre.
+     * (fiche vidée, vendeur qui ne vend plus, compte fermé, personne qui a
+     * perdu le droit de publier pour la clinique) : la demande tombe, la
+     * vidéo reste en brouillon et l'écran du vendeur dit pourquoi.
      */
     private function publishIfRequested(Video $video, VideoPublisher $publisher): void
     {
@@ -148,10 +180,25 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
             return;
         }
         try {
+            $this->assertRequesterMayPublish($video);
             $publisher->publish($video, (string) $video->seller_name);
         } catch (ValidationException $e) {
-            $video->update(['publish_requested_at' => null]);
-            report(new RuntimeException("Vidéo {$video->id} relue mais pas mise en vente : ".implode(' ', array_merge(...array_values($e->errors())))));
+            $reasons = implode(' ', array_merge(...array_values($e->errors())));
+            $video->update(['publish_requested_at' => null, 'publish_requested_by' => null]);
+            $this->notice = 'La vidéo n’a pas pu être mise en vente. '.$reasons;
+            report(new RuntimeException("Vidéo {$video->id} relue mais pas mise en vente : ".$reasons));
+        }
+    }
+
+    /** Une vidéo de clinique : qui l'a demandée doit encore pouvoir la publier (identité vérifiée, droit Organisation). */
+    private function assertRequesterMayPublish(Video $video): void
+    {
+        if ($video->organisation_id === null) {
+            return;
+        }
+        $requester = $video->publish_requested_by !== null ? User::query()->find($video->publish_requested_by) : null;
+        if ($requester === null || ! $requester->estVerifie() || ! in_array((int) $video->organisation_id, Video::organisationsOf($requester), true)) {
+            throw ValidationException::withMessages(['seller' => 'La personne qui l’a demandée ne peut plus publier pour la clinique : demandez à nouveau la mise en vente.']);
         }
     }
 }

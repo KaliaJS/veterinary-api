@@ -249,7 +249,7 @@ class PasserellePaiementFactice implements PasserellePaiement
         return 'acct_'.(++$this->sequence);
     }
 
-    /** @var list<array{compte: string, centimes: int, cle: string, metadonnees: array<string, string>}> */
+    /** @var list<array{id: string, compte: string, centimes: int, cle: string, metadonnees: array<string, string>, groupe: ?string}> */
     public array $versements = [];
 
     /** @var list<string> comptes à qui l'on a demandé de recevoir des virements */
@@ -261,15 +261,32 @@ class PasserellePaiementFactice implements PasserellePaiement
         $this->virementsDemandes[] = $compte;
     }
 
-    public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees): string
+    /** Le prochain versement est fait chez le prestataire, mais sa réponse se perd en route */
+    public bool $perdreLaReponseDuVersement = false;
+
+    public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees, ?string $groupe = null): string
     {
         $this->noter(__FUNCTION__, null, $cleIdempotence, plateforme: true);
 
-        return $this->idempotent(__FUNCTION__, $cleIdempotence, [$compte, $centimes], function () use ($compte, $centimes, $cleIdempotence, $metadonnees): string {
-            $this->versements[] = ['compte' => $compte, 'centimes' => $centimes, 'cle' => $cleIdempotence, 'metadonnees' => $metadonnees];
+        $id = $this->idempotent(__FUNCTION__, $cleIdempotence, [$compte, $centimes], function () use ($compte, $centimes, $cleIdempotence, $metadonnees, $groupe): string {
+            $id = 'tr_'.(++$this->sequence);
+            $this->versements[] = ['id' => $id, 'compte' => $compte, 'centimes' => $centimes, 'cle' => $cleIdempotence, 'metadonnees' => $metadonnees, 'groupe' => $groupe];
 
-            return 'tr_'.(++$this->sequence);
+            return $id;
         });
+        if ($this->perdreLaReponseDuVersement) {
+            $this->perdreLaReponseDuVersement = false;
+            throw new \RuntimeException('Réponse du prestataire perdue');
+        }
+
+        return $id;
+    }
+
+    public function versementDuGroupe(string $groupe): ?string
+    {
+        $this->noter(__FUNCTION__, null, null, plateforme: true);
+
+        return collect($this->versements)->firstWhere('groupe', $groupe)['id'] ?? null;
     }
 
     public function lireComptePaiement(string $compte): array
