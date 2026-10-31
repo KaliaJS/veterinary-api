@@ -8,6 +8,7 @@ use App\Enums\StatutVerificationVeterinaire;
 use App\Enums\VideoAudience;
 use App\Enums\VideoCategory;
 use App\Enums\VideoFilesStatus;
+use App\Enums\VideoKind;
 use App\Enums\VideoStatus;
 use Database\Factories\VideoFactory;
 use Illuminate\Contracts\Cache\Lock;
@@ -30,6 +31,7 @@ use Illuminate\Support\Str;
  * @property VideoAudience|null $audience
  * @property VideoCategory|null $category
  * @property VideoFilesStatus $files_status
+ * @property VideoKind $kind
  */
 class Video extends Model
 {
@@ -52,7 +54,7 @@ class Video extends Model
     public const PERSONAL_STORAGE_BYTES = 100 * 1000 ** 3;
 
     protected $fillable = [
-        'uuid', 'seller_user_id', 'seller_clinique_id', 'organisation_id', 'seller_name', 'created_by_user_id',
+        'uuid', 'kind', 'series_id', 'episode_number', 'seller_user_id', 'seller_clinique_id', 'organisation_id', 'seller_name', 'created_by_user_id',
         'title', 'description', 'price_cents', 'audience', 'category', 'poster_token', 'poster_preview', 'in_plus', 'status', 'files_status', 'rejection_reason',
         'duration_seconds', 'width', 'height', 'size_bytes', 'renditions', 'download_path',
         'files_verified_at', 'published_at', 'withdrawn_at', 'upload_started_at', 'upload_expected_bytes', 'files_checked_at', 'publish_requested_at', 'publish_requested_by',
@@ -100,6 +102,7 @@ class Video extends Model
     {
         return [
             'status' => VideoStatus::class,
+            'kind' => VideoKind::class,
             'audience' => VideoAudience::class,
             'category' => VideoCategory::class,
             'files_status' => VideoFilesStatus::class,
@@ -149,6 +152,58 @@ class Video extends Model
     public function certificates(): HasMany
     {
         return $this->hasMany(ViewingCertificate::class);
+    }
+
+    /**
+     * La série d'un épisode.
+     *
+     * @return BelongsTo<Video, $this>
+     */
+    public function series(): BelongsTo
+    {
+        return $this->belongsTo(Video::class, 'series_id');
+    }
+
+    /**
+     * Les épisodes d'une série, dans leur ordre.
+     *
+     * @return HasMany<Video, $this>
+     */
+    public function episodes(): HasMany
+    {
+        return $this->hasMany(Video::class, 'series_id')->orderBy('episode_number')->orderBy('id');
+    }
+
+    /**
+     * Pour une liste : le nombre d'épisodes ajoutés de chaque série et leur durée totale, en une requête.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeWithSeriesTotals(Builder $query): void
+    {
+        $published = fn (Builder $episode) => $episode->where('status', VideoStatus::Published->value);
+        $query->withCount(['episodes as published_episodes_count' => $published])
+            ->withSum(['episodes as published_episodes_seconds' => $published], 'duration_seconds');
+    }
+
+    public function isSeries(): bool
+    {
+        return $this->kind === VideoKind::Series;
+    }
+
+    public function isEpisode(): bool
+    {
+        return $this->kind === VideoKind::Episode;
+    }
+
+    /**
+     * Ce qui se vend : la série pour un épisode (jamais vendu seul), la vidéo
+     * elle-même sinon. Son prix, son public, Plus et ses achats valent pour
+     * l'épisode.
+     */
+    public function sellable(): self
+    {
+        return $this->isEpisode() && $this->series !== null ? $this->series : $this;
     }
 
     /** @return HasMany<VideoView, $this> */
@@ -208,6 +263,10 @@ class Video extends Model
     /** Achetée (payée) par cette personne. */
     public function isOwnedBy(User $user): bool
     {
+        // Un épisode est à qui a acheté sa série, y compris ceux ajoutés après l'achat
+        if ($this->isEpisode()) {
+            return $this->series?->isOwnedBy($user) ?? false;
+        }
         // Liste du catalogue : les achats de la personne sont déjà chargés
         if ($this->relationLoaded('purchases')) {
             return $this->purchases->contains(fn (VideoPurchase $p) => $p->user_id === $user->id && $p->paid_at !== null);
@@ -232,6 +291,10 @@ class Video extends Model
         }
 
         return $query->where('status', VideoStatus::Published->value)->whereIn('audience', $audiences)
+            // Un épisode ne paraît jamais seul : sa série porte le catalogue ; une série, avec au moins un épisode
+            ->where('kind', '!=', VideoKind::Episode->value)
+            ->where(fn (Builder $withEpisodes) => $withEpisodes->where('kind', '!=', VideoKind::Series->value)
+                ->orWhereHas('episodes', fn (Builder $episode) => $episode->where('status', VideoStatus::Published->value)))
             // Un vendeur qui ne vend plus (vérification perdue, organisation fermée) sort du catalogue
             ->where(fn (Builder $seller) => $seller
                 ->whereHas('sellerUser', fn (Builder $vet) => $vet->where('verification_veterinaire', StatutVerificationVeterinaire::Verifie->value))
@@ -241,6 +304,11 @@ class Video extends Model
     /** Des acheteurs : payés, ou en train de payer (une intention ouverte depuis moins d'un jour). */
     public function hasBuyers(): bool
     {
+        // Un épisode a des acheteurs une fois ajouté à une série achetée ; un épisode encore en préparation, non
+        if ($this->isEpisode()) {
+            return $this->published_at !== null && (bool) $this->series?->hasBuyers();
+        }
+
         return $this->purchases()->where(fn (Builder $purchase) => $purchase->whereNotNull('paid_at')
             ->orWhere(fn (Builder $open) => $open->whereNotNull('payment_intent_id')->where('updated_at', '>', now()->subDay())))->exists();
     }
@@ -262,6 +330,9 @@ class Video extends Model
     /** Destinée à cette personne : le même filtre que le catalogue, pour une seule vidéo. */
     public function isForAudienceOf(User $user): bool
     {
+        if ($this->isEpisode()) {
+            return $this->series?->isForAudienceOf($user) ?? false;
+        }
         if ($this->audience === null) {
             return false;
         }

@@ -294,7 +294,7 @@ class SellingVideosTest extends TestCase
         $this->postJson("/api/v1/espace/videos/seller/videos/{$id}/publish", [], $this->enTetes($vet['jeton']))
             ->assertUnprocessable()->assertJsonValidationErrors(['title', 'description', 'price_cents', 'audience']);
         $this->patchJson("/api/v1/espace/videos/seller/videos/{$id}", ['price_cents' => 199], $this->enTetes($vet['jeton']))
-            ->assertUnprocessable()->assertJsonValidationErrors(['price_cents' => 'Une vidéo coûte au moins 2 CHF.']);
+            ->assertUnprocessable()->assertJsonValidationErrors(['price_cents' => 'Une vidéo coûte au moins 2 CHF, ou elle est gratuite.']);
         // Sans maximum (autre que technique)
         $this->patchJson("/api/v1/espace/videos/seller/videos/{$id}", ['price_cents' => 250_000_00], $this->enTetes($vet['jeton']))->assertOk();
     }

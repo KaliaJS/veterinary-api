@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Video;
 use App\Models\VideoView;
 use App\Models\ViewingCertificate;
+use App\Services\Videos\ContinueWatching;
 use App\Services\Videos\VideoAccess;
 use App\Support\NativeApp;
 use Illuminate\Database\Eloquent\Builder;
@@ -28,7 +29,7 @@ use Illuminate\Validation\Rule;
  */
 class VideoCatalogueController extends Controller
 {
-    public function __construct(private VideoAccess $access) {}
+    public function __construct(private VideoAccess $access, private ContinueWatching $continueWatching) {}
 
     /** Rangées de l'accueil : autant de vidéos au plus par rangée. */
     public const ROW_SIZE = 20;
@@ -47,7 +48,7 @@ class VideoCatalogueController extends Controller
         $user = $request->user();
         $category = VideoCategory::tryFrom((string) $request->query('category'));
         $search = trim(str_replace(['%', '_'], ' ', (string) $request->query('q')));
-        $videos = Video::visibleTo(Video::query(), $user)
+        $videos = Video::visibleTo(Video::query(), $user)->withSeriesTotals()
             ->when($category !== null, fn (Builder $query) => $query->where('category', $category->value))
             ->when($search !== '', fn (Builder $query) => $this->search($query, $search))
             ->with($this->relations($user))
@@ -60,10 +61,10 @@ class VideoCatalogueController extends Controller
     }
 
     /**
-     * L'accueil de l'écran « Vidéos » (31.10.2026) : continuer ce qu'on a
-     * commencé, ses vidéos, les nouveautés, puis une rangée par catégorie,
-     * dans l'ordre de la liste. Dans l'app iPhone, rien ne se vend : les
-     * deux premières seulement.
+     * L'accueil de l'écran « Vidéos » (31.10.2026) : continuer à voir ce
+     * qu'on a lancé, les nouveautés, puis une rangée par catégorie, dans
+     * l'ordre de la liste (« Mes vidéos » a son onglet, demande de Jim).
+     * Dans l'app iPhone, rien ne se vend : « Continuer à voir » seulement.
      */
     public function home(Request $request): JsonResponse
     {
@@ -71,28 +72,29 @@ class VideoCatalogueController extends Controller
         $isNative = NativeApp::isIos($request);
         $rows = [];
 
-        // Commencées, pas finies, regardables en entier : la plus récente d'abord
-        $views = VideoView::query()->where('user_id', $user->id)->where('watched_seconds', '>', 0)->whereNull('completed_at')
-            ->orderByDesc('last_progress_at')->limit(self::ROW_SIZE * 2)->get()->keyBy('video_id');
-        // Jamais un brouillon : celui que son vendeur regarde sur la page de vente n'est pas dans l'écran des propriétaires
-        $started = Video::query()->whereIn('id', $views->keys())->where('status', '!=', VideoStatus::Draft->value)->with($this->relations($user))->get()
-            ->sortByDesc(fn (Video $video) => $views[$video->id]->last_progress_at?->getTimestamp() ?? 0)->values();
+        // « Continuer à voir » : ce qu'on a lancé et pas fini (ContinueWatching), une série à l'épisode à reprendre
         $organisations = Video::organisationsOf($user);
-        $continue = $started
-            ->map(fn (Video $video) => [$video, $this->access->for($video, $user, $video->isOnSellerSide($user, $organisations))])
-            ->filter(fn (array $pair) => in_array($pair[1], ['owned', 'plus', 'seller'], true))
-            ->take(self::ROW_SIZE)
-            ->map(fn (array $pair) => VideoResource::seenBy($pair[0], $pair[1])->withViewing($views[$pair[0]->id], null)->resolve($request))
-            ->values()->all();
-        $rows[] = ['key' => 'continue', 'title' => 'Continuer à regarder', 'videos' => $continue];
+        $continue = array_map(function (array $entry) use ($request) {
+            $resource = VideoResource::seenBy($entry['item'], $entry['access']);
+            if ($entry['episode'] !== null) {
+                $resource->withResume($entry['episode'], $entry['view']);
+            } elseif ($entry['view'] !== null) {
+                $resource->withViewing($entry['view'], null);
+            }
 
-        $mine = $this->libraryQuery($user)->with($this->relations($user))->orderByDesc('published_at')->orderByDesc('id')->limit(self::ROW_SIZE)->get();
-        $rows[] = ['key' => 'mine', 'title' => 'Mes vidéos', 'videos' => $this->present($mine, $user, $request, $organisations)];
+            return $resource->resolve($request);
+        }, $this->continueWatching->for($user, $organisations, self::ROW_SIZE));
+        $rows[] = ['key' => 'continue', 'title' => 'Continuer à voir', 'videos' => $continue];
 
         $categories = [];
         if (! $isNative) {
-            $latest = Video::visibleTo(Video::query(), $user)->with($this->relations($user))->latest('published_at')->orderByDesc('id')->limit(self::ROW_SIZE)->get();
+            $latest = Video::visibleTo(Video::query(), $user)->withSeriesTotals()->with($this->relations($user))->latest('published_at')->orderByDesc('id')->limit(self::ROW_SIZE)->get();
             $rows[] = ['key' => 'new', 'title' => 'Nouveautés', 'videos' => $this->present($latest, $user, $request, $organisations)];
+
+            // Les vidéos gratuites (demande de Jim) : pour qui ne paie pas, juste après les nouveautés
+            $free = Video::visibleTo(Video::query(), $user)->where('price_cents', 0)->withSeriesTotals()->with($this->relations($user))
+                ->latest('published_at')->orderByDesc('id')->limit(self::ROW_SIZE)->get();
+            $rows[] = ['key' => 'free', 'title' => 'Gratuites', 'videos' => $this->present($free, $user, $request, $organisations)];
 
             $counts = Video::visibleTo(Video::query(), $user)->whereNotNull('category')
                 ->selectRaw('category, count(*) as total')->groupBy('category')->toBase()->pluck('total', 'category');
@@ -103,7 +105,7 @@ class VideoCatalogueController extends Controller
                 }
                 $categories[] = ['key' => $category->value, 'label' => $category->label(), 'total' => $total];
                 $videos = Video::visibleTo(Video::query(), $user)->where('category', $category->value)
-                    ->with($this->relations($user))->latest('published_at')->orderByDesc('id')->limit(self::ROW_SIZE)->get();
+                    ->withSeriesTotals()->with($this->relations($user))->latest('published_at')->orderByDesc('id')->limit(self::ROW_SIZE)->get();
                 $rows[] = ['key' => 'category', 'category' => $category->value, 'title' => $category->label(), 'total' => $total, 'videos' => $this->present($videos, $user, $request, $organisations)];
             }
         }
@@ -124,7 +126,7 @@ class VideoCatalogueController extends Controller
     public function library(Request $request): JsonResponse
     {
         $user = $request->user();
-        $videos = $this->libraryQuery($user)
+        $videos = $this->libraryQuery($user)->withSeriesTotals()
             ->with($this->relations($user))
             ->orderByDesc('published_at')->orderByDesc('id')
             ->paginate(24);
@@ -142,6 +144,13 @@ class VideoCatalogueController extends Controller
         $access = $this->access->for($model, $user, $model->isOnSellerSide($user));
         $view = VideoView::query()->where('video_id', $model->id)->where('user_id', $user->id)->first();
         $certificate = ViewingCertificate::query()->where('video_id', $model->id)->where('user_id', $user->id)->first();
+        // Une série : ses épisodes ajoutés (tous pour son vendeur), où en est la personne, et le certificat de la série
+        if ($model->isSeries() && $access !== null) {
+            $episodes = $model->episodes()->when($access !== 'seller', fn ($episode) => $episode->where('status', VideoStatus::Published->value))->get();
+            $views = VideoView::query()->where('user_id', $user->id)->whereIn('video_id', $episodes->pluck('id'))->get()->keyBy('video_id')->all();
+
+            return VideoResource::seenBy($model, $access, $access === 'seller')->withEpisodes($episodes, $views, $certificate);
+        }
         if ($access !== null) {
             // Achetée, sa version à télécharger manque encore (assemblage raté pendant une panne) : on la relance
             if ($access === 'owned' && $model->download_path === null && $model->files_status === VideoFilesStatus::Ready) {
@@ -243,6 +252,12 @@ class VideoCatalogueController extends Controller
             ->orWhere($column, 'like', "%'".$search.'%')
             ->orWhere($column, 'like', '%-'.$search.'%')
             ->orWhere($column, 'like', '%('.$search.'%')
+            ->orWhere($column, 'like', '%«'.$search.'%')
+            ->orWhere($column, 'like', "%\u{00A0}".$search.'%')
+            ->orWhere($column, 'like', "%\u{202F}".$search.'%')
+            ->orWhere($column, 'like', '%/'.$search.'%')
+            ->orWhere($column, 'like', '%.'.$search.'%')
+            ->orWhere($column, 'like', '%"'.$search.'%')
             ->orWhere($column, 'like', "%\n".$search.'%'));
         $query->where(function (Builder $match) use ($wordStarts, $categories): void {
             foreach (['title', 'description', 'seller_name'] as $column) {
@@ -251,6 +266,9 @@ class VideoCatalogueController extends Controller
             if ($categories !== []) {
                 $match->orWhereIn('category', $categories);
             }
+            // Une série se trouve aussi par le titre d'un de ses épisodes ajoutés
+            $match->orWhereHas('episodes', fn (Builder $episode) => $episode->where('status', VideoStatus::Published->value)
+                ->where(fn (Builder $titled) => $wordStarts($titled, 'title')));
         });
     }
 }

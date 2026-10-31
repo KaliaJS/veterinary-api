@@ -304,6 +304,25 @@ class VideoCatalogueRowsTest extends TestCase
         $other = $this->draft($vet['jeton']);
         $this->rightAfterReading($other, fn (Video $read) => Video::query()->whereKey($read->id)->delete());
         $this->patchJson(self::SELLER."/{$other}", ['category' => null], $this->enTetes($vet['jeton']))->assertNotFound();
+
+        // Aussi pour un champ simplement changé (pas vidé)
+        $third = $this->draft($vet['jeton']);
+        $this->rightAfterReading($third, fn (Video $read) => Video::query()->whereKey($read->id)->delete());
+        $this->patchJson(self::SELLER."/{$third}", ['title' => 'Nouveau titre'], $this->enTetes($vet['jeton']))->assertNotFound();
+        $this->assertFalse(Video::query()->where('uuid', $third)->exists());
+    }
+
+    public function test_les_apercus_qui_se_lancent_tout_seuls_ne_bloquent_jamais_l_achat_ni_la_lecture(): void
+    {
+        $vet = $this->verifiedVet();
+        $sale = $this->onSale($vet, 'Le chat', 'cats');
+        ['jeton' => $jeton] = $this->proprietaireAvecJeton();
+        for ($i = 0; $i < 25; $i++) {
+            $this->getJson("/api/v1/espace/videos/{$sale}/teaser", $this->enTetes($jeton))->assertOk();
+        }
+
+        $this->postJson("/api/v1/espace/videos/{$sale}/play", [], $this->enTetes($jeton))->assertOk();
+        $this->postJson("/api/v1/espace/videos/{$sale}/purchase", ['accept_terms' => true], $this->enTetes($jeton))->assertOk();
     }
 
     public function test_une_affiche_remplacee_ne_reste_pas_un_an_dans_les_caches(): void
@@ -509,6 +528,12 @@ class VideoCatalogueRowsTest extends TestCase
         $this->assertSame([], $search('nac'));
         $this->assertSame([$apostrophe], $search('alimentation'));
         $this->assertSame([$purchase], $search('menace'));
+        // Après un guillemet, une espace insécable ou une barre : un début de mot aussi
+        $quoted = $this->onSale($vet, 'Les «Soins» du chat', 'behaviour', "Les gestes/Brossage, les\u{00A0}griffes.");
+        Video::query()->update(['seller_name' => 'Dr Essai']);
+        $this->assertSame([$quoted], $search('soins'));
+        $this->assertSame([$quoted], $search('brossage'));
+        $this->assertSame([$quoted], $search('griffes'));
         // Le nom d'une catégorie en double espace se trouve encore
         $firstAid = $this->onSale($vet, 'Le furet', 'first_aid');
         $this->assertSame([$firstAid], $search('premiers   secours'));
@@ -527,29 +552,30 @@ class VideoCatalogueRowsTest extends TestCase
         ['user' => $owner, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
         $this->own($owner, $cats);
         $this->own($owner, $surgery);
-        // Commencée et achetée : à continuer ; finie, ou seulement l'aperçu : non
+        // Commencée : à continuer, la plus récente d'abord (l'aperçu aussi, tant que sa minute n'est pas finie) ; finie : non
         $this->viewOf($owner, $cats, 40);
         $this->viewOf($owner, $surgery, 30, completed: true);
+        $this->travel(1)->minutes();
         $this->viewOf($owner, $nutrition, 20);
 
         $home = $this->getJson('/api/v1/espace/videos/home', $this->enTetes($jeton))->assertOk()->json('data');
 
-        $this->assertSame(['continue', 'mine', 'new', 'category', 'category', 'category'], array_column($home['rows'], 'key'));
-        $this->assertSame(['Continuer à regarder', 'Mes vidéos', 'Nouveautés', 'Alimentation', 'Chats', 'Chirurgie'], array_column($home['rows'], 'title'));
-        $this->assertSame([$cats], array_column($home['rows'][0]['videos'], 'id'));
-        $this->assertSame(40, $home['rows'][0]['videos'][0]['viewing']['watched_seconds']);
-        $this->assertEqualsCanonicalizing([$cats, $surgery], array_column($home['rows'][1]['videos'], 'id'));
-        $this->assertSame($catsBis, $home['rows'][2]['videos'][0]['id']);
-        $this->assertCount(4, $home['rows'][2]['videos']);
-        $this->assertSame([$catsBis, $cats], array_column($home['rows'][4]['videos'], 'id'));
-        $this->assertSame(['cats', 2], [$home['rows'][4]['category'], $home['rows'][4]['total']]);
+        // « Mes vidéos » a son onglet : plus de rangée à l'accueil (demande de Jim)
+        $this->assertSame(['continue', 'new', 'category', 'category', 'category'], array_column($home['rows'], 'key'));
+        $this->assertSame(['Continuer à voir', 'Nouveautés', 'Alimentation', 'Chats', 'Chirurgie'], array_column($home['rows'], 'title'));
+        $this->assertSame([$nutrition, $cats], array_column($home['rows'][0]['videos'], 'id'));
+        $this->assertSame(40, $home['rows'][0]['videos'][1]['viewing']['watched_seconds']);
+        $this->assertSame($catsBis, $home['rows'][1]['videos'][0]['id']);
+        $this->assertCount(4, $home['rows'][1]['videos']);
+        $this->assertSame([$catsBis, $cats], array_column($home['rows'][3]['videos'], 'id'));
+        $this->assertSame(['cats', 2], [$home['rows'][3]['category'], $home['rows'][3]['total']]);
         $this->assertSame([
             ['key' => 'nutrition', 'label' => 'Alimentation', 'total' => 1],
             ['key' => 'cats', 'label' => 'Chats', 'total' => 2],
             ['key' => 'surgery', 'label' => 'Chirurgie', 'total' => 1],
         ], $home['categories']);
-        $this->assertSame('owned', $home['rows'][4]['videos'][1]['access']);
-        $this->assertSame('preview', $home['rows'][3]['videos'][0]['access']);
+        $this->assertSame('owned', $home['rows'][3]['videos'][1]['access']);
+        $this->assertSame('preview', $home['rows'][2]['videos'][0]['access']);
     }
 
     public function test_ses_brouillons_ne_paraissent_pas_dans_continuer_a_regarder(): void
@@ -595,8 +621,8 @@ class VideoCatalogueRowsTest extends TestCase
 
         $home = $this->getJson('/api/v1/espace/videos/home', $this->enTetes($jeton) + ['X-Veterinary-Platform' => 'ios'])->assertOk()->json('data');
 
-        $this->assertSame(['continue', 'mine'], array_column($home['rows'], 'key'));
-        $this->assertSame([$mine], array_column($home['rows'][1]['videos'], 'id'));
+        $this->assertSame(['continue'], array_column($home['rows'], 'key'));
+        $this->assertSame([$mine], array_column($home['rows'][0]['videos'], 'id'));
         $this->assertSame([], $home['categories']);
     }
 
@@ -613,7 +639,31 @@ class VideoCatalogueRowsTest extends TestCase
 
         $this->assertSame([$included], array_column($rows['continue']['videos'], 'id'));
         $this->assertSame('plus', $rows['continue']['videos'][0]['access']);
-        $this->assertSame([$included], array_column($rows['mine']['videos'], 'id'));
+        $this->assertSame([$included], $this->getJson('/api/v1/espace/videos/library', $this->enTetes($jeton))->json('data.*.id'));
+    }
+
+    public function test_continuer_a_voir_laisse_les_lancements_par_erreur_les_videos_finies_et_ce_qui_dort_depuis_deux_mois(): void
+    {
+        $vet = $this->verifiedVet();
+        $accident = $this->onSale($vet, 'Lancée par erreur', 'cats');
+        $finished = $this->onSale($vet, 'Finie', 'cats');
+        $sleeping = $this->onSale($vet, 'Endormie', 'cats');
+        $previewDone = $this->onSale($vet, 'Aperçu fini', 'cats');
+        $kept = $this->onSale($vet, 'À reprendre', 'cats');
+        ['user' => $owner, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        foreach ([$accident, $finished, $sleeping, $kept] as $id) {
+            $this->own($owner, $id);
+        }
+        $this->viewOf($owner, $accident, 9);
+        $this->viewOf($owner, $finished, 30, completed: true);
+        $this->viewOf($owner, $sleeping, 25);
+        VideoView::query()->where('video_id', Video::query()->where('uuid', $sleeping)->value('id'))->update(['last_progress_at' => now()->subDays(61)]);
+        $this->viewOf($owner, $previewDone, 58);
+        $this->viewOf($owner, $kept, 10);
+
+        $rows = collect($this->getJson('/api/v1/espace/videos/home', $this->enTetes($jeton))->json('data.rows'))->keyBy('key');
+
+        $this->assertSame([$kept], array_column($rows['continue']['videos'], 'id'));
     }
 
     public function test_une_rangee_garde_vingt_videos_au_plus(): void

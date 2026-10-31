@@ -346,37 +346,39 @@ Route::prefix('v1')->group(function (): void {
     // requête filtre par ces fiches.
     Route::prefix('espace')->middleware(['auth:sanctum', 'proprietaire'])->group(function (): void {
         // Vidéos de formation (31.10.2026) : le catalogue pour tout compte,
-        // et la vente en son nom pour un vétérinaire vérifié
+        // et la vente en son nom pour un vétérinaire vérifié. Chaque limite a
+        // son compteur (3e argument) : vingt aperçus ne bloquent jamais l'achat
         Route::prefix('videos')->group(function (): void {
             Route::get('/', [VideoCatalogueController::class, 'index']);
             // L'accueil de l'écran « Vidéos » : ses rangées (continuer, les siennes, nouveautés, une par catégorie)
             Route::get('home', [VideoCatalogueController::class, 'home']);
             Route::get('library', [VideoCatalogueController::class, 'library']);
             Route::get('seller/account', [SellerAccountController::class, 'show']);
-            Route::post('seller/account', [SellerAccountController::class, 'store'])->middleware('throttle:20,1');
+            Route::post('seller/account', [SellerAccountController::class, 'store'])->middleware('throttle:20,1,video-seller-account');
             Route::get('seller/videos', [PersonalVideoController::class, 'index']);
-            Route::post('seller/videos', [PersonalVideoController::class, 'store'])->middleware('throttle:30,1');
+            Route::post('seller/videos', [PersonalVideoController::class, 'store'])->middleware('throttle:30,1,video-create');
             Route::prefix('seller/videos/{video}')->whereUuid('video')->group(function (): void {
                 Route::patch('/', [PersonalVideoController::class, 'update']);
                 Route::delete('/', [PersonalVideoController::class, 'destroy']);
                 Route::post('publish', [PersonalVideoController::class, 'publish']);
                 Route::post('withdraw', [PersonalVideoController::class, 'withdraw']);
-                Route::post('poster', [PersonalVideoController::class, 'poster'])->middleware('throttle:30,1');
+                Route::post('episodes/order', [PersonalVideoController::class, 'reorder']);
+                Route::post('poster', [PersonalVideoController::class, 'poster'])->middleware('throttle:30,1,video-poster');
                 Route::delete('poster', [PersonalVideoController::class, 'removePoster']);
-                Route::post('upload/start', [PersonalVideoUploadController::class, 'start'])->middleware('throttle:30,1');
-                Route::post('upload/urls', [PersonalVideoUploadController::class, 'urls'])->middleware('throttle:600,1');
+                Route::post('upload/start', [PersonalVideoUploadController::class, 'start'])->middleware('throttle:30,1,video-upload-start');
+                Route::post('upload/urls', [PersonalVideoUploadController::class, 'urls'])->middleware('throttle:600,1,video-upload-urls');
                 Route::get('upload/files', [PersonalVideoUploadController::class, 'files']);
-                Route::post('upload/finish', [PersonalVideoUploadController::class, 'finish'])->middleware('throttle:30,1');
+                Route::post('upload/finish', [PersonalVideoUploadController::class, 'finish'])->middleware('throttle:30,1,video-upload-finish');
             });
             Route::get('{video}', [VideoCatalogueController::class, 'show'])->whereUuid('video');
             Route::prefix('{video}')->whereUuid('video')->group(function (): void {
-                Route::post('play', [VideoViewingController::class, 'play'])->middleware('throttle:60,1');
-                Route::get('teaser', [VideoViewingController::class, 'teaser'])->middleware('throttle:120,1');
-                Route::post('progress', [VideoViewingController::class, 'progress'])->middleware('throttle:60,1');
-                Route::get('download', [VideoViewingController::class, 'download'])->middleware('throttle:20,1');
-                Route::post('certificate', [VideoViewingController::class, 'certificate'])->middleware('throttle:20,1');
-                Route::post('purchase', [VideoPurchaseController::class, 'store'])->middleware('throttle:20,1');
-                Route::post('purchase/confirm', [VideoPurchaseController::class, 'confirm'])->middleware('throttle:30,1');
+                Route::post('play', [VideoViewingController::class, 'play'])->middleware('throttle:60,1,video-play');
+                Route::get('teaser', [VideoViewingController::class, 'teaser'])->middleware('throttle:120,1,video-teaser');
+                Route::post('progress', [VideoViewingController::class, 'progress'])->middleware('throttle:60,1,video-progress');
+                Route::get('download', [VideoViewingController::class, 'download'])->middleware('throttle:20,1,video-download');
+                Route::post('certificate', [VideoViewingController::class, 'certificate'])->middleware('throttle:20,1,video-certificate');
+                Route::post('purchase', [VideoPurchaseController::class, 'store'])->middleware('throttle:20,1,video-purchase');
+                Route::post('purchase/confirm', [VideoPurchaseController::class, 'confirm'])->middleware('throttle:30,1,video-purchase-confirm');
             });
         });
         Route::get('accueil', AccueilController::class);
@@ -451,19 +453,20 @@ Route::prefix('v1')->group(function (): void {
         // Vidéos de formation vendues au nom de la clinique (31.10.2026)
         Route::middleware('can:organisation')->prefix('videos')->group(function (): void {
             Route::get('/', [ClinicVideoController::class, 'index']);
-            Route::post('/', [ClinicVideoController::class, 'store'])->middleware('throttle:30,1');
+            Route::post('/', [ClinicVideoController::class, 'store'])->middleware('throttle:30,1,video-create');
             Route::prefix('{video}')->whereUuid('video')->group(function (): void {
                 Route::patch('/', [ClinicVideoController::class, 'update']);
                 Route::delete('/', [ClinicVideoController::class, 'destroy']);
                 Route::post('publish', [ClinicVideoController::class, 'publish']);
                 // Retirer reste possible quand l'organisation est fermée : sinon la vidéo reviendrait en vente à la réouverture
                 Route::post('withdraw', [ClinicVideoController::class, 'withdraw'])->withoutMiddleware('organisation.ouverte');
-                Route::post('poster', [ClinicVideoController::class, 'poster'])->middleware('throttle:30,1');
+                Route::post('episodes/order', [ClinicVideoController::class, 'reorder']);
+                Route::post('poster', [ClinicVideoController::class, 'poster'])->middleware('throttle:30,1,video-poster');
                 Route::delete('poster', [ClinicVideoController::class, 'removePoster']);
-                Route::post('upload/start', [ClinicVideoUploadController::class, 'start'])->middleware('throttle:30,1');
-                Route::post('upload/urls', [ClinicVideoUploadController::class, 'urls'])->middleware('throttle:600,1');
+                Route::post('upload/start', [ClinicVideoUploadController::class, 'start'])->middleware('throttle:30,1,video-upload-start');
+                Route::post('upload/urls', [ClinicVideoUploadController::class, 'urls'])->middleware('throttle:600,1,video-upload-urls');
                 Route::get('upload/files', [ClinicVideoUploadController::class, 'files']);
-                Route::post('upload/finish', [ClinicVideoUploadController::class, 'finish'])->middleware('throttle:30,1');
+                Route::post('upload/finish', [ClinicVideoUploadController::class, 'finish'])->middleware('throttle:30,1,video-upload-finish');
             });
         });
 

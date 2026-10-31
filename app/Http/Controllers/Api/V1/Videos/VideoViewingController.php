@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\V1\Videos;
 
 use App\Enums\VideoFilesStatus;
+use App\Enums\VideoKind;
+use App\Enums\VideoStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Videos\ProgressRequest;
 use App\Models\Video;
@@ -59,6 +61,13 @@ class VideoViewingController extends Controller
      */
     public function teaser(Request $request, string $video): JsonResponse
     {
+        // Une série : l'aperçu de son premier épisode ajouté
+        $series = Video::query()->where('uuid', $video)->where('kind', VideoKind::Series->value)->first();
+        if ($series !== null) {
+            $first = $series->episodes()->where('status', VideoStatus::Published->value)->where('files_status', VideoFilesStatus::Ready->value)->first();
+            abort_if($first === null, 404);
+            $video = $first->uuid;
+        }
         [$model] = $this->watchable($request, $video);
 
         return response()->json(['data' => ['url' => $this->playback->masterUrl($model, 'preview')]]);
@@ -92,8 +101,10 @@ class VideoViewingController extends Controller
     {
         // Acquis par le visionnage : même retirée, ou sortie de Plus depuis, la vidéo regardée en entier le donne
         $model = Video::query()->where('uuid', $video)->firstOrFail();
+        // Une série : un seul certificat, une fois tous ses épisodes vus ; un épisode n'en donne pas seul
+        $certificate = $model->isSeries() ? $certificates->issueForSeries($model, $request->user()) : $certificates->issue($model, $request->user());
 
-        return response()->json(['data' => $this->certificateData($certificates->issue($model, $request->user()))]);
+        return response()->json(['data' => $this->certificateData($certificate)]);
     }
 
     /** Page publique : ce qu'atteste un certificat, d'après son code. */

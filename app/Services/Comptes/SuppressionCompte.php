@@ -3,6 +3,7 @@
 namespace App\Services\Comptes;
 
 use App\Auth\CompteRevueApple;
+use App\Enums\VideoKind;
 use App\Enums\VideoStatus;
 use App\Models\Client;
 use App\Models\Clinique;
@@ -368,26 +369,45 @@ class SuppressionCompte
      */
     private function detacherVideos(User $user, array $paiementsEnSuspens): void
     {
-        foreach (Video::query()->where('seller_user_id', $user->id)->get() as $video) {
+        // Les épisodes suivent leur série (séries, 31.10.2026) : traités avec elle, jamais seuls
+        foreach (Video::query()->where('seller_user_id', $user->id)->where('kind', '!=', VideoKind::Episode->value)->get() as $video) {
             if (in_array($video->id, $paiementsEnSuspens, true) || $video->purchases()->whereNotNull('paid_at')->exists()) {
-                $video->update([
-                    'status' => $video->status === VideoStatus::Published ? VideoStatus::Withdrawn : $video->status,
-                    'withdrawn_at' => $video->status === VideoStatus::Published ? now() : $video->withdrawn_at,
-                    'publish_requested_at' => null, 'publish_requested_by' => null,
-                    'seller_user_id' => null,
-                ]);
+                $this->garderPourSesAcheteurs($video);
 
                 continue;
             }
             if (! $this->videosSansVendeur->erase($video)) {
                 // Payée à l'instant, ou en cours à la banque : elle reste à son acheteur, comme une vidéo achetée
-                $video->update([
-                    'status' => $video->status === VideoStatus::Published ? VideoStatus::Withdrawn : $video->status,
-                    'withdrawn_at' => $video->status === VideoStatus::Published ? now() : $video->withdrawn_at,
-                    'publish_requested_at' => null, 'publish_requested_by' => null,
-                    'seller_user_id' => null,
-                ]);
+                $this->garderPourSesAcheteurs($video);
             }
+        }
+        // Un épisode d'une autre série (sa série gardée par un autre vendeur, cas d'école) : détaché, jamais effacé seul
+        Video::query()->where('seller_user_id', $user->id)->update(['seller_user_id' => null]);
+    }
+
+    /**
+     * Une vidéo (ou une série) gardée pour ses acheteurs : hors de la vente,
+     * plus rattachée au vendeur. D'une série, ses épisodes ajoutés restent
+     * aux acheteurs ; ceux encore en préparation s'effacent.
+     */
+    private function garderPourSesAcheteurs(Video $video): void
+    {
+        $video->update([
+            'status' => $video->status === VideoStatus::Published ? VideoStatus::Withdrawn : $video->status,
+            'withdrawn_at' => $video->status === VideoStatus::Published ? now() : $video->withdrawn_at,
+            'publish_requested_at' => null, 'publish_requested_by' => null,
+            'seller_user_id' => null,
+        ]);
+        if (! $video->isSeries()) {
+            return;
+        }
+        foreach (Video::query()->where('series_id', $video->id)->get() as $episode) {
+            if ($episode->published_at === null) {
+                $this->videosSansVendeur->erase($episode);
+
+                continue;
+            }
+            $episode->update(['publish_requested_at' => null, 'publish_requested_by' => null, 'seller_user_id' => null]);
         }
     }
 

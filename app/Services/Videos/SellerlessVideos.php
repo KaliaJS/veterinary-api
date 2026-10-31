@@ -17,6 +17,7 @@ use Throwable;
  * Les vidéos d'un vendeur qui a effacé son compte (31.10.2026) : sans
  * acheteur, elles s'effacent avec leurs fichiers ; la fiche reste vide si
  * des certificats délivrés s'y rattachent, pour qu'ils se vérifient encore.
+ * Une série part avec ses épisodes.
  * Qui l'a vue en entier sans avoir demandé son certificat le reçoit avant.
  */
 class SellerlessVideos
@@ -45,6 +46,12 @@ class SellerlessVideos
                 }
             } catch (Throwable) {
                 return false;
+            }
+        }
+        // Une série : ses épisodes partent avec elle (avant elle, ils s'y rattachent)
+        if ($video->isSeries()) {
+            foreach (Video::query()->where('series_id', $video->id)->get() as $episode) {
+                $this->erase($episode);
             }
         }
         $folder = $video->folder();

@@ -16,8 +16,8 @@ use App\Models\Video;
  */
 class SellerTerms
 {
-    /** La date de la version en vigueur, la même que celle de la page publique du web. */
-    public const VERSION = '2026-10-31';
+    /** La version en vigueur, la même que celle de la page publique du web (2026-10-31-series : les séries). */
+    public const VERSION = '2026-10-31-series';
 
     public function __construct(private ContexteClinique $context) {}
 

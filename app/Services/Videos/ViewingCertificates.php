@@ -3,6 +3,7 @@
 namespace App\Services\Videos;
 
 use App\Enums\VideoFilesStatus;
+use App\Enums\VideoStatus;
 use App\Models\User;
 use App\Models\Video;
 use App\Models\VideoView;
@@ -22,6 +23,9 @@ class ViewingCertificates
 
     public function issue(Video $video, User $user): ViewingCertificate
     {
+        if ($video->isEpisode()) {
+            throw ValidationException::withMessages(['certificate' => 'Le certificat d’une série se délivre pour la série entière, une fois tous ses épisodes vus.']);
+        }
         // Pas de certificat de son propre brouillon, ni de sa propre vidéo
         if ($video->published_at === null || $video->isOnSellerSide($user)) {
             throw ValidationException::withMessages(['certificate' => 'Le certificat se délivre pour une vidéo de formation suivie, pas pour la sienne.']);
@@ -49,6 +53,39 @@ class ViewingCertificates
             'seller_name' => $video->seller_name,
             'duration_seconds' => $video->duration_seconds,
             'watched_at' => $view->completed_at,
+        ]);
+    }
+
+    /**
+     * Le certificat d'une série (décision de Jim, 31.10.2026) : un seul, une
+     * fois chacun de ses épisodes ajoutés vu en entier ; son titre et sa
+     * durée totale, figés.
+     */
+    public function issueForSeries(Video $series, User $user): ViewingCertificate
+    {
+        if ($series->published_at === null || $series->isOnSellerSide($user)) {
+            throw ValidationException::withMessages(['certificate' => 'Le certificat se délivre pour une série de formation suivie, pas pour la sienne.']);
+        }
+        $existing = ViewingCertificate::query()->where('video_id', $series->id)->where('user_id', $user->id)->first();
+        if ($existing !== null) {
+            return $existing;
+        }
+        $episodes = $series->episodes()->where('status', VideoStatus::Published->value)->get();
+        $completed = VideoView::query()->where('user_id', $user->id)->whereIn('video_id', $episodes->pluck('id'))->whereNotNull('completed_at')->get();
+        if ($episodes->isEmpty() || $completed->count() < $episodes->count()) {
+            throw ValidationException::withMessages(['certificate' => 'Le certificat de la série se délivre une fois tous ses épisodes regardés en entier.']);
+        }
+
+        return ViewingCertificate::query()->create([
+            'code' => $this->code(),
+            'video_id' => $series->id,
+            'user_id' => $user->id,
+            'holder_name' => $user->name,
+            'holder_gln' => $user->estVerifie() ? $user->gln : null,
+            'video_title' => (string) $series->title,
+            'seller_name' => $series->seller_name,
+            'duration_seconds' => $episodes->sum(fn (Video $episode) => (float) $episode->duration_seconds),
+            'watched_at' => $completed->max('completed_at'),
         ]);
     }
 

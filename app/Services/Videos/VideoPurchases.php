@@ -34,15 +34,24 @@ class VideoPurchases
      */
     public function open(Video $video, User $user): array
     {
-        // Ses fichiers refusés à la relecture au moment d'une mise en vente : elle ne s'achète pas
-        if ($video->status !== VideoStatus::Published || $video->files_status !== VideoFilesStatus::Ready || ! $video->isForAudienceOf($user) || $video->price_cents === null) {
+        // Un épisode ne s'achète jamais seul : on achète sa série (décision de Jim)
+        abort_if($video->isEpisode(), 404);
+        // Ses fichiers refusés à la relecture au moment d'une mise en vente : elle ne s'achète pas ;
+        // une série, sans fichiers, s'achète tant qu'elle a au moins un épisode ajouté
+        $isReady = $video->isSeries()
+            ? $video->episodes()->where('status', VideoStatus::Published->value)->exists()
+            : $video->files_status === VideoFilesStatus::Ready;
+        if ($video->status !== VideoStatus::Published || ! $isReady || ! $video->isForAudienceOf($user) || $video->price_cents === null) {
             abort(404);
+        }
+        if ($video->price_cents === 0) {
+            throw ValidationException::withMessages(['purchase' => $video->isSeries() ? 'Cette série est gratuite : regardez-la en entier, sans l’acheter.' : 'Cette vidéo est gratuite : regardez-la en entier, sans l’acheter.']);
         }
         if ($video->isOnSellerSide($user)) {
             throw ValidationException::withMessages(['purchase' => 'C’est votre vidéo : vous la regardez déjà en entier.']);
         }
         if ($video->isOwnedBy($user)) {
-            throw ValidationException::withMessages(['purchase' => 'Vous avez déjà acheté cette vidéo.']);
+            throw ValidationException::withMessages(['purchase' => $video->isSeries() ? 'Vous avez déjà acheté cette série.' : 'Vous avez déjà acheté cette vidéo.']);
         }
         // Un vendeur qui n'est plus vérifié, ou une organisation fermée, ne vend plus
         $this->sellers->assertStillSelling($video);

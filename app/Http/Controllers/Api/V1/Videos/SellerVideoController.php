@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Enums\VideoAudience;
 use App\Enums\VideoCategory;
 use App\Enums\VideoFilesStatus;
+use App\Enums\VideoKind;
 use App\Enums\VideoStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Videos\StoreVideoPosterRequest;
@@ -27,6 +28,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -76,12 +78,51 @@ abstract class SellerVideoController extends Controller
         ]);
     }
 
+    /**
+     * Un brouillon : une vidéo seule, une série, ou un épisode d'une de ses
+     * séries (numéroté à la suite, vendu par le même vendeur que la série).
+     */
     public function store(StoreVideoRequest $request): JsonResponse
     {
         $seller = $this->sellers->resolve($request->user(), $this->as);
-        $video = Video::create([...$seller, 'created_by_user_id' => $request->user()->id, 'title' => $request->validated('title')]);
+        $fields = [...$seller, 'created_by_user_id' => $request->user()->id, 'title' => $request->validated('title')];
+        if ($request->filled('series')) {
+            $series = $this->find($request, (string) $request->validated('series'));
+            abort_unless($series->isSeries(), 404);
+            $this->sellers->assertCanManage($series, $request->user(), $this->as);
+            $video = DB::transaction(function () use ($series, $fields): Video {
+                $last = (int) Video::query()->where('series_id', $series->id)->lockForUpdate()->max('episode_number');
+
+                return Video::create([...$fields, 'kind' => VideoKind::Episode, 'series_id' => $series->id, 'episode_number' => $last + 1]);
+            });
+        } else {
+            $video = Video::create([...$fields, 'kind' => $request->validated('kind') === 'series' ? VideoKind::Series : VideoKind::Video]);
+        }
 
         return VideoResource::seenBy($video->refresh(), 'seller', true)->response()->setStatusCode(201);
+    }
+
+    /**
+     * L'ordre des épisodes d'une série (les flèches de l'écran) : tous ses
+     * épisodes, dans le nouvel ordre ; aussi pour une série en vente.
+     */
+    public function reorder(Request $request, string $video): VideoResource
+    {
+        $series = $this->find($request, $video);
+        abort_unless($series->isSeries(), 404);
+        $this->sellers->assertCanManage($series, $request->user(), $this->as);
+        $ids = $request->validate(['episodes' => ['required', 'array'], 'episodes.*' => ['uuid']])['episodes'];
+        DB::transaction(function () use ($series, $ids): void {
+            $episodes = Video::query()->where('series_id', $series->id)->lockForUpdate()->get()->keyBy('uuid');
+            if (count($ids) !== $episodes->count() || array_diff($ids, $episodes->keys()->all()) !== [] || count(array_unique($ids)) !== count($ids)) {
+                throw ValidationException::withMessages(['episodes' => 'La liste des épisodes vient de changer : rechargez la page, puis recommencez.']);
+            }
+            foreach (array_values($ids) as $index => $uuid) {
+                Video::query()->whereKey($episodes[$uuid]->id)->update(['episode_number' => $index + 1, 'updated_at' => now()]);
+            }
+        });
+
+        return VideoResource::seenBy($series->refresh(), 'seller', true);
     }
 
     public function update(UpdateVideoRequest $request, string $video): VideoResource
@@ -89,6 +130,13 @@ abstract class SellerVideoController extends Controller
         $model = $this->find($request, $video);
         $this->sellers->assertCanManage($model, $request->user(), $this->as);
         $data = $request->validated();
+        // Un épisode n'a que son titre et sa description : le prix, le public, la catégorie et Plus sont à sa série
+        if ($model->isEpisode()) {
+            $foreign = array_values(array_intersect(array_keys($data), ['price_cents', 'audience', 'category', 'in_plus']));
+            if ($foreign !== []) {
+                throw ValidationException::withMessages(array_fill_keys($foreign, 'Le prix, le public, la catégorie et Plus se règlent sur la série.'));
+            }
+        }
 
         // Dans l'app iPhone, rien ne se met en vente : une vidéo en vente ne s'y modifie pas non plus
         if ($model->status === VideoStatus::Published) {
@@ -102,9 +150,19 @@ abstract class SellerVideoController extends Controller
             }
         }
 
+        // Une vidéo gratuite se regarde déjà par tous : elle n'entre pas dans Plus (et en sort si elle le devient)
+        $price = array_key_exists('price_cents', $data) ? $data['price_cents'] : $model->price_cents;
+        if ($price !== null && (int) $price === 0) {
+            if ($data['in_plus'] ?? false) {
+                throw ValidationException::withMessages(['in_plus' => 'Une vidéo gratuite se regarde déjà par tous : elle n’entre pas dans Plus.']);
+            }
+            if (! $model->isEpisode()) {
+                $data['in_plus'] = false;
+            }
+        }
         // Plus n'inclut que des vidéos destinées aux clients
         $audience = array_key_exists('audience', $data) ? VideoAudience::tryFrom((string) $data['audience']) : $model->audience;
-        if (! ($audience?->includesOwners() ?? false)) {
+        if (! $model->isEpisode() && ! ($audience?->includesOwners() ?? false)) {
             if ($data['in_plus'] ?? false) {
                 throw ValidationException::withMessages(['in_plus' => 'Plus n’inclut que des vidéos destinées aux clients.']);
             }
@@ -123,9 +181,11 @@ abstract class SellerVideoController extends Controller
 
             return VideoResource::seenBy($model->refresh(), 'seller', true);
         }
-        $model->update($data);
+        // Effacée entre-temps (autre onglet) : introuvable, jamais un « enregistré » sur une fiche qui n'existe plus
+        $written = Video::query()->whereKey($model->id)->update([...$data, 'updated_at' => now()]);
+        abort_if($written === 0, 404);
 
-        return VideoResource::seenBy($model, 'seller', true);
+        return VideoResource::seenBy($model->refresh(), 'seller', true);
     }
 
     /** Seul un brouillon s'efface ; une vidéo vendue se retire de la vente, ses acheteurs la gardent. */
@@ -133,9 +193,26 @@ abstract class SellerVideoController extends Controller
     {
         $model = $this->find($request, $video);
         $this->sellers->assertCanManage($model, $request->user(), $this->as);
-        // Une vidéo qui a été en vente ne s'efface jamais : achats et certificats en dépendent
+        // Un épisode d'une série jamais vendue s'efface, même déjà ajouté ; d'une série vendue, jamais
+        if ($model->isEpisode()) {
+            if ($model->hasBuyers()) {
+                throw ValidationException::withMessages(['status' => 'Cette série a été achetée : ses épisodes restent à ceux qui l’ont achetée.']);
+            }
+            $this->eraseEpisode($model);
+
+            return response()->noContent();
+        }
+        // Une vidéo ou une série qui a été en vente ne s'efface jamais : achats et certificats en dépendent
         if ($model->status !== VideoStatus::Draft || $model->published_at !== null) {
-            throw ValidationException::withMessages(['status' => 'Une vidéo mise en vente ne s’efface pas : retirez-la de la vente, ceux qui l’ont achetée la gardent.']);
+            throw ValidationException::withMessages(['status' => $model->isSeries()
+                ? 'Une série mise en vente ne s’efface pas : retirez-la de la vente, ceux qui l’ont achetée la gardent.'
+                : 'Une vidéo mise en vente ne s’efface pas : retirez-la de la vente, ceux qui l’ont achetée la gardent.']);
+        }
+        // Une série en brouillon part avec ses épisodes
+        if ($model->isSeries()) {
+            foreach (Video::query()->where('series_id', $model->id)->get() as $episode) {
+                $this->eraseEpisode($episode);
+            }
         }
         // Tout sous le verrou de l'affiche : celle qu'un autre onglet vient de poser part avec le brouillon,
         // et un geste trop long ailleurs arrête l'effacement avant qu'il commence (rien à moitié)
@@ -161,6 +238,29 @@ abstract class SellerVideoController extends Controller
         });
 
         return response()->noContent();
+    }
+
+    /**
+     * Un épisode effacé (série jamais vendue) : ses fichiers, ses lectures, son
+     * image, puis la numérotation des autres se resserre. Sous le verrou de
+     * l'image, comme un brouillon.
+     */
+    private function eraseEpisode(Video $episode): void
+    {
+        VideoPosters::exclusively($episode->id, function () use ($episode): void {
+            $current = Video::query()->whereKey($episode->id)->first(['id', 'poster_token', 'series_id']);
+            abort_if($current === null, 404);
+            $this->storage->deleteAll($episode);
+            PurgeVideoFolder::dispatch($episode->folder())->delay(now()->addMinutes(SellerVideoUploadController::URL_MINUTES + 1));
+            $episode->views()->delete();
+            $episode->certificates()->delete();
+            $episode->delete();
+            app(VideoPosters::class)->delete($current->poster_token);
+            $remaining = Video::query()->where('series_id', $current->series_id)->orderBy('episode_number')->orderBy('id')->pluck('id');
+            foreach ($remaining->values() as $index => $id) {
+                Video::query()->whereKey($id)->update(['episode_number' => $index + 1]);
+            }
+        });
     }
 
     /**
@@ -230,12 +330,21 @@ abstract class SellerVideoController extends Controller
             $terms->accept($model, $request->user());
         }
 
+        // Une série n'a pas de fichiers : elle part avec ses épisodes prêts
+        if ($model->isSeries()) {
+            $publisher->publish($model, $this->sellers->resolve($request->user(), $this->as)['seller_name']);
+
+            return VideoResource::seenBy($model, 'seller', true);
+        }
         if ($model->files_status !== VideoFilesStatus::Ready) {
             throw ValidationException::withMessages(['files' => 'La vidéo n’est pas encore prête : terminez son envoi.']);
         }
         $missing = $publisher->missing($model);
         if ($missing !== []) {
             throw ValidationException::withMessages($missing);
+        }
+        if ($model->isEpisode() && $model->series?->status !== VideoStatus::Published) {
+            throw ValidationException::withMessages(['series' => 'La série n’est pas en vente : mettez la série en vente, ses épisodes prêts partent avec elle.']);
         }
         $this->sellers->stripeAccount($model);
         $sellerName = $this->sellers->resolve($request->user(), $this->as)['seller_name'];
@@ -285,6 +394,9 @@ abstract class SellerVideoController extends Controller
         $model = $this->find($request, $video);
         // Retirer reste possible à qui ne peut plus vendre (vérification perdue)
         $this->sellers->assertOwns($model, $this->as);
+        if ($model->isEpisode()) {
+            throw ValidationException::withMessages(['status' => 'Un épisode ne se retire pas seul : retirez la série, ceux qui l’ont achetée la gardent entière.']);
+        }
         if ($model->status !== VideoStatus::Published) {
             throw ValidationException::withMessages(['status' => 'Cette vidéo n’est pas en vente.']);
         }

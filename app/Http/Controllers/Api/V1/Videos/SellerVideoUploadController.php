@@ -179,6 +179,9 @@ abstract class SellerVideoUploadController extends SellerVideoController
     {
         $model = $this->find($request, $video);
         $this->sellers->assertCanManage($model, $request->user(), $this->as);
+        if ($model->isSeries()) {
+            throw ValidationException::withMessages(['files' => 'Une série n’a pas de fichiers à elle : envoyez ses épisodes.']);
+        }
         if ($model->status !== VideoStatus::Draft) {
             throw ValidationException::withMessages(['status' => 'Une vidéo mise en vente ne change plus de fichiers.']);
         }
