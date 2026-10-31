@@ -3,6 +3,7 @@
 namespace App\Services\Videos;
 
 use App\Models\Video;
+use Aws\CommandPool;
 use DateTimeInterface;
 use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -103,6 +104,43 @@ class VideoStorage
         fclose($stream);
 
         return $head;
+    }
+
+    /** Lectures simultanées dans le bucket : trois heures de vidéo se relisent en quelques secondes */
+    private const PARALLEL_READS = 25;
+
+    /**
+     * Les premiers octets de plusieurs fichiers, lus en parallèle dans le
+     * bucket (une lecture partielle par fichier). Un fichier illisible rend
+     * une chaîne vide, comme readHead.
+     *
+     * @param  list<string>  $names
+     * @return array<string, string> nom => premiers octets
+     */
+    public function readHeads(Video $video, array $names, int $bytes): array
+    {
+        if (! $this->isS3()) {
+            return array_combine($names, array_map(fn (string $name) => $this->readHead($video, $name, $bytes), $names)) ?: [];
+        }
+        $disk = $this->disk();
+        assert($disk instanceof AwsS3V3Adapter);
+        $client = $disk->getClient();
+        $bucket = $disk->getConfig()['bucket'];
+        $heads = array_fill_keys($names, '');
+        $commands = array_map(fn (string $name) => $client->getCommand('GetObject', [
+            'Bucket' => $bucket,
+            'Key' => $video->folder().'/'.$name,
+            'Range' => 'bytes=0-'.($bytes - 1),
+        ]), $names);
+        CommandPool::batch($client, $commands, [
+            'concurrency' => self::PARALLEL_READS,
+            'fulfilled' => function ($result, $index) use (&$heads, $names): void {
+                $heads[$names[$index]] = (string) $result['Body'];
+            },
+            'rejected' => fn () => null,
+        ]);
+
+        return $heads;
     }
 
     public function delete(Video $video, string $name): void

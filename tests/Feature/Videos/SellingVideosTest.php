@@ -349,7 +349,7 @@ class SellingVideosTest extends TestCase
         $this->patchJson("/api/v1/espace/videos/seller/videos/{$id}", ['description' => 'x', 'price_cents' => 900, 'audience' => 'owners'], $iphone)->assertOk();
 
         $this->postJson("/api/v1/espace/videos/seller/videos/{$id}/publish", [], $iphone)
-            ->assertUnprocessable()->assertJsonValidationErrors(['plateforme' => 'La mise en vente se fait sur le site de Veterinary, pas dans l’app iPhone.']);
+            ->assertUnprocessable()->assertJsonValidationErrors(['platform' => 'La mise en vente se fait sur le site de Veterinary, pas dans l’app iPhone.']);
         $this->postJson("/api/v1/espace/videos/seller/videos/{$id}/publish", [], $this->enTetes($vet['jeton']))->assertOk();
     }
 

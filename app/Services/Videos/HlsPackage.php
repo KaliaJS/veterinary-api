@@ -94,8 +94,8 @@ class HlsPackage
                 return $this->refuse($picture ?? 'Ce fichier n’est pas une vidéo MP4 lisible.');
             }
             $bytes = $files[$playlist] + $files[$init];
-            // Quelques morceaux relus : un vrai fragment MP4, pas n'importe quel fichier
-            $heads = [];
+            // Quelques morceaux relus (tous à la relecture complète, en parallèle) : un vrai fragment MP4, pas n'importe quel fichier
+            $names = [];
             foreach ($everySegment ? $media['segments'] : $this->sample($media['segments']) as $segment) {
                 if (! isset($files[$segment['uri']])) {
                     continue;
@@ -104,14 +104,16 @@ class HlsPackage
                 if ($files[$segment['uri']] < 8) {
                     return $this->refuse('Un morceau de la vidéo n’est pas lisible : renvoyez la vidéo.');
                 }
-                $head = $this->storage->readHead($video, $segment['uri'], self::HEAD_BYTES);
+                $names[] = $segment['uri'];
+            }
+            $heads = $this->storage->readHeads($video, array_values(array_unique($names)), self::HEAD_BYTES);
+            foreach ($heads as $head) {
                 if ($head === '') {
                     return $this->unavailable();
                 }
                 if (! $this->isFragment($head)) {
                     return $this->refuse('Un morceau de la vidéo n’est pas lisible : renvoyez la vidéo.');
                 }
-                $heads[$segment['uri']] = $head;
             }
             // La vraie durée, lue dans les morceaux (début du premier et du dernier), pas seulement annoncée
             $duration = $this->checkDuration($media['segments'], $heads, $picture);

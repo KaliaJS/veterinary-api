@@ -51,7 +51,7 @@ class Video extends Model
         'uuid', 'seller_user_id', 'seller_clinique_id', 'organisation_id', 'seller_name', 'created_by_user_id',
         'title', 'description', 'price_cents', 'audience', 'in_plus', 'status', 'files_status', 'rejection_reason',
         'duration_seconds', 'width', 'height', 'size_bytes', 'renditions', 'download_path',
-        'files_verified_at', 'published_at', 'withdrawn_at', 'upload_started_at', 'upload_expected_bytes', 'files_checked_at',
+        'files_verified_at', 'published_at', 'withdrawn_at', 'upload_started_at', 'upload_expected_bytes', 'files_checked_at', 'publish_requested_at',
     ];
 
     protected static function booted(): void
@@ -73,6 +73,7 @@ class Video extends Model
             'files_verified_at' => 'datetime',
             'upload_started_at' => 'datetime',
             'files_checked_at' => 'datetime',
+            'publish_requested_at' => 'datetime',
             'published_at' => 'datetime',
             'withdrawn_at' => 'datetime',
         ];
@@ -198,6 +199,13 @@ class Video extends Model
             ->where(fn (Builder $seller) => $seller
                 ->whereHas('sellerUser', fn (Builder $vet) => $vet->where('verification_veterinaire', StatutVerificationVeterinaire::Verifie->value))
                 ->orWhereHas('organisation', fn (Builder $organisation) => $organisation->ouvertes()));
+    }
+
+    /** Des acheteurs : payés, ou en train de payer (une intention ouverte depuis moins d'un jour). */
+    public function hasBuyers(): bool
+    {
+        return $this->purchases()->where(fn (Builder $purchase) => $purchase->whereNotNull('paid_at')
+            ->orWhere(fn (Builder $open) => $open->whereNotNull('payment_intent_id')->where('updated_at', '>', now()->subDay())))->exists();
     }
 
     /** Le vendeur vend-il encore : vétérinaire vérifié, ou organisation ouverte. */

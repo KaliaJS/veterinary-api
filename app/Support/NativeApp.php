@@ -22,7 +22,7 @@ final class NativeApp
     public static function refuse(Request $request, string $message): void
     {
         if (self::isIos($request)) {
-            throw ValidationException::withMessages(['plateforme' => $message]);
+            throw ValidationException::withMessages(['platform' => $message]);
         }
     }
 }

@@ -14,6 +14,7 @@ use App\Services\Videos\HlsPackage;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * L'envoi des fichiers d'une vidéo (31.10.2026), directement du navigateur
@@ -39,8 +40,9 @@ abstract class SellerVideoUploadController extends SellerVideoController
             throw ValidationException::withMessages(['estimated_bytes' => 'Votre stockage est plein : cette vidéo ne tient pas dans ce qui reste.']);
         }
 
-        // Un nouvel envoi remplace les fichiers d'avant
+        // Un nouvel envoi remplace les fichiers d'avant ; ce qu'on en avait regardé ne vaut pas pour les nouveaux
         $this->storage->deleteAll($model);
+        $model->views()->update(['watched_ranges' => null, 'watched_seconds' => 0, 'completed_at' => null]);
         $model->update([
             'files_status' => VideoFilesStatus::Pending, 'rejection_reason' => null, 'size_bytes' => 0,
             'upload_started_at' => now(), 'upload_expected_bytes' => (int) $request->validated('estimated_bytes'),
@@ -64,7 +66,7 @@ abstract class SellerVideoUploadController extends SellerVideoController
             throw ValidationException::withMessages(['files' => 'Commencez l’envoi depuis Veterinary : la place se contrôle avant.']);
         }
         // Ce qui est déjà déposé ne dépasse ni la place annoncée (avec une marge) ni le stockage
-        $deposited = array_sum($this->storage->files($model));
+        $deposited = array_sum($this->listed($model));
         $storage = $this->sellers->storage($model);
         $announced = (int) ($model->upload_expected_bytes ?? 0);
         if ($deposited > $announced * 1.5 + self::DEPOSIT_MARGIN || $storage['limit'] < $storage['used'] - (int) $model->size_bytes + $deposited) {
@@ -87,7 +89,18 @@ abstract class SellerVideoUploadController extends SellerVideoController
         $model = $this->find($request, $video);
         $this->sellers->assertCanManage($model, $request->user(), $this->as);
 
-        return response()->json(['data' => (object) $this->storage->files($model)]);
+        return response()->json(['data' => (object) $this->listed($model)]);
+    }
+
+    /** Le dossier de la vidéo ; stockage injoignable : 503, ce n'est pas un refus, on réessaiera. */
+    private function listed(Video $model): array
+    {
+        try {
+            return $this->storage->files($model);
+        } catch (Throwable $e) {
+            report($e);
+            abort(503, 'Le stockage des vidéos ne répond pas : réessayez dans un instant.');
+        }
     }
 
     /** Le paquet reçu, contrôlé : prêt à vendre, ou refusé (et effacé) avec sa raison. */
@@ -125,7 +138,7 @@ abstract class SellerVideoUploadController extends SellerVideoController
         // Chaque morceau relu tout de suite (la mise en vente l'attend), puis encore une fois
         // quand les dernières adresses d'envoi ont expiré (15 minutes)
         RecheckVideoFiles::dispatch($model->id)->afterCommit();
-        RecheckVideoFiles::dispatch($model->id)->delay(now()->addMinutes(self::URL_MINUTES + 1))->afterCommit();
+        RecheckVideoFiles::dispatch($model->id, 'late')->delay(now()->addMinutes(self::URL_MINUTES + 1))->afterCommit();
 
         return VideoResource::seenBy($model, 'seller', true);
     }
@@ -137,6 +150,10 @@ abstract class SellerVideoUploadController extends SellerVideoController
         $this->sellers->assertCanManage($model, $request->user(), $this->as);
         if ($model->status !== VideoStatus::Draft) {
             throw ValidationException::withMessages(['status' => 'Une vidéo mise en vente ne change plus de fichiers.']);
+        }
+        // Achetée : ses fichiers ne s'effacent ni ne se remplacent, ceux qui l'ont payée la regardent encore
+        if ($model->hasBuyers()) {
+            throw ValidationException::withMessages(['status' => 'Cette vidéo a été achetée : ses fichiers ne changent plus.']);
         }
 
         return $model;

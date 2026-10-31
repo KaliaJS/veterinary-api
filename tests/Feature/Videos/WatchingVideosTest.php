@@ -135,7 +135,7 @@ class WatchingVideosTest extends TestCase
 
         $this->postJson($url, [], $this->enTetes($owner['jeton']))->assertUnprocessable()->assertJsonValidationErrors('accept_terms');
         $this->postJson($url, ['accept_terms' => true], [...$this->enTetes($owner['jeton']), 'X-Veterinary-Platform' => 'ios'])
-            ->assertUnprocessable()->assertJsonValidationErrors('plateforme');
+            ->assertUnprocessable()->assertJsonValidationErrors('platform');
         $this->assertSame([], $this->gateway->intentions);
 
         $this->postJson($url, ['accept_terms' => true], $this->enTetes($owner['jeton']))->assertOk()

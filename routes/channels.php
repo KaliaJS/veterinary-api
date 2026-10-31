@@ -18,7 +18,10 @@ use Illuminate\Support\Facades\Gate;
  *   rendez-vous (propriétaire, note de l'accueil) et les files.
  * - organisation.{id}.facturation : le droit Organisation, même fermée
  *   (c'est là qu'on paie l'abonnement) ; les factures de l'abonnement.
- * - utilisateur.{id} : le compte lui-même (propriétaire) ; ses factures Plus.
+ * - organisation.{id}.videos : le droit Organisation ; les vidéos de formation
+ *   vendues au nom de la clinique (relues, mises en vente, retirées).
+ * - utilisateur.{id} : le compte lui-même (propriétaire) ; ses factures Plus,
+ *   les vidéos qu'il vend en son nom.
  * - visio.{id} : la mise en relation d'un appel vidéo (WebRTC) ; le personnel
  *   de la clinique de la session avec le droit Planning, et le client par
  *   le lien de son e-mail (autorisé à part, VisioPubliqueController).
@@ -36,6 +39,13 @@ Broadcast::channel('clinique.{id}.planning', fn (User $user, string $id): bool =
     && Gate::forUser($user)->allows(DomainePermission::Planning->value), ['guards' => ['sanctum']]);
 
 Broadcast::channel('organisation.{id}.facturation', function (User $user, string $id): bool {
+    $contexte = app(ContexteClinique::class);
+
+    return ctype_digit($id) && $contexte->estDefini() && (string) $contexte->organisationId() === $id
+        && Gate::forUser($user)->allows(DomainePermission::Organisation->value);
+}, ['guards' => ['sanctum']]);
+
+Broadcast::channel('organisation.{id}.videos', function (User $user, string $id): bool {
     $contexte = app(ContexteClinique::class);
 
     return ctype_digit($id) && $contexte->estDefini() && (string) $contexte->organisationId() === $id

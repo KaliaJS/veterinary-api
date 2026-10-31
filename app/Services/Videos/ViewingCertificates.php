@@ -2,6 +2,7 @@
 
 namespace App\Services\Videos;
 
+use App\Enums\VideoFilesStatus;
 use App\Models\User;
 use App\Models\Video;
 use App\Models\VideoView;
@@ -28,6 +29,10 @@ class ViewingCertificates
         $existing = ViewingCertificate::query()->where('video_id', $video->id)->where('user_id', $user->id)->first();
         if ($existing !== null) {
             return $existing;
+        }
+        // Les fichiers en cours de remplacement ou refusés : ce qu'on avait regardé n'est plus cette vidéo
+        if ($video->files_status !== VideoFilesStatus::Ready || $video->duration_seconds === null) {
+            throw ValidationException::withMessages(['certificate' => 'Cette vidéo change de fichiers : le certificat se délivre une fois la nouvelle version regardée.']);
         }
         $view = VideoView::query()->where('video_id', $video->id)->where('user_id', $user->id)->first();
         if ($view?->completed_at === null) {

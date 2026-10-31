@@ -13,9 +13,9 @@ use App\Http\Resources\V1\VideoResource;
 use App\Jobs\AssembleVideoDownload;
 use App\Jobs\RecheckVideoFiles;
 use App\Models\Video;
-use App\Paiements\PasserellePaiement;
 use App\Services\Videos\HlsPackage;
 use App\Services\Videos\Sellers;
+use App\Services\Videos\VideoPublisher;
 use App\Services\Videos\VideoStorage;
 use App\Support\NativeApp;
 use Illuminate\Database\Eloquent\Builder;
@@ -23,7 +23,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Validation\ValidationException;
-use Throwable;
 
 /**
  * Les vidéos d'un vendeur (31.10.2026) : brouillons, mise en vente,
@@ -126,7 +125,7 @@ abstract class SellerVideoController extends Controller
     }
 
     /** Mise en vente immédiate, sans validation à la main ; jamais depuis l'app iPhone. */
-    public function publish(Request $request, string $video): VideoResource
+    public function publish(Request $request, string $video, VideoPublisher $publisher): VideoResource|JsonResponse
     {
         NativeApp::refuse($request, 'La mise en vente se fait sur le site de Veterinary, pas dans l’app iPhone.');
         $model = $this->find($request, $video);
@@ -135,10 +134,22 @@ abstract class SellerVideoController extends Controller
         if ($model->files_status !== VideoFilesStatus::Ready) {
             throw ValidationException::withMessages(['files' => 'La vidéo n’est pas encore prête : terminez son envoi.']);
         }
-        // Chaque morceau relu avant la vente ; pas encore fait (ou interrompu par une panne) : on relance
+        $missing = $publisher->missing($model);
+        if ($missing !== []) {
+            throw ValidationException::withMessages($missing);
+        }
+        $this->sellers->stripeAccount($model);
+        $sellerName = $this->sellers->resolve($request->user(), $this->as)['seller_name'];
+
+        // Chaque morceau relu avant la vente : pas encore fait, la vidéo se mettra en vente d'elle-même ensuite
         if ($model->files_checked_at === null) {
-            RecheckVideoFiles::dispatch($model->id);
-            throw ValidationException::withMessages(['files' => 'La vidéo se relit encore en entier : elle se met en vente dans un instant, réessayez.']);
+            $model->update(['publish_requested_at' => now(), 'seller_name' => $sellerName]);
+            // Relue entre-temps sans avoir vu la demande : on ne l'attend pas, la mise en vente se fait ici
+            if ($model->refresh()->files_checked_at === null) {
+                RecheckVideoFiles::dispatch($model->id);
+
+                return VideoResource::seenBy($model, 'seller', true)->response()->setStatusCode(202);
+            }
         }
         // Relue avant d'être vendue : rien n'a été remplacé depuis le contrôle
         $check = app(HlsPackage::class)->inspect($model, [AssembleVideoDownload::FILE]);
@@ -146,36 +157,14 @@ abstract class SellerVideoController extends Controller
             abort(503, $check['reason']);
         }
         if ($check['ok'] === false) {
-            $this->storage->deleteAll($model);
-            $model->update(['files_status' => VideoFilesStatus::Rejected, 'rejection_reason' => $check['reason'], 'size_bytes' => 0, 'renditions' => null, 'download_path' => null]);
+            // Achetée : jamais effacée, ceux qui l'ont payée la gardent ; elle reste seulement hors de la vente
+            if (! $model->hasBuyers()) {
+                $this->storage->deleteAll($model);
+                $model->update(['files_status' => VideoFilesStatus::Rejected, 'rejection_reason' => $check['reason'], 'size_bytes' => 0, 'renditions' => null, 'download_path' => null]);
+            }
             throw ValidationException::withMessages(['files' => $check['reason']]);
         }
-        $missing = array_filter([
-            'title' => blank($model->title) ? 'Donnez un titre à la vidéo.' : null,
-            'description' => blank($model->description) ? 'Décrivez la vidéo.' : null,
-            'price_cents' => $model->price_cents === null ? 'Fixez son prix : 2 CHF au moins.' : null,
-            'audience' => $model->audience === null ? 'Choisissez à qui elle est destinée.' : null,
-        ]);
-        if ($missing !== []) {
-            throw ValidationException::withMessages($missing);
-        }
-        // Les ventes encaissent sur un compte prêt
-        $account = $this->sellers->stripeAccount($model);
-        // La cagnotte Plus se verse par virement : les comptes ouverts avant les vidéos doivent pouvoir en recevoir
-        if ($model->in_plus) {
-            try {
-                app(PasserellePaiement::class)->pourCompte(null)->demanderVirementsRecus($account);
-            } catch (Throwable $e) {
-                report($e);
-            }
-        }
-
-        $model->update([
-            'status' => VideoStatus::Published,
-            'published_at' => $model->published_at ?? now(),
-            'withdrawn_at' => null,
-            'seller_name' => $this->sellers->resolve($request->user(), $this->as)['seller_name'],
-        ]);
+        $publisher->publish($model, $sellerName);
 
         return VideoResource::seenBy($model, 'seller', true);
     }

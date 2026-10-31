@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Videos;
 
+use App\Enums\VideoStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\VideoResource;
 use App\Models\Video;
@@ -57,8 +58,10 @@ class VideoCatalogueController extends Controller
             return VideoResource::seenBy($model, $access, $access === 'seller')->withViewing($view, $certificate);
         }
         // Plus regardable (retirée, sortie de Plus) : qui l'a vue en entier y retrouve son certificat,
-        // sans rien voir de ce que la vidéo est devenue depuis (titre figé du certificat, pas de prix ni de public)
-        abort_if($model->published_at === null || ($view?->completed_at === null && $certificate === null), 404);
+        // sans rien voir de ce que la vidéo est devenue depuis (titre figé du certificat, pas de prix ni de public).
+        // Repartie en brouillon (refusée, en cours de renvoi) : seul un certificat déjà délivré la rouvre
+        $hasWatched = $view?->completed_at !== null && $model->status !== VideoStatus::Draft;
+        abort_if($model->published_at === null || (! $hasWatched && $certificate === null), 404);
 
         return response()->json(['data' => [
             'id' => $model->uuid,
