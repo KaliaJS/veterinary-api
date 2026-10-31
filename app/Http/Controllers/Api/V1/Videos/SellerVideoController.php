@@ -30,6 +30,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
  * Les vidéos d'un vendeur (31.10.2026) : brouillons, mise en vente,
@@ -200,24 +201,34 @@ abstract class SellerVideoController extends Controller
         $this->sellers->assertCanManage($model, $request->user(), $this->as);
         // Un épisode d'une série jamais vendue s'efface, même déjà ajouté ; d'une série vendue, jamais
         if ($model->isEpisode()) {
-            if ($model->hasBuyers()) {
-                throw ValidationException::withMessages(['status' => 'Cette série a été achetée : ses épisodes restent à ceux qui l’ont achetée.']);
-            }
             // Une série en vente garde au moins un épisode : sans lui, elle disparaîtrait du catalogue sans rien dire.
             // Sous le verrou de la série, l'épisode est d'abord retenu (repassé en brouillon) : deux suppressions
-            // lancées au même moment ne retirent jamais ensemble ses deux derniers épisodes
-            DB::transaction(function () use ($model): void {
+            // lancées au même moment ne retirent jamais ensemble ses deux derniers épisodes, et un achat confirmé
+            // au même instant est vu avant la suppression
+            $wasStatus = DB::transaction(function () use ($model): VideoStatus {
                 $series = Video::query()->whereKey($model->series_id)->lockForUpdate()->first();
                 $current = Video::query()->whereKey($model->id)->lockForUpdate()->first();
                 abort_if($current === null, 404);
+                if ($current->hasBuyers()) {
+                    throw ValidationException::withMessages(['status' => 'Cette série a été achetée : ses épisodes restent à ceux qui l’ont achetée.']);
+                }
                 $isLastOnSale = $series?->status === VideoStatus::Published && $current->status === VideoStatus::Published
                     && ! Video::query()->where('series_id', $series->id)->where('status', VideoStatus::Published->value)->whereKeyNot($current->id)->exists();
                 if ($isLastOnSale) {
                     throw ValidationException::withMessages(['status' => 'La série est en vente : elle garde au moins un épisode. Retirez-la de la vente pour supprimer celui-ci.']);
                 }
+                $status = $current->status;
                 $current->update(['status' => VideoStatus::Draft]);
+
+                return $status;
             });
-            $this->eraseEpisode($model);
+            try {
+                $this->eraseEpisode($model);
+            } catch (HttpException $e) {
+                // Pas effacé (un autre onglet tient l'image, « réessayez ») : il reprend sa place dans la série
+                Video::query()->whereKey($model->id)->where('status', VideoStatus::Draft->value)->update(['status' => $wasStatus->value]);
+                throw $e;
+            }
 
             return response()->noContent();
         }

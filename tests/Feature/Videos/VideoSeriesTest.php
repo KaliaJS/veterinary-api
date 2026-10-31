@@ -13,6 +13,7 @@ use App\Models\ViewingCertificate;
 use App\Paiements\PasserellePaiement;
 use App\Services\Comptes\SuppressionCompte;
 use App\Services\Videos\SellerTerms;
+use App\Services\Videos\VideoPosters;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Storage;
@@ -690,6 +691,42 @@ class VideoSeriesTest extends TestCase
         $continue = collect($this->getJson('/api/v1/espace/videos/home', $this->enTetes($jeton))->json('data.rows'))->keyBy('key')['continue']['videos'];
         $this->assertSame($episodes[0]->uuid, $continue[0]['resume']['episode_id']);
         $this->assertSame(40, $continue[0]['resume']['watched_seconds']);
+    }
+
+    // ————— Troisième passage —————
+
+    public function test_la_relecture_qui_retire_le_seul_episode_d_une_serie_vendue_la_retire_aussi(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet);
+        ['user' => $buyer] = $this->proprietaireAvecJeton();
+        $this->own($buyer, $series);
+        $episode = Video::query()->where('kind', 'episode')->sole();
+        Storage::disk('prive')->put($episode->folder().'/init-1.mp4', $this->initSegment(3840, 2160, 'hvc1'));
+        RecheckVideoFiles::dispatchSync($episode->id);
+
+        // Achetée : l'épisode reste à l'acheteur, hors de la vente ; la série, vide en vente, la quitte aussi
+        $this->assertSame('withdrawn', $episode->refresh()->status->value);
+        $this->assertSame('withdrawn', Video::query()->where('uuid', $series)->value('status')->value);
+    }
+
+    public function test_un_episode_que_l_effacement_ne_peut_pas_prendre_reprend_sa_place_dans_la_serie(): void
+    {
+        $vet = $this->verifiedVet();
+        $series = $this->publishedSeries($vet);
+        $second = $this->readyEpisode($vet, $series, 'Deux');
+        $this->postJson(self::SELLER."/{$second}/publish", [], $this->enTetes($vet['jeton']))->assertOk();
+        $episode = Video::query()->where('uuid', $second)->sole();
+        VideoPosters::$lockWait = 0;
+        $held = VideoPosters::lock($episode->id);
+        $this->assertTrue($held->get());
+        try {
+            $this->deleteJson(self::SELLER."/{$second}", [], $this->enTetes($vet['jeton']))->assertStatus(409);
+        } finally {
+            $held->release();
+            VideoPosters::$lockWait = 10;
+        }
+        $this->assertSame('published', $episode->refresh()->status->value);
     }
 
     // ————— Outils —————

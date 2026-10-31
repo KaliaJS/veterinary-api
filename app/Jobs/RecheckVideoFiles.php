@@ -162,6 +162,7 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
             if ($video->status === VideoStatus::Published) {
                 $video->update(['status' => VideoStatus::Withdrawn, 'withdrawn_at' => now()]);
             }
+            $this->keepSeriesWithEpisodes($video);
 
             return;
         }
