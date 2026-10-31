@@ -165,7 +165,7 @@ class PasserellePaiementFactice implements PasserellePaiement
             throw $this->erreurLecteur;
         }
         if ($this->trouver($intentionId)['statut'] !== 'requires_payment_method') {
-            throw new ErreurPaiement(ErreurPaiement::GENERIQUE, 'payment_intent_unexpected_state');
+            throw new ErreurPaiement(ErreurPaiement::GENERIQUE, 'payment_intent_unexpected_state', 400);
         }
 
         $this->presentations[] = ['lecteur' => $lecteurId, 'intention' => $intentionId];
@@ -186,11 +186,17 @@ class PasserellePaiementFactice implements PasserellePaiement
     }
 
     /** Comme Stripe : une intention payée ou déjà annulée ne s'annule plus. */
+    /** Ce qui arrive chez le prestataire juste avant une annulation (un paiement conclu au même instant) */
+    public ?\Closure $avantAnnulation = null;
+
     public function annulerIntention(string $intentionId): array
     {
         $this->noter(__FUNCTION__, $intentionId);
+        if ($this->avantAnnulation !== null) {
+            ($this->avantAnnulation)($intentionId);
+        }
         if (! in_array($this->trouver($intentionId)['statut'], self::ANNULABLES, true)) {
-            throw new ErreurPaiement(ErreurPaiement::GENERIQUE, 'payment_intent_unexpected_state');
+            throw new ErreurPaiement(ErreurPaiement::GENERIQUE, 'payment_intent_unexpected_state', 400);
         }
 
         $this->intentions[$intentionId]['statut'] = 'canceled';

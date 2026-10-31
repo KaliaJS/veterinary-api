@@ -33,6 +33,7 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 /**
  * Suppression du compte par son titulaire (App Store, règle 5.1.1(v) ;
@@ -217,7 +218,7 @@ class SuppressionCompte
         // vidéos, relus chez Stripe (payés : la vidéo reste à l'acheteur), sinon annulés, pour qu'aucun
         // vieil onglet ne paie une vidéo qui s'efface ; puis son compte de paiement fermé. En panne
         // passagère ou clé refusée, le compte attend la nuit suivante ; un refus est signalé
-        $this->solderVentes($user);
+        $paiementsEnSuspens = $this->solderVentes($user);
 
         // Le client supprimé chez Stripe emporte ses cartes : un seul appel,
         // qu'une panne laisse à refaire tel quel la nuit suivante
@@ -228,7 +229,7 @@ class SuppressionCompte
         }
 
         $dossiersVideos = [];
-        $fichiers = DB::transaction(function () use ($user, &$dossiersVideos): ?array {
+        $fichiers = DB::transaction(function () use ($user, &$dossiersVideos, $paiementsEnSuspens): ?array {
             // Relue sous verrou : une connexion à cet instant gagne
             if (User::query()->whereKey($user->id)->lockForUpdate()->value('suppression_demandee_le') === null) {
                 return null;
@@ -267,7 +268,7 @@ class SuppressionCompte
             }
 
             // Les vidéos qu'il vendait en son nom (31.10.2026, neuvième vérification) : son image et sa voix
-            $dossiersVideos = $this->detacherVideos($user);
+            $dossiersVideos = $this->detacherVideos($user, $paiementsEnSuspens);
 
             // Ancien membre d'équipe : une trace sans connexion, prénom seul
             // (décision de Jim, 27.10.2026), à laquelle restent liées sa fiche
@@ -304,34 +305,66 @@ class SuppressionCompte
         return true;
     }
 
-    /** Les paiements ouverts sur ses vidéos, puis son compte de paiement de vendeur. */
-    private function solderVentes(User $user): void
+    /**
+     * Les paiements ouverts sur ses vidéos, puis son compte de paiement de
+     * vendeur. Chaque étape réussie est notée tout de suite : une nuit
+     * suivante (effacement repris après une panne) ne refait rien sur un
+     * compte déjà fermé. Rend les vidéos dont un paiement reste en suspens
+     * (en cours à la banque, l'annulation refusée) : elles restent, hors de
+     * la vente, le temps qu'il aboutisse ou tombe.
+     *
+     * @return list<int>
+     */
+    private function solderVentes(User $user): array
     {
+        $enSuspens = [];
         $ouverts = VideoPurchase::query()->whereNull('paid_at')->whereNotNull('payment_intent_id')
             ->whereHas('video', fn ($video) => $video->where('seller_user_id', $user->id))->get();
         foreach ($ouverts as $achat) {
+            // Sur un compte déjà fermé (nuit précédente) : plus d'appel possible, il reste en suspens
+            if ($user->stripe_account_id === null || $achat->stripe_account_id !== $user->stripe_account_id) {
+                $enSuspens[$achat->video_id] = true;
+
+                continue;
+            }
             if ($this->achatsVideos->confirm($achat)['paid']) {
                 continue;
             }
-            $this->sansPanne(fn () => $this->paiements->pourCompte($achat->stripe_account_id)->annulerIntention((string) $achat->payment_intent_id));
-        }
-        if ($user->stripe_account_id) {
-            $compte = $user->stripe_account_id;
-            $this->sansPanne(fn () => $this->paiements->pourCompte(null)->fermerCompteVendeur($compte));
-        }
-    }
+            try {
+                $this->paiements->pourCompte($achat->stripe_account_id)->annulerIntention((string) $achat->payment_intent_id);
+            } catch (ErreurPaiement $e) {
+                if ($e->estPassagere() || $e->cleRefusee()) {
+                    throw $e;
+                }
+                // Refusée : payée entre-temps, ou en cours à la banque ; relue encore une fois (payée, l'achat l'est aussi)
+                $this->achatsVideos->confirm($achat);
+                if ($achat->refresh()->paid_at !== null) {
+                    continue;
+                }
+                report($e);
+                $enSuspens[$achat->video_id] = true;
 
-    /** Un appel au prestataire : une panne passagère ou une clé refusée fait attendre la nuit suivante, un refus est signalé. */
-    private function sansPanne(callable $appel): void
-    {
-        try {
-            $appel();
-        } catch (ErreurPaiement $e) {
-            if ($e->estPassagere() || $e->cleRefusee()) {
-                throw $e;
+                continue;
             }
-            report($e);
+            // Annulé : il ne retient plus rien
+            $achat->delete();
         }
+        if ($user->stripe_account_id !== null) {
+            $compte = $user->stripe_account_id;
+            try {
+                $this->paiements->pourCompte(null)->fermerCompteVendeur($compte);
+            } catch (ErreurPaiement $e) {
+                if ($e->estPassagere() || $e->cleRefusee()) {
+                    throw $e;
+                }
+                // Refusé (solde encore à verser…) : signalé avec son identifiant, à fermer à la main
+                report(new RuntimeException("Compte de paiement {$compte} d'un vendeur effacé pas fermé chez Stripe : à fermer à la main", 0, $e));
+            }
+            // Noté tout de suite : la nuit suivante ne le refait pas ; reconnecté, le vendeur en ouvre un neuf
+            $user->forceFill(['stripe_account_id' => null, 'stripe_account_ready_at' => null])->save();
+        }
+
+        return array_keys($enSuspens);
     }
 
     /**
@@ -341,14 +374,15 @@ class SuppressionCompte
      * à ceux qui les ont payées, hors de la vente (décision de Jim). Rend les
      * dossiers à effacer au bucket.
      *
+     * @param  list<int>  $paiementsEnSuspens  vidéos dont un paiement n'a pu être ni conclu ni annulé
      * @return list<string>
      */
-    private function detacherVideos(User $user): array
+    private function detacherVideos(User $user, array $paiementsEnSuspens): array
     {
         $dossiers = [];
         foreach (Video::query()->where('seller_user_id', $user->id)->get() as $video) {
-            // Acheteurs payés seulement : les paiements ouverts viennent d'être relus ou annulés
-            if ($video->purchases()->whereNotNull('paid_at')->exists()) {
+            // Acheteurs payés, ou un paiement encore en suspens : les autres viennent d'être relus ou annulés
+            if (in_array($video->id, $paiementsEnSuspens, true) || $video->purchases()->whereNotNull('paid_at')->exists()) {
                 $video->update([
                     'status' => $video->status === VideoStatus::Published ? VideoStatus::Withdrawn : $video->status,
                     'withdrawn_at' => $video->status === VideoStatus::Published ? now() : $video->withdrawn_at,

@@ -18,6 +18,8 @@ use App\Models\Video;
 use App\Models\VideoPurchase;
 use App\Models\VideoView;
 use App\Models\ViewingCertificate;
+use App\Paiements\ErreurPaiement;
+use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserellePaiement;
 use App\Services\Comptes\SuppressionCompte;
 use App\Services\Videos\HlsPackage;
@@ -50,6 +52,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Concerns\BuildsHlsPackages;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Concerns\PublishesVideos;
+use Tests\Doubles\PasserelleAbonnementFactice;
 use Tests\Doubles\PasserellePaiementFactice;
 use Tests\TestCase;
 
@@ -2447,5 +2450,129 @@ class VideoSafeguardsTest extends TestCase
     {
         $job = new RecheckVideoFiles(1, 'final');
         $this->assertGreaterThanOrEqual(2 * 3600 + $job->tries * $job->timeout + array_sum($job->backoff), $job->uniqueFor);
+    }
+
+    /* ————— Onzième vérification (31.10.2026) ————— */
+
+    public function test_un_effacement_repris_la_nuit_suivante_ne_rappelle_pas_un_compte_deja_ferme(): void
+    {
+        $abonnements = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $abonnements);
+        $vet = $this->verifiedVet();
+        $sale = $this->published([], $vet);
+        $buyer = $this->proprietaireAvecJeton();
+        $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase", ['accept_terms' => true], $this->enTetes($buyer['jeton']))->assertOk();
+        $vet['user']->refresh()->forceFill(['suppression_demandee_le' => now()->subDays(31), 'stripe_client_id' => 'cus_vet'])->save();
+
+        // Première nuit : intention annulée et compte fermé, puis le client Stripe en panne
+        $abonnements->panne = 'Stripe ne répond pas.';
+        try {
+            app(SuppressionCompte::class)->effacer($vet['user']);
+        } catch (ErreurPaiement) {
+        }
+        $this->assertNotNull(User::query()->find($vet['user']->id));
+        $this->assertNull($vet['user']->refresh()->stripe_account_id);
+        $this->assertSame(0, VideoPurchase::query()->count());
+
+        // Nuit suivante : le compte fermé refuserait tout appel (403) ; il n'est plus appelé
+        $abonnements->panne = null;
+        $this->gateway->erreurs['annulerIntention'] = new ErreurPaiement('Compte fermé', 'account_closed', 403);
+        $this->gateway->erreurs['fermerCompteVendeur'] = new ErreurPaiement('Compte fermé', 'account_closed', 403);
+        $this->assertTrue(app(SuppressionCompte::class)->effacer($vet['user']->refresh()));
+        $this->assertNull(User::query()->find($vet['user']->id));
+    }
+
+    public function test_une_panne_a_la_fermeture_du_compte_fait_attendre_la_nuit_suivante_un_refus_est_seulement_signale(): void
+    {
+        $vet = $this->verifiedVet();
+        $vet['user']->refresh()->forceFill(['suppression_demandee_le' => now()->subDays(31)])->save();
+        $this->gateway->erreurs['fermerCompteVendeur'] = new ErreurPaiement('Stripe ne répond pas.', 'api_error', 503);
+        try {
+            app(SuppressionCompte::class)->effacer($vet['user']);
+            $this->fail('Effacé malgré la panne');
+        } catch (ErreurPaiement) {
+        }
+        $this->assertNotNull(User::query()->find($vet['user']->id)?->stripe_account_id);
+
+        // Un refus net (solde encore à verser) : signalé, le compte s'efface quand même
+        $this->gateway->erreurs['fermerCompteVendeur'] = new ErreurPaiement('Solde à verser', 'balance_not_zero', 400);
+        $this->assertTrue(app(SuppressionCompte::class)->effacer($vet['user']->refresh()));
+        $this->assertNull(User::query()->find($vet['user']->id));
+    }
+
+    public function test_un_paiement_en_cours_a_la_banque_garde_la_video_hors_de_la_vente(): void
+    {
+        $vet = $this->verifiedVet();
+        $sale = $this->published([], $vet);
+        $buyer = $this->proprietaireAvecJeton();
+        $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase", ['accept_terms' => true], $this->enTetes($buyer['jeton']))->assertOk();
+        // TWINT en cours : ni payé, et Stripe refuse de l'annuler
+        $this->gateway->conclure(VideoPurchase::query()->sole()->payment_intent_id, 'processing');
+        $this->gateway->erreurs['annulerIntention'] = new ErreurPaiement('Déjà en cours', 'payment_intent_unexpected_state', 400);
+        $vet['user']->refresh()->forceFill(['suppression_demandee_le' => now()->subDays(31)])->save();
+
+        $this->assertTrue(app(SuppressionCompte::class)->effacer($vet['user']));
+
+        $video = Video::query()->sole();
+        $this->assertSame('withdrawn', $video->status->value);
+        $this->assertNotEmpty(Storage::disk('prive')->allFiles($video->folder()));
+        $this->assertSame(1, VideoPurchase::query()->count());
+    }
+
+    public function test_un_vendeur_qui_se_reconnecte_pendant_l_effacement_peut_rouvrir_un_compte_de_paiement(): void
+    {
+        $vet = $this->verifiedVet();
+        $vet['user']->refresh()->forceFill(['suppression_demandee_le' => now()->subDays(31)])->save();
+        $abonnements = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $abonnements);
+        $vet['user']->forceFill(['stripe_client_id' => 'cus_vet'])->save();
+        // Il se reconnecte au moment où le client Stripe est supprimé
+        $abonnements->pendantSuppressionClient = fn () => User::query()->whereKey($vet['user']->id)->update(['suppression_demandee_le' => null]);
+
+        $this->assertFalse(app(SuppressionCompte::class)->effacer($vet['user']));
+
+        $user = User::query()->findOrFail($vet['user']->id);
+        $this->assertNull($user->stripe_account_id);
+        $this->assertNull($user->stripe_account_ready_at);
+    }
+
+    public function test_un_paiement_conclu_au_moment_de_l_annulation_garde_la_video_a_son_acheteur(): void
+    {
+        $vet = $this->verifiedVet();
+        $sale = $this->published([], $vet);
+        $buyer = $this->proprietaireAvecJeton();
+        $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase", ['accept_terms' => true], $this->enTetes($buyer['jeton']))->assertOk();
+        $this->gateway->avantAnnulation = fn (string $intent) => $this->gateway->conclure($intent, 'succeeded');
+        $vet['user']->refresh()->forceFill(['suppression_demandee_le' => now()->subDays(31)])->save();
+
+        $this->assertTrue(app(SuppressionCompte::class)->effacer($vet['user']));
+        $this->travel(2)->minutes();
+
+        $this->assertNotNull(VideoPurchase::query()->sole()->paid_at);
+        $this->play($buyer['jeton'], $sale['id'])->assertOk()->assertJsonPath('data.scope', 'full');
+    }
+
+    public function test_un_paiement_en_suspens_sur_un_compte_deja_ferme_ne_bloque_pas_la_nuit_suivante(): void
+    {
+        $abonnements = new PasserelleAbonnementFactice;
+        $this->app->instance(PasserelleAbonnement::class, $abonnements);
+        $vet = $this->verifiedVet();
+        $sale = $this->published([], $vet);
+        $buyer = $this->proprietaireAvecJeton();
+        $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase", ['accept_terms' => true], $this->enTetes($buyer['jeton']))->assertOk();
+        $this->gateway->conclure(VideoPurchase::query()->sole()->payment_intent_id, 'processing');
+        $this->gateway->erreurs['annulerIntention'] = new ErreurPaiement('Déjà en cours', 'payment_intent_unexpected_state', 400);
+        $vet['user']->refresh()->forceFill(['suppression_demandee_le' => now()->subDays(31), 'stripe_client_id' => 'cus_vet'])->save();
+        $abonnements->panne = 'Stripe ne répond pas.';
+        try {
+            app(SuppressionCompte::class)->effacer($vet['user']);
+        } catch (ErreurPaiement) {
+        }
+
+        // Nuit suivante : le compte est fermé, tout appel y répondrait 403
+        $abonnements->panne = null;
+        $this->gateway->erreurs['annulerIntention'] = new ErreurPaiement('Compte fermé', 'account_closed', 403);
+        $this->assertTrue(app(SuppressionCompte::class)->effacer($vet['user']->refresh()));
+        $this->assertSame('withdrawn', Video::query()->sole()->status->value);
     }
 }
