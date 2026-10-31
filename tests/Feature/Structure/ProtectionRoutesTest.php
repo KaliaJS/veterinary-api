@@ -58,7 +58,11 @@ class ProtectionRoutesTest extends TestCase
         'GET api/v1/rappels/reglages' => 'Réglages des rappels de la clinique (oui ou non, délai) : lus par toute l’équipe, modifiés avec le droit organisation.',
     ];
 
-    /** Routes de l'espace clinique ouvertes à une organisation fermée : de quoi payer l'abonnement. */
+    /**
+     * Routes de l'espace clinique ouvertes à une organisation fermée : de quoi payer
+     * l'abonnement, et retirer de la vente une vidéo de formation (sinon elle reviendrait
+     * en vente à la réouverture).
+     */
     private const array OUVERTES_SANS_ABONNEMENT = [
         'GET api/v1/organisation',
         'GET api/v1/organisation/abonnement/apercu',
@@ -70,6 +74,7 @@ class ProtectionRoutesTest extends TestCase
         'GET api/v1/organisation/factures/{facture}',
         'POST api/v1/organisation/factures/{facture}/regler',
         'POST api/v1/organisation/factures/{facture}/confirmer',
+        'POST api/v1/videos/{video}/withdraw',
     ];
 
     /** Modèles sans scope global liés implicitement dans l'espace clinique, et pourquoi c'est sûr. */

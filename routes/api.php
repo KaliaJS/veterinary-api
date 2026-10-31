@@ -447,7 +447,8 @@ Route::prefix('v1')->group(function (): void {
                 Route::patch('/', [ClinicVideoController::class, 'update']);
                 Route::delete('/', [ClinicVideoController::class, 'destroy']);
                 Route::post('publish', [ClinicVideoController::class, 'publish']);
-                Route::post('withdraw', [ClinicVideoController::class, 'withdraw']);
+                // Retirer reste possible quand l'organisation est fermée : sinon la vidéo reviendrait en vente à la réouverture
+                Route::post('withdraw', [ClinicVideoController::class, 'withdraw'])->withoutMiddleware('organisation.ouverte');
                 Route::post('upload/start', [ClinicVideoUploadController::class, 'start'])->middleware('throttle:30,1');
                 Route::post('upload/urls', [ClinicVideoUploadController::class, 'urls'])->middleware('throttle:600,1');
                 Route::get('upload/files', [ClinicVideoUploadController::class, 'files']);

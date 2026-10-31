@@ -92,6 +92,10 @@ class HlsPackage
                 if (! isset($files[$segment['uri']])) {
                     continue;
                 }
+                // Un morceau vide ou presque n'est pas une panne : c'est un mauvais fichier
+                if ($files[$segment['uri']] < 8) {
+                    return $this->refuse('Un morceau de la vidéo n’est pas lisible : renvoyez la vidéo.');
+                }
                 $head = $this->storage->readHead($video, $segment['uri'], self::HEAD_BYTES);
                 if ($head === '') {
                     return $this->unavailable();
@@ -323,18 +327,26 @@ class HlsPackage
     private function checkDuration(array $segments, array $heads, array $picture): ?string
     {
         $first = $segments[0] ?? null;
-        $last = $segments[count($segments) - 1] ?? null;
-        if ($first === null || $last === null || ! isset($heads[$first['uri']], $heads[$last['uri']])) {
+        if ($first === null || ! isset($heads[$first['uri']])) {
             return null;
         }
         $start = Mp4InitReader::fragmentStart($heads[$first['uri']], $picture['track_id']);
-        $end = Mp4InitReader::fragmentStart($heads[$last['uri']], $picture['track_id']);
-        if ($start === null || $end === null || $picture['timescale'] <= 0) {
+        if ($start === null || $picture['timescale'] <= 0) {
             return 'Un morceau de la vidéo n’est pas lisible : renvoyez la vidéo.';
         }
-        $declared = array_sum(array_column($segments, 'duration')) - $last['duration'];
-        if (abs(($end - $start) / $picture['timescale'] - $declared) > self::DURATION_TOLERANCE) {
-            return 'La durée annoncée ne correspond pas à la vidéo : renvoyez-la depuis Veterinary.';
+        // Chaque morceau relu (premier, deux au milieu, dernier) commence là où la liste le place
+        $before = 0.0;
+        foreach ($segments as $segment) {
+            if (isset($heads[$segment['uri']])) {
+                $at = Mp4InitReader::fragmentStart($heads[$segment['uri']], $picture['track_id']);
+                if ($at === null) {
+                    return 'Un morceau de la vidéo n’est pas lisible : renvoyez la vidéo.';
+                }
+                if (abs(($at - $start) / $picture['timescale'] - $before) > self::DURATION_TOLERANCE) {
+                    return 'La durée annoncée ne correspond pas à la vidéo : renvoyez-la depuis Veterinary.';
+                }
+            }
+            $before += $segment['duration'];
         }
 
         return null;

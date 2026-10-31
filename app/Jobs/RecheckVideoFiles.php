@@ -13,6 +13,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use RuntimeException;
+use Throwable;
 
 /**
  * La relecture d'une vidéo contrôlée (31.10.2026, après la vérification
@@ -37,6 +38,31 @@ class RecheckVideoFiles implements ShouldQueue
     private const GROWTH_TOLERANCE = 1_000_000;
 
     public function __construct(public int $videoId) {}
+
+    /**
+     * Relue nulle part après tous les essais : on ne vend pas ce qu'on n'a pas
+     * pu relire. Sans acheteur, elle repart en brouillon refusé (la purge en
+     * efface les fichiers) ; achetée, elle quitte seulement la vente.
+     */
+    public function failed(?Throwable $exception): void
+    {
+        $video = Video::query()->find($this->videoId);
+        if ($video === null || $video->files_status !== VideoFilesStatus::Ready) {
+            return;
+        }
+        if ($video->purchases()->whereNotNull('paid_at')->exists()) {
+            if ($video->status === VideoStatus::Published) {
+                $video->update(['status' => VideoStatus::Withdrawn, 'withdrawn_at' => now()]);
+            }
+
+            return;
+        }
+        $video->update([
+            'files_status' => VideoFilesStatus::Rejected,
+            'rejection_reason' => 'La vidéo n’a pas pu être relue après l’envoi : renvoyez-la.',
+            'status' => $video->status === VideoStatus::Published ? VideoStatus::Draft : $video->status,
+        ]);
+    }
 
     public function handle(HlsPackage $package, VideoStorage $storage): void
     {

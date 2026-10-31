@@ -103,18 +103,18 @@ interface PasserellePaiement
     public function creerComptePaiement(array $societe): string;
 
     /**
-     * Verse au compte d'un vendeur, depuis le solde de la plateforme (la
-     * cagnotte Plus des vidéos, 31.10.2026). Rend l'identifiant du versement.
-     *
-     * @param  array<string, string>  $metadonnees
-     */
-    /**
      * Ajoute à un compte connecté existant la configuration « recipient »
      * (capacité stripe_balance.stripe_transfers) : sans elle, un compte v2 ne
      * reçoit pas de virements de la plateforme (cagnotte Plus des vidéos).
      */
     public function demanderVirementsRecus(string $compte): void;
 
+    /**
+     * Verse au compte d'un vendeur, depuis le solde de la plateforme (la
+     * cagnotte Plus des vidéos, 31.10.2026). Rend l'identifiant du versement.
+     *
+     * @param  array<string, string>  $metadonnees
+     */
     public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees): string;
 
     /** @return array{paiements: bool, virements: bool, a_completer: bool} */

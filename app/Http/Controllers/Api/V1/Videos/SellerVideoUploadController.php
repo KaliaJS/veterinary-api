@@ -26,6 +26,9 @@ abstract class SellerVideoUploadController extends SellerVideoController
     /** Durée de validité d'une adresse d'envoi. */
     private const URL_MINUTES = 15;
 
+    /** Marge au-delà de la place annoncée (listes, arrondis de l'estimation) */
+    private const DEPOSIT_MARGIN = 50_000_000;
+
     /** Avant d'envoyer : la durée et la taille estimée, refusées avant de commencer si elles dépassent. */
     public function start(StartUploadRequest $request, string $video): JsonResponse
     {
@@ -59,6 +62,13 @@ abstract class SellerVideoUploadController extends SellerVideoController
         // Pas d'adresse sans envoi annoncé : sa durée et sa place ont été contrôlées au début
         if ($model->upload_started_at === null) {
             throw ValidationException::withMessages(['files' => 'Commencez l’envoi depuis Veterinary : la place se contrôle avant.']);
+        }
+        // Ce qui est déjà déposé ne dépasse ni la place annoncée (avec une marge) ni le stockage
+        $deposited = array_sum($this->storage->files($model));
+        $storage = $this->sellers->storage($model);
+        $announced = (int) ($model->upload_expected_bytes ?? 0);
+        if ($deposited > $announced * 1.5 + self::DEPOSIT_MARGIN || $storage['limit'] < $storage['used'] - (int) $model->size_bytes + $deposited) {
+            throw ValidationException::withMessages(['files' => 'La vidéo dépasse la place annoncée ou votre stockage : recommencez l’envoi.']);
         }
         $expires = now()->addMinutes(self::URL_MINUTES);
         // Un long envoi reste en cours : la purge des envois abandonnés ne le prend pas

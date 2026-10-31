@@ -19,7 +19,7 @@ class UploadUrlsRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'files' => ['required', 'array', 'min:1', 'max:200'],
+            'files' => ['required', 'array', 'min:1', 'max:50'],
             'files.*' => ['required', 'string', 'max:80', function (string $attribute, mixed $name, Closure $fail): void {
                 // La version à télécharger s'assemble sur le serveur : jamais envoyée par le navigateur
                 if (! is_string($name) || ! VideoStorage::isValidName($name) || preg_match(VideoStorage::UPLOADABLE, $name) !== 1 || $name === AssembleVideoDownload::FILE) {
@@ -34,7 +34,7 @@ class UploadUrlsRequest extends FormRequest
     {
         return [
             'files.required' => 'Aucun fichier à envoyer.',
-            'files.max' => 'Pas plus de 200 fichiers à la fois.',
+            'files.max' => 'Pas plus de 50 fichiers à la fois.',
         ];
     }
 }

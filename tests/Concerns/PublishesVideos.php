@@ -33,8 +33,8 @@ trait PublishesVideos
     protected function upload(string $jeton, string $id, array $files, string $base = '/api/v1/espace/videos/seller/videos'): void
     {
         $this->postJson("{$base}/{$id}/upload/start", ['duration_seconds' => 30, 'estimated_bytes' => 10_000], $this->enTetes($jeton))->assertOk();
-        // Par paquets de 200 au plus, comme le navigateur
-        foreach (array_chunk(array_keys($files), 200) as $batch) {
+        // Par paquets de 50 au plus, comme le navigateur
+        foreach (array_chunk(array_keys($files), 50) as $batch) {
             $urls = $this->postJson("{$base}/{$id}/upload/urls", ['files' => $batch], $this->enTetes($jeton))->assertOk()->json('data');
             foreach ($urls as $url) {
                 $this->call('PUT', $url['url'], [], [], [], [], $files[$url['name']])->assertNoContent();

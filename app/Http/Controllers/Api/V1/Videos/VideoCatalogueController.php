@@ -24,7 +24,7 @@ class VideoCatalogueController extends Controller
     {
         $user = $request->user();
         $videos = Video::visibleTo(Video::query(), $user)
-            ->with(['purchases' => fn ($purchase) => $purchase->where('user_id', $user->id)->whereNotNull('paid_at')])
+            ->with(['sellerUser', 'organisation', 'purchases' => fn ($purchase) => $purchase->where('user_id', $user->id)->whereNotNull('paid_at')])
             ->latest('published_at')->paginate(24);
         $organisations = Video::organisationsOf($user);
 
@@ -51,11 +51,11 @@ class VideoCatalogueController extends Controller
         $user = $request->user();
         $model = Video::query()->where('uuid', $video)->firstOrFail();
         $access = $this->access->for($model, $user, $model->isOnSellerSide($user));
-        abort_if($access === null, 404);
+        $view = VideoView::query()->where('video_id', $model->id)->where('user_id', $user->id)->first();
+        $certificate = ViewingCertificate::query()->where('video_id', $model->id)->where('user_id', $user->id)->first();
+        // Plus regardable (retirée, sortie de Plus) : qui l'a vue en entier y retrouve son certificat
+        abort_if($access === null && $view?->completed_at === null && $certificate === null, 404);
 
-        return VideoResource::seenBy($model, $access, $access === 'seller')->withViewing(
-            VideoView::query()->where('video_id', $model->id)->where('user_id', $user->id)->first(),
-            ViewingCertificate::query()->where('video_id', $model->id)->where('user_id', $user->id)->first(),
-        );
+        return VideoResource::seenBy($model, $access, $access === 'seller')->withViewing($view, $certificate);
     }
 }

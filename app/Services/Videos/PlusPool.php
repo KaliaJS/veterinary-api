@@ -62,7 +62,7 @@ class PlusPool
             if ($days <= 0 || $overlap <= 0) {
                 continue;
             }
-            $paid = max(0, (int) round(((float) ($invoice->montant_ht ?? $invoice->montant)) * 100) - $this->fee($invoice->stripe_paiement_id));
+            $paid = max(0, (int) round(((float) ($invoice->montant_ht ?? $invoice->montant)) * 100) - $this->fee($invoice->stripe_paiement_id, (int) round(((float) ($invoice->montant_ht ?? $invoice->montant)) * 100)));
             $net += $paid * min(1, $overlap / $days);
         }
         $net = (int) floor($net);
@@ -113,6 +113,8 @@ class PlusPool
                 continue;
             }
             try {
+                // Recevoir des virements : demandé à chaque fois (sans effet si c'est déjà fait)
+                $this->gateway->pourCompte(null)->demanderVirementsRecus($account);
                 $transfer = $this->gateway->pourCompte(null)->transferer($account, $amount, 'plus-pool-'.$seller.'-'.$shares->pluck('id')->implode('-'), [
                     'objet' => 'cagnotte_plus', 'vendeur' => $seller, 'mois' => $month->format('Y-m'),
                 ]);
@@ -127,18 +129,20 @@ class PlusPool
     }
 
     /** Les frais du prestataire sur un paiement, relus une seule fois (la facture compte douze mois). */
-    private function fee(?string $intentId): int
+    private function fee(?string $intentId, int $amount): int
     {
         if ($intentId === null) {
             return 0;
         }
         try {
-            return (int) Cache::rememberForever('plus-pool-fee:'.$intentId, fn () => $this->gateway->pourCompte(null)->fraisIntention($intentId));
+            $fee = Cache::rememberForever('plus-pool-fee:'.$intentId, fn () => $this->gateway->pourCompte(null)->fraisIntention($intentId));
         } catch (Throwable $e) {
             report($e);
-
-            return 0;
+            $fee = null;
         }
+
+        // Illisibles : estimés au tarif des cartes en Suisse (2,9 % + 30 centimes), pour ne pas gonfler la cagnotte
+        return $fee !== null ? (int) $fee : (int) round($amount * 0.029) + 30;
     }
 
     private function account(string $seller): ?string
