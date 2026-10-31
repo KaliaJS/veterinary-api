@@ -2312,4 +2312,140 @@ class VideoSafeguardsTest extends TestCase
         $this->assertSame('draft', $video->refresh()->status->value);
         $this->assertNull($video->withdrawn_at);
     }
+
+    /* ————— Dixième vérification (31.10.2026) ————— */
+
+    private function eraseSeller(array $vet): void
+    {
+        $vet['user']->refresh()->forceFill(['suppression_demandee_le' => now()->subDays(31)])->save();
+        $this->assertTrue(app(SuppressionCompte::class)->effacer($vet['user']));
+        $this->travel(2)->minutes();
+    }
+
+    public function test_un_paiement_ouvert_la_veille_n_empeche_pas_d_effacer_la_video_et_s_annule(): void
+    {
+        $vet = $this->verifiedVet();
+        $sale = $this->published([], $vet);
+        $video = Video::query()->sole();
+        $buyer = $this->proprietaireAvecJeton();
+        $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase", ['accept_terms' => true], $this->enTetes($buyer['jeton']))->assertOk();
+        $purchase = VideoPurchase::query()->sole();
+
+        $this->eraseSeller($vet);
+
+        $this->assertNull(Video::query()->find($video->id));
+        $this->assertSame([], Storage::disk('prive')->allFiles($video->folder()));
+        $this->assertSame('canceled', $this->gateway->pourCompte($purchase->stripe_account_id)->lireIntention($purchase->payment_intent_id)['statut']);
+    }
+
+    public function test_un_paiement_ouvert_mais_deja_paye_garde_la_video_a_son_acheteur(): void
+    {
+        $vet = $this->verifiedVet();
+        $sale = $this->published([], $vet);
+        $buyer = $this->proprietaireAvecJeton();
+        $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase", ['accept_terms' => true], $this->enTetes($buyer['jeton']))->assertOk();
+        // Payé chez Stripe, le webhook pas encore arrivé
+        $this->gateway->conclure(VideoPurchase::query()->sole()->payment_intent_id, 'succeeded');
+
+        $this->eraseSeller($vet);
+
+        $video = Video::query()->sole();
+        $this->assertSame('withdrawn', $video->status->value);
+        $this->assertNotNull(VideoPurchase::query()->sole()->paid_at);
+        $this->play($buyer['jeton'], $sale['id'])->assertOk()->assertJsonPath('data.scope', 'full');
+        $this->getJson("/api/v1/espace/videos/{$sale['id']}", $this->enTetes($buyer['jeton']))->assertJsonPath('data.seller.kind', 'vet');
+    }
+
+    public function test_le_compte_de_paiement_du_vendeur_efface_se_ferme_et_une_trace_ne_le_garde_pas(): void
+    {
+        $vet = $this->verifiedVet();
+        $account = $vet['user']->stripe_account_id;
+        $this->eraseSeller($vet);
+        $this->assertSame([$account], $this->gateway->comptesFermes);
+
+        // Un ancien membre d'équipe : sa trace reste, sans son compte de paiement
+        $member = $this->verifiedVet();
+        Employe::factory()->create(['user_id' => $member['user']->id, 'acces_suspendu' => true]);
+        $memberAccount = $member['user']->stripe_account_id;
+        $this->eraseSeller($member);
+        $trace = User::query()->findOrFail($member['user']->id);
+        $this->assertNull($trace->stripe_account_id);
+        $this->assertNull($trace->stripe_account_ready_at);
+        $this->assertContains($memberAccount, $this->gateway->comptesFermes);
+    }
+
+    public function test_qui_a_tout_vu_sans_demander_son_certificat_le_recoit_avant_que_la_fiche_se_vide(): void
+    {
+        $vet = $this->verifiedVet();
+        $sale = $this->published(['in_plus' => true], $vet);
+        $plus = $this->proprietaireAvecJeton(['formule' => 'plus']);
+        $other = $this->proprietaireAvecJeton(['formule' => 'plus']);
+        $this->watchAll($plus['jeton'], $sale['id']);
+        $this->play($other['jeton'], $sale['id'])->assertOk();
+        $video = Video::query()->sole();
+        VideoPurchase::query()->create([
+            'video_id' => $video->id, 'user_id' => $other['user']->id, 'amount_cents' => 1500, 'commission_cents' => 450,
+            'stripe_account_id' => 'acct_vet', 'terms_accepted_at' => now()->subDays(3), 'updated_at' => now()->subDays(3),
+        ]);
+
+        $this->eraseSeller($vet);
+
+        $this->assertSame([$plus['user']->id], ViewingCertificate::query()->pluck('user_id')->all());
+        $video->refresh();
+        $this->assertNull($video->title);
+        $this->assertNull($video->description);
+        $this->assertFalse($video->in_plus);
+        $this->assertSame('rejected', $video->files_status->value);
+        $this->assertSame(0, VideoView::query()->count());
+        $this->assertSame(0, VideoPurchase::query()->count());
+        $this->getJson('/api/v1/public/certificates/'.ViewingCertificate::query()->sole()->code)->assertOk();
+    }
+
+    public function test_une_video_achetee_d_un_vendeur_efface_ne_se_remet_pas_en_vente_toute_seule(): void
+    {
+        $vet = $this->verifiedVet();
+        $video = $this->readyDraft($vet);
+        $this->paidBuyer($video);
+        $video->forceFill(['publish_requested_at' => now(), 'publish_requested_by' => $vet['user']->id])->save();
+
+        $this->eraseSeller($vet);
+
+        $this->assertNull($video->refresh()->publish_requested_at);
+    }
+
+    public function test_un_controle_rejoue_sur_une_video_deja_relue_ne_relit_rien(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->upload($vet['jeton'], $id, $this->hlsPackage());
+        $this->finish($vet['jeton'], $id)->assertOk();
+        $this->assertNotNull(Video::query()->sole()->files_checked_at);
+        Queue::fake();
+
+        $this->finish($vet['jeton'], $id)->assertOk();
+
+        Queue::assertNothingPushed();
+    }
+
+    public function test_tout_proprietaire_regarde_l_apercu_et_achete_une_video_de_clinique_et_seul_l_acheteur_telecharge(): void
+    {
+        ['jeton' => $jeton] = $this->clinicSeller();
+        $video = $this->readyDraft(['jeton' => $jeton], '/api/v1/videos');
+        $video->forceFill(['files_checked_at' => now(), 'in_plus' => true])->save();
+        $this->postJson("/api/v1/videos/{$video->uuid}/publish", [], $this->enTetes($jeton))->assertOk();
+        $stranger = $this->proprietaireAvecJeton();
+        $this->play($stranger['jeton'], $video->uuid)->assertOk()->assertJsonPath('data.scope', 'preview');
+        $this->postJson("/api/v1/espace/videos/{$video->uuid}/purchase", ['accept_terms' => true], $this->enTetes($stranger['jeton']))->assertOk();
+
+        // Un abonné Plus regarde en entier, mais ne télécharge pas : le téléchargement est aux acheteurs
+        $plus = $this->proprietaireAvecJeton(['formule' => 'plus']);
+        $this->play($plus['jeton'], $video->uuid)->assertJsonPath('data.scope', 'full');
+        $this->getJson("/api/v1/espace/videos/{$video->uuid}/download", $this->enTetes($plus['jeton']))->assertNotFound();
+    }
+
+    public function test_le_verrou_de_la_relecture_couvre_aussi_la_derniere_passe(): void
+    {
+        $job = new RecheckVideoFiles(1, 'final');
+        $this->assertGreaterThanOrEqual(2 * 3600 + $job->tries * $job->timeout + array_sum($job->backoff), $job->uniqueFor);
+    }
 }

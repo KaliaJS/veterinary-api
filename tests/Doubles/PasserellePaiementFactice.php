@@ -282,6 +282,15 @@ class PasserellePaiementFactice implements PasserellePaiement
         return $id;
     }
 
+    /** @var list<string> comptes de vendeurs fermés */
+    public array $comptesFermes = [];
+
+    public function fermerCompteVendeur(string $compte): void
+    {
+        $this->noter(__FUNCTION__, $compte, null, plateforme: true);
+        $this->comptesFermes[] = $compte;
+    }
+
     /** Le prestataire ne montre pas encore les versements tout juste faits (quelques secondes) */
     public bool $versementsPasEncoreVisibles = false;
 

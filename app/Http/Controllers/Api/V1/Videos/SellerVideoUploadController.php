@@ -120,8 +120,11 @@ abstract class SellerVideoUploadController extends SellerVideoController
         // Déjà contrôlée (la réponse s'est perdue, l'écran redemande le contrôle) : on rend ce qui est,
         // sans rien relire ni effacer (la version à télécharger y est peut-être déjà)
         if ($model->files_status === VideoFilesStatus::Ready) {
-            // La première requête a pu s'arrêter avant de lancer ses tâches : relancées, elles sont uniques
-            $this->dispatchChecks($model);
+            // La première requête a pu s'arrêter avant de lancer ses tâches (jamais relue) : relancées,
+            // elles sont uniques ; déjà relue, rien ne repart (un rejeu ne relit pas tout le paquet)
+            if ($model->files_checked_at === null) {
+                $this->dispatchChecks($model);
+            }
 
             return VideoResource::seenBy($model, 'seller', true);
         }

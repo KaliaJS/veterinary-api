@@ -15,11 +15,16 @@ use App\Models\MessageClientele;
 use App\Models\Patient;
 use App\Models\User;
 use App\Models\Video;
+use App\Models\VideoPurchase;
+use App\Models\VideoView;
 use App\Notifications\CodeSuppressionCompte;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserelleIdentite;
+use App\Paiements\PasserellePaiement;
 use App\Services\Abonnements\AbonnementSaas;
+use App\Services\Videos\VideoPurchases;
+use App\Services\Videos\ViewingCertificates;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -69,6 +74,8 @@ class SuppressionCompte
         private AbonnementSaas $abonnements,
         private PasserelleAbonnement $stripe,
         private PasserelleIdentite $identite,
+        private PasserellePaiement $paiements,
+        private VideoPurchases $achatsVideos,
     ) {}
 
     /** Un code neuf, cinq essais neufs ; aucun e-mail pour l'adresse de revue. Rend vrai si un e-mail est parti. */
@@ -206,6 +213,12 @@ class SuppressionCompte
             }
         }
 
+        // Vendeur de vidéos (31.10.2026, dixième vérification) : les paiements encore ouverts sur ses
+        // vidéos, relus chez Stripe (payés : la vidéo reste à l'acheteur), sinon annulés, pour qu'aucun
+        // vieil onglet ne paie une vidéo qui s'efface ; puis son compte de paiement fermé. En panne
+        // passagère ou clé refusée, le compte attend la nuit suivante ; un refus est signalé
+        $this->solderVentes($user);
+
         // Le client supprimé chez Stripe emporte ses cartes : un seul appel,
         // qu'une panne laisse à refaire tel quel la nuit suivante
         $clientSupprime = false;
@@ -291,6 +304,36 @@ class SuppressionCompte
         return true;
     }
 
+    /** Les paiements ouverts sur ses vidéos, puis son compte de paiement de vendeur. */
+    private function solderVentes(User $user): void
+    {
+        $ouverts = VideoPurchase::query()->whereNull('paid_at')->whereNotNull('payment_intent_id')
+            ->whereHas('video', fn ($video) => $video->where('seller_user_id', $user->id))->get();
+        foreach ($ouverts as $achat) {
+            if ($this->achatsVideos->confirm($achat)['paid']) {
+                continue;
+            }
+            $this->sansPanne(fn () => $this->paiements->pourCompte($achat->stripe_account_id)->annulerIntention((string) $achat->payment_intent_id));
+        }
+        if ($user->stripe_account_id) {
+            $compte = $user->stripe_account_id;
+            $this->sansPanne(fn () => $this->paiements->pourCompte(null)->fermerCompteVendeur($compte));
+        }
+    }
+
+    /** Un appel au prestataire : une panne passagère ou une clé refusée fait attendre la nuit suivante, un refus est signalé. */
+    private function sansPanne(callable $appel): void
+    {
+        try {
+            $appel();
+        } catch (ErreurPaiement $e) {
+            if ($e->estPassagere() || $e->cleRefusee()) {
+                throw $e;
+            }
+            report($e);
+        }
+    }
+
     /**
      * Ses vidéos de vendeur. Sans acheteur, elles s'effacent avec leurs
      * fichiers (la fiche reste vide si des certificats délivrés s'y
@@ -304,7 +347,8 @@ class SuppressionCompte
     {
         $dossiers = [];
         foreach (Video::query()->where('seller_user_id', $user->id)->get() as $video) {
-            if ($video->hasBuyers()) {
+            // Acheteurs payés seulement : les paiements ouverts viennent d'être relus ou annulés
+            if ($video->purchases()->whereNotNull('paid_at')->exists()) {
                 $video->update([
                     'status' => $video->status === VideoStatus::Published ? VideoStatus::Withdrawn : $video->status,
                     'withdrawn_at' => $video->status === VideoStatus::Published ? now() : $video->withdrawn_at,
@@ -314,7 +358,23 @@ class SuppressionCompte
                 continue;
             }
             $dossiers[] = $video->folder();
+            // Qui l'a vue en entier sans avoir encore demandé son certificat le reçoit : il le garde
+            $certifies = $video->certificates()->pluck('user_id')->all();
+            $video->views()->whereNotNull('completed_at')->whereNotIn('user_id', $certifies)->get()
+                ->each(function (VideoView $view) use ($video): void {
+                    $personne = User::query()->find($view->user_id);
+                    if ($personne === null) {
+                        return;
+                    }
+                    try {
+                        app(ViewingCertificates::class)->issue($video, $personne);
+                    } catch (ValidationException) {
+                        // Sa propre vidéo, ou plus regardable : pas de certificat
+                    }
+                });
             $video->views()->delete();
+            // Des intentions jamais payées (annulées plus haut, ou de plus d'un jour) : elles ne retiennent rien
+            $video->purchases()->delete();
             if ($video->certificates()->exists()) {
                 $video->update([
                     'status' => VideoStatus::Withdrawn, 'withdrawn_at' => $video->withdrawn_at ?? now(), 'files_status' => VideoFilesStatus::Rejected,
@@ -323,8 +383,6 @@ class SuppressionCompte
                     'publish_requested_at' => null, 'publish_requested_by' => null,
                 ]);
             } else {
-                // Des intentions jamais payées (plus d'un jour) : elles ne retiennent rien
-                $video->purchases()->delete();
                 $video->delete();
             }
         }
@@ -386,6 +444,8 @@ class SuppressionCompte
             'est_moderateur' => false, 'presentation' => null, 'langues' => null, 'annuaire_accord_le' => null, 'code_employe' => null,
             'formule' => 'gratuit', 'apple_compte' => null, 'apple_abonnement_id' => null, 'apple_fin' => null, 'apple_renouvelle' => null, 'apple_signe_le' => null,
             'stripe_client_id' => null, 'stripe_moyen_paiement_id' => null, 'moyen_paiement' => null, 'carte_expire_le' => null, 'carte_alertee_le' => null,
+            // Son compte de paiement de vendeur, fermé chez le prestataire (31.10.2026)
+            'stripe_account_id' => null, 'stripe_account_ready_at' => null,
             'statut_abonnement' => null, 'periode_fin' => null, 'periode_debut' => null, 'ancre_jour' => null, 'tentatives' => 0,
             'prochaine_tentative_le' => null, 'resilie_le' => null,
         ])->save();

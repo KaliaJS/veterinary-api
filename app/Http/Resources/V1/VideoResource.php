@@ -66,7 +66,7 @@ class VideoResource extends JsonResource
             'duration_seconds' => $this->duration_seconds === null ? null : (float) $this->duration_seconds,
             'width' => $this->width,
             'height' => $this->height,
-            'seller' => ['name' => $this->seller_name, 'kind' => $this->seller_user_id !== null ? 'vet' : 'clinic'],
+            'seller' => ['name' => $this->seller_name, 'kind' => $this->seller_clinique_id !== null ? 'clinic' : 'vet'],
             'published_at' => $this->published_at?->toIso8601String(),
             'access' => $access,
             'can_download' => $access === 'owned' && $this->download_path !== null,

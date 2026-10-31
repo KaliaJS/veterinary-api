@@ -165,6 +165,18 @@ class PasserelleStripeRequetesTest extends TestCase
         $this->assertNull($plateforme->versementDuGroupe('plus-pool-user-1-autre'));
     }
 
+    public function test_le_compte_de_paiement_d_un_vendeur_efface_se_ferme_au_niveau_de_la_plateforme(): void
+    {
+        $this->http->repondre(['id' => 'acct_vendeur', 'object' => 'v2.core.account', 'closed' => true]);
+
+        $this->passerelle()->fermerCompteVendeur('acct_vendeur');
+
+        $fermeture = $this->http->derniere();
+        $this->assertSame(['post', '/v2/core/accounts/acct_vendeur/close', 'v2'], [strtolower($fermeture['methode']), $fermeture['chemin'], $fermeture['mode']]);
+        $this->assertSame(['merchant', 'recipient'], $fermeture['params']['applied_configurations']);
+        $this->assertArrayNotHasKey('Stripe-Account', $fermeture['entetes']);
+    }
+
     public function test_un_remboursement_partiel_ou_entier_ne_rend_jamais_la_commission(): void
     {
         $this->passerelle()->rembourser('pi_entier', 'rendu-1');

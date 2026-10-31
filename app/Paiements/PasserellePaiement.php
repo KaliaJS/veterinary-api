@@ -118,6 +118,13 @@ interface PasserellePaiement
      */
     public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees, ?string $groupe = null): string;
 
+    /**
+     * Ferme le compte de paiement d'un vendeur dont le compte Veterinary est
+     * effacé (31.10.2026, dixième vérification) : ses données (identité,
+     * IBAN) ne restent pas ouvertes chez le prestataire.
+     */
+    public function fermerCompteVendeur(string $compte): void;
+
     /** Le versement déjà fait sous ce groupe, s'il existe (une réponse perdue en route). */
     public function versementDuGroupe(string $groupe): ?string;
 

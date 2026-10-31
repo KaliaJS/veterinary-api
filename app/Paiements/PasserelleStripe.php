@@ -276,6 +276,12 @@ class PasserelleStripe implements PasserellePaiement
         return $versement->id;
     }
 
+    public function fermerCompteVendeur(string $compte): void
+    {
+        // Les deux configurations ouvertes à la création : encaisser (merchant) et recevoir des virements (recipient)
+        $this->appel(fn () => $this->client->v2->core->accounts->close($compte, ['applied_configurations' => ['merchant', 'recipient']]));
+    }
+
     public function versementDuGroupe(string $groupe): ?string
     {
         $trouves = $this->appel(fn () => $this->client->transfers->all(['transfer_group' => $groupe, 'limit' => 1]));

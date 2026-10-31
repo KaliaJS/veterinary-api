@@ -44,8 +44,8 @@ class RecheckVideoFiles implements ShouldBeUnique, ShouldQueue
     /** Trois heures de vidéo, chaque morceau relu en entier : largement de quoi faire */
     public int $timeout = 900;
 
-    /** Le verrou couvre tous les essais et leurs attentes (un peu plus de deux heures), puis tombe de lui-même */
-    public int $uniqueFor = 10800;
+    /** Le verrou couvre l'attente de la passe « final » (deux heures), tous les essais et leurs attentes, puis tombe de lui-même */
+    public int $uniqueFor = 21600;
 
     /** Une panne du stockage : on réessaie dans 5, 15 puis 45 minutes */
     public array $backoff = [300, 900, 2700];
