@@ -102,7 +102,7 @@ class VideoPurchases
 
     /**
      * Une intention de cet achat, relue chez le prestataire sur le compte qui
-     * l'a reçue : payée, l'achat l'est aussi (avec le montant réellement payé).
+     * l'a reçue : payée, l'achat l'est aussi.
      */
     private function settle(VideoPurchase $purchase, string $intentId, ?string $account = null): bool
     {

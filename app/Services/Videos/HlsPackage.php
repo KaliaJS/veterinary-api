@@ -27,13 +27,16 @@ class HlsPackage
 
     private const MAX_RENDITIONS = 3;
 
+    /** Ce qu'on lit au début d'un morceau : ses boîtes styp, sidx et moof (quelques Ko) */
+    private const HEAD_BYTES = 16384;
+
     public function __construct(private VideoStorage $storage) {}
 
     /**
      * Vérifie le dossier de la vidéo. Rend les qualités et la durée, ou la
      * raison du refus, dite à son vendeur.
      *
-     * @return array{ok: true, duration: float, width: int, height: int, size: int, download_bytes: int, renditions: list<array<string, mixed>>}|array{ok: false, reason: string}
+     * @return array{ok: true, duration: float, width: int, height: int, size: int, download_bytes: int, renditions: list<array<string, mixed>>}|array{ok: false, reason: string, transient?: true}
      */
     public function inspect(Video $video, array $keep = []): array
     {
@@ -45,7 +48,11 @@ class HlsPackage
             return $this->refuse('La liste de lecture principale est trop lourde.');
         }
 
-        $variants = $this->parseMaster((string) $this->storage->read($video, self::MASTER));
+        $masterText = $this->storage->read($video, self::MASTER);
+        if ($masterText === null) {
+            return $this->unavailable();
+        }
+        $variants = $this->parseMaster($masterText);
         if (is_string($variants)) {
             return $this->refuse($variants);
         }
@@ -57,7 +64,11 @@ class HlsPackage
             if (! isset($files[$playlist]) || $files[$playlist] > self::MAX_PLAYLIST_BYTES) {
                 return $this->refuse('Une liste de lecture manque : renvoyez la vidéo.');
             }
-            $media = $this->parseMedia((string) $this->storage->read($video, $playlist));
+            $playlistText = $this->storage->read($video, $playlist);
+            if ($playlistText === null) {
+                return $this->unavailable();
+            }
+            $media = $this->parseMedia($playlistText);
             if (is_string($media)) {
                 return $this->refuse($media);
             }
@@ -65,17 +76,35 @@ class HlsPackage
             if (! isset($files[$init]) || $files[$init] > self::MAX_INIT_BYTES) {
                 return $this->refuse('Le début d’une qualité manque : renvoyez la vidéo.');
             }
-            $tracks = Mp4InitReader::read((string) $this->storage->read($video, $init));
+            $initBytes = $this->storage->read($video, $init);
+            if ($initBytes === null) {
+                return $this->unavailable();
+            }
+            $tracks = Mp4InitReader::read($initBytes);
             $picture = $tracks === null ? null : $this->picture($tracks);
             if (is_string($picture) || $picture === null) {
                 return $this->refuse($picture ?? 'Ce fichier n’est pas une vidéo MP4 lisible.');
             }
             $bytes = $files[$playlist] + $files[$init];
             // Quelques morceaux relus : un vrai fragment MP4, pas n'importe quel fichier
+            $heads = [];
             foreach ($this->sample($media['segments']) as $segment) {
-                if (isset($files[$segment['uri']]) && ! $this->isFragment($this->storage->readHead($video, $segment['uri'], 8))) {
+                if (! isset($files[$segment['uri']])) {
+                    continue;
+                }
+                $head = $this->storage->readHead($video, $segment['uri'], self::HEAD_BYTES);
+                if ($head === '') {
+                    return $this->unavailable();
+                }
+                if (! $this->isFragment($head)) {
                     return $this->refuse('Un morceau de la vidéo n’est pas lisible : renvoyez la vidéo.');
                 }
+                $heads[$segment['uri']] = $head;
+            }
+            // La vraie durée, lue dans les morceaux (début du premier et du dernier), pas seulement annoncée
+            $duration = $this->checkDuration($media['segments'], $heads, $picture);
+            if ($duration !== null) {
+                return $this->refuse($duration);
             }
             foreach ($media['segments'] as $segment) {
                 if (! isset($files[$segment['uri']])) {
@@ -251,8 +280,8 @@ class HlsPackage
     /**
      * Une piste vidéo H.264 de 1080p au plus, et au plus une piste de son AAC.
      *
-     * @param  list<array{handler: ?string, codec: ?string, width: ?int, height: ?int}>  $tracks
-     * @return array{width: int, height: int, audio: bool}|string
+     * @param  list<array{handler: ?string, codec: ?string, width: ?int, height: ?int, track_id: ?int, timescale: ?int}>  $tracks
+     * @return array{width: int, height: int, audio: bool, track_id: int, timescale: int}|string
      */
     private function picture(array $tracks): array|string
     {
@@ -261,7 +290,8 @@ class HlsPackage
         if (count($video) !== 1 || count($audio) > 1 || count($tracks) !== count($video) + count($audio)) {
             return 'Chaque qualité doit avoir une image et au plus un son.';
         }
-        if (! in_array($video[0]['codec'], ['avc1', 'avc3'], true)) {
+        // avc1 seulement : sa taille d'image est dans l'en-tête que l'on contrôle (avc3 la porte dans le flux)
+        if ($video[0]['codec'] !== 'avc1') {
             return 'La vidéo doit être en H.264 : renvoyez-la depuis Veterinary.';
         }
         if ($audio !== [] && $audio[0]['codec'] !== 'mp4a') {
@@ -276,7 +306,38 @@ class HlsPackage
             return 'Une vidéo est en 1080p au plus.';
         }
 
-        return ['width' => $width, 'height' => $height, 'audio' => $audio !== []];
+        return [
+            'width' => $width, 'height' => $height, 'audio' => $audio !== [],
+            'track_id' => (int) $video[0]['track_id'], 'timescale' => (int) $video[0]['timescale'],
+        ];
+    }
+
+    /**
+     * Le temps écoulé entre le début du premier et du dernier morceau, lu dans
+     * leurs boîtes tfdt, doit être celui que la liste annonce (à 2 s près).
+     *
+     * @param  list<array{uri: string, duration: float}>  $segments
+     * @param  array<string, string>  $heads
+     * @param  array{track_id: int, timescale: int}  $picture
+     */
+    private function checkDuration(array $segments, array $heads, array $picture): ?string
+    {
+        $first = $segments[0] ?? null;
+        $last = $segments[count($segments) - 1] ?? null;
+        if ($first === null || $last === null || ! isset($heads[$first['uri']], $heads[$last['uri']])) {
+            return null;
+        }
+        $start = Mp4InitReader::fragmentStart($heads[$first['uri']], $picture['track_id']);
+        $end = Mp4InitReader::fragmentStart($heads[$last['uri']], $picture['track_id']);
+        if ($start === null || $end === null || $picture['timescale'] <= 0) {
+            return 'Un morceau de la vidéo n’est pas lisible : renvoyez la vidéo.';
+        }
+        $declared = array_sum(array_column($segments, 'duration')) - $last['duration'];
+        if (abs(($end - $start) / $picture['timescale'] - $declared) > self::DURATION_TOLERANCE) {
+            return 'La durée annoncée ne correspond pas à la vidéo : renvoyez-la depuis Veterinary.';
+        }
+
+        return null;
     }
 
     /** @return list<string> */
@@ -301,5 +362,15 @@ class HlsPackage
     private function refuse(string $reason): array
     {
         return ['ok' => false, 'reason' => $reason];
+    }
+
+    /**
+     * Le stockage n'a pas répondu : rien n'est jugé, rien ne s'efface, on réessaiera.
+     *
+     * @return array{ok: false, reason: string, transient: true}
+     */
+    private function unavailable(): array
+    {
+        return ['ok' => false, 'reason' => 'Le stockage ne répond pas pour le moment : réessayez dans un instant.', 'transient' => true];
     }
 }

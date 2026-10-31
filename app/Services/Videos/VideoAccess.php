@@ -23,7 +23,8 @@ class VideoAccess
         if ($video->isOwnedBy($user)) {
             return 'owned';
         }
-        if ($video->status !== VideoStatus::Published || ! $video->isForAudienceOf($user)) {
+        // Ni aperçu ni Plus d'un vendeur qui ne vend plus ; ceux qui ont acheté gardent leur vidéo
+        if ($video->status !== VideoStatus::Published || ! $video->isForAudienceOf($user) || ! $video->isSellerEligible()) {
             return null;
         }
         if ($video->in_plus && $video->audience?->includesOwners() && $user->aPlus()) {

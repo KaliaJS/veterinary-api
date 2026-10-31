@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Auth\CalculateurPermissions;
+use App\Enums\DomainePermission;
+use App\Enums\StatutVerificationVeterinaire;
 use App\Enums\VideoAudience;
 use App\Enums\VideoFilesStatus;
 use App\Enums\VideoStatus;
@@ -48,7 +51,7 @@ class Video extends Model
         'uuid', 'seller_user_id', 'seller_clinique_id', 'organisation_id', 'seller_name', 'created_by_user_id',
         'title', 'description', 'price_cents', 'audience', 'in_plus', 'status', 'files_status', 'rejection_reason',
         'duration_seconds', 'width', 'height', 'size_bytes', 'renditions', 'download_path',
-        'files_verified_at', 'published_at', 'withdrawn_at',
+        'files_verified_at', 'published_at', 'withdrawn_at', 'upload_started_at', 'upload_expected_bytes',
     ];
 
     protected static function booted(): void
@@ -68,6 +71,7 @@ class Video extends Model
             'duration_seconds' => 'decimal:3',
             'renditions' => 'array',
             'files_verified_at' => 'datetime',
+            'upload_started_at' => 'datetime',
             'published_at' => 'datetime',
             'withdrawn_at' => 'datetime',
         ];
@@ -132,13 +136,24 @@ class Video extends Model
     }
 
     /**
-     * Les organisations où travaille la personne (une seule requête pour une liste).
+     * Les organisations dont la personne gère les vidéos : employée active (accès
+     * ouvert, contrat en cours) avec le droit Administration. Les autres membres
+     * de l'équipe sont des spectateurs comme les autres.
      *
      * @return list<int>
      */
     public static function organisationsOf(User $user): array
     {
-        return Employe::withoutGlobalScopes()->where('user_id', $user->id)->pluck('organisation_id')->map(fn ($id) => (int) $id)->all();
+        $calculator = app(CalculateurPermissions::class);
+
+        return Employe::withoutGlobalScopes()
+            ->where('user_id', $user->id)
+            ->where('acces_suspendu', false)
+            ->where(fn (Builder $contract) => $contract->whereNull('fin_contrat_le')->orWhereDate('fin_contrat_le', '>=', now('Europe/Zurich')->toDateString()))
+            ->get()
+            ->filter(fn (Employe $employe) => in_array(DomainePermission::Organisation->value, $calculator->pour($employe), true))
+            ->map(fn (Employe $employe) => (int) $employe->organisation_id)
+            ->unique()->values()->all();
     }
 
     /** Vendue par ce vétérinaire en son nom, ou par cette clinique. */
@@ -177,7 +192,25 @@ class Video extends Model
             $audiences[] = VideoAudience::Vets->value;
         }
 
-        return $query->where('status', VideoStatus::Published->value)->whereIn('audience', $audiences);
+        return $query->where('status', VideoStatus::Published->value)->whereIn('audience', $audiences)
+            // Un vendeur qui ne vend plus (vérification perdue, organisation fermée) sort du catalogue
+            ->where(fn (Builder $seller) => $seller
+                ->whereHas('sellerUser', fn (Builder $vet) => $vet->where('verification_veterinaire', StatutVerificationVeterinaire::Verifie->value))
+                ->orWhereHas('organisation', fn (Builder $organisation) => $organisation->ouvertes()));
+    }
+
+    /** Le vendeur vend-il encore : vétérinaire vérifié, ou organisation ouverte. */
+    public function isSellerEligible(): bool
+    {
+        return $this->seller_user_id !== null
+            ? (bool) $this->sellerUser?->estVerifie()
+            : (bool) $this->organisation?->estOuverte();
+    }
+
+    /** @return BelongsTo<Organisation, $this> */
+    public function organisation(): BelongsTo
+    {
+        return $this->belongsTo(Organisation::class);
     }
 
     /** Destinée à cette personne : le même filtre que le catalogue, pour une seule vidéo. */

@@ -433,6 +433,8 @@ class WatchingVideosTest extends TestCase
         $this->play($vet['jeton'], $sale['id'])->assertOk();
         $this->watch($vet['jeton'], $sale['id'], 0, 100)->assertJsonPath('data.completed', false);
         $this->postJson($certificate, [], $this->enTetes($vet['jeton']))->assertUnprocessable()->assertJsonValidationErrors('certificat');
+        // 169 secondes sur 180 : 94 %, pas encore en entier
+        $this->watch($vet['jeton'], $sale['id'], 100, 169)->assertJsonPath('data.completed', false);
         // 171 secondes sur 180 : 95 %
         $this->watch($vet['jeton'], $sale['id'], 100, 171)->assertJsonPath('data.completed', true);
 
@@ -442,6 +444,7 @@ class WatchingVideosTest extends TestCase
             ->assertJsonPath('data.video_title', 'Nourrir un chat senior')
             ->assertJsonPath('data.seller_name', Video::query()->sole()->seller_name)
             ->assertJsonPath('data.duration_seconds', 180)
+            ->assertJsonPath('data.watched_at', VideoView::query()->where('user_id', $vet['user']->id)->sole()->completed_at->toIso8601String())
             ->assertJsonStructure(['data' => ['code', 'watched_at']]);
 
         // La vidéo ouverte dit où il en est, et son certificat

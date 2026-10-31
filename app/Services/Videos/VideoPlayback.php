@@ -17,6 +17,9 @@ class VideoPlayback
     /** Une lecture reste ouverte 8 heures : une vidéo de 3 heures, avec des pauses. */
     public const HOURS = 8;
 
+    /** L'aperçu finit au morceau qui passe la minute, mais jamais plus de 6 secondes au-delà */
+    private const PREVIEW_OVERRUN = 6;
+
     public function __construct(private VideoStorage $storage) {}
 
     /** L'adresse de la liste maîtresse pour cette lecture : 'full' ou 'preview'. */
@@ -65,8 +68,9 @@ class VideoPlayback
             } elseif (str_starts_with($line, '#EXTINF:')) {
                 $info = $line;
             } elseif (! str_starts_with($line, '#')) {
-                // L'aperçu s'arrête après la première minute
-                if ($scope === 'preview' && $elapsed >= Video::PREVIEW_SECONDS) {
+                // L'aperçu s'arrête après la première minute, sans longs morceaux qui l'allongeraient
+                $length = $info === null ? 0.0 : (float) explode(',', substr($info, strlen('#EXTINF:')))[0];
+                if ($scope === 'preview' && ($elapsed >= Video::PREVIEW_SECONDS || ($elapsed > 0 && $elapsed + $length > Video::PREVIEW_SECONDS + self::PREVIEW_OVERRUN))) {
                     break;
                 }
                 if ($info === null || ! VideoStorage::isValidName($line)) {

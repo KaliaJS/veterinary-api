@@ -91,6 +91,9 @@ class PasserelleStripeRequetesTest extends TestCase
         $this->assertSame(['post', '/v2/core/accounts', 'v2'], [$creation['methode'], $creation['chemin'], $creation['mode']]);
         // Frais et pertes chez le prestataire, jamais chez Veterinary
         $this->assertSame(['fees_collector' => 'stripe', 'losses_collector' => 'stripe'], $creation['params']['defaults']['responsibilities']);
+        // Recevoir les virements de la cagnotte Plus : configuration « recipient »
+        $this->assertTrue($creation['params']['configuration']['recipient']['capabilities']['stripe_balance']['stripe_transfers']['requested']);
+        $this->assertTrue($creation['params']['configuration']['merchant']['capabilities']['card_payments']['requested']);
         $this->assertSame('/v1/accounts/acct_autre', $lecture['chemin']);
         $this->assertSame('acct_autre', $session['params']['account']);
         // Sans le droit de rembourser, ni remboursement ni litige dans le composant

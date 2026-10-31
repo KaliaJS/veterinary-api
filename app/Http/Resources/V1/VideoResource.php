@@ -76,7 +76,7 @@ class VideoResource extends JsonResource
             $data['files_status'] = $this->files_status->value;
             $data['rejection_reason'] = $this->rejection_reason;
             $data['size_bytes'] = (int) $this->size_bytes;
-            $data['sales_count'] = $this->purchases()->whereNotNull('paid_at')->count();
+            $data['sales_count'] = $this->sales_count ?? $this->purchases()->whereNotNull('paid_at')->count();
         }
 
         return $data;

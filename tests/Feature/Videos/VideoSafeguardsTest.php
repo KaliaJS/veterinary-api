@@ -6,15 +6,17 @@ use App\Enums\StatutVerificationVeterinaire;
 use App\Enums\VerificationOrganisation;
 use App\Jobs\RecheckVideoFiles;
 use App\Models\Clinique;
-use App\Models\User;
+use App\Models\Employe;
 use App\Models\Video;
 use App\Models\VideoPurchase;
 use App\Models\VideoView;
 use App\Paiements\PasserellePaiement;
+use App\Services\Videos\HlsPackage;
 use App\Services\Videos\VideoStorage;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Tests\Concerns\BuildsHlsPackages;
@@ -406,23 +408,258 @@ class VideoSafeguardsTest extends TestCase
         $this->assertSame(0, Video::query()->count());
     }
 
-    public function test_un_employe_de_la_clinique_qui_vend_regarde_en_vendeur_sans_compter_de_vue_plus(): void
+    public function test_qui_gere_les_videos_de_la_clinique_regarde_en_vendeur_les_autres_membres_comme_tout_le_monde(): void
     {
         ['clinique' => $clinique, 'jeton' => $jeton] = $this->clinicSeller();
         $id = $this->draft($jeton, '/api/v1/videos');
         $this->upload($jeton, $id, $this->hlsPackage(120), '/api/v1/videos');
         $this->finish($jeton, $id, '/api/v1/videos')->assertOk();
+
+        // Un autre administrateur de l'organisation, abonné à Plus : côté vendeur, ses vues ne comptent pas
+        ['user' => $admin, 'jeton' => $adminJeton] = $this->administrateurAvecJeton($clinique);
+        $admin->forceFill(['formule' => 'plus'])->save();
+        $this->play($adminJeton, $id)->assertJsonPath('data.access', 'seller');
+
+        // Un simple membre de l'équipe ne voit pas le brouillon
+        ['user' => $employe, 'jeton' => $employeJeton] = $this->employeAvecJeton($clinique);
+        $employe->forceFill(['formule' => 'plus'])->save();
+        $this->play($employeJeton, $id)->assertNotFound();
+
+        // En vente et incluse dans Plus : il la regarde comme tout abonné, et sa vue compte
+        $this->patchJson("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners', 'in_plus' => true], $this->enTetes($jeton))->assertOk();
+        $this->postJson("/api/v1/videos/{$id}/publish", [], $this->enTetes($jeton))->assertOk();
+        $this->play($employeJeton, $id)->assertJsonPath('data.access', 'plus');
+        for ($at = 0; $at < 90; $at += 15) {
+            $this->travel(15)->seconds();
+            $this->progress($adminJeton, $id, [[$at, $at + 15]]);
+        }
+        $this->assertFalse((bool) VideoView::query()->where('user_id', $admin->id)->value('counted_via_plus'));
+
+        // Accès suspendu : plus du côté du vendeur
+        Employe::withoutGlobalScopes()->where('user_id', $admin->id)->update(['acces_suspendu' => true]);
+        $this->assertFalse(Video::query()->sole()->isOnSellerSide($admin->refresh()));
+    }
+
+    // ————— Deuxième vérification —————
+
+    public function test_une_video_de_clinique_ne_se_publie_ni_par_un_administrateur_non_verifie_ni_dans_une_organisation_fermee(): void
+    {
+        ['clinique' => $clinique, 'jeton' => $jeton] = $this->clinicSeller();
+        $id = $this->draft($jeton, '/api/v1/videos');
+        $this->upload($jeton, $id, $this->hlsPackage(), '/api/v1/videos');
+        $this->finish($jeton, $id, '/api/v1/videos')->assertOk();
+        $this->patchJson("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners'], $this->enTetes($jeton))->assertOk();
+
+        ['user' => $other, 'jeton' => $otherJeton] = $this->administrateurAvecJeton($clinique);
+        $this->postJson("/api/v1/videos/{$id}/publish", [], $this->enTetes($otherJeton))->assertUnprocessable()->assertJsonValidationErrors('vendeur');
+        $this->assertNotNull($other);
+
+        $clinique->societe->organisation->forceFill(['verification' => VerificationOrganisation::EnAttente])->save();
+        $this->postJson("/api/v1/videos/{$id}/publish", [], $this->enTetes($jeton))->assertForbidden();
+        $this->assertSame('draft', Video::query()->sole()->status->value);
+    }
+
+    public function test_une_video_de_clinique_en_vente_paraît_a_tout_proprietaire_meme_sans_lien_avec_la_clinique(): void
+    {
+        ['jeton' => $jeton] = $this->clinicSeller();
+        $id = $this->draft($jeton, '/api/v1/videos');
+        $this->upload($jeton, $id, $this->hlsPackage(), '/api/v1/videos');
+        $this->finish($jeton, $id, '/api/v1/videos')->assertOk();
+        $this->patchJson("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners'], $this->enTetes($jeton))->assertOk();
+        $this->postJson("/api/v1/videos/{$id}/publish", [], $this->enTetes($jeton))->assertOk();
+
+        $stranger = $this->proprietaireAvecJeton();
+        $this->getJson('/api/v1/espace/videos', $this->enTetes($stranger['jeton']))->assertOk()->assertJsonPath('data.0.id', $id);
+    }
+
+    public function test_un_vendeur_qui_ne_vend_plus_sort_du_catalogue_et_de_plus_ses_acheteurs_gardent_la_video(): void
+    {
+        $sale = $this->published(['in_plus' => true]);
+        $buyer = $this->proprietaireAvecJeton();
+        VideoPurchase::query()->create([
+            'video_id' => Video::query()->sole()->id, 'user_id' => $buyer['user']->id, 'amount_cents' => 1500, 'commission_cents' => 450,
+            'stripe_account_id' => 'acct_vet', 'terms_accepted_at' => now(), 'paid_at' => now(),
+        ]);
+        $plus = $this->proprietaireAvecJeton(['formule' => 'plus']);
+        $sale['vet']['user']->forceFill(['verification_veterinaire' => StatutVerificationVeterinaire::Refuse])->save();
+
+        $this->getJson('/api/v1/espace/videos', $this->enTetes($plus['jeton']))->assertOk()->assertJsonCount(0, 'data');
+        $this->play($plus['jeton'], $sale['id'])->assertNotFound();
+        $this->play($buyer['jeton'], $sale['id'])->assertOk()->assertJsonPath('data.access', 'owned');
+    }
+
+    public function test_un_vendeur_n_achete_pas_sa_propre_video(): void
+    {
+        $sale = $this->published();
+        $this->postJson("/api/v1/espace/videos/{$sale['id']}/purchase", ['accept_terms' => true], $this->enTetes($sale['vet']['jeton']))
+            ->assertUnprocessable()->assertJsonValidationErrors('achat');
+    }
+
+    public function test_la_relecture_part_16_minutes_apres_le_controle(): void
+    {
+        Queue::fake();
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->upload($vet['jeton'], $id, $this->hlsPackage());
+        $this->finish($vet['jeton'], $id)->assertOk();
+
+        Queue::assertPushed(RecheckVideoFiles::class, fn (RecheckVideoFiles $job) => $job->delay !== null && now()->diffInSeconds($job->delay, true) >= 16 * 60 - 5);
+    }
+
+    public function test_une_video_deja_achetee_n_est_jamais_effacee_par_la_relecture(): void
+    {
+        $sale = $this->published();
+        $video = Video::query()->sole();
+        $buyer = $this->proprietaireAvecJeton();
+        VideoPurchase::query()->create([
+            'video_id' => $video->id, 'user_id' => $buyer['user']->id, 'amount_cents' => 1500, 'commission_cents' => 450,
+            'stripe_account_id' => 'acct_vet', 'terms_accepted_at' => now(), 'paid_at' => now(),
+        ]);
+        Storage::disk('prive')->put($video->folder().'/init-1.mp4', $this->initSegment(3840, 2160, 'hvc1'));
+
+        RecheckVideoFiles::dispatchSync($video->id);
+
+        $video->refresh();
+        $this->assertSame('withdrawn', $video->status->value);
+        $this->assertSame('ready', $video->files_status->value);
+        $this->assertNotEmpty(Storage::disk('prive')->allFiles($video->folder()));
+        $this->play($buyer['jeton'], $sale['id'])->assertOk();
+    }
+
+    public function test_un_morceau_remplace_par_plus_lourd_apres_le_controle_est_rattrape(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->upload($vet['jeton'], $id, $this->hlsPackage());
+        $this->finish($vet['jeton'], $id)->assertOk();
+        $video = Video::query()->sole();
+        // Le même morceau, valide, mais de 3 Mo : la place n'a été comptée qu'au contrôle
+        Storage::disk('prive')->put($video->folder().'/segment-1-00002.m4s', $this->fragment(6, str_repeat('x', 3_000_000)));
+
+        RecheckVideoFiles::dispatchSync($video->id);
+
+        $this->assertSame('rejected', $video->refresh()->files_status->value);
+    }
+
+    public function test_une_panne_du_stockage_n_efface_rien(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->upload($vet['jeton'], $id, $this->hlsPackage());
+        $this->partialMock(VideoStorage::class, fn ($mock) => $mock->shouldReceive('read')->andReturn(null));
+
+        $this->finish($vet['jeton'], $id)->assertUnprocessable()->assertJsonValidationErrors('files');
+        $video = Video::query()->sole();
+        $this->assertSame('pending', $video->files_status->value);
+        $this->assertNotEmpty(Storage::disk('prive')->allFiles($video->folder()));
+
+        $video->forceFill(['files_status' => 'ready'])->save();
+        $this->expectException(\RuntimeException::class);
+        try {
+            (new RecheckVideoFiles($video->id))->handle(app(HlsPackage::class), app(VideoStorage::class));
+        } finally {
+            $this->assertSame('ready', $video->refresh()->files_status->value);
+            $this->assertNotEmpty(Storage::disk('prive')->allFiles($video->folder()));
+        }
+    }
+
+    public function test_pas_d_adresse_d_envoi_sans_envoi_annonce_ni_pour_la_version_a_telecharger(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->postJson($this->base($id).'/upload/urls', ['files' => ['init-1.mp4']], $this->enTetes($vet['jeton']))
+            ->assertUnprocessable()->assertJsonValidationErrors('files');
+
+        $this->postJson($this->base($id).'/upload/start', ['duration_seconds' => 30, 'estimated_bytes' => 100], $this->enTetes($vet['jeton']))->assertOk();
+        $this->postJson($this->base($id).'/upload/urls', ['files' => ['download.mp4']], $this->enTetes($vet['jeton']))
+            ->assertUnprocessable()->assertJsonValidationErrors('files.0');
+        $this->postJson($this->base($id).'/upload/urls', ['files' => ['init-1.mp4']], $this->enTetes($vet['jeton']))->assertOk();
+    }
+
+    public function test_la_purge_prend_les_restes_d_un_refus_et_les_envois_qui_durent_plus_de_3_jours(): void
+    {
+        $vet = $this->verifiedVet();
+        $rejected = $this->draft($vet['jeton']);
+        $package = $this->hlsPackage();
+        $package['init-1.mp4'] = $this->initSegment(3840, 2160, 'hvc1');
+        $this->upload($vet['jeton'], $rejected, $package);
+        $this->finish($vet['jeton'], $rejected)->assertUnprocessable();
+        $rejectedVideo = Video::query()->where('uuid', $rejected)->firstOrFail();
+        // Une adresse encore valable dépose un fichier après le refus
+        Storage::disk('prive')->put($rejectedVideo->folder().'/segment-1-00001.m4s', 'reste');
+
+        $slow = $this->draft($vet['jeton']);
+        $this->postJson($this->base($slow).'/upload/start', ['duration_seconds' => 30, 'estimated_bytes' => 100], $this->enTetes($vet['jeton']))->assertOk();
+        $slowVideo = Video::query()->where('uuid', $slow)->firstOrFail();
+        Storage::disk('prive')->put($slowVideo->folder().'/segment-1-00001.m4s', 'en cours');
+
+        $this->travel(2)->days();
+        // L'envoi lent redemande une adresse chaque jour : il n'est pas encore abandonné
+        $this->postJson($this->base($slow).'/upload/urls', ['files' => ['init-1.mp4']], $this->enTetes($vet['jeton']))->assertOk();
+        $this->artisan('videos:purge-abandoned-uploads')->assertSuccessful();
+        $this->assertSame([], Storage::disk('prive')->allFiles($rejectedVideo->folder()));
+        $this->assertNotEmpty(Storage::disk('prive')->allFiles($slowVideo->folder()));
+
+        $this->travel(2)->days();
+        $this->postJson($this->base($slow).'/upload/urls', ['files' => ['init-1.mp4']], $this->enTetes($vet['jeton']))->assertOk();
+        $this->artisan('videos:purge-abandoned-uploads')->assertSuccessful();
+        $this->assertSame([], Storage::disk('prive')->allFiles($slowVideo->folder()));
+    }
+
+    public function test_une_duree_annoncee_qui_ne_correspond_pas_aux_morceaux_est_refusee(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $package = $this->hlsPackage(30);
+        // Les listes annoncent 10 fois plus long que ce que portent les morceaux
+        foreach (['video-and-audio-1.m3u8', 'video-and-audio-2.m3u8'] as $playlist) {
+            $package[$playlist] = preg_replace_callback('/#EXTINF:([\d.]+),/', fn ($m) => '#EXTINF:'.((float) $m[1] * 10).',', $package[$playlist]);
+        }
+        $this->upload($vet['jeton'], $id, $package);
+
+        $this->finish($vet['jeton'], $id)->assertUnprocessable()->assertJsonPath('errors.files.0', 'La durée annoncée ne correspond pas à la vidéo : renvoyez-la depuis Veterinary.');
+    }
+
+    public function test_l_apercu_ne_s_allonge_pas_avec_de_longs_morceaux(): void
+    {
+        $sale = $this->published(seconds: 180);
+        $video = Video::query()->sole();
+        // Des morceaux de 59 puis 60 secondes
+        foreach (['video-and-audio-1.m3u8', 'video-and-audio-2.m3u8'] as $playlist) {
+            $n = $playlist === 'video-and-audio-1.m3u8' ? 1 : 2;
+            Storage::disk('prive')->put($video->folder().'/'.$playlist, "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-TARGETDURATION:60\n#EXT-X-MAP:URI=\"init-{$n}.mp4\"\n#EXTINF:59.000,\nsegment-{$n}-00001.m4s\n#EXTINF:60.000,\nsegment-{$n}-00002.m4s\n#EXTINF:61.000,\nsegment-{$n}-00003.m4s\n#EXT-X-ENDLIST\n");
+        }
+        $owner = $this->proprietaireAvecJeton();
+        $master = $this->play($owner['jeton'], $sale['id'])->assertJsonPath('data.scope', 'preview')->json('data.url');
+        $media = collect(explode("\n", $this->get($master)->getContent()))->first(fn ($l) => str_starts_with($l, 'http'));
+        $lines = $this->get($media)->getContent();
+
+        $this->assertSame(1, preg_match_all('/^#EXTINF:/m', $lines));
+    }
+
+    public function test_le_certificat_reste_acquis_meme_si_la_video_quitte_plus(): void
+    {
+        $sale = $this->published(['in_plus' => true]);
+        $plus = $this->proprietaireAvecJeton(['formule' => 'plus']);
+        $this->play($plus['jeton'], $sale['id'])->assertOk();
+        for ($at = 0; $at < 30; $at += 15) {
+            $this->travel(15)->seconds();
+            $this->progress($plus['jeton'], $sale['id'], [[$at, $at + 15]]);
+        }
+        $this->postJson($this->base($sale['id']).'/withdraw', [], $this->enTetes($sale['vet']['jeton']))->assertOk();
+
+        $this->postJson("/api/v1/espace/videos/{$sale['id']}/certificate", [], $this->enTetes($plus['jeton']))->assertOk();
+    }
+
+    public function test_une_clinique_qui_met_une_video_dans_plus_peut_recevoir_les_virements_de_la_cagnotte(): void
+    {
+        ['clinique' => $clinique, 'jeton' => $jeton] = $this->clinicSeller();
+        $id = $this->draft($jeton, '/api/v1/videos');
+        $this->upload($jeton, $id, $this->hlsPackage(), '/api/v1/videos');
+        $this->finish($jeton, $id, '/api/v1/videos')->assertOk();
         $this->patchJson("/api/v1/videos/{$id}", ['description' => 'Texte', 'price_cents' => 2000, 'audience' => 'owners', 'in_plus' => true], $this->enTetes($jeton))->assertOk();
         $this->postJson("/api/v1/videos/{$id}/publish", [], $this->enTetes($jeton))->assertOk();
 
-        ['user' => $employe, 'jeton' => $employeJeton] = $this->employeAvecJeton($clinique);
-        $employe->forceFill(['formule' => 'plus'])->save();
-        $this->play($employeJeton, $id)->assertJsonPath('data.access', 'seller');
-        for ($at = 0; $at < 90; $at += 15) {
-            $this->travel(15)->seconds();
-            $this->progress($employeJeton, $id, [[$at, $at + 15]]);
-        }
-        $this->assertFalse((bool) VideoView::query()->where('user_id', $employe->id)->value('counted_via_plus'));
-        $this->assertNotNull(User::query()->find($employe->id));
+        $this->assertSame(['acct_societe_'.$clinique->id], $this->gateway->virementsDemandes);
     }
 }

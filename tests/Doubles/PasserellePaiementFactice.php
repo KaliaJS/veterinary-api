@@ -252,6 +252,15 @@ class PasserellePaiementFactice implements PasserellePaiement
     /** @var list<array{compte: string, centimes: int, cle: string, metadonnees: array<string, string>}> */
     public array $versements = [];
 
+    /** @var list<string> comptes à qui l'on a demandé de recevoir des virements */
+    public array $virementsDemandes = [];
+
+    public function demanderVirementsRecus(string $compte): void
+    {
+        $this->noter(__FUNCTION__, $compte, null, plateforme: true);
+        $this->virementsDemandes[] = $compte;
+    }
+
     public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees): string
     {
         $this->noter(__FUNCTION__, null, $cleIdempotence, plateforme: true);

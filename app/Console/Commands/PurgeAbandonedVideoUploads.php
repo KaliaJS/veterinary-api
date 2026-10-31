@@ -24,15 +24,19 @@ class PurgeAbandonedVideoUploads extends Command
     {
         Video::query()
             ->where('status', VideoStatus::Draft->value)
-            ->where('files_status', VideoFilesStatus::Pending->value)
-            ->where('updated_at', '<', now()->subDay())
+            ->where(fn ($abandoned) => $abandoned
+                // Un envoi arrêté depuis un jour, ou commencé depuis plus de 3 jours (même s'il redemande des adresses)
+                ->where(fn ($pending) => $pending->where('files_status', VideoFilesStatus::Pending->value)
+                    ->where(fn ($old) => $old->where('updated_at', '<', now()->subDay())->orWhere('upload_started_at', '<', now()->subDays(3))))
+                // Des fichiers déposés après un refus, par des adresses encore valables
+                ->orWhere(fn ($rejected) => $rejected->where('files_status', VideoFilesStatus::Rejected->value)->where('updated_at', '<', now()->subDay())))
             ->chunkById(100, function ($videos) use ($storage): void {
                 foreach ($videos as $video) {
                     try {
                         if ($storage->files($video) !== []) {
                             $storage->deleteAll($video);
                         }
-                        $video->forceFill(['size_bytes' => 0])->saveQuietly();
+                        $video->forceFill(['size_bytes' => 0, 'upload_started_at' => null])->saveQuietly();
                     } catch (Throwable $e) {
                         // Une panne du stockage : la vidéo attend la nuit suivante, les autres passent
                         report($e);

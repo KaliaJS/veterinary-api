@@ -78,7 +78,8 @@ class VideoViewingController extends Controller
     /** Le certificat de visionnage, une fois la vidéo regardée en entier. */
     public function certificate(Request $request, string $video, ViewingCertificates $certificates): JsonResponse
     {
-        [$model] = $this->watchable($request, $video);
+        // Acquis par le visionnage : même retirée, ou sortie de Plus depuis, la vidéo regardée en entier le donne
+        $model = Video::query()->where('uuid', $video)->firstOrFail();
 
         return response()->json(['data' => $this->certificateData($certificates->issue($model, $request->user()))]);
     }

@@ -64,20 +64,27 @@ class Sellers
         }
     }
 
-    /**
-     * Le compte de paiement qui encaisse les ventes de la vidéo.
-     */
+    /** La vidéo est-elle à ce vendeur (en son nom, ou à la clinique ouverte), sans exiger qu'il vende encore ? */
+    public function assertOwns(Video $video, string $as): void
+    {
+        $user = request()->user();
+        $mine = $as === 'me'
+            ? $video->seller_user_id === $user?->id
+            : $video->seller_clinique_id !== null && $video->seller_clinique_id === $this->context->cliniqueId();
+        if (! $mine) {
+            abort(404);
+        }
+    }
+
     /** Le vendeur vend-il encore : vétérinaire toujours vérifié, organisation toujours ouverte. */
     public function assertStillSelling(Video $video): void
     {
-        $selling = $video->seller_user_id !== null
-            ? (bool) $video->sellerUser?->estVerifie()
-            : (bool) Organisation::query()->find($video->organisation_id)?->estOuverte();
-        if (! $selling) {
+        if (! $video->isSellerEligible()) {
             throw ValidationException::withMessages(['achat' => 'Cette vidéo n’est momentanément plus en vente.']);
         }
     }
 
+    /** Le compte de paiement qui encaisse les ventes de la vidéo. */
     public function stripeAccount(Video $video): string
     {
         if ($video->seller_user_id !== null) {

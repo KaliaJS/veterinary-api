@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\V1\Videos;
 
+use App\Jobs\AssembleVideoDownload;
 use App\Services\Videos\VideoStorage;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
@@ -20,7 +21,8 @@ class UploadUrlsRequest extends FormRequest
         return [
             'files' => ['required', 'array', 'min:1', 'max:200'],
             'files.*' => ['required', 'string', 'max:80', function (string $attribute, mixed $name, Closure $fail): void {
-                if (! is_string($name) || ! VideoStorage::isValidName($name) || preg_match(VideoStorage::UPLOADABLE, $name) !== 1) {
+                // La version à télécharger s'assemble sur le serveur : jamais envoyée par le navigateur
+                if (! is_string($name) || ! VideoStorage::isValidName($name) || preg_match(VideoStorage::UPLOADABLE, $name) !== 1 || $name === AssembleVideoDownload::FILE) {
                     $fail('Ce fichier ne fait pas partie d’une vidéo.');
                 }
             }],

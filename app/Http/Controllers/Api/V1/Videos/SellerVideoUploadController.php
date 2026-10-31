@@ -40,6 +40,7 @@ abstract class SellerVideoUploadController extends SellerVideoController
         $this->storage->deleteAll($model);
         $model->update([
             'files_status' => VideoFilesStatus::Pending, 'rejection_reason' => null, 'size_bytes' => 0,
+            'upload_started_at' => now(), 'upload_expected_bytes' => (int) $request->validated('estimated_bytes'),
             'duration_seconds' => null, 'width' => null, 'height' => null, 'renditions' => null,
             'download_path' => null, 'files_verified_at' => null,
         ]);
@@ -54,6 +55,10 @@ abstract class SellerVideoUploadController extends SellerVideoController
         // Une fois la vidéo contrôlée, plus aucune adresse d'envoi : un nouvel envoi recommence par start
         if ($model->files_status !== VideoFilesStatus::Pending) {
             throw ValidationException::withMessages(['files' => 'La vidéo est déjà envoyée et contrôlée : pour la changer, recommencez l’envoi.']);
+        }
+        // Pas d'adresse sans envoi annoncé : sa durée et sa place ont été contrôlées au début
+        if ($model->upload_started_at === null) {
+            throw ValidationException::withMessages(['files' => 'Commencez l’envoi depuis Veterinary : la place se contrôle avant.']);
         }
         $expires = now()->addMinutes(self::URL_MINUTES);
         // Un long envoi reste en cours : la purge des envois abandonnés ne le prend pas
@@ -80,6 +85,10 @@ abstract class SellerVideoUploadController extends SellerVideoController
     {
         $model = $this->editable($request, $video);
         $result = app(HlsPackage::class)->inspect($model);
+        // Stockage injoignable : rien n'est jugé ni effacé, l'envoi se termine plus tard
+        if ($result['ok'] === false && ! empty($result['transient'])) {
+            throw ValidationException::withMessages(['files' => $result['reason']]);
+        }
         if ($result['ok'] === false) {
             return $this->reject($model, $result['reason']);
         }

@@ -15,14 +15,14 @@ final class Mp4InitReader
     /** Profondeur maximale : un vrai segment d'initialisation en a six. */
     private const MAX_DEPTH = 8;
 
-    /** @var list<array{handler: ?string, codec: ?string, width: ?int, height: ?int}> */
+    /** @var list<array{handler: ?string, codec: ?string, width: ?int, height: ?int, track_id: ?int, timescale: ?int}> */
     private array $tracks = [];
 
-    /** @var array{handler: ?string, codec: ?string, width: ?int, height: ?int}|null */
+    /** @var array{handler: ?string, codec: ?string, width: ?int, height: ?int, track_id: ?int, timescale: ?int}|null */
     private ?array $current = null;
 
     /**
-     * @return list<array{handler: ?string, codec: ?string, width: ?int, height: ?int}>|null null : pas un MP4
+     * @return list<array{handler: ?string, codec: ?string, width: ?int, height: ?int, track_id: ?int, timescale: ?int}>|null null : pas un MP4
      */
     public static function read(string $bytes): ?array
     {
@@ -60,7 +60,7 @@ final class Mp4InitReader
             $boxEnd = $pos + $size;
 
             if ($type === 'trak') {
-                $this->current = ['handler' => null, 'codec' => null, 'width' => null, 'height' => null];
+                $this->current = ['handler' => null, 'codec' => null, 'width' => null, 'height' => null, 'track_id' => null, 'timescale' => null];
                 if (! $this->walk($bytes, $content, $boxEnd, $depth + 1)) {
                     return false;
                 }
@@ -70,6 +70,14 @@ final class Mp4InitReader
                 if (! $this->walk($bytes, $content, $boxEnd, $depth + 1)) {
                     return false;
                 }
+            } elseif ($type === 'tkhd' && $this->current !== null && $content + 24 <= $boxEnd) {
+                // version (1) et drapeaux (3), dates (4 + 4, ou 8 + 8 en version 1), puis le numéro de piste
+                $offset = ord($bytes[$content]) === 1 ? 20 : 12;
+                $this->current['track_id'] = unpack('N', substr($bytes, $content + $offset, 4))[1];
+            } elseif ($type === 'mdhd' && $this->current !== null && $content + 24 <= $boxEnd) {
+                // version et drapeaux, dates, puis l'échelle de temps de la piste
+                $offset = ord($bytes[$content]) === 1 ? 20 : 12;
+                $this->current['timescale'] = unpack('N', substr($bytes, $content + $offset, 4))[1];
             } elseif ($type === 'hdlr' && $this->current !== null && $content + 12 <= $boxEnd) {
                 // version et drapeaux (4), pre_defined (4), puis le type de piste
                 $this->current['handler'] = substr($bytes, $content + 8, 4);
@@ -87,5 +95,66 @@ final class Mp4InitReader
         }
 
         return $pos === $end;
+    }
+
+    /**
+     * Le temps de début (dans l'échelle de la piste) d'un fragment CMAF, lu dans
+     * ses premiers octets : boîte moof, puis la traf de cette piste et son tfdt.
+     */
+    public static function fragmentStart(string $bytes, int $trackId): ?int
+    {
+        $pos = 0;
+        $end = strlen($bytes);
+        while ($pos + 8 <= $end) {
+            $size = unpack('N', substr($bytes, $pos, 4))[1];
+            $type = substr($bytes, $pos + 4, 4);
+            if ($size < 8) {
+                return null;
+            }
+            if ($type === 'moof') {
+                return self::trafStart($bytes, $pos + 8, min($end, $pos + $size), $trackId);
+            }
+            $pos += $size;
+        }
+
+        return null;
+    }
+
+    private static function trafStart(string $bytes, int $start, int $end, int $trackId): ?int
+    {
+        $pos = $start;
+        while ($pos + 8 <= $end) {
+            $size = unpack('N', substr($bytes, $pos, 4))[1];
+            if ($size < 8) {
+                return null;
+            }
+            if (substr($bytes, $pos + 4, 4) === 'traf') {
+                $track = null;
+                $base = null;
+                $inner = $pos + 8;
+                $trafEnd = min($end, $pos + $size);
+                while ($inner + 8 <= $trafEnd) {
+                    $innerSize = unpack('N', substr($bytes, $inner, 4))[1];
+                    $innerType = substr($bytes, $inner + 4, 4);
+                    if ($innerSize < 8) {
+                        return null;
+                    }
+                    if ($innerType === 'tfhd' && $inner + 16 <= $trafEnd) {
+                        $track = unpack('N', substr($bytes, $inner + 12, 4))[1];
+                    } elseif ($innerType === 'tfdt' && $inner + 16 <= $trafEnd) {
+                        $base = ord($bytes[$inner + 8]) === 1 && $inner + 20 <= $trafEnd
+                            ? unpack('J', substr($bytes, $inner + 12, 8))[1]
+                            : unpack('N', substr($bytes, $inner + 12, 4))[1];
+                    }
+                    $inner += $innerSize;
+                }
+                if ($track === $trackId && $base !== null) {
+                    return $base;
+                }
+            }
+            $pos += $size;
+        }
+
+        return null;
     }
 }

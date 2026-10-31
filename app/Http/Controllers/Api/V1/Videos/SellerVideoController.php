@@ -12,6 +12,7 @@ use App\Http\Requests\V1\Videos\UpdateVideoRequest;
 use App\Http\Resources\V1\VideoResource;
 use App\Jobs\AssembleVideoDownload;
 use App\Models\Video;
+use App\Paiements\PasserellePaiement;
 use App\Services\Videos\HlsPackage;
 use App\Services\Videos\Sellers;
 use App\Services\Videos\VideoStorage;
@@ -21,6 +22,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Les vidéos d'un vendeur (31.10.2026) : brouillons, mise en vente,
@@ -53,7 +55,7 @@ abstract class SellerVideoController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $videos = $this->scope($request)->latest('id')->get();
+        $videos = $this->scope($request)->withCount(['purchases as sales_count' => fn ($purchase) => $purchase->whereNotNull('paid_at')])->latest('id')->get();
 
         return response()->json([
             'data' => $videos->map(fn (Video $video) => VideoResource::seenBy($video, 'seller', true)->resolve($request))->all(),
@@ -129,6 +131,9 @@ abstract class SellerVideoController extends Controller
         }
         // Relue avant d'être vendue : rien n'a été remplacé depuis le contrôle
         $check = app(HlsPackage::class)->inspect($model, [AssembleVideoDownload::FILE]);
+        if ($check['ok'] === false && ! empty($check['transient'])) {
+            throw ValidationException::withMessages(['files' => $check['reason']]);
+        }
         if ($check['ok'] === false) {
             $this->storage->deleteAll($model);
             $model->update(['files_status' => VideoFilesStatus::Rejected, 'rejection_reason' => $check['reason'], 'size_bytes' => 0, 'renditions' => null, 'download_path' => null]);
@@ -144,7 +149,15 @@ abstract class SellerVideoController extends Controller
             throw ValidationException::withMessages($missing);
         }
         // Les ventes encaissent sur un compte prêt
-        $this->sellers->stripeAccount($model);
+        $account = $this->sellers->stripeAccount($model);
+        // La cagnotte Plus se verse par virement : les comptes ouverts avant les vidéos doivent pouvoir en recevoir
+        if ($model->in_plus) {
+            try {
+                app(PasserellePaiement::class)->pourCompte(null)->demanderVirementsRecus($account);
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
 
         $model->update([
             'status' => VideoStatus::Published,
@@ -160,7 +173,8 @@ abstract class SellerVideoController extends Controller
     public function withdraw(Request $request, string $video): VideoResource
     {
         $model = $this->find($request, $video);
-        $this->sellers->assertCanManage($model, $request->user(), $this->as);
+        // Retirer reste possible à qui ne peut plus vendre (vérification perdue)
+        $this->sellers->assertOwns($model, $this->as);
         if ($model->status !== VideoStatus::Published) {
             throw ValidationException::withMessages(['status' => 'Cette vidéo n’est pas en vente.']);
         }

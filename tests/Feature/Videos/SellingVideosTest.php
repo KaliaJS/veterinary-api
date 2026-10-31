@@ -49,10 +49,10 @@ class SellingVideosTest extends TestCase
         $this->postJson('/api/v1/espace/videos/seller/videos', ['title' => 'Essai'], $this->enTetes($vet['jeton']))
             ->assertCreated()->assertJsonPath('data.seller.kind', 'vet')->assertJsonPath('data.status', 'draft');
 
-        // Plus vérifié : il ne publie plus
+        // Plus vérifié : il ne vend plus (voir VideoSafeguardsTest), mais il peut encore retirer sa vidéo
         $video = $this->published(vet: $vet);
         $vet['user']->forceFill(['verification_veterinaire' => StatutVerificationVeterinaire::Refuse])->save();
-        $this->postJson("/api/v1/espace/videos/seller/videos/{$video['id']}/withdraw", [], $this->enTetes($vet['jeton']))->assertUnprocessable();
+        $this->postJson("/api/v1/espace/videos/seller/videos/{$video['id']}/withdraw", [], $this->enTetes($vet['jeton']))->assertOk()->assertJsonPath('data.status', 'withdrawn');
     }
 
     public function test_une_clinique_vend_quand_la_personne_qui_publie_est_verifiee_et_gere_l_organisation(): void
@@ -82,6 +82,8 @@ class SellingVideosTest extends TestCase
             ->assertOk()->assertJsonPath('data.ready', true)->assertJsonStructure(['data' => ['client_secret', 'publishable_key']]);
 
         $this->assertNotNull($vet['user']->refresh()->stripe_account_id);
+        // Sans quitter l'app : l'inscription du prestataire s'ouvre en composant intégré
+        $this->assertContains('account_onboarding', $this->gateway->sessions[0]['composants']);
         $this->assertSame('individual', collect($this->gateway->appels)->isNotEmpty() ? $this->comptesCreesType() : null);
         // Une seconde ouverture ne crée pas un second compte
         $compte = $vet['user']->stripe_account_id;

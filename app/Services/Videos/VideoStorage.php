@@ -99,7 +99,7 @@ class VideoStorage
         if (! is_resource($stream)) {
             return '';
         }
-        $head = (string) fread($stream, $bytes);
+        $head = (string) stream_get_contents($stream, $bytes);
         fclose($stream);
 
         return $head;

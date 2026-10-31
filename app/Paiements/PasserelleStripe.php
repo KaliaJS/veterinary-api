@@ -232,6 +232,8 @@ class PasserelleStripe implements PasserellePaiement
                 ]),
             ],
             'configuration' => [
+                // Recevoir des virements de la plateforme : la cagnotte Plus des vidéos (31.10.2026)
+                'recipient' => ['capabilities' => ['stripe_balance' => ['stripe_transfers' => ['requested' => true]]]],
                 'merchant' => [
                     // Services vétérinaires ; vidéos de formation vendues en son nom : services d'enseignement
                     'mcc' => $societe['mcc'] ?? '0742',
@@ -252,6 +254,13 @@ class PasserelleStripe implements PasserellePaiement
         ]));
 
         return $compte->id;
+    }
+
+    public function demanderVirementsRecus(string $compte): void
+    {
+        $this->appel(fn () => $this->client->v2->core->accounts->update($compte, [
+            'configuration' => ['recipient' => ['capabilities' => ['stripe_balance' => ['stripe_transfers' => ['requested' => true]]]]],
+        ]));
     }
 
     public function transferer(string $compte, int $centimes, string $cleIdempotence, array $metadonnees): string

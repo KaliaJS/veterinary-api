@@ -6,13 +6,13 @@ use App\Enums\VideoFilesStatus;
 use App\Enums\VideoStatus;
 use App\Models\Video;
 use App\Services\Videos\HlsPackage;
-use App\Services\Videos\Sellers;
 use App\Services\Videos\VideoStorage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use RuntimeException;
 
 /**
  * La relecture d'une vidéo contrôlée (31.10.2026, après la vérification
@@ -28,35 +28,54 @@ class RecheckVideoFiles implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
-    public int $tries = 3;
+    public int $tries = 4;
+
+    /** Une panne du stockage : on réessaie dans 5, 15 puis 45 minutes */
+    public array $backoff = [300, 900, 2700];
+
+    /** Ce que la vidéo peut peser de plus qu'au contrôle sans qu'on y voie un ajout (arrondis, listes) */
+    private const GROWTH_TOLERANCE = 1_000_000;
 
     public function __construct(public int $videoId) {}
 
-    public function handle(HlsPackage $package, VideoStorage $storage, Sellers $sellers): void
+    public function handle(HlsPackage $package, VideoStorage $storage): void
     {
         $video = Video::query()->find($this->videoId);
         if ($video === null || $video->files_status !== VideoFilesStatus::Ready) {
             return;
         }
         $result = $package->inspect($video, [AssembleVideoDownload::FILE]);
-        $limits = $sellers->storage($video);
-        $overQuota = $result['ok'] && $limits['limit'] < $limits['used'] - (int) $video->size_bytes + $result['size'];
+        if ($result['ok'] === false && ! empty($result['transient'])) {
+            // Rien n'est jugé sur une panne : la file réessaiera
+            throw new RuntimeException('Stockage injoignable pendant la relecture de la vidéo '.$video->id);
+        }
+        // Plus lourde qu'au contrôle : des fichiers ont été remplacés ou ajoutés depuis
+        $grown = $result['ok'] && $result['size'] > (int) $video->size_bytes + self::GROWTH_TOLERANCE;
+        if ($result['ok'] && ! $grown) {
+            $video->update(['size_bytes' => $result['size'], 'renditions' => $result['renditions'], 'duration_seconds' => $result['duration']]);
 
-        if ($result['ok'] === false || $overQuota) {
-            $storage->deleteAll($video);
-            $hasBuyers = $video->purchases()->whereNotNull('paid_at')->exists();
-            $video->update([
-                'files_status' => VideoFilesStatus::Rejected,
-                'rejection_reason' => $result['ok'] === false ? $result['reason'] : 'Votre stockage est plein : la vidéo a été effacée.',
-                'status' => $video->status === VideoStatus::Published && $hasBuyers ? VideoStatus::Withdrawn : ($video->status === VideoStatus::Published ? VideoStatus::Draft : $video->status),
-                'size_bytes' => 0,
-                'renditions' => null,
-                'download_path' => null,
-            ]);
+            return;
+        }
+        $reason = $result['ok'] ? 'Des fichiers ont été ajoutés après le contrôle : renvoyez la vidéo.' : $result['reason'];
+
+        // Achetée entre-temps : jamais effacée, ceux qui l'ont payée la gardent ; elle quitte seulement la vente
+        if ($video->purchases()->whereNotNull('paid_at')->exists()) {
+            report(new RuntimeException("Vidéo {$video->id} modifiée après le contrôle, déjà achetée : retirée de la vente ({$reason})"));
+            if ($video->status === VideoStatus::Published) {
+                $video->update(['status' => VideoStatus::Withdrawn, 'withdrawn_at' => now()]);
+            }
 
             return;
         }
 
-        $video->update(['size_bytes' => $result['size'], 'renditions' => $result['renditions'], 'duration_seconds' => $result['duration']]);
+        $storage->deleteAll($video);
+        $video->update([
+            'files_status' => VideoFilesStatus::Rejected,
+            'rejection_reason' => $reason,
+            'status' => $video->status === VideoStatus::Published ? VideoStatus::Draft : $video->status,
+            'size_bytes' => 0,
+            'renditions' => null,
+            'download_path' => null,
+        ]);
     }
 }
