@@ -212,8 +212,9 @@ class VideoCatalogueController extends Controller
     }
 
     /**
-     * Une recherche : dans le titre, la description, le nom du vendeur, et
-     * les catégories, sans tenir compte des accents ni des majuscules. Une
+     * Une recherche : au début d'un mot du titre, de la description ou du
+     * nom du vendeur, et dans les catégories, sans tenir compte des accents
+     * ni des majuscules pour celles-ci. Une
      * catégorie se trouve par son nom entier (« NAC », « premiers secours »)
      * ou par le début de son nom ou d'un de ses mots, dès quatre lettres
      * (« chat » trouve Chats, « secours » Premiers secours) : pendant qu'on
@@ -223,7 +224,6 @@ class VideoCatalogueController extends Controller
      */
     private function search(Builder $query, string $search): void
     {
-        $like = '%'.$search.'%';
         $needle = Str::squish(Str::lower(Str::ascii($search)));
         $matches = function (VideoCategory $category) use ($needle): bool {
             $label = Str::lower(Str::ascii($category->label()));
@@ -235,10 +235,22 @@ class VideoCatalogueController extends Controller
                 || collect(explode(' ', $label))->contains(fn (string $word) => str_starts_with($word, $needle)));
         };
         $categories = array_values(array_map(fn (VideoCategory $category) => $category->value, array_filter(VideoCategory::cases(), $matches)));
-        $query->where(fn (Builder $match) => $match
-            ->where('title', 'like', $like)
-            ->orWhere('description', 'like', $like)
-            ->orWhere('seller_name', 'like', $like)
-            ->when($categories !== [], fn (Builder $inCategory) => $inCategory->orWhereIn('category', $categories)));
+        // Au début d'un mot seulement : « chat » ne trouve pas « achat », « nac » pas « menace »
+        $wordStarts = fn (Builder $match, string $column) => $match->orWhere(fn (Builder $inColumn) => $inColumn
+            ->where($column, 'like', $search.'%')
+            ->orWhere($column, 'like', '% '.$search.'%')
+            ->orWhere($column, 'like', '%’'.$search.'%')
+            ->orWhere($column, 'like', "%'".$search.'%')
+            ->orWhere($column, 'like', '%-'.$search.'%')
+            ->orWhere($column, 'like', '%('.$search.'%')
+            ->orWhere($column, 'like', "%\n".$search.'%'));
+        $query->where(function (Builder $match) use ($wordStarts, $categories): void {
+            foreach (['title', 'description', 'seller_name'] as $column) {
+                $wordStarts($match, $column);
+            }
+            if ($categories !== []) {
+                $match->orWhereIn('category', $categories);
+            }
+        });
     }
 }

@@ -117,6 +117,7 @@ abstract class SellerVideoController extends Controller
             $written = Video::query()->whereKey($model->id)->where('status', '!=', VideoStatus::Published->value)
                 ->update([...$data, 'updated_at' => now()]);
             if ($written === 0) {
+                abort_unless(Video::query()->whereKey($model->id)->exists(), 404);
                 throw ValidationException::withMessages(array_fill_keys(array_values($blanked), 'Une vidéo en vente garde son titre, sa description, son prix, son public et sa catégorie.'));
             }
 
@@ -139,6 +140,14 @@ abstract class SellerVideoController extends Controller
         // Tout sous le verrou de l'affiche : celle qu'un autre onglet vient de poser part avec le brouillon,
         // et un geste trop long ailleurs arrête l'effacement avant qu'il commence (rien à moitié)
         VideoPosters::exclusively($model->id, function () use ($model): void {
+            // Retenu d'abord, d'une seule écriture : toujours un brouillon jamais vendu, ses fichiers ne sont plus
+            // « prêts », et une mise en vente lancée au même moment (qui exige des fichiers prêts) ne passe plus
+            $claimed = Video::query()->whereKey($model->id)->where('status', VideoStatus::Draft->value)->whereNull('published_at')
+                ->update(['files_status' => VideoFilesStatus::Rejected->value, 'publish_requested_at' => null, 'publish_requested_by' => null, 'updated_at' => now()]);
+            if ($claimed === 0) {
+                abort_unless(Video::query()->whereKey($model->id)->exists(), 404);
+                throw ValidationException::withMessages(['status' => 'Une vidéo mise en vente ne s’efface pas : retirez-la de la vente, ceux qui l’ont achetée la gardent.']);
+            }
             $this->storage->deleteAll($model);
             // Des adresses d'envoi encore valables écriraient dans le dossier : on l'efface encore une fois expirées
             // (toujours : le guet a pu oublier l'envoi en le refusant, ses adresses écrivent encore)
@@ -192,7 +201,9 @@ abstract class SellerVideoController extends Controller
             throw ValidationException::withMessages(['poster' => 'Une vidéo en vente garde son affiche : remplacez-la plutôt.']);
         }
         VideoPosters::exclusively($model->id, function () use ($model, $posters): void {
-            $previous = Video::query()->whereKey($model->id)->value('poster_token');
+            $current = Video::query()->whereKey($model->id)->first(['id', 'poster_token']);
+            abort_if($current === null, 404);
+            $previous = $current->poster_token;
             // Seulement hors de la vente, au moment même de l'écriture : une mise en vente faite entre-temps l'emporte
             $removed = Video::query()->whereKey($model->id)->where('status', '!=', VideoStatus::Published->value)
                 ->update(['poster_token' => null, 'poster_preview' => null, 'updated_at' => now()]);

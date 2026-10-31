@@ -371,6 +371,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('{video}', [VideoCatalogueController::class, 'show'])->whereUuid('video');
             Route::prefix('{video}')->whereUuid('video')->group(function (): void {
                 Route::post('play', [VideoViewingController::class, 'play'])->middleware('throttle:60,1');
+                Route::get('teaser', [VideoViewingController::class, 'teaser'])->middleware('throttle:120,1');
                 Route::post('progress', [VideoViewingController::class, 'progress'])->middleware('throttle:60,1');
                 Route::get('download', [VideoViewingController::class, 'download'])->middleware('throttle:20,1');
                 Route::post('certificate', [VideoViewingController::class, 'certificate'])->middleware('throttle:20,1');

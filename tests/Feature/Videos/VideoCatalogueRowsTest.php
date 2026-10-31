@@ -277,6 +277,35 @@ class VideoCatalogueRowsTest extends TestCase
         $this->assertNotNull(Video::query()->where('uuid', $id)->value('poster_token'));
     }
 
+    public function test_un_brouillon_mis_en_vente_pendant_son_effacement_n_est_pas_efface(): void
+    {
+        $sale = $this->published();
+        $video = Video::query()->where('uuid', $sale['id'])->sole();
+        $video->forceFill(['status' => 'draft', 'published_at' => null])->save();
+        $files = Storage::disk('prive')->allFiles($video->folder());
+        $this->rightAfterReading($sale['id'], fn (Video $read) => Video::query()->whereKey($read->id)->update(['status' => 'published', 'published_at' => now()]));
+
+        $this->deleteJson(self::SELLER."/{$sale['id']}", [], $this->enTetes($sale['vet']['jeton']))
+            ->assertUnprocessable()->assertJsonValidationErrors(['status']);
+
+        $this->assertTrue(Video::query()->whereKey($video->id)->exists());
+        $this->assertSame($files, Storage::disk('prive')->allFiles($video->folder()));
+        $this->assertSame('ready', Video::query()->whereKey($video->id)->first()->files_status->value);
+    }
+
+    public function test_un_brouillon_efface_entre_temps_repond_introuvable(): void
+    {
+        $vet = $this->verifiedVet();
+        $id = $this->draft($vet['jeton']);
+        $this->post(self::SELLER."/{$id}/poster", ['poster' => UploadedFile::fake()->image('a.jpg', 1280, 720)], $this->enTetes($vet['jeton']))->assertOk();
+        $this->rightAfterReading($id, fn (Video $read) => Video::query()->whereKey($read->id)->delete());
+        $this->deleteJson(self::SELLER."/{$id}/poster", [], $this->enTetes($vet['jeton']))->assertNotFound();
+
+        $other = $this->draft($vet['jeton']);
+        $this->rightAfterReading($other, fn (Video $read) => Video::query()->whereKey($read->id)->delete());
+        $this->patchJson(self::SELLER."/{$other}", ['category' => null], $this->enTetes($vet['jeton']))->assertNotFound();
+    }
+
     public function test_une_affiche_remplacee_ne_reste_pas_un_an_dans_les_caches(): void
     {
         $vet = $this->verifiedVet();
@@ -466,6 +495,25 @@ class VideoCatalogueRowsTest extends TestCase
         $this->getJson('/api/v1/espace/videos?q='.str_repeat('a', 101), $this->enTetes($owner))->assertUnprocessable()->assertJsonValidationErrors(['q']);
     }
 
+    public function test_la_recherche_trouve_un_debut_de_mot_jamais_un_morceau_au_milieu_d_un_mot(): void
+    {
+        $vet = $this->verifiedVet();
+        $cat = $this->onSale($vet, 'Le chat qui boude', 'behaviour', 'Rien à voir.');
+        $purchase = $this->onSale($vet, 'Un achat malin', 'behaviour', 'Une menace au jardin.');
+        $apostrophe = $this->onSale($vet, 'L’alimentation du chaton', 'behaviour', 'Rien.');
+        Video::query()->update(['seller_name' => 'Dr Essai']);
+        ['jeton' => $owner] = $this->proprietaireAvecJeton();
+        $search = fn (string $q) => $this->getJson('/api/v1/espace/videos?q='.urlencode($q), $this->enTetes($owner))->assertOk()->json('data.*.id');
+
+        $this->assertEqualsCanonicalizing([$cat, $apostrophe], $search('chat'));
+        $this->assertSame([], $search('nac'));
+        $this->assertSame([$apostrophe], $search('alimentation'));
+        $this->assertSame([$purchase], $search('menace'));
+        // Le nom d'une catégorie en double espace se trouve encore
+        $firstAid = $this->onSale($vet, 'Le furet', 'first_aid');
+        $this->assertSame([$firstAid], $search('premiers   secours'));
+    }
+
     // ————— Accueil —————
 
     public function test_l_accueil_range_continuer_ses_videos_les_nouveautes_puis_une_rangee_par_categorie(): void
@@ -584,6 +632,35 @@ class VideoCatalogueRowsTest extends TestCase
         $this->assertCount(20, $rows['new']['videos']);
         $this->assertCount(20, $rows['category']['videos']);
         $this->assertSame(22, $rows['category']['total']);
+    }
+
+    // ————— Aperçu qui se lance tout seul —————
+
+    public function test_l_apercu_qui_se_lance_tout_seul_donne_la_premiere_minute_sans_rien_compter(): void
+    {
+        $vet = $this->verifiedVet();
+        $sale = $this->onSale($vet, 'Le chat', 'cats');
+        ['user' => $owner, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->own($owner, $sale);
+
+        $url = $this->getJson("/api/v1/espace/videos/{$sale}/teaser", $this->enTetes($jeton))->assertOk()->json('data.url');
+
+        // La première minute seulement, même pour qui l'a achetée
+        $this->assertStringContainsString('scope=preview', (string) $url);
+        $this->assertStringContainsString("/videos/{$sale}/hls/master.m3u8", (string) $url);
+        // Rien ne compte : pas de lecture commencée, donc rien à « Continuer à regarder »
+        $this->assertSame(0, VideoView::query()->count());
+    }
+
+    public function test_l_apercu_qui_se_lance_tout_seul_suit_le_public_de_la_video(): void
+    {
+        $vet = $this->verifiedVet();
+        $forVets = $this->onSale($vet, 'Pour les vétos', 'surgery', audience: 'vets');
+        ['jeton' => $owner] = $this->proprietaireAvecJeton();
+
+        $this->getJson("/api/v1/espace/videos/{$forVets}/teaser", $this->enTetes($owner))->assertNotFound();
+        $other = $this->verifiedVet();
+        $this->getJson("/api/v1/espace/videos/{$forVets}/teaser", $this->enTetes($other['jeton']))->assertOk();
     }
 
     // ————— Outils —————

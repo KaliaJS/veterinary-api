@@ -52,6 +52,18 @@ class VideoViewingController extends Controller
         return response()->json(['data' => ['url' => $this->playback->masterUrl($model, $scope), 'scope' => $scope, 'access' => $access]]);
     }
 
+    /**
+     * L'aperçu qui se lance tout seul dans l'écran « Vidéos » (31.10.2026,
+     * à la Netflix) : la première minute, quel que soit l'accès, et rien ne
+     * compte (ni lecture commencée, ni vue, ni « Continuer à regarder »).
+     */
+    public function teaser(Request $request, string $video): JsonResponse
+    {
+        [$model] = $this->watchable($request, $video);
+
+        return response()->json(['data' => ['url' => $this->playback->masterUrl($model, 'preview')]]);
+    }
+
     public function progress(ProgressRequest $request, string $video): JsonResponse
     {
         [$model, $access] = $this->watchable($request, $video);
