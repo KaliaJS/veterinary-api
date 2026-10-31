@@ -92,6 +92,19 @@ class VideoStorage
         return $this->disk()->get($video->folder().'/'.$name);
     }
 
+    /** Les premiers octets d'un fichier, sans le lire en entier. */
+    public function readHead(Video $video, string $name, int $bytes): string
+    {
+        $stream = $this->disk()->readStream($video->folder().'/'.$name);
+        if (! is_resource($stream)) {
+            return '';
+        }
+        $head = (string) fread($stream, $bytes);
+        fclose($stream);
+
+        return $head;
+    }
+
     public function delete(Video $video, string $name): void
     {
         $this->disk()->delete($video->folder().'/'.$name);

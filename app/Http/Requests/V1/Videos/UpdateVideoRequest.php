@@ -21,7 +21,7 @@ class UpdateVideoRequest extends FormRequest
         return [
             'title' => ['sometimes', 'nullable', 'string', 'max:160'],
             'description' => ['sometimes', 'nullable', 'string', 'max:5000'],
-            'price_cents' => ['sometimes', 'nullable', 'integer', 'min:'.Video::MIN_PRICE_CENTS, 'max:4000000000'],
+            'price_cents' => ['sometimes', 'nullable', 'integer', 'min:'.Video::MIN_PRICE_CENTS, 'max:'.Video::MAX_PRICE_CENTS],
             'audience' => ['sometimes', 'nullable', Rule::enum(VideoAudience::class)],
             'in_plus' => ['sometimes', 'boolean'],
         ];

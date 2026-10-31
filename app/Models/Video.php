@@ -32,6 +32,9 @@ class Video extends Model
     /** Prix minimum d'une vidéo (décision de Jim, 31.10.2026), sans maximum. */
     public const MIN_PRICE_CENTS = 200;
 
+    /** Pas de maximum voulu : seulement celui du prestataire de paiement (999 999.99 CHF). */
+    public const MAX_PRICE_CENTS = 99_999_999;
+
     /** Durée maximale (3 heures), contrôlée avant l'envoi puis par le serveur. */
     public const MAX_DURATION_SECONDS = 3 * 3600;
 
@@ -99,10 +102,43 @@ class Video extends Model
         return $this->hasMany(VideoPurchase::class);
     }
 
+    /** @return HasMany<ViewingCertificate, $this> */
+    public function certificates(): HasMany
+    {
+        return $this->hasMany(ViewingCertificate::class);
+    }
+
     /** @return HasMany<VideoView, $this> */
     public function views(): HasMany
     {
         return $this->hasMany(VideoView::class);
+    }
+
+    /**
+     * Du côté du vendeur : le vétérinaire qui la vend en son nom, ou un membre
+     * de l'organisation qui la vend. Il la regarde en entier, sans l'acheter,
+     * et ses lectures ne comptent pas dans la cagnotte Plus.
+     */
+    public function isOnSellerSide(User $user, ?array $organisationIds = null): bool
+    {
+        if ($this->seller_user_id !== null) {
+            return $this->seller_user_id === $user->id;
+        }
+        if ($this->organisation_id === null) {
+            return false;
+        }
+
+        return in_array($this->organisation_id, $organisationIds ?? self::organisationsOf($user), true);
+    }
+
+    /**
+     * Les organisations où travaille la personne (une seule requête pour une liste).
+     *
+     * @return list<int>
+     */
+    public static function organisationsOf(User $user): array
+    {
+        return Employe::withoutGlobalScopes()->where('user_id', $user->id)->pluck('organisation_id')->map(fn ($id) => (int) $id)->all();
     }
 
     /** Vendue par ce vétérinaire en son nom, ou par cette clinique. */
@@ -118,6 +154,11 @@ class Video extends Model
     /** Achetée (payée) par cette personne. */
     public function isOwnedBy(User $user): bool
     {
+        // Liste du catalogue : les achats de la personne sont déjà chargés
+        if ($this->relationLoaded('purchases')) {
+            return $this->purchases->contains(fn (VideoPurchase $p) => $p->user_id === $user->id && $p->paid_at !== null);
+        }
+
         return $this->purchases()->where('user_id', $user->id)->whereNotNull('paid_at')->exists();
     }
 

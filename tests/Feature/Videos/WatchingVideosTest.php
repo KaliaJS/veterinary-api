@@ -86,6 +86,18 @@ class WatchingVideosTest extends TestCase
         return $this->postJson("/api/v1/espace/videos/{$id}/progress", ['ranges' => $ranges], $this->enTetes($jeton));
     }
 
+    /** Regarde de `from` à `to` comme le lecteur : un envoi toutes les 15 secondes de lecture */
+    private function watch(string $jeton, string $id, float $from, float $to): TestResponse
+    {
+        $response = null;
+        for ($at = $from; $at < $to; $at += 15) {
+            $this->travel(15)->seconds();
+            $response = $this->progress($jeton, $id, [[$at, min($to, $at + 15)]]);
+        }
+
+        return $response;
+    }
+
     /** Achète comme le navigateur : case cochée, paiement abouti, retour. */
     private function buy(string $jeton, string $id): string
     {
@@ -419,12 +431,10 @@ class WatchingVideosTest extends TestCase
         $certificate = "/api/v1/espace/videos/{$sale['id']}/certificate";
 
         $this->play($vet['jeton'], $sale['id'])->assertOk();
-        $this->travel(100)->seconds();
-        $this->progress($vet['jeton'], $sale['id'], [[0, 100]])->assertJsonPath('data.completed', false);
+        $this->watch($vet['jeton'], $sale['id'], 0, 100)->assertJsonPath('data.completed', false);
         $this->postJson($certificate, [], $this->enTetes($vet['jeton']))->assertUnprocessable()->assertJsonValidationErrors('certificat');
         // 171 secondes sur 180 : 95 %
-        $this->travel(80)->seconds();
-        $this->progress($vet['jeton'], $sale['id'], [[100, 171]])->assertJsonPath('data.completed', true);
+        $this->watch($vet['jeton'], $sale['id'], 100, 171)->assertJsonPath('data.completed', true);
 
         $this->postJson($certificate, [], $this->enTetes($vet['jeton']))->assertOk()
             ->assertJsonPath('data.holder_name', 'Lina Rochat')
@@ -442,8 +452,7 @@ class WatchingVideosTest extends TestCase
 
         // Sans identité vérifiée : pas de GLN
         $this->play($owner['jeton'], $sale['id'])->assertOk();
-        $this->travel(200)->seconds();
-        $this->progress($owner['jeton'], $sale['id'], [[0, 180]])->assertJsonPath('data.completed', true);
+        $this->watch($owner['jeton'], $sale['id'], 0, 180)->assertJsonPath('data.completed', true);
         $this->postJson($certificate, [], $this->enTetes($owner['jeton']))->assertOk()->assertJsonPath('data.holder_gln', null);
     }
 
@@ -452,8 +461,7 @@ class WatchingVideosTest extends TestCase
         $sale = $this->onSale(['in_plus' => true]);
         $plus = $this->proprietaireAvecJeton(['formule' => 'plus', 'name' => 'Marc Dubois']);
         $this->play($plus['jeton'], $sale['id'])->assertOk();
-        $this->travel(200)->seconds();
-        $this->progress($plus['jeton'], $sale['id'], [[0, 180]]);
+        $this->watch($plus['jeton'], $sale['id'], 0, 180);
         $code = $this->postJson("/api/v1/espace/videos/{$sale['id']}/certificate", [], $this->enTetes($plus['jeton']))->assertOk()->json('data.code');
         $this->assertMatchesRegularExpression('/^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/', $code);
         // Le même certificat, pas un nouveau

@@ -8,6 +8,7 @@ use App\Http\Requests\V1\Videos\StartUploadRequest;
 use App\Http\Requests\V1\Videos\UploadUrlsRequest;
 use App\Http\Resources\V1\VideoResource;
 use App\Jobs\AssembleVideoDownload;
+use App\Jobs\RecheckVideoFiles;
 use App\Models\Video;
 use App\Services\Videos\HlsPackage;
 use Illuminate\Http\JsonResponse;
@@ -50,6 +51,10 @@ abstract class SellerVideoUploadController extends SellerVideoController
     public function urls(UploadUrlsRequest $request, string $video): JsonResponse
     {
         $model = $this->editable($request, $video);
+        // Une fois la vidéo contrôlée, plus aucune adresse d'envoi : un nouvel envoi recommence par start
+        if ($model->files_status !== VideoFilesStatus::Pending) {
+            throw ValidationException::withMessages(['files' => 'La vidéo est déjà envoyée et contrôlée : pour la changer, recommencez l’envoi.']);
+        }
         $expires = now()->addMinutes(self::URL_MINUTES);
 
         return response()->json(['data' => array_map(fn (string $name) => [
@@ -77,8 +82,9 @@ abstract class SellerVideoUploadController extends SellerVideoController
             return $this->reject($model, $result['reason']);
         }
 
+        // La place réelle, avec la version à télécharger qui s'y ajoutera
         $storage = $this->sellers->storage($model);
-        if ($storage['limit'] < $storage['used'] - (int) $model->size_bytes + $result['size']) {
+        if ($storage['limit'] < $storage['used'] - (int) $model->size_bytes + $result['size'] + $result['download_bytes']) {
             return $this->reject($model, 'Votre stockage est plein : la vidéo a été effacée.');
         }
 
@@ -94,6 +100,8 @@ abstract class SellerVideoUploadController extends SellerVideoController
         ]);
         // La version à télécharger, assemblée à part
         AssembleVideoDownload::dispatch($model->id)->afterCommit();
+        // Les dernières adresses d'envoi expirent dans 15 minutes : on relit tout après
+        RecheckVideoFiles::dispatch($model->id)->delay(now()->addMinutes(self::URL_MINUTES + 1))->afterCommit();
 
         return VideoResource::seenBy($model, 'seller', true);
     }

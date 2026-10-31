@@ -10,7 +10,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Videos\StoreVideoRequest;
 use App\Http\Requests\V1\Videos\UpdateVideoRequest;
 use App\Http\Resources\V1\VideoResource;
+use App\Jobs\AssembleVideoDownload;
 use App\Models\Video;
+use App\Services\Videos\HlsPackage;
 use App\Services\Videos\Sellers;
 use App\Services\Videos\VideoStorage;
 use App\Support\NativeApp;
@@ -77,6 +79,14 @@ abstract class SellerVideoController extends Controller
         $this->sellers->assertCanManage($model, $request->user(), $this->as);
         $data = $request->validated();
 
+        // En vente, ce qui la décrit ne s'efface pas
+        if ($model->status === VideoStatus::Published) {
+            $blank = array_filter(['title', 'description', 'price_cents', 'audience'], fn (string $key) => array_key_exists($key, $data) && blank($data[$key]));
+            if ($blank !== []) {
+                throw ValidationException::withMessages(array_fill_keys($blank, 'Une vidéo en vente garde son titre, sa description, son prix et son public.'));
+            }
+        }
+
         // Plus n'inclut que des vidéos destinées aux clients
         $audience = array_key_exists('audience', $data) ? VideoAudience::tryFrom((string) $data['audience']) : $model->audience;
         if (! ($audience?->includesOwners() ?? false)) {
@@ -99,6 +109,9 @@ abstract class SellerVideoController extends Controller
             throw ValidationException::withMessages(['status' => 'Une vidéo mise en vente ne s’efface pas : retirez-la de la vente, ceux qui l’ont achetée la gardent.']);
         }
         $this->storage->deleteAll($model);
+        // Un brouillon ne se vend pas : seules les lectures du vendeur s'y rattachent
+        $model->views()->delete();
+        $model->certificates()->delete();
         $model->delete();
 
         return response()->noContent();
@@ -113,6 +126,13 @@ abstract class SellerVideoController extends Controller
 
         if ($model->files_status !== VideoFilesStatus::Ready) {
             throw ValidationException::withMessages(['files' => 'La vidéo n’est pas encore prête : terminez son envoi.']);
+        }
+        // Relue avant d'être vendue : rien n'a été remplacé depuis le contrôle
+        $check = app(HlsPackage::class)->inspect($model, [AssembleVideoDownload::FILE]);
+        if ($check['ok'] === false) {
+            $this->storage->deleteAll($model);
+            $model->update(['files_status' => VideoFilesStatus::Rejected, 'rejection_reason' => $check['reason'], 'size_bytes' => 0, 'renditions' => null, 'download_path' => null]);
+            throw ValidationException::withMessages(['files' => $check['reason']]);
         }
         $missing = array_filter([
             'title' => blank($model->title) ? 'Donnez un titre à la vidéo.' : null,

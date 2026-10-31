@@ -52,7 +52,8 @@ trait BuildsHlsPackages
                 $length = min($segment, $remaining);
                 $name = sprintf('segment-%d-%05d.m4s', $n, $i);
                 $playlist .= sprintf("#EXTINF:%.3f,\n%s\n", $length, $name);
-                $files[$name] = str_repeat(chr(64 + $n), 1000);
+                // Un fragment CMAF : une boîte moof en tête
+                $files[$name] = $this->box('moof', str_repeat(chr(64 + $n), 992));
                 $remaining -= $length;
                 $i++;
             }

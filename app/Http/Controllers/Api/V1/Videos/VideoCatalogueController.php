@@ -23,10 +23,13 @@ class VideoCatalogueController extends Controller
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
-        $videos = Video::visibleTo(Video::query(), $user)->latest('published_at')->paginate(24);
+        $videos = Video::visibleTo(Video::query(), $user)
+            ->with(['purchases' => fn ($purchase) => $purchase->where('user_id', $user->id)->whereNotNull('paid_at')])
+            ->latest('published_at')->paginate(24);
+        $organisations = Video::organisationsOf($user);
 
         return response()->json([
-            'data' => $videos->getCollection()->map(fn (Video $video) => VideoResource::seenBy($video, $this->access->for($video, $user, $video->seller_user_id === $user->id))->resolve($request))->all(),
+            'data' => $videos->getCollection()->map(fn (Video $video) => VideoResource::seenBy($video, $this->access->for($video, $user, $video->isOnSellerSide($user, $organisations)))->resolve($request))->all(),
             'meta' => ['current_page' => $videos->currentPage(), 'last_page' => $videos->lastPage(), 'total' => $videos->total()],
         ]);
     }
@@ -47,7 +50,7 @@ class VideoCatalogueController extends Controller
     {
         $user = $request->user();
         $model = Video::query()->where('uuid', $video)->firstOrFail();
-        $access = $this->access->for($model, $user, $model->seller_user_id === $user->id);
+        $access = $this->access->for($model, $user, $model->isOnSellerSide($user));
         abort_if($access === null, 404);
 
         return VideoResource::seenBy($model, $access, $access === 'seller')->withViewing(

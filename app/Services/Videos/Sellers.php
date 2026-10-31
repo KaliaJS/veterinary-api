@@ -67,6 +67,17 @@ class Sellers
     /**
      * Le compte de paiement qui encaisse les ventes de la vidéo.
      */
+    /** Le vendeur vend-il encore : vétérinaire toujours vérifié, organisation toujours ouverte. */
+    public function assertStillSelling(Video $video): void
+    {
+        $selling = $video->seller_user_id !== null
+            ? (bool) $video->sellerUser?->estVerifie()
+            : (bool) Organisation::query()->find($video->organisation_id)?->estOuverte();
+        if (! $selling) {
+            throw ValidationException::withMessages(['achat' => 'Cette vidéo n’est momentanément plus en vente.']);
+        }
+    }
+
     public function stripeAccount(Video $video): string
     {
         if ($video->seller_user_id !== null) {

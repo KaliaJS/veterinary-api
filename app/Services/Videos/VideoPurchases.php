@@ -9,6 +9,7 @@ use App\Models\VideoPurchase;
 use App\Paiements\PasserellePaiement;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * L'achat d'une vidéo (31.10.2026) : payé en ligne sur le compte du
@@ -35,34 +36,51 @@ class VideoPurchases
         if ($video->status !== VideoStatus::Published || ! $video->isForAudienceOf($user) || $video->price_cents === null) {
             abort(404);
         }
-        if ($video->seller_user_id === $user->id) {
+        if ($video->isOnSellerSide($user)) {
             throw ValidationException::withMessages(['achat' => 'C’est votre vidéo : vous la regardez déjà en entier.']);
         }
         if ($video->isOwnedBy($user)) {
             throw ValidationException::withMessages(['achat' => 'Vous avez déjà acheté cette vidéo.']);
         }
+        // Un vendeur qui n'est plus vérifié, ou une organisation fermée, ne vend plus
+        $this->sellers->assertStillSelling($video);
         $account = $this->sellers->stripeAccount($video);
         $amount = (int) $video->price_cents;
         $commission = self::commission($amount);
 
-        $purchase = DB::transaction(function () use ($video, $user, $account, $amount, $commission): VideoPurchase {
+        $purchase = DB::transaction(function () use ($video, $user, $amount, $commission, $account): VideoPurchase {
             $purchase = VideoPurchase::query()->where('video_id', $video->id)->where('user_id', $user->id)->lockForUpdate()->first();
-            $purchase ??= new VideoPurchase(['video_id' => $video->id, 'user_id' => $user->id]);
-            // Un prix ou un compte changé depuis : une nouvelle intention
-            if ($purchase->amount_cents !== $amount || $purchase->stripe_account_id !== $account) {
-                $purchase->payment_intent_id = null;
-            }
-            $purchase->fill(['amount_cents' => $amount, 'commission_cents' => $commission, 'stripe_account_id' => $account, 'terms_accepted_at' => now()])->save();
 
-            return $purchase;
+            return $purchase ?? VideoPurchase::query()->create([
+                'video_id' => $video->id, 'user_id' => $user->id, 'amount_cents' => $amount,
+                'commission_cents' => $commission, 'stripe_account_id' => $account, 'terms_accepted_at' => now(),
+            ]);
         });
+
+        // Une intention d'avant (autre onglet, prix changé, plus de 24 heures) : payée,
+        // la vidéo est à lui ; sinon on l'annule, pour qu'elle ne se paie plus sans rien donner
+        $previous = $purchase->payment_intent_id;
+        $previousAccount = $purchase->stripe_account_id;
+        if ($previous !== null && $this->settle($purchase, $previous)) {
+            throw ValidationException::withMessages(['achat' => 'Vous avez déjà acheté cette vidéo.']);
+        }
 
         $intent = $this->gateway->pourCompte($account)->creerIntentionEnLigne($amount, [
             'objet' => 'video',
             'video_purchase_id' => (string) $purchase->id,
             'video' => $video->uuid,
-        ], 'video-purchase-'.$purchase->id.'-'.$amount.'-'.$account, $commission);
-        $purchase->forceFill(['payment_intent_id' => $intent['id']])->save();
+        ], 'video-purchase-'.$purchase->id.'-'.$amount.'-'.$account.'-'.now()->format('Ymd'), $commission);
+        if ($previous !== null && $previous !== $intent['id']) {
+            try {
+                $this->gateway->pourCompte($previousAccount)->annulerIntention($previous);
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
+        $purchase->forceFill([
+            'amount_cents' => $amount, 'commission_cents' => $commission, 'stripe_account_id' => $account,
+            'payment_intent_id' => $intent['id'], 'terms_accepted_at' => now(),
+        ])->save();
 
         return [
             'client_secret' => $intent['client_secret'],
@@ -75,26 +93,57 @@ class VideoPurchases
     /** Le paiement vérifié auprès du prestataire : payé, la vidéo est à lui, à vie. Sans effet sinon. */
     public function confirm(VideoPurchase $purchase): VideoPurchase
     {
-        return DB::transaction(function () use ($purchase): VideoPurchase {
-            $purchase = VideoPurchase::query()->lockForUpdate()->findOrFail($purchase->id);
-            if ($purchase->paid_at !== null || $purchase->payment_intent_id === null) {
-                return $purchase;
-            }
-            if ($this->gateway->pourCompte($purchase->stripe_account_id)->lireIntention($purchase->payment_intent_id)['statut'] === 'succeeded') {
-                $purchase->forceFill(['paid_at' => now()])->save();
-            }
+        if ($purchase->payment_intent_id !== null) {
+            $this->settle($purchase, $purchase->payment_intent_id);
+        }
 
-            return $purchase;
+        return $purchase->refresh();
+    }
+
+    /**
+     * Une intention de cet achat, relue chez le prestataire sur le compte qui
+     * l'a reçue : payée, l'achat l'est aussi (avec le montant réellement payé).
+     */
+    private function settle(VideoPurchase $purchase, string $intentId, ?string $account = null): bool
+    {
+        return DB::transaction(function () use ($purchase, $intentId, $account): bool {
+            $locked = VideoPurchase::query()->lockForUpdate()->findOrFail($purchase->id);
+            if ($locked->paid_at !== null) {
+                return true;
+            }
+            $account ??= $locked->stripe_account_id;
+            try {
+                $state = $this->gateway->pourCompte($account)->lireIntention($intentId);
+            } catch (Throwable $e) {
+                report($e);
+
+                return false;
+            }
+            if ($state['statut'] !== 'succeeded') {
+                return false;
+            }
+            $locked->forceFill(['paid_at' => now(), 'payment_intent_id' => $intentId, 'stripe_account_id' => $account])->save();
+
+            return true;
         });
     }
 
-    /** Webhook `payment_intent.succeeded` d'un achat de vidéo, seulement depuis le compte qui a encaissé. */
-    public function onPaymentSucceeded(string $intentId, ?string $account): void
+    /**
+     * Webhook `payment_intent.succeeded` d'un achat de vidéo, seulement depuis
+     * le compte qui a encaissé ; aussi pour une intention remplacée depuis
+     * (payée dans un vieil onglet), retrouvée par son achat.
+     */
+    public function onPaymentSucceeded(string $intentId, ?string $account, ?string $purchaseId = null): void
     {
-        $purchase = VideoPurchase::query()->where('payment_intent_id', $intentId)->first();
-        if ($purchase === null || ($account !== null && $purchase->stripe_account_id !== $account)) {
+        $purchase = VideoPurchase::query()->where('payment_intent_id', $intentId)->first()
+            ?? ($purchaseId !== null && $account !== null ? VideoPurchase::query()->find((int) $purchaseId) : null);
+        if ($purchase === null) {
             return;
         }
-        $this->confirm($purchase);
+        if ($account !== null && $purchase->payment_intent_id === $intentId && $purchase->stripe_account_id !== $account) {
+            return;
+        }
+        // Relue chez le prestataire, sur le compte d'où vient l'événement : un faux ne passe pas
+        $this->settle($purchase, $intentId, $account ?? $purchase->stripe_account_id);
     }
 }

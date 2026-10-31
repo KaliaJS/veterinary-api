@@ -33,7 +33,8 @@ class VideoPlayback
             $lines[] = sprintf('#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%dx%d%s',
                 max(1, (int) $rendition['bandwidth']), $rendition['width'], $rendition['height'],
                 ! empty($rendition['codecs']) ? ',CODECS="'.str_replace('"', '', (string) $rendition['codecs']).'"' : '');
-            $lines[] = URL::temporarySignedRoute('videos.hls.media', $expires, ['video' => $video->uuid, 'name' => $rendition['playlist'], 'scope' => $scope]);
+            // Une date, pas un nombre : un nombre se lirait « dans tant de secondes »
+            $lines[] = URL::temporarySignedRoute('videos.hls.media', CarbonImmutable::createFromTimestamp($expires), ['video' => $video->uuid, 'name' => $rendition['playlist'], 'scope' => $scope]);
         }
 
         return implode("\n", $lines)."\n";

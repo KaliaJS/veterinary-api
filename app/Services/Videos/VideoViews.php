@@ -21,10 +21,18 @@ class VideoViews
 
     private const MAX_SPEED = 2;
 
-    /** Ouvre (ou reprend) le visionnage : l'horloge de crédit part d'ici. */
+    /** Au plus, ce qu'un envoi crédite d'écoulé : une pause ou une absence ne compte pas comme regardée. */
+    private const MAX_ELAPSED_SECONDS = 60;
+
+    /** Ouvre (ou reprend) le visionnage : l'horloge de crédit repart d'ici, à chaque lecture. */
     public function start(Video $video, User $user): VideoView
     {
-        return VideoView::query()->firstOrCreate(['video_id' => $video->id, 'user_id' => $user->id], ['last_progress_at' => now(), 'watched_ranges' => []]);
+        $view = VideoView::query()->firstOrCreate(['video_id' => $video->id, 'user_id' => $user->id], ['last_progress_at' => now(), 'watched_ranges' => []]);
+        if (! $view->wasRecentlyCreated) {
+            $view->forceFill(['last_progress_at' => now()])->save();
+        }
+
+        return $view;
     }
 
     /**
@@ -42,7 +50,7 @@ class VideoViews
 
             $merged = self::merge([...($view->watched_ranges ?? []), ...$ranges], $limit);
             $total = (int) floor(array_sum(array_map(fn ($r) => $r[1] - $r[0], $merged)));
-            $since = $view->last_progress_at ? max(0, now()->getTimestamp() - $view->last_progress_at->getTimestamp()) : 0;
+            $since = $view->last_progress_at ? min(self::MAX_ELAPSED_SECONDS, max(0, now()->getTimestamp() - $view->last_progress_at->getTimestamp())) : 0;
             // La marge ne vaut qu'au premier envoi : sinon, des envois rapprochés l'additionneraient
             $grace = $view->watched_seconds === 0 ? self::GRACE_SECONDS : 0;
             $credited = min($total, $view->watched_seconds + $since * self::MAX_SPEED + $grace);

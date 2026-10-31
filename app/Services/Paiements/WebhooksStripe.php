@@ -87,7 +87,7 @@ class WebhooksStripe
         // Achat d'une vidéo de formation : payé, elle est à l'acheteur, à vie (31.10.2026)
         if (($intention['metadata']['objet'] ?? null) === 'video') {
             if ($statut === 'succeeded') {
-                app(VideoPurchases::class)->onPaymentSucceeded($intention['id'], $compte);
+                app(VideoPurchases::class)->onPaymentSucceeded($intention['id'], $compte, $intention['metadata']['video_purchase_id'] ?? null);
             }
 
             return;

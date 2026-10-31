@@ -33,9 +33,9 @@ class HlsPackage
      * Vérifie le dossier de la vidéo. Rend les qualités et la durée, ou la
      * raison du refus, dite à son vendeur.
      *
-     * @return array{ok: true, duration: float, width: int, height: int, size: int, renditions: list<array<string, mixed>>}|array{ok: false, reason: string}
+     * @return array{ok: true, duration: float, width: int, height: int, size: int, download_bytes: int, renditions: list<array<string, mixed>>}|array{ok: false, reason: string}
      */
-    public function inspect(Video $video): array
+    public function inspect(Video $video, array $keep = []): array
     {
         $files = $this->storage->files($video);
         if (! isset($files[self::MASTER])) {
@@ -71,6 +71,12 @@ class HlsPackage
                 return $this->refuse($picture ?? 'Ce fichier n’est pas une vidéo MP4 lisible.');
             }
             $bytes = $files[$playlist] + $files[$init];
+            // Quelques morceaux relus : un vrai fragment MP4, pas n'importe quel fichier
+            foreach ($this->sample($media['segments']) as $segment) {
+                if (isset($files[$segment['uri']]) && ! $this->isFragment($this->storage->readHead($video, $segment['uri'], 8))) {
+                    return $this->refuse('Un morceau de la vidéo n’est pas lisible : renvoyez la vidéo.');
+                }
+            }
             foreach ($media['segments'] as $segment) {
                 if (! isset($files[$segment['uri']])) {
                     return $this->refuse('Des morceaux de la vidéo manquent : reprenez l’envoi.');
@@ -92,6 +98,7 @@ class HlsPackage
                 'bandwidth' => $media['duration'] > 0 ? (int) ceil($bytes * 8 / $media['duration']) : 0,
                 'codecs' => $variant['codecs'],
                 'audio' => $picture['audio'],
+                'bytes' => $bytes,
             ];
         }
 
@@ -115,9 +122,9 @@ class HlsPackage
             return $this->refuse('Il manque la version allégée en 720p.');
         }
 
-        // Ce qui n'est cité nulle part n'a rien à faire là
+        // Ce qui n'est cité nulle part n'a rien à faire là (sauf ce qu'on garde : la version à télécharger)
         foreach (array_keys($files) as $name) {
-            if (! isset($referenced[$name])) {
+            if (! isset($referenced[$name]) && ! in_array($name, $keep, true)) {
                 $this->storage->delete($video, $name);
                 unset($files[$name]);
             }
@@ -129,8 +136,35 @@ class HlsPackage
             'width' => $renditions[0]['width'],
             'height' => $renditions[0]['height'],
             'size' => array_sum($files),
-            'renditions' => $renditions,
+            'download_bytes' => $light['bytes'],
+            'renditions' => array_map(fn (array $r) => array_diff_key($r, ['bytes' => true]), $renditions),
         ];
+    }
+
+    /**
+     * Le premier, le dernier et deux morceaux entre les deux.
+     *
+     * @param  list<array{uri: string, duration: float}>  $segments
+     * @return list<array{uri: string, duration: float}>
+     */
+    private function sample(array $segments): array
+    {
+        $count = count($segments);
+        if ($count <= 4) {
+            return $segments;
+        }
+        $picked = [];
+        foreach ([0, intdiv($count, 3), intdiv($count * 2, 3), $count - 1] as $index) {
+            $picked[$index] = $segments[$index];
+        }
+
+        return array_values($picked);
+    }
+
+    /** Un fragment CMAF commence par une boîte styp, moof, sidx, emsg ou prft. */
+    private function isFragment(string $head): bool
+    {
+        return strlen($head) >= 8 && in_array(substr($head, 4, 4), ['styp', 'moof', 'sidx', 'emsg', 'prft'], true);
     }
 
     /**

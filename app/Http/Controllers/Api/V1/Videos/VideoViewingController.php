@@ -37,7 +37,7 @@ class VideoViewingController extends Controller
     {
         $video = Video::query()->where('uuid', $uuid)->firstOrFail();
         $user = $request->user();
-        $access = $this->access->for($video, $user, $video->seller_user_id === $user->id);
+        $access = $this->access->for($video, $user, $video->isOnSellerSide($user));
         abort_if($access === null || $video->files_status !== VideoFilesStatus::Ready, 404);
 
         return [$video, $access];

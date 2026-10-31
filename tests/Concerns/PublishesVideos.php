@@ -48,11 +48,11 @@ trait PublishesVideos
     }
 
     /** Une vidéo prête, renseignée et en vente. */
-    protected function published(array $fields = [], ?array $vet = null): array
+    protected function published(array $fields = [], ?array $vet = null, float $seconds = 30): array
     {
         $vet ??= $this->verifiedVet();
         $id = $this->draft($vet['jeton']);
-        $this->upload($vet['jeton'], $id, $this->hlsPackage());
+        $this->upload($vet['jeton'], $id, $this->hlsPackage($seconds));
         $this->finish($vet['jeton'], $id)->assertOk();
         $this->patchJson("/api/v1/espace/videos/seller/videos/{$id}", [
             'title' => 'Nourrir un chat senior', 'description' => 'Ce qu’il faut savoir.', 'price_cents' => 1500, 'audience' => 'owners', ...$fields,
