@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Messages;
 
+use App\Auth\ContexteClinique;
 use App\Events\MessagesChangent;
 use App\Models\ClinicMessage;
 use App\Models\Clinique;
@@ -10,6 +11,7 @@ use App\Models\Employe;
 use App\Models\StaffMessage;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -168,5 +170,76 @@ class InternalMessagingTest extends TestCase
         $this->postJson('/api/v1/messages/k'.$centre->id, ['texte' => 'Second'], $this->enTetes($this->anneToken))->assertCreated();
 
         $this->assertSame(['k'.$centre->id, 'e'.$this->marc->id], array_column($this->threads($this->anneToken), 'cle'));
+    }
+
+    /** Rouvrir sa propre conversation ne marque pas lu ce que l'autre n'a pas lu (collègue et clinique) */
+    public function test_opening_ones_own_thread_does_not_mark_the_other_side_read(): void
+    {
+        $centre = Clinique::factory()->create(['nom' => 'Centre vétérinaire', 'ville' => 'Morges']);
+        ['jeton' => $julieToken] = $this->employeAvecJeton($centre, ['nom' => 'Julie Perret']);
+        $this->postJson('/api/v1/messages/e'.$this->marc->id, ['texte' => 'Bonjour'], $this->enTetes($this->anneToken))->assertCreated();
+        $this->postJson('/api/v1/messages/k'.$centre->id, ['texte' => 'Bonjour'], $this->enTetes($this->anneToken))->assertCreated();
+
+        $this->getJson('/api/v1/messages/e'.$this->marc->id, $this->enTetes($this->anneToken))->assertOk();
+        $this->getJson('/api/v1/messages/k'.$centre->id, $this->enTetes($this->anneToken))->assertOk();
+
+        $this->assertSame(1, $this->threads($this->marcToken)[0]['non_lus']);
+        $this->assertSame(1, $this->threads($julieToken)[0]['non_lus']);
+    }
+
+    /** Une clinique fermée depuis : la conversation reste lisible, on n'y écrit plus ; un collègue suspendu, de même */
+    public function test_a_thread_whose_other_side_can_no_longer_read_stays_readable_but_closed(): void
+    {
+        Event::fake([MessagesChangent::class]);
+        $centre = Clinique::factory()->create(['nom' => 'Centre vétérinaire', 'ville' => 'Morges']);
+        $this->postJson('/api/v1/messages/k'.$centre->id, ['texte' => 'Bonjour'], $this->enTetes($this->anneToken))->assertCreated();
+        $this->postJson('/api/v1/messages/e'.$this->marc->id, ['texte' => 'Bonjour'], $this->enTetes($this->anneToken))->assertCreated();
+        Event::assertDispatched(MessagesChangent::class, fn (MessagesChangent $e) => $e->canal === 'utilisateur.'.$this->anne->user_id);
+
+        $centre->societe->organisation->forceFill(['verification' => 'en_attente'])->save();
+        $this->marc->update(['acces_suspendu' => true]);
+
+        $this->getJson('/api/v1/messages/k'.$centre->id, $this->enTetes($this->anneToken))->assertOk()
+            ->assertJsonPath('data.peut_repondre', false)->assertJsonPath('data.messages.0.texte', 'Bonjour');
+        $this->postJson('/api/v1/messages/k'.$centre->id, ['texte' => 'Encore'], $this->enTetes($this->anneToken))->assertUnprocessable()->assertJsonValidationErrors('texte');
+        $this->getJson('/api/v1/messages/e'.$this->marc->id, $this->enTetes($this->anneToken))->assertOk()->assertJsonPath('data.peut_repondre', false);
+        foreach ($this->threads($this->anneToken) as $thread) {
+            $this->assertFalse($thread['peut_repondre'], $thread['cle']);
+        }
+    }
+
+    /** « À : » ne propose ni soi-même, ni un suspendu, ni un collègue sans clinique ; « % » ne trouve personne */
+    public function test_to_proposes_only_colleagues_one_can_write_to(): void
+    {
+        ['employe' => $suspendu] = $this->employeAvecJeton($this->lausanne, ['nom' => 'Dr Paul Annexe']);
+        $suspendu->update(['acces_suspendu' => true]);
+        ['employe' => $sansClinique] = $this->employeAvecJeton($this->lausanne, ['nom' => 'Dre Annick Sans']);
+        $sansClinique->cliniques()->detach();
+
+        $data = $this->getJson('/api/v1/messages/contacts?q=ann', $this->enTetes($this->anneToken))->assertOk()->json('data');
+        $this->assertSame([], $data['staff']);
+        $this->postJson('/api/v1/messages/e'.$sansClinique->id, ['texte' => 'Bonjour'], $this->enTetes($this->anneToken))->assertUnprocessable();
+        $this->assertSame(['staff' => [], 'clinics' => []], $this->getJson('/api/v1/messages/contacts?q=%25', $this->enTetes($this->anneToken))->assertOk()->json('data'));
+    }
+
+    /** La liste ne coûte pas une requête de plus par clinique */
+    public function test_the_list_does_not_query_once_per_clinic(): void
+    {
+        $compter = function (): int {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->threads($this->anneToken);
+
+            return count(DB::getQueryLog());
+        };
+        $centre = Clinique::factory()->create();
+        $this->postJson('/api/v1/messages/k'.$centre->id, ['texte' => 'Bonjour'], $this->enTetes($this->anneToken))->assertCreated();
+        $une = $compter();
+        foreach (range(1, 4) as $n) {
+            app(ContexteClinique::class)->oublier();
+            $autre = Clinique::factory()->create();
+            $this->postJson('/api/v1/messages/k'.$autre->id, ['texte' => 'Bonjour'], $this->enTetes($this->anneToken))->assertCreated();
+        }
+        $this->assertSame($une, $compter());
     }
 }

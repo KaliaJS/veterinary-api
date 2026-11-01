@@ -173,8 +173,9 @@ class InternalMessaging
             ->orderByDesc('created_at')->orderByDesc('id')->get()
             ->groupBy(fn (ClinicMessage $m): int => $m->sender_clinic_id === $mine->id ? $m->recipient_clinic_id : $m->sender_clinic_id);
         $clinics = Clinique::withoutGlobalScopes()->whereKey($messages->keys())->get()->keyBy('id');
+        $open = Clinique::withoutGlobalScopes()->ouvertes()->whereKey($messages->keys())->pluck('id')->all();
 
-        return $messages->map(function (Collection $thread, int $clinicId) use ($clinics, $mine): ?array {
+        return $messages->map(function (Collection $thread, int $clinicId) use ($clinics, $mine, $open): ?array {
             $other = $clinics[$clinicId] ?? null;
             if ($other === null) {
                 return null;
@@ -183,7 +184,7 @@ class InternalMessaging
             $last = $thread->first();
 
             return [
-                ...$this->clinicHeader($other),
+                ...$this->clinicHeader($other, in_array($other->id, $open, true)),
                 'non_lus' => $thread->where('recipient_clinic_id', $mine->id)->whereNull('read_at')->count(),
                 'dernier' => ['texte' => mb_strimwidth($last->body, 0, 140, '…'), 'is_mine' => $last->sender_clinic_id === $mine->id, 'envoye_le' => $last->created_at?->toIso8601String()],
             ];
@@ -197,11 +198,11 @@ class InternalMessaging
     }
 
     /** @return array<string, mixed> */
-    private function clinicHeader(Clinique $other): array
+    private function clinicHeader(Clinique $other, ?bool $isOpen = null): array
     {
         return [
             'cle' => 'k'.$other->id, 'kind' => 'clinic', 'name' => $other->nom, 'subtitle' => $other->ville, 'user_id' => null,
-            'peut_repondre' => Clinique::withoutGlobalScopes()->ouvertes()->whereKey($other->id)->exists(),
+            'peut_repondre' => $isOpen ?? Clinique::withoutGlobalScopes()->ouvertes()->whereKey($other->id)->exists(),
         ];
     }
 
@@ -233,10 +234,10 @@ class InternalMessaging
         ];
     }
 
-    /** Peut lire les Messages : accès actif, contrat en cours, le droit Patients */
+    /** Peut lire les Messages : accès actif, contrat en cours, affecté à une clinique, le droit Patients */
     private function canWriteTo(Employe $employe): bool
     {
-        return $employe->estPresentable()
+        return $employe->estPresentable() && $employe->cliniques()->withoutGlobalScopes()->exists()
             && in_array(DomainePermission::Patients->value, $this->permissions->pour($employe), true);
     }
 
