@@ -2,12 +2,14 @@
 
 namespace App\Http\Requests\V1\Stupefiants;
 
+use App\Auth\ContexteClinique;
 use App\Enums\StatutOrdonnance;
 use App\Enums\TypeMouvementStupefiant;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
 use App\Models\MouvementStupefiant;
 use App\Models\Ordonnance;
 use App\Models\Produit;
+use App\Services\RegistreStupefiants;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -72,7 +74,7 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
-            if ($this->est(TypeMouvementStupefiant::Remise) && $this->tableau() === null && ! $validator->errors()->has('produit_id')) {
+            if ($this->est(TypeMouvementStupefiant::Remise) && ! in_array($this->tableau(), ['a', 'b'], true) && ! $validator->errors()->has('produit_id')) {
                 $validator->errors()->add('produit_id', 'Précisez d’abord le tableau de la substance (a ou b) : la remise en dépend.');
             }
         }];
@@ -123,9 +125,25 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
                 Rule::prohibitedIf(fn (): bool => ! $this->remiseSurFormulaire()),
                 'nullable', 'string', 'regex:/^\d{6,10}$/',
             ],
-            'fournisseur' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:255'],
-            'bulletin' => ['nullable', 'string', 'max:60'],
-            'bulletin_le' => ['nullable', 'date', 'before_or_equal:today'],
+            'fournisseur' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception, $t::Retour)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:255'],
+            'bulletin' => [Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:60'],
+            // La date du bulletin devient celle de la ligne (art. 57, al. 3 OCStup) : jamais dans le futur, à l'heure de
+            // la clinique, ni avant le dernier visa de la substance (une période visée ne bouge plus ; 01.11.2026)
+            'bulletin_le' => [
+                Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'date_format:Y-m-d',
+                function (string $attribut, mixed $valeur, \Closure $echec): void {
+                    $date = (string) $valeur;
+                    if ($date > aujourdhui()->toDateString()) {
+                        $echec('La date du bulletin ne peut pas être dans le futur.');
+
+                        return;
+                    }
+                    $vise = RegistreStupefiants::dernierVisa((int) $this->input('produit_id'), (int) app(ContexteClinique::class)->cliniqueId());
+                    if ($vise !== null && $date < $vise->toDateString()) {
+                        $echec('Le registre de cette substance est visé au '.$vise->format('d.m.Y').' : un bulletin plus ancien s’inscrit avec une correction expliquée.');
+                    }
+                },
+            ],
             'corrige_id' => [Rule::requiredIf(fn (): bool => $this->est($t::Correction)), 'nullable', 'integer'],
             'motif' => [Rule::requiredIf(fn (): bool => $this->est($t::Perte, $t::Vol, $t::Elimination, $t::Correction)), 'nullable', 'string', 'max:255'],
         ];
@@ -149,6 +167,10 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'ordonnance_officielle.prohibited' => 'Le formulaire officiel ne sert qu’à la remise d’une substance du tableau a.',
             'fournisseur.required' => 'Indiquez le fournisseur.',
             'corrige_id.required' => 'Choisissez la ligne à corriger.',
+            'fournisseur.prohibited' => 'Le fournisseur ne se donne qu’à une réception ou un retour.',
+            'bulletin.prohibited' => 'Le bulletin ne se donne qu’à une réception ou un retour.',
+            'bulletin_le.prohibited' => 'Le bulletin ne se donne qu’à une réception ou un retour.',
+            'bulletin_le.date_format' => 'Indiquez la date du bulletin.',
             'motif.required' => match ($this->type()) {
                 TypeMouvementStupefiant::Elimination => 'Indiquez comment la substance a été éliminée (par exemple l’envoi recommandé au pharmacien cantonal).',
                 TypeMouvementStupefiant::Correction => 'Indiquez pourquoi vous corrigez.',

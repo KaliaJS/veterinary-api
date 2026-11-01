@@ -4,11 +4,13 @@ namespace App\Services;
 
 use App\Auth\ContexteClinique;
 use App\Enums\TypeMouvementStupefiant;
+use App\Models\Clinique;
 use App\Models\MouvementStupefiant;
 use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\Produit;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -66,6 +68,11 @@ class RegistreStupefiants
             'fournisseur' => $details['fournisseur'] ?? null,
             'bulletin' => $details['bulletin'] ?? null,
             'bulletin_le' => $details['bulletin_le'] ?? null,
+            // La date de la ligne : celle du bulletin d'une réception, sinon le jour de l'inscription, à l'heure de la
+            // clinique (art. 57, al. 3 OCStup) ; le bilan d'une période se fait sur elle (01.11.2026)
+            'date_registre' => $type === TypeMouvementStupefiant::Reception && filled($details['bulletin_le'] ?? null)
+                ? (string) $details['bulletin_le']
+                : aujourdhui(Clinique::query()->find($cliniqueId))->toDateString(),
             'created_at' => now(),
         ]));
 
@@ -108,6 +115,19 @@ class RegistreStupefiants
             ->where('produit_id', $produit->id)
             ->lockForUpdate()
             ->sum('quantite'), 3);
+    }
+
+    /** Le jour du dernier visa d'une substance dans une clinique, à l'heure de la clinique ; null sans visa */
+    public static function dernierVisa(int $produitId, int $cliniqueId): ?CarbonImmutable
+    {
+        $quand = MouvementStupefiant::withoutGlobalScopes()->where('clinique_id', $cliniqueId)->where('produit_id', $produitId)
+            ->where('type', TypeMouvementStupefiant::Visa)->max('created_at');
+        if ($quand === null) {
+            return null;
+        }
+        $fuseau = Clinique::query()->find($cliniqueId)->fuseau_horaire ?? 'Europe/Zurich';
+
+        return CarbonImmutable::parse($quand, 'UTC')->setTimezone($fuseau)->startOfDay();
     }
 
     /** « 12,5 » : la quantité écrite à la suisse romande, sans zéros inutiles */

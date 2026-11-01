@@ -38,6 +38,7 @@ class MouvementStupefiantResource extends JsonResource
             'fournisseur' => $this->fournisseur,
             'bulletin' => $this->bulletin,
             'bulletin_le' => $this->bulletin_le?->toDateString(),
+            'date_registre' => $this->date_registre?->toDateString(),
             'created_at' => $this->created_at,
             'corrige' => $this->whenLoaded('corrige', fn (): ?array => $this->corrige === null ? null : [
                 'id' => $this->corrige->id,

@@ -4,10 +4,12 @@ namespace App\Models;
 
 use App\Enums\TypeMouvementStupefiant;
 use App\Models\Concerns\AppartientAUneClinique;
+use Carbon\CarbonImmutable;
 use Database\Factories\MouvementStupefiantFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 use LogicException;
 
 /**
@@ -31,7 +33,7 @@ class MouvementStupefiant extends Model
         'clinique_id', 'produit_id', 'patient_id', 'employe_id', 'type',
         'quantite', 'solde_apres', 'corrige_id', 'quantite_comptee', 'motif',
         'patient_nom', 'detenteur_nom', 'signataire_nom', 'ordonnance_id', 'ordonnance_numero',
-        'fournisseur', 'bulletin', 'bulletin_le', 'created_at',
+        'fournisseur', 'bulletin', 'bulletin_le', 'date_registre', 'created_at',
     ];
 
     /** Immuable : ni modification ni suppression, même hors de l'API */
@@ -39,6 +41,13 @@ class MouvementStupefiant extends Model
     {
         static::updating(fn (): never => throw new LogicException('Le registre des stupéfiants est immuable : corrigez par un mouvement inverse.'));
         static::deleting(fn (): never => throw new LogicException('Le registre des stupéfiants est immuable : corrigez par un mouvement inverse.'));
+        // La date de la ligne, quand l'écriture ne la donne pas : le jour de l'inscription, à l'heure de la clinique
+        static::creating(function (MouvementStupefiant $mouvement): void {
+            if ($mouvement->date_registre === null) {
+                $fuseau = Clinique::query()->find($mouvement->clinique_id)->fuseau_horaire ?? 'Europe/Zurich';
+                $mouvement->date_registre = Carbon::parse(CarbonImmutable::parse($mouvement->created_at ?? now())->setTimezone($fuseau)->toDateString());
+            }
+        });
     }
 
     protected function casts(): array
@@ -49,6 +58,7 @@ class MouvementStupefiant extends Model
             'solde_apres' => 'decimal:3',
             'quantite_comptee' => 'decimal:3',
             'bulletin_le' => 'date',
+            'date_registre' => 'date',
             'created_at' => 'datetime',
         ];
     }

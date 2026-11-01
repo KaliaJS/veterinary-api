@@ -130,7 +130,10 @@ class CommandeFournisseurTest extends TestCase
         $this->assertSame(0, MouvementStupefiant::withoutGlobalScopes()->count());
 
         ['employe' => $veto, 'jeton' => $jetonVeto] = $this->employeAvecJeton($this->clinique);
-        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->enTetes($jetonVeto))->assertOk();
+        // Un stupéfiant reçu : le bulletin de livraison et sa date (art. 57 et 62 OCStup, vérification du 01.11.2026)
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->enTetes($jetonVeto))
+            ->assertUnprocessable()->assertJsonValidationErrors(['bulletin' => 'Indiquez le numéro du bulletin de livraison : la commande contient un stupéfiant.']);
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", ['bulletin' => 'BL-88214', 'bulletin_le' => now()->subDay()->toDateString()], $this->enTetes($jetonVeto))->assertOk();
 
         $inscription = MouvementStupefiant::withoutGlobalScopes()->sole();
         $this->assertSame('10.000', $inscription->quantite);
@@ -138,7 +141,8 @@ class CommandeFournisseurTest extends TestCase
         // Le fournisseur et la pièce, comme une réception saisie à la main (art. 57 OCStup)
         $this->assertSame('reception', $inscription->type->value);
         $this->assertSame($commande->fournisseur ?: 'Fournisseur de la commande '.$commande->numero, $inscription->fournisseur);
-        $this->assertSame($commande->numero, $inscription->bulletin);
+        $this->assertSame('BL-88214', $inscription->bulletin);
+        $this->assertSame(now()->subDay()->toDateString(), $inscription->bulletin_le->toDateString());
         $this->assertSame($veto->id, $inscription->employe_id);
         $this->assertNull($inscription->patient_id);
         $this->assertSame(10, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->where('clinique_id', $this->clinique->id)->sole()->quantite);
@@ -406,5 +410,21 @@ class CommandeFournisseurTest extends TestCase
             ->assertJsonValidationErrors(['statut' => 'Une commande réceptionnée a fait bouger le stock, elle ne se supprime plus.']);
 
         $this->assertDatabaseHas('commandes_fournisseur', ['id' => $commande->id]);
+    }
+
+    /** Une période visée ne bouge plus : la réception d'une commande ne date pas un stupéfiant avant son dernier visa */
+    public function test_la_reception_ne_date_pas_un_stupefiant_avant_son_dernier_visa(): void
+    {
+        $produit = $this->produit(['est_stupefiant' => true, 'tableau_stupefiant' => 'a']);
+        ['employe' => $veto, 'jeton' => $jetonVeto] = $this->employeAvecJeton($this->clinique);
+        $this->clinique->update(['responsable_stupefiants_id' => $veto->id]);
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $produit->id, 'type' => 'reception', 'quantite' => 1, 'fournisseur' => 'Grossiste'], $this->enTetes($jetonVeto))->assertCreated();
+        $this->postJson('/api/v1/stupefiants/visa', [], $this->enTetes($jetonVeto))->assertOk();
+        $commande = CommandeFournisseur::factory()->envoyee()->create(['clinique_id' => $this->clinique->id]);
+        CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $commande->id, 'produit_id' => $produit->id, 'quantite' => 10]);
+
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", ['bulletin' => 'BL-1', 'bulletin_le' => now('Europe/Zurich')->subDay()->toDateString()], $this->enTetes($jetonVeto))
+            ->assertUnprocessable()->assertJsonValidationErrors('bulletin_le');
+        $this->assertSame(StatutCommandeFournisseur::Envoyee, $commande->refresh()->statut);
     }
 }

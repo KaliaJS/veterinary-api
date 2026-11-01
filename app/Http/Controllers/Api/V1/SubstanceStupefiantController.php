@@ -37,6 +37,12 @@ class SubstanceStupefiantController extends Controller
             throw ValidationException::withMessages(['est_stupefiant' => 'Ce produit a déjà des lignes au registre : il reste stupéfiant, son registre se garde dix ans.']);
         }
 
+        // Le tableau fonde la remise (formulaire officiel ou ordonnance) : il ne change plus après une première ligne
+        $ancien = $produit->tableau_stupefiant;
+        if ($aDesLignes && $ancien !== null && $donnees['tableau'] !== $ancien) {
+            throw ValidationException::withMessages(['tableau' => 'Le tableau ne change plus une fois des lignes inscrites au registre.']);
+        }
+
         $produit->update([
             'est_stupefiant' => $donnees['est_stupefiant'],
             'tableau_stupefiant' => $donnees['est_stupefiant'] ? $donnees['tableau'] : null,

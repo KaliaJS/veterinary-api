@@ -43,9 +43,10 @@ class RegistreStupefiantController extends Controller
         ]);
         $du = $request->date('du') ?? aujourdhui()->startOfYear();
         $au = $request->date('au') ?? aujourdhui();
-        $debut = minuitLocal($du);
-        // Le lendemain à minuit, à l'heure de la clinique (un jour de changement d'heure fait 23 ou 25 h)
-        $fin = minuitLocal($au->copy()->addDay());
+        // Les jours de la période, sur la date de chaque ligne : celle du bulletin d'une réception, sinon le jour de
+        // l'inscription à l'heure de la clinique (art. 57, al. 3 OCStup, 01.11.2026)
+        $debut = $du->toDateString();
+        $fin = $au->toDateString();
 
         $fiches = Produit::query()
             ->where('est_stupefiant', true)
@@ -53,12 +54,19 @@ class RegistreStupefiantController extends Controller
             ->orderBy('nom')
             ->get()
             ->map(function (Produit $produit) use ($debut, $fin): array {
-                $avant = round((float) MouvementStupefiant::query()->where('produit_id', $produit->id)->where('created_at', '<', $debut)->sum('quantite'), 3);
+                $avant = round((float) MouvementStupefiant::query()->where('produit_id', $produit->id)->whereDate('date_registre', '<', $debut)->sum('quantite'), 3);
                 $lignes = MouvementStupefiant::query()->with(['produit', 'corrige'])
                     ->where('produit_id', $produit->id)
-                    ->where('created_at', '>=', $debut)->where('created_at', '<', $fin)
-                    ->oldest('created_at')->oldest('id')
+                    ->whereDate('date_registre', '>=', $debut)->whereDate('date_registre', '<=', $fin)
+                    ->orderBy('date_registre')->oldest('created_at')->oldest('id')
                     ->get();
+                // Le stock après chaque ligne, dans l'ordre du bilan : une réception datée par son bulletin peut
+                // précéder des lignes inscrites avant elle
+                $courant = $avant;
+                foreach ($lignes as $ligne) {
+                    $courant = round($courant + (float) $ligne->quantite, 3);
+                    $ligne->setAttribute('solde_apres', $courant);
+                }
                 $total = fn (TypeMouvementStupefiant ...$types): float => round(abs((float) $lignes->filter(fn (MouvementStupefiant $m) => in_array($m->type, $types, true))->sum('quantite')), 3);
 
                 return [

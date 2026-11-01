@@ -15,6 +15,7 @@ use App\Models\Stock;
 use App\Services\GestionnaireStock;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -97,13 +98,13 @@ class RegistreStupefiantTest extends TestCase
             ->assertJsonPath('data.motif', 'Administration');
     }
 
-    /** Une ordonnance de l'app : signée pour cet animal, avec cette substance */
-    /** Une substance du tableau b : sa remise se fait sur une ordonnance de l'app (art. 46, al. 3 OCStup) */
+    /** Une substance du tableau b : sa remise se fait sur une ordonnance ordinaire de l'app (art. 50 OCStup) */
     private function tableauB(): void
     {
         $this->substance->update(['tableau_stupefiant' => 'b']);
     }
 
+    /** Une ordonnance de l'app : signée pour cet animal, avec cette substance */
     private function ordonnance(array $attributs = [], ?Produit $produit = null): Ordonnance
     {
         app(ContexteClinique::class)->oublier();
@@ -287,7 +288,8 @@ class RegistreStupefiantTest extends TestCase
     /** Le bilan d'une période (art. 57 OCStup) : stock au début, lignes avec le stock après, totaux, stock à la fin */
     public function test_le_bilan_d_une_periode_donne_stock_debut_totaux_et_stock_fin(): void
     {
-        $ligne = fn (array $a) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'motif' => 'x', ...$a]));
+        // Des lignes déjà en base : leur date de registre est le jour de l'inscription à Zurich (01.11.2026)
+        $ligne = fn (array $a) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'motif' => 'x', 'date_registre' => CarbonImmutable::parse($a['created_at'], 'UTC')->setTimezone('Europe/Zurich')->toDateString(), ...$a]));
         $ligne(['type' => 'reception', 'quantite' => 25, 'solde_apres' => 25, 'created_at' => '2025-12-20 10:00:00']);
         $ligne(['type' => 'reception', 'quantite' => 20, 'solde_apres' => 45, 'created_at' => '2026-03-01 10:00:00']);
         $ligne(['type' => 'administration', 'quantite' => -1.2, 'solde_apres' => 43.8, 'created_at' => '2026-04-01 10:00:00']);
@@ -342,7 +344,8 @@ class RegistreStupefiantTest extends TestCase
     public function test_le_bilan_compte_les_remises_et_ignore_les_substances_vides(): void
     {
         $vide = Produit::factory()->stupefiant()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Fentanyl']);
-        $ligne = fn (array $a) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'motif' => 'x', ...$a]));
+        // Des lignes déjà en base : leur date de registre est le jour de l'inscription à Zurich (01.11.2026)
+        $ligne = fn (array $a) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'motif' => 'x', 'date_registre' => CarbonImmutable::parse($a['created_at'], 'UTC')->setTimezone('Europe/Zurich')->toDateString(), ...$a]));
         $ligne(['type' => 'reception', 'quantite' => 10, 'created_at' => '2026-01-01 08:00:00']);
         $ligne(['type' => 'administration', 'quantite' => -1, 'created_at' => '2026-03-01 08:00:00']);
         $ligne(['type' => 'remise', 'quantite' => -2, 'created_at' => '2026-03-02 08:00:00']);
@@ -361,7 +364,7 @@ class RegistreStupefiantTest extends TestCase
         $this->clinique->update(['fuseau_horaire' => 'Europe/Zurich']);
         $tard = MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create([
             'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'type' => 'reception', 'quantite' => 5, 'motif' => 'x',
-            'created_at' => CarbonImmutable::parse('2026-10-25 23:30', 'Europe/Zurich')->utc(),
+            'created_at' => CarbonImmutable::parse('2026-10-25 23:30', 'Europe/Zurich')->utc(), 'date_registre' => '2026-10-25',
         ]));
         $ids = collect($this->getJson('/api/v1/stupefiants/registre?du=2026-10-25&au=2026-10-25', $this->enTetes($this->jeton))->assertOk()->json('data.fiches.0.lignes'))->pluck('id');
         $this->assertSame([$tard->id], $ids->all());
@@ -373,7 +376,7 @@ class RegistreStupefiantTest extends TestCase
         $this->clinique->update(['fuseau_horaire' => 'Europe/Zurich']);
         $jour = CarbonImmutable::parse('2026-07-14', 'Europe/Zurich');
         $mouvement = fn (CarbonImmutable $quand) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create([
-            'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'type' => 'reception', 'quantite' => 5, 'motif' => 'Réception grossiste', 'created_at' => $quand->utc(),
+            'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'type' => 'reception', 'quantite' => 5, 'motif' => 'Réception grossiste', 'created_at' => $quand->utc(), 'date_registre' => $quand->setTimezone('Europe/Zurich')->toDateString(),
         ]));
         $tard = $mouvement($jour->setTime(23, 30));
         // 00:30 le 14 à Zurich, encore le 13 en UTC : compté par « du »
@@ -503,5 +506,82 @@ class RegistreStupefiantTest extends TestCase
             ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $limite->id);
         $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_id' => $vieille->id])->assertUnprocessable()->assertJsonValidationErrors('ordonnance_id');
         $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_id' => $limite->id])->assertCreated();
+    }
+
+    /** Le numéro officiel : des chiffres seulement ; jamais au tableau b ni pour une administration */
+    public function test_le_formulaire_officiel_seulement_au_tableau_a_et_en_chiffres(): void
+    {
+        $this->recevoir();
+        $remise = fn (array $plus) => $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, ...$plus]);
+        $remise(['ordonnance_officielle' => 'AB12345'])->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle');
+        $this->inscrire(['type' => 'administration', 'quantite' => 0.1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '7012345'])
+            ->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle');
+        $this->tableauB();
+        $remise(['ordonnance_officielle' => '7012345', 'ordonnance_id' => $this->ordonnance()->id])->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle');
+    }
+
+    /** Un tableau autre que a ou b (une valeur venue d'ailleurs) : la remise attend qu'on le précise */
+    public function test_une_remise_d_un_autre_tableau_attend_qu_on_le_precise(): void
+    {
+        $this->recevoir();
+        DB::table('produits')->where('id', $this->substance->id)->update(['tableau_stupefiant' => 'c']);
+        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id])
+            ->assertUnprocessable()->assertJsonValidationErrors(['produit_id' => 'Précisez d’abord le tableau de la substance (a ou b) : la remise en dépend.']);
+    }
+
+    /** Le tableau ne change plus une fois des lignes inscrites : la base de chaque remise passée reste vraie */
+    public function test_le_tableau_ne_change_plus_une_fois_des_lignes_inscrites(): void
+    {
+        $this->putJson('/api/v1/stupefiants/produits/'.$this->substance->id, ['est_stupefiant' => true, 'tableau' => 'b'], $this->enTetes($this->jeton))->assertOk();
+        $this->recevoir();
+        $this->putJson('/api/v1/stupefiants/produits/'.$this->substance->id, ['est_stupefiant' => true, 'tableau' => 'a'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['tableau' => 'Le tableau ne change plus une fois des lignes inscrites au registre.']);
+        $this->assertSame('b', $this->substance->fresh()->tableau_stupefiant);
+    }
+
+    /**
+     * Art. 57, al. 3 OCStup : la date du bulletin est celle de la ligne, aussi pour le bilan d'une période ; jamais
+     * après aujourd'hui (heure de la clinique) ni avant le dernier visa de la substance
+     */
+    public function test_le_bilan_range_une_reception_a_la_date_de_son_bulletin(): void
+    {
+        $aujourdhui = CarbonImmutable::now('Europe/Zurich');
+        $finDuMoisPasse = $aujourdhui->startOfMonth()->subDay();
+        $this->inscrire(['type' => 'reception', 'quantite' => 20, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-1', 'bulletin_le' => $finDuMoisPasse->toDateString()])->assertCreated();
+
+        $bilan = fn (CarbonImmutable $du, CarbonImmutable $au) => $this->getJson('/api/v1/stupefiants/registre?du='.$du->toDateString().'&au='.$au->toDateString(), $this->enTetes($this->jeton))->assertOk()->json('data.fiches');
+        $moisPasse = $bilan($finDuMoisPasse->startOfMonth(), $finDuMoisPasse);
+        $this->assertSame(20, (int) $moisPasse[0]['stock_fin']);
+        $this->assertCount(1, $moisPasse[0]['lignes']);
+        $ceMois = $bilan($aujourdhui->startOfMonth(), $aujourdhui);
+        $this->assertSame(20, (int) $ceMois[0]['stock_debut']);
+        $this->assertSame([], $ceMois[0]['lignes']);
+
+        // À 0 h 30 à Zurich, le bulletin du jour est accepté ; le lendemain, non
+        $demain = $aujourdhui->addDay();
+        $this->travelTo($demain->setTime(0, 30));
+        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        $this->inscrire(['type' => 'reception', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-2', 'bulletin_le' => $demain->toDateString()])->assertCreated();
+        $this->inscrire(['type' => 'reception', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-3', 'bulletin_le' => $demain->addDay()->toDateString()])
+            ->assertUnprocessable()->assertJsonValidationErrors(['bulletin_le' => 'La date du bulletin ne peut pas être dans le futur.']);
+    }
+
+    /** Une période visée ne bouge plus : un bulletin plus ancien que le dernier visa est refusé */
+    public function test_un_bulletin_plus_ancien_que_le_dernier_visa_est_refuse(): void
+    {
+        $this->recevoir();
+        $this->clinique->update(['responsable_stupefiants_id' => $this->employe->id]);
+        $this->postJson('/api/v1/stupefiants/visa', [], $this->enTetes($this->jeton))->assertOk();
+        $hier = CarbonImmutable::now('Europe/Zurich')->subDay();
+        $this->inscrire(['type' => 'reception', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-9', 'bulletin_le' => $hier->toDateString()])
+            ->assertUnprocessable()->assertJsonValidationErrors(['bulletin_le' => 'Le registre de cette substance est visé au '.$hier->addDay()->format('d.m.Y').' : un bulletin plus ancien s’inscrit avec une correction expliquée.']);
+    }
+
+    /** Fournisseur et bulletin : seulement pour une réception ou un retour */
+    public function test_le_bulletin_ne_se_donne_qu_a_une_reception_ou_un_retour(): void
+    {
+        $this->recevoir();
+        $this->inscrire(['type' => 'administration', 'quantite' => 0.1, 'patient_id' => $this->patient->id, 'bulletin_le' => '2020-01-01', 'fournisseur' => 'X'])
+            ->assertUnprocessable()->assertJsonValidationErrors(['bulletin_le', 'fournisseur']);
     }
 }

@@ -27,6 +27,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -177,6 +178,31 @@ class CommandeFournisseurController extends Controller
 
         $this->authorize('update', $commande);
 
+        // Un stupéfiant reçu : le bulletin de livraison et sa date, inscrits au registre (art. 57, 62 et 63 OCStup)
+        $aDesStupefiants = $commande->lignes()->whereHas('produit', fn ($produit) => $produit->where('est_stupefiant', true))->exists();
+        // Sans le droit des stupéfiants, un refus avant toute question de bulletin
+        if ($aDesStupefiants) {
+            Gate::authorize(DomainePermission::Stupefiants->value);
+        }
+        $bulletin = $request->validate([
+            'bulletin' => [Rule::requiredIf($aDesStupefiants), 'nullable', 'string', 'max:60'],
+            'bulletin_le' => [Rule::requiredIf($aDesStupefiants), 'nullable', 'date_format:Y-m-d', 'before_or_equal:'.aujourdhui()->toDateString()],
+        ], [
+            'bulletin.required' => 'Indiquez le numéro du bulletin de livraison : la commande contient un stupéfiant.',
+            'bulletin_le.required' => 'Indiquez la date du bulletin de livraison : la commande contient un stupéfiant.',
+            'bulletin_le.before_or_equal' => 'La date du bulletin ne peut pas être dans le futur.',
+            'bulletin_le.date_format' => 'Indiquez la date du bulletin.',
+        ]);
+        // Une période visée ne bouge plus : un bulletin plus ancien que le dernier visa d'une substance est refusé
+        if ($aDesStupefiants && filled($bulletin['bulletin_le'] ?? null)) {
+            foreach ($commande->lignes()->whereHas('produit', fn ($produit) => $produit->where('est_stupefiant', true))->pluck('produit_id') as $produitId) {
+                $vise = RegistreStupefiants::dernierVisa((int) $produitId, (int) $commande->clinique_id);
+                if ($vise !== null && $bulletin['bulletin_le'] < $vise->toDateString()) {
+                    throw ValidationException::withMessages(['bulletin_le' => 'Le registre de cette substance est visé au '.$vise->format('d.m.Y').' : un bulletin plus ancien s’inscrit avec une correction expliquée.']);
+                }
+            }
+        }
+
         // Passée par Vetpoint : prix réels et péremptions lus chez lui (28.10.2026).
         // Vetpoint injoignable : le stock entre quand même, avec les prix de la commande
         $vetpoint = null;
@@ -206,7 +232,7 @@ class CommandeFournisseurController extends Controller
         }
 
         // Sous verrou : une commande n'entre jamais deux fois en stock
-        $commande = DB::transaction(function () use ($request, $commande, $parLigne): CommandeFournisseur {
+        $commande = DB::transaction(function () use ($request, $commande, $parLigne, $bulletin): CommandeFournisseur {
             $commande = CommandeFournisseur::query()->whereKey($commande->id)->lockForUpdate()->firstOrFail();
 
             if ($commande->statut !== StatutCommandeFournisseur::Envoyee) {
@@ -234,7 +260,8 @@ class CommandeFournisseurController extends Controller
                     app(RegistreStupefiants::class)->inscrire($ligne->produit, (float) $ligne->quantite, 'Réception '.$commande->numero, $commande->clinique_id, $request->user(), [
                         // Le fournisseur et la pièce : ce que demande l'art. 57 OCStup (01.11.2026)
                         'fournisseur' => $commande->fournisseur ?: 'Fournisseur de la commande '.$commande->numero,
-                        'bulletin' => $commande->numero,
+                        'bulletin' => $bulletin['bulletin'],
+                        'bulletin_le' => $bulletin['bulletin_le'],
                     ]);
                 } else {
                     $this->stock->entrer(
