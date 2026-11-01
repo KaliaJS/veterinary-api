@@ -344,4 +344,32 @@ class RappelsVerificationTest extends TestCase
         $reponse = $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations", ['nom' => 'Rage', 'injectee_le' => '2025-06-01', 'echeance_le' => '2026-06-01'], $this->enTetes($this->jeton));
         $reponse->assertCreated()->assertJsonPath('data.est_renouvelee', true);
     }
+
+    /** Un ancien « Rage » en texte libre refait par un « Rage » du catalogue : l'onglet Vaccins et le carnet de l'espace n'y voient plus d'échéance */
+    public function test_l_etat_par_valence_suit_la_regle_unique(): void
+    {
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Rage', 'valences' => null, 'injectee_le' => '2025-10-01', 'echeance_le' => '2026-10-01']);
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Rage', 'valences' => ['rage'], 'injectee_le' => '2026-10-20', 'echeance_le' => '2027-10-20']);
+
+        $etat = $this->getJson("/api/v1/patients/{$this->patient->id}/vaccinations", $this->enTetes($this->jeton))->assertOk()->json('etat');
+        $this->assertSame(['rage'], array_column($etat, 'valence'));
+        $this->assertSame('ok', $etat[0]['statut']);
+    }
+
+    /** La réponse d'une modification dit « renouvelée » comme la base (date reculée) */
+    public function test_la_reponse_d_une_modification_dit_renouvelee_comme_la_base(): void
+    {
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Rage', 'injectee_le' => '2026-06-01', 'echeance_le' => '2027-06-01']);
+        $autre = Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Rage', 'injectee_le' => '2026-08-01', 'echeance_le' => '2027-08-01']);
+        $this->putJson("/api/v1/patients/{$this->patient->id}/vaccinations/{$autre->id}", ['nom' => 'Rage', 'injectee_le' => '2025-06-01', 'echeance_le' => '2026-06-01'], $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('data.est_renouvelee', true);
+    }
+
+    /** Pris la veille au soir pour 9 h 30 : l'envoi de 8 h 05 ne le prendra pas (moins de deux heures), « À venir » le dit */
+    public function test_a_venir_respecte_les_deux_heures_du_rappel_du_matin(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 21:00', 'Europe/Zurich'));
+        $this->rendezVous('2026-11-03 09:30', pris: CarbonImmutable::parse('2026-11-02 20:30', 'Europe/Zurich'));
+        $this->assertSame('Échéance passée avant le prochain envoi', $this->aVenir()->firstWhere('objet', 'rdv')['bloque']);
+    }
 }

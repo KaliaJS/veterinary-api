@@ -8,6 +8,7 @@ use App\Models\Patient;
 use App\Models\ProduitEmballage;
 use App\Models\ProduitVeterinaire;
 use App\Models\Vaccination;
+use App\Models\Valence;
 use App\Services\Catalogue\DonneesVaccins;
 use App\Services\Catalogue\ImportRefdata;
 use App\Services\Catalogue\ImportSwissmedic;
@@ -73,6 +74,31 @@ class ImportCatalogueTest extends TestCase
         app(ImportSwissmedic::class)->importer($this->archiveSwissmedic());
 
         $this->assertTrue((bool) $ancienne->fresh()->renouvelee);
+    }
+
+    /** Rien d'ajouté au produit, ou des injections avec leurs valences photographiées : l'import ne refait rien */
+    public function test_l_import_ne_recalcule_que_ce_qu_une_valence_ajoutee_change(): void
+    {
+        app(ImportSwissmedic::class)->importer($this->archiveSwissmedic());
+        $produit = ProduitVeterinaire::query()->where('numero_autorisation', '1337')->firstOrFail();
+        $patient = Patient::factory()->create();
+        $injection = Vaccination::factory()->create(['patient_id' => $patient->id, 'produit_id' => $produit->id, 'nom' => 'Nobivac Rabies', 'valences' => null, 'injectee_le' => '2025-11-01', 'echeance_le' => '2026-11-01']);
+        // Une marque posée à la main : un recalcul l'effacerait
+        Vaccination::query()->whereKey($injection->id)->update(['renouvelee' => true]);
+
+        $produit->valences()->detach();
+        $produit->valences()->attach(Valence::query()->where('code', 'rage')->value('id'));
+        CatalogueImport::query()->delete();
+        app(ImportSwissmedic::class)->importer($this->archiveSwissmedic());
+        $this->assertTrue((bool) $injection->fresh()->renouvelee, 'rien d’ajouté : pas de recalcul');
+
+        $produit->valences()->detach();
+        $avecValences = Vaccination::factory()->create(['patient_id' => Patient::factory()->create()->id, 'produit_id' => $produit->id, 'nom' => 'Nobivac Rabies', 'valences' => ['rage'], 'injectee_le' => '2025-11-01', 'echeance_le' => '2026-11-01']);
+        Vaccination::query()->whereKey($avecValences->id)->update(['renouvelee' => true]);
+        CatalogueImport::query()->delete();
+        app(ImportSwissmedic::class)->importer($this->archiveSwissmedic());
+        $this->assertTrue((bool) $avecValences->fresh()->renouvelee, 'valences photographiées : pas de recalcul');
+        $this->assertFalse((bool) $injection->fresh()->renouvelee, 'sans valences photographiées : recalculée');
     }
 
     public function test_les_tables_curees_ne_citent_que_des_especes_connues(): void

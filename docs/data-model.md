@@ -1461,7 +1461,9 @@ faut journaliser les envois :
   objet `rdv` (la veille, sauf contrôle, euthanasie, urgence, tampon ; une
   téléconsultation a son texte, sans adresse ; pris la veille après le
   dernier passage de 19 h 05, le matin même, deux heures avant au plus
-  tard), `vaccin_retard` (7 jours après l'échéance, une fois), `devis`
+  tard ; lu sur `created_at` : un rendez-vous déplacé la veille au soir au
+  lendemain n'est pas rappelé, « À venir » le dit bloqué, il faudrait un
+  `deplace_le`), `vaccin_retard` (7 jours après l'échéance, une fois), `devis`
   (envoyé en ligne, 7 jours sans réponse ni relance, mêmes règles que tout
   rappel : animal décédé, rappels coupés, refus ; `rappels_envoyes.devis_id`,
   clé de cache partagée avec la relance à la main, une par jour). Une

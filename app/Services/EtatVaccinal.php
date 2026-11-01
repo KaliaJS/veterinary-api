@@ -41,10 +41,16 @@ final class EtatVaccinal
                 $noms[$code] = $nom;
             }
         }
+        // La règle unique : une valence dont la dernière injection est renouvelée (ancien « Rage » en texte
+        // libre refait par un « Rage » du catalogue) ne fait pas une ligne de plus (vérification du 01.11.2026)
+        $renouvelees = self::renouvelees($vaccinations);
         $etats = [];
         foreach ($parValence as $code => $injections) {
             /** @var Vaccination $derniere */
             $derniere = end($injections);
+            if (isset($renouvelees[$derniere->id])) {
+                continue;
+            }
             $primo = self::primoEnCours($code, $injections, $aujourdhui);
             $echeance = $primo['echeance'] ?? $derniere->echeance_le;
             $jours = $echeance ? (int) $aujourdhui->diffInDays($echeance, false) : null;
