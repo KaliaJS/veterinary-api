@@ -421,6 +421,8 @@ class RappelsVerificationTest extends TestCase
             // Confirmation : « (+ X) » ajoute, ne précise jamais ; « E. coli » exige ses trois maladies
             ['Coryza (+ Calici)', ['calicivirose'], false],
             ['Coryza (+ Calici)', ['calicivirose', 'herpes_felin'], true],
+            ['Coryza (& Calici)', ['calicivirose'], false],
+            ['Coryza (et Calici)', ['calicivirose'], false],
             ['Toux de chenil (+ Bordetella)', ['bordetellose'], false],
             ['E. coli', ['colibacillose', 'mammite_staph'], false],
             ['E. coli', ['colibacillose', 'maladie_oedeme'], false],
