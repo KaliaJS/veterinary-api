@@ -231,7 +231,11 @@ class CommandeFournisseurController extends Controller
                 // avec le droit des stupéfiants ; le stock le suit (24.10.2026)
                 if ($ligne->produit->est_stupefiant) {
                     Gate::authorize(DomainePermission::Stupefiants->value);
-                    app(RegistreStupefiants::class)->inscrire($ligne->produit, (float) $ligne->quantite, 'Réception '.$commande->numero, $commande->clinique_id, $request->user());
+                    app(RegistreStupefiants::class)->inscrire($ligne->produit, (float) $ligne->quantite, 'Réception '.$commande->numero, $commande->clinique_id, $request->user(), [
+                        // Le fournisseur et la pièce : ce que demande l'art. 57 OCStup (01.11.2026)
+                        'fournisseur' => $commande->fournisseur ?: 'Fournisseur de la commande '.$commande->numero,
+                        'bulletin' => $commande->numero,
+                    ]);
                 } else {
                     $this->stock->entrer(
                         $ligne->produit,

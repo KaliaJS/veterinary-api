@@ -49,7 +49,11 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
                 Rule::requiredIf(fn (): bool => ! $this->est($t::Inventaire, $t::Visa)),
                 'nullable', 'numeric', 'decimal:0,3',
                 $this->est($t::Correction) ? 'between:-99999.999,99999.999' : 'between:0.001,99999.999',
-                Rule::notIn($this->est($t::Correction) ? [0] : []),
+                function (string $attribut, mixed $valeur, \Closure $echec): void {
+                    if (is_numeric($valeur) && (float) $valeur === 0.0) {
+                        $echec('Une correction a une quantité, en plus ou en moins.');
+                    }
+                },
             ],
             'quantite_comptee' => [Rule::requiredIf(fn (): bool => $this->est($t::Inventaire)), 'nullable', 'numeric', 'decimal:0,3', 'between:0,99999.999'],
             'patient_id' => [Rule::requiredIf(fn (): bool => $this->est($t::Administration, $t::Remise)), 'nullable', $this->existeDansLOrganisation('patients')],

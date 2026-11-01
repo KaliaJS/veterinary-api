@@ -135,6 +135,10 @@ class CommandeFournisseurTest extends TestCase
         $inscription = MouvementStupefiant::withoutGlobalScopes()->sole();
         $this->assertSame('10.000', $inscription->quantite);
         $this->assertSame('Réception '.$commande->numero, $inscription->motif);
+        // Le fournisseur et la pièce, comme une réception saisie à la main (art. 57 OCStup)
+        $this->assertSame('reception', $inscription->type->value);
+        $this->assertSame($commande->fournisseur ?: 'Fournisseur de la commande '.$commande->numero, $inscription->fournisseur);
+        $this->assertSame($commande->numero, $inscription->bulletin);
         $this->assertSame($veto->id, $inscription->employe_id);
         $this->assertNull($inscription->patient_id);
         $this->assertSame(10, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->where('clinique_id', $this->clinique->id)->sole()->quantite);

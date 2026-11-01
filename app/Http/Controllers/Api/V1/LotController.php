@@ -40,14 +40,25 @@ class LotController extends Controller
     {
         $this->authorize('delete', $lot);
 
-        DB::transaction(function () use ($request, $lot, $stock): void {
-            // Un stupéfiant périmé se détruit par le registre, avec le droit
-            // des stupéfiants : la destruction y est inscrite, le stock suit (24.10.2026)
+        // Un stupéfiant s'élimine de façon prouvable (art. 70 OCStup, OSAV D 05) :
+        // comment, dit par qui l'écarte (01.11.2026)
+        $elimination = null;
+        if ($lot->produit->est_stupefiant) {
+            Gate::authorize(DomainePermission::Stupefiants->value);
+            $elimination = trim((string) $request->validate([
+                'elimination' => ['required', 'string', 'max:200'],
+            ], [
+                'elimination.required' => 'Pour un stupéfiant, dites comment il est éliminé (par exemple : remis au pharmacien cantonal, envoi recommandé n° …).',
+            ])['elimination']);
+        }
+
+        DB::transaction(function () use ($request, $lot, $stock, $elimination): void {
+            // Un stupéfiant périmé s'élimine par le registre, avec le droit
+            // des stupéfiants : l'élimination y est inscrite, le stock suit (24.10.2026)
             if ($lot->produit->est_stupefiant) {
-                Gate::authorize(DomainePermission::Stupefiants->value);
                 // Ce que le registre compte encore, au plus le lot : un lot entamé
-                // par les doses inscrites se détruit pour ce qu'il en reste
-                app(RegistreStupefiants::class)->detruire($lot->produit, (float) $lot->quantite, 'Destruction : lot '.$lot->numero_lot.' périmé', $lot->clinique_id, $request->user());
+                // par les doses inscrites s'élimine pour ce qu'il en reste
+                app(RegistreStupefiants::class)->detruire($lot->produit, (float) $lot->quantite, 'Lot '.$lot->numero_lot.' périmé : '.$elimination, $lot->clinique_id, $request->user());
             } else {
                 $stock->appliquer(
                     $lot->produit,

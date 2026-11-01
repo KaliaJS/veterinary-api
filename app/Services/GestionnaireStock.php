@@ -142,6 +142,7 @@ class GestionnaireStock
         $solde = (float) MouvementStupefiant::withoutGlobalScopes()
             ->where('clinique_id', $mouvement->clinique_id)
             ->where('produit_id', $produit->id)
+            ->lockForUpdate()
             ->sum('quantite');
         $actuel = (int) Stock::query()->withoutGlobalScope('clinique')
             ->where('produit_id', $produit->id)

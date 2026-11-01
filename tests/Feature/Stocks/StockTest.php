@@ -243,11 +243,15 @@ class StockTest extends TestCase
         $this->postJson("/api/v1/stocks/lots/{$lot->id}/ecarter", [], $this->enTetes($jetonAsv))->assertForbidden();
         $this->assertDatabaseHas('lots', ['id' => $lot->id]);
 
-        $this->postJson("/api/v1/stocks/lots/{$lot->id}/ecarter", [], $this->enTetes($this->jeton))->assertNoContent();
+        // Comment il est éliminé : obligatoire (art. 70 OCStup, OSAV D 05 ; 01.11.2026)
+        $this->postJson("/api/v1/stocks/lots/{$lot->id}/ecarter", [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('elimination');
+        $this->postJson("/api/v1/stocks/lots/{$lot->id}/ecarter", ['elimination' => 'Remis au pharmacien cantonal, envoi recommandé n° 98.12.345678'], $this->enTetes($this->jeton))->assertNoContent();
 
         $destruction = MouvementStupefiant::withoutGlobalScopes()->where('quantite', '<', 0)->sole();
         $this->assertSame('-4.000', $destruction->quantite);
-        $this->assertSame('Destruction : lot '.$lot->numero_lot.' périmé', $destruction->motif);
+        $this->assertSame('elimination', $destruction->type->value);
+        $this->assertSame('Lot '.$lot->numero_lot.' périmé : Remis au pharmacien cantonal, envoi recommandé n° 98.12.345678', $destruction->motif);
         $this->assertNull($destruction->patient_id);
         $this->assertSame(2, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->where('clinique_id', $this->clinique->id)->sole()->quantite);
         $this->assertDatabaseMissing('lots', ['id' => $lot->id]);
@@ -262,16 +266,16 @@ class StockTest extends TestCase
         MouvementStupefiant::factory()->sortie()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $produit->id, 'quantite' => -3]);
         $lot = Lot::factory()->perime()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 10]);
 
-        $this->postJson("/api/v1/stocks/lots/{$lot->id}/ecarter", [], $this->enTetes($this->jeton))->assertNoContent();
+        $this->postJson("/api/v1/stocks/lots/{$lot->id}/ecarter", ['elimination' => 'Remis au pharmacien cantonal'], $this->enTetes($this->jeton))->assertNoContent();
 
-        $this->assertSame('-7.000', MouvementStupefiant::withoutGlobalScopes()->where('motif', 'like', 'Destruction%')->sole()->quantite);
+        $this->assertSame('-7.000', MouvementStupefiant::withoutGlobalScopes()->where('type', 'elimination')->sole()->quantite);
         $this->assertSame(0, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->where('clinique_id', $this->clinique->id)->sole()->quantite);
         $this->assertDatabaseMissing('lots', ['id' => $lot->id]);
 
         // Plus rien au registre : le lot part sans inscription
         $vide = Lot::factory()->perime()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 2]);
-        $this->postJson("/api/v1/stocks/lots/{$vide->id}/ecarter", [], $this->enTetes($this->jeton))->assertNoContent();
-        $this->assertSame(1, MouvementStupefiant::withoutGlobalScopes()->where('motif', 'like', 'Destruction%')->count());
+        $this->postJson("/api/v1/stocks/lots/{$vide->id}/ecarter", ['elimination' => 'Remis au pharmacien cantonal'], $this->enTetes($this->jeton))->assertNoContent();
+        $this->assertSame(1, MouvementStupefiant::withoutGlobalScopes()->where('type', 'elimination')->count());
         $this->assertDatabaseMissing('lots', ['id' => $vide->id]);
     }
 

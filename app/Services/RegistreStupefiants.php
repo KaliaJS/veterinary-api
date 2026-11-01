@@ -95,9 +95,13 @@ class RegistreStupefiants
     {
         Produit::query()->whereKey($produit->id)->lockForUpdate()->first();
 
+        // Une lecture verrouillante : sous MySQL (REPEATABLE READ), une somme ordinaire
+        // lirait l'instantané du début de la transaction, sans les lignes écrites
+        // entre-temps par une autre (vérification du 01.11.2026)
         return round((float) MouvementStupefiant::withoutGlobalScopes()
             ->where('clinique_id', $cliniqueId)
             ->where('produit_id', $produit->id)
+            ->lockForUpdate()
             ->sum('quantite'), 3);
     }
 

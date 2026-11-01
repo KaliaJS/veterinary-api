@@ -44,7 +44,8 @@ class RegistreStupefiantController extends Controller
         $du = $request->date('du') ?? aujourdhui()->startOfYear();
         $au = $request->date('au') ?? aujourdhui();
         $debut = minuitLocal($du);
-        $fin = minuitLocal($au)->addDay();
+        // Le lendemain à minuit, à l'heure de la clinique (un jour de changement d'heure fait 23 ou 25 h)
+        $fin = minuitLocal($au->copy()->addDay());
 
         $fiches = Produit::query()
             ->where('est_stupefiant', true)

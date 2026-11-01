@@ -243,6 +243,70 @@ class RegistreStupefiantTest extends TestCase
         $this->assertSame('a', $fiche['produit']['tableau']);
     }
 
+    /** Vérification du 01.11.2026 : ce qui pouvait changer sans qu'aucun test échoue */
+    public function test_une_correction_nulle_ou_d_une_autre_substance_est_refusee(): void
+    {
+        $this->recevoir();
+        $ligne = $this->inscrire(['type' => 'administration', 'quantite' => 1, 'patient_id' => $this->patient->id])->json('data.id');
+        $this->inscrire(['type' => 'correction', 'quantite' => '0.0', 'corrige_id' => $ligne, 'motif' => 'x'])->assertUnprocessable()->assertJsonValidationErrors('quantite');
+
+        $autre = Produit::factory()->stupefiant()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $autre->id, 'type' => 'correction', 'quantite' => 0.5, 'corrige_id' => $ligne, 'motif' => 'x'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('corrige_id');
+    }
+
+    public function test_sans_le_droit_des_stupefiants_on_ne_saisit_ni_ne_marque_rien(): void
+    {
+        ['jeton' => $asv] = $this->employeAvecJeton($this->clinique, [], 'asv');
+        // Le droit d'abord : un 403, pas une erreur de saisie
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $this->substance->id], $this->enTetes($asv))->assertForbidden();
+        $produit = Produit::factory()->medicament()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+        $this->putJson("/api/v1/stupefiants/produits/{$produit->id}", ['est_stupefiant' => true, 'tableau' => 'a'], $this->enTetes($asv))->assertForbidden();
+    }
+
+    public function test_un_produit_tenu_dans_une_clinique_soeur_ne_se_demarque_pas(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create(['clinique_id' => $soeur->id, 'produit_id' => $this->substance->id, 'type' => 'reception', 'quantite' => 5, 'motif' => 'x', 'created_at' => now()]));
+        $this->putJson("/api/v1/stupefiants/produits/{$this->substance->id}", ['est_stupefiant' => false], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('est_stupefiant');
+    }
+
+    public function test_la_date_du_bulletin_n_est_pas_dans_le_futur(): void
+    {
+        $this->inscrire(['type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin_le' => now()->addDays(3)->toDateString()])
+            ->assertUnprocessable()->assertJsonValidationErrors('bulletin_le');
+    }
+
+    /** Le bilan : stock au début avant la période, remises comptées avec les utilisations, une substance sans rien n'a pas de fiche */
+    public function test_le_bilan_compte_les_remises_et_ignore_les_substances_vides(): void
+    {
+        $vide = Produit::factory()->stupefiant()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Fentanyl']);
+        $ligne = fn (array $a) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'motif' => 'x', ...$a]));
+        $ligne(['type' => 'reception', 'quantite' => 10, 'created_at' => '2026-01-01 08:00:00']);
+        $ligne(['type' => 'administration', 'quantite' => -1, 'created_at' => '2026-03-01 08:00:00']);
+        $ligne(['type' => 'remise', 'quantite' => -2, 'created_at' => '2026-03-02 08:00:00']);
+
+        $fiches = collect($this->getJson('/api/v1/stupefiants/registre?du=2026-01-01&au=2026-12-31', $this->enTetes($this->jeton))->assertOk()->json('data.fiches'));
+        $this->assertSame([$this->substance->id], $fiches->pluck('produit.id')->all());
+        $this->assertEquals(3, $fiches[0]['totaux']['utilisations']);
+        $this->assertNotContains($vide->id, $fiches->pluck('produit.id'));
+        // Une ligne du premier jour, à 8 h, est dans la période : le stock au début est 0
+        $this->assertEquals(0, $fiches[0]['stock_debut']);
+    }
+
+    /** Le jour d'un changement d'heure (25.10.2026, 25 heures à Zurich) : 23 h 30 est encore ce jour-là */
+    public function test_le_bilan_d_un_jour_de_changement_d_heure(): void
+    {
+        $this->clinique->update(['fuseau_horaire' => 'Europe/Zurich']);
+        $tard = MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create([
+            'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'type' => 'reception', 'quantite' => 5, 'motif' => 'x',
+            'created_at' => CarbonImmutable::parse('2026-10-25 23:30', 'Europe/Zurich')->utc(),
+        ]));
+        $ids = collect($this->getJson('/api/v1/stupefiants/registre?du=2026-10-25&au=2026-10-25', $this->enTetes($this->jeton))->assertOk()->json('data.fiches.0.lignes'))->pluck('id');
+        $this->assertSame([$tard->id], $ids->all());
+    }
+
     /** Le registre d'un jour suit le calendrier de la clinique : 23 h 30 à Zurich est encore ce jour-là. */
     public function test_l_export_d_un_jour_suit_le_calendrier_de_la_clinique(): void
     {
