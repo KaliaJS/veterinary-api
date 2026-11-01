@@ -566,17 +566,6 @@ class RegistreStupefiantTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['bulletin_le' => 'La date du bulletin ne peut pas être dans le futur.']);
     }
 
-    /** Une période visée ne bouge plus : un bulletin plus ancien que le dernier visa est refusé */
-    public function test_un_bulletin_plus_ancien_que_le_dernier_visa_est_refuse(): void
-    {
-        $this->recevoir();
-        $this->clinique->update(['responsable_stupefiants_id' => $this->employe->id]);
-        $this->postJson('/api/v1/stupefiants/visa', [], $this->enTetes($this->jeton))->assertOk();
-        $hier = CarbonImmutable::now('Europe/Zurich')->subDay();
-        $this->inscrire(['type' => 'reception', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-9', 'bulletin_le' => $hier->toDateString()])
-            ->assertUnprocessable()->assertJsonValidationErrors(['bulletin_le' => 'Le registre de cette substance est arrêté au '.$hier->addDay()->format('d.m.Y').' (visa ou inventaire) : un bulletin plus ancien s’inscrit avec une correction expliquée.']);
-    }
-
     /** Fournisseur et bulletin : seulement pour une réception ou un retour */
     public function test_le_bulletin_ne_se_donne_qu_a_une_reception_ou_un_retour(): void
     {
@@ -597,25 +586,6 @@ class RegistreStupefiantTest extends TestCase
         $this->recevoir();
         $this->inscrire(['type' => 'retour', 'quantite' => 1, 'fournisseur' => 'Vetpoint'])->assertCreated()->assertJsonPath('data.date_registre', now('Europe/Zurich')->toDateString());
         $this->inscrire(['type' => 'administration', 'quantite' => 0.1, 'patient_id' => $this->patient->id, 'bulletin' => 'BL-2'])->assertUnprocessable()->assertJsonValidationErrors('bulletin');
-    }
-
-    /**
-     * Un bulletin daté avant le dernier inventaire est refusé (le stock compté ce jour-là reste vrai) ; le jour même du
-     * dernier visa ou inventaire, la réception se range après lui
-     */
-    public function test_un_bulletin_ne_remonte_pas_avant_le_dernier_inventaire(): void
-    {
-        $hier = CarbonImmutable::now('Europe/Zurich')->subDay()->toDateString();
-        $this->recevoir(10);
-        $this->inscrire(['type' => 'inventaire', 'quantite_comptee' => 10])->assertCreated();
-        $this->inscrire(['type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-2', 'bulletin_le' => $hier])
-            ->assertUnprocessable()->assertJsonValidationErrors('bulletin_le');
-
-        // Le même jour : après l'inventaire, dans le bilan comme à l'écran
-        $this->inscrire(['type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-3', 'bulletin_le' => now('Europe/Zurich')->toDateString()])->assertCreated();
-        $lignes = $this->getJson('/api/v1/stupefiants/registre?du='.$hier.'&au='.now('Europe/Zurich')->toDateString(), $this->enTetes($this->jeton))->assertOk()->json('data.fiches.0.lignes');
-        $this->assertSame(['reception', 'inventaire', 'reception'], array_column($lignes, 'type'));
-        $this->assertEquals([10, 10, 15], array_column($lignes, 'solde_apres'));
     }
 
     /** Le bilan range par date de registre et recalcule le stock après chaque ligne dans cet ordre */
@@ -641,12 +611,59 @@ class RegistreStupefiantTest extends TestCase
         $this->assertSame('b', $this->substance->fresh()->tableau_stupefiant);
     }
 
-    /** La date d'une ligne suit le calendrier de la clinique : 23 h 30 à Zurich, c'est encore ce jour-là */
+    /**
+     * Un bulletin du jour du dernier inventaire, ou plus ancien, n'est jamais refusé : la ligne prend le jour de
+     * l'inscription, le bulletin reste écrit avec sa date, et le stock compté ne bouge pas (vérification du 01.11.2026)
+     */
+    public function test_un_bulletin_plus_ancien_que_le_dernier_inventaire_date_la_ligne_du_jour(): void
+    {
+        $aujourdhui = CarbonImmutable::now('Europe/Zurich');
+        $this->recevoir(10);
+        $this->inscrire(['type' => 'inventaire', 'quantite_comptee' => 10])->assertCreated();
+        $this->inscrire(['type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-2', 'bulletin_le' => $aujourdhui->subDays(2)->toDateString()])
+            ->assertCreated()
+            ->assertJsonPath('data.date_registre', $aujourdhui->toDateString())
+            ->assertJsonPath('data.bulletin_le', $aujourdhui->subDays(2)->toDateString());
+
+        $lignes = $this->getJson('/api/v1/stupefiants/registre?du='.$aujourdhui->subDays(3)->toDateString().'&au='.$aujourdhui->toDateString(), $this->enTetes($this->jeton))->assertOk()->json('data.fiches.0.lignes');
+        $this->assertSame(['reception', 'inventaire', 'reception'], array_column($lignes, 'type'));
+        $this->assertEquals([10, 10, 15], array_column($lignes, 'solde_apres'));
+    }
+
+    /** Le jour du visa est clos : un bulletin de ce jour saisi le lendemain date la ligne du lendemain */
+    public function test_un_bulletin_du_jour_du_visa_saisi_le_lendemain_ne_change_pas_la_periode_visee(): void
+    {
+        $jour = CarbonImmutable::now('Europe/Zurich');
+        $this->recevoir(10);
+        $this->clinique->update(['responsable_stupefiants_id' => $this->employe->id]);
+        $this->postJson('/api/v1/stupefiants/visa', [], $this->enTetes($this->jeton))->assertOk();
+
+        $this->travelTo($jour->addDay()->setTime(10, 0));
+        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        $this->inscrire(['type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-5', 'bulletin_le' => $jour->toDateString()])
+            ->assertCreated()->assertJsonPath('data.date_registre', $jour->addDay()->toDateString());
+        $fiche = $this->getJson('/api/v1/stupefiants/registre?du='.$jour->startOfYear()->toDateString().'&au='.$jour->toDateString(), $this->enTetes($this->jeton))->assertOk()->json('data.fiches.0');
+        $this->assertEquals(10, $fiche['stock_fin']);
+    }
+
+    /** La date d'une ligne suit le calendrier de la clinique : à 0 h 30 à Zurich, c'est déjà ce jour-là (la veille en UTC) */
     public function test_la_date_d_une_ligne_suit_le_calendrier_de_la_clinique(): void
     {
-        $this->travelTo(CarbonImmutable::parse('today 23:30', 'Europe/Zurich'));
-        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
         $this->recevoir();
-        $this->assertSame(CarbonImmutable::now('Europe/Zurich')->toDateString(), MouvementStupefiant::query()->latest('id')->first()->date_registre->toDateString());
+        $this->travelTo(CarbonImmutable::now('Europe/Zurich')->addDay()->setTime(0, 30));
+        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        $this->inscrire(['type' => 'administration', 'quantite' => 0.1, 'patient_id' => $this->patient->id])
+            ->assertCreated()->assertJsonPath('data.date_registre', CarbonImmutable::now('Europe/Zurich')->toDateString());
+    }
+
+    /** Un retour garde son bulletin, mais se date du jour de l'inscription ; une élimination peut porter le bulletin d'envoi */
+    public function test_un_retour_se_date_du_jour_et_une_elimination_porte_son_bulletin(): void
+    {
+        $aujourdhui = CarbonImmutable::now('Europe/Zurich');
+        $this->recevoir();
+        $this->inscrire(['type' => 'retour', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BR-1', 'bulletin_le' => $aujourdhui->subDays(3)->toDateString()])
+            ->assertCreated()->assertJsonPath('data.date_registre', $aujourdhui->toDateString());
+        $this->inscrire(['type' => 'elimination', 'quantite' => 1, 'motif' => 'Envoi recommandé au pharmacien cantonal', 'bulletin' => 'ENV-7'])
+            ->assertCreated()->assertJsonPath('data.bulletin', 'ENV-7');
     }
 }

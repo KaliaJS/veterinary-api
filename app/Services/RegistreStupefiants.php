@@ -68,11 +68,7 @@ class RegistreStupefiants
             'fournisseur' => $details['fournisseur'] ?? null,
             'bulletin' => $details['bulletin'] ?? null,
             'bulletin_le' => $details['bulletin_le'] ?? null,
-            // La date de la ligne : celle du bulletin d'une réception, sinon le jour de l'inscription, à l'heure de la
-            // clinique (art. 57, al. 3 OCStup) ; le bilan d'une période se fait sur elle (01.11.2026)
-            'date_registre' => $type === TypeMouvementStupefiant::Reception && filled($details['bulletin_le'] ?? null)
-                ? (string) $details['bulletin_le']
-                : aujourdhui(Clinique::query()->find($cliniqueId))->toDateString(),
+            'date_registre' => $this->dateDeLaLigne($produit, $type, $details, $cliniqueId),
             'created_at' => now(),
         ]));
 
@@ -81,6 +77,26 @@ class RegistreStupefiants
         }
 
         return $mouvement;
+    }
+
+    /**
+     * La date d'une ligne (01.11.2026) : celle du bulletin d'une réception (art. 57, al. 3 OCStup), sinon le jour de
+     * l'inscription, à l'heure de la clinique ; le bilan d'une période se fait sur elle. Un bulletin du jour du dernier
+     * visa ou inventaire, ou plus ancien, date la ligne du jour de l'inscription : une période visée ou un stock
+     * compté ne bouge jamais, et le bulletin reste écrit avec sa date. Lu sous le verrou de la substance.
+     *
+     * @param  array<string, mixed>  $details
+     */
+    private function dateDeLaLigne(Produit $produit, TypeMouvementStupefiant $type, array $details, int $cliniqueId): string
+    {
+        $aujourdhui = aujourdhui(Clinique::query()->find($cliniqueId))->toDateString();
+        $bulletinLe = $details['bulletin_le'] ?? null;
+        if ($type !== TypeMouvementStupefiant::Reception || ! filled($bulletinLe)) {
+            return $aujourdhui;
+        }
+        $arret = self::lastCheckpoint($produit->id, $cliniqueId);
+
+        return $arret !== null && (string) $bulletinLe <= $arret->toDateString() ? $aujourdhui : (string) $bulletinLe;
     }
 
     /** Réception d'une commande fournisseur (entrée) */

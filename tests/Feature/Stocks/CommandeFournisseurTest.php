@@ -413,7 +413,7 @@ class CommandeFournisseurTest extends TestCase
         $this->assertDatabaseHas('commandes_fournisseur', ['id' => $commande->id]);
     }
 
-    /** Une période visée ne bouge plus : la réception d'une commande ne date pas un stupéfiant avant son dernier visa */
+    /** Après un visa, la réception d'une commande ne change pas la période visée : la ligne prend le jour de l'inscription */
     public function test_la_reception_ne_date_pas_un_stupefiant_avant_son_dernier_visa(): void
     {
         $produit = $this->produit(['est_stupefiant' => true, 'tableau_stupefiant' => 'a']);
@@ -424,9 +424,11 @@ class CommandeFournisseurTest extends TestCase
         $commande = CommandeFournisseur::factory()->envoyee()->create(['clinique_id' => $this->clinique->id]);
         CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $commande->id, 'produit_id' => $produit->id, 'quantite' => 10]);
 
-        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", ['bulletin' => 'BL-1', 'bulletin_le' => now('Europe/Zurich')->subDay()->toDateString()], $this->enTetes($jetonVeto))
-            ->assertUnprocessable()->assertJsonValidationErrors('bulletin_le');
-        $this->assertSame(StatutCommandeFournisseur::Envoyee, $commande->refresh()->statut);
+        $hier = now('Europe/Zurich')->subDay()->toDateString();
+        $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", ['bulletin' => 'BL-2', 'bulletin_le' => $hier], $this->enTetes($jetonVeto))->assertOk();
+        $ligne = MouvementStupefiant::withoutGlobalScopes()->where('bulletin', 'BL-2')->sole();
+        $this->assertSame(now('Europe/Zurich')->toDateString(), $ligne->date_registre->toDateString());
+        $this->assertSame($hier, $ligne->bulletin_le->toDateString());
     }
 
     /** La date du bulletin est exigée, jamais dans le futur à l'heure de la clinique ; une commande déjà reçue le dit d'abord */
@@ -439,11 +441,12 @@ class CommandeFournisseurTest extends TestCase
         $url = "/api/v1/stocks/commandes/{$commande->id}/receptionner";
 
         $this->postJson($url, ['bulletin' => 'BL-1'], $this->enTetes($jetonVeto))->assertUnprocessable()->assertJsonValidationErrors(['bulletin_le' => 'Indiquez la date du bulletin de livraison : la commande contient un stupéfiant.']);
-        // 23 h 30 à Zurich, déjà le lendemain en UTC ailleurs : demain reste dans le futur
-        $this->travelTo(CarbonImmutable::parse('today 23:30', 'Europe/Zurich'));
+        // Une date impossible : un seul message
+        $this->assertSame(['Indiquez la date du bulletin.'], $this->postJson($url, ['bulletin' => 'BL-1', 'bulletin_le' => '2026-13-45'], $this->enTetes($jetonVeto))->assertUnprocessable()->json('errors.bulletin_le'));
+        // À 0 h 30 à Zurich (la veille en UTC), le bulletin du jour n'est pas dans le futur ; demain, si
+        $this->travelTo(CarbonImmutable::now('Europe/Zurich')->addDay()->setTime(0, 30));
         ['jeton' => $jetonVeto] = $this->employeAvecJeton($this->clinique);
-        $demain = CarbonImmutable::now('Europe/Zurich')->addDay()->toDateString();
-        $this->postJson($url, ['bulletin' => 'BL-1', 'bulletin_le' => $demain], $this->enTetes($jetonVeto))->assertUnprocessable()->assertJsonValidationErrors('bulletin_le');
+        $this->postJson($url, ['bulletin' => 'BL-1', 'bulletin_le' => CarbonImmutable::now('Europe/Zurich')->addDay()->toDateString()], $this->enTetes($jetonVeto))->assertUnprocessable()->assertJsonValidationErrors('bulletin_le');
         $this->postJson($url, ['bulletin' => 'BL-1', 'bulletin_le' => CarbonImmutable::now('Europe/Zurich')->toDateString()], $this->enTetes($jetonVeto))->assertOk();
         $this->postJson($url, [], $this->enTetes($jetonVeto))->assertUnprocessable()->assertJsonValidationErrors(['statut' => 'Seule une commande envoyée se réceptionne.']);
     }

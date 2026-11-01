@@ -197,16 +197,6 @@ class CommandeFournisseurController extends Controller
             'bulletin_le.before_or_equal' => 'La date du bulletin ne peut pas être dans le futur.',
             'bulletin_le.date_format' => 'Indiquez la date du bulletin.',
         ]);
-        // Une période visée ne bouge plus : un bulletin plus ancien que le dernier visa d'une substance est refusé
-        if ($aDesStupefiants && filled($bulletin['bulletin_le'] ?? null)) {
-            foreach ($commande->lignes()->whereHas('produit', fn ($produit) => $produit->where('est_stupefiant', true))->pluck('produit_id') as $produitId) {
-                $vise = RegistreStupefiants::lastCheckpoint((int) $produitId, (int) $commande->clinique_id);
-                if ($vise !== null && $bulletin['bulletin_le'] < $vise->toDateString()) {
-                    throw ValidationException::withMessages(['bulletin_le' => 'Le registre de cette substance est arrêté au '.$vise->format('d.m.Y').' (visa ou inventaire) : un bulletin plus ancien s’inscrit avec une correction expliquée.']);
-                }
-            }
-        }
-
         // Passée par Vetpoint : prix réels et péremptions lus chez lui (28.10.2026).
         // Vetpoint injoignable : le stock entre quand même, avec les prix de la commande
         $vetpoint = null;

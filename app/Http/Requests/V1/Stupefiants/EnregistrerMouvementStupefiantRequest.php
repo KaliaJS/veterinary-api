@@ -2,14 +2,12 @@
 
 namespace App\Http\Requests\V1\Stupefiants;
 
-use App\Auth\ContexteClinique;
 use App\Enums\StatutOrdonnance;
 use App\Enums\TypeMouvementStupefiant;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
 use App\Models\MouvementStupefiant;
 use App\Models\Ordonnance;
 use App\Models\Produit;
-use App\Services\RegistreStupefiants;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -126,22 +124,16 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
                 'nullable', 'string', 'regex:/^\d{6,10}$/',
             ],
             'fournisseur' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception, $t::Retour)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:255'],
-            // Chaque achat attesté par un bulletin de livraison, son numéro et sa date (art. 62, al. 1 OCStup)
-            'bulletin' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:60'],
-            // La date du bulletin devient celle de la ligne (art. 57, al. 3 OCStup) : jamais dans le futur, à l'heure de
-            // la clinique, ni avant le dernier visa de la substance (une période visée ne bouge plus ; 01.11.2026)
+            // Chaque achat attesté par un bulletin de livraison, son numéro et sa date (art. 62, al. 1 OCStup) ; un retour
+            // ou une élimination peut porter le sien (art. 62, al. 2)
+            'bulletin' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour, $t::Elimination)), 'nullable', 'string', 'max:60'],
+            // La date du bulletin date la ligne d'une réception (art. 57, al. 3 OCStup ; RegistreStupefiants::ecrire) ;
+            // jamais dans le futur, à l'heure de la clinique
             'bulletin_le' => [
-                'bail', Rule::requiredIf(fn (): bool => $this->est($t::Reception)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'date_format:Y-m-d',
+                'bail', Rule::requiredIf(fn (): bool => $this->est($t::Reception)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour, $t::Elimination)), 'nullable', 'date_format:Y-m-d',
                 function (string $attribut, mixed $valeur, \Closure $echec): void {
-                    $date = (string) $valeur;
-                    if ($date > aujourdhui()->toDateString()) {
+                    if ((string) $valeur > aujourdhui()->toDateString()) {
                         $echec('La date du bulletin ne peut pas être dans le futur.');
-
-                        return;
-                    }
-                    $vise = RegistreStupefiants::lastCheckpoint((int) $this->input('produit_id'), (int) app(ContexteClinique::class)->cliniqueId());
-                    if ($vise !== null && $date < $vise->toDateString()) {
-                        $echec('Le registre de cette substance est arrêté au '.$vise->format('d.m.Y').' (visa ou inventaire) : un bulletin plus ancien s’inscrit avec une correction expliquée.');
                     }
                 },
             ],
@@ -169,8 +161,8 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'fournisseur.required' => 'Indiquez le fournisseur.',
             'corrige_id.required' => 'Choisissez la ligne à corriger.',
             'fournisseur.prohibited' => 'Le fournisseur ne se donne qu’à une réception ou un retour.',
-            'bulletin.prohibited' => 'Le bulletin ne se donne qu’à une réception ou un retour.',
-            'bulletin_le.prohibited' => 'Le bulletin ne se donne qu’à une réception ou un retour.',
+            'bulletin.prohibited' => 'Le bulletin ne se donne qu’à une réception, un retour ou une élimination.',
+            'bulletin_le.prohibited' => 'Le bulletin ne se donne qu’à une réception, un retour ou une élimination.',
             'bulletin_le.date_format' => 'Indiquez la date du bulletin.',
             'bulletin_le.required' => 'Indiquez la date du bulletin.',
             'bulletin.required' => 'Indiquez le numéro du bulletin de livraison.',

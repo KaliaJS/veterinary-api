@@ -99,6 +99,9 @@ class StupefiantSeeder extends Seeder
                 'detenteur_nom' => $patient?->client?->nom_affiche,
                 'signataire_nom' => $signataire?->nom,
                 'fournisseur' => $quantite > 0 ? 'Vetopharm SA' : null,
+                // Une réception porte son bulletin de livraison (art. 62 OCStup)
+                'bulletin' => $quantite > 0 ? 'BL-'.$date->format('ymd') : null,
+                'bulletin_le' => $quantite > 0 ? $date->toDateString() : null,
                 'motif' => $motif,
                 'created_at' => $date,
             ]);
