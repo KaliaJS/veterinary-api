@@ -64,6 +64,12 @@ class Employe extends Model
 
     protected static function booted(): void
     {
+        // Plus vétérinaire : sa désignation de responsable des stupéfiants tombe (01.11.2026)
+        static::updated(function (Employe $employe): void {
+            if ($employe->wasChanged('role_libelle') && ! $employe->estVeterinaire()) {
+                Clinique::query()->where('responsable_stupefiants_id', $employe->id)->update(['responsable_stupefiants_id' => null]);
+            }
+        });
         static::addGlobalScope('clinique', function (Builder $builder): void {
             $contexte = app(ContexteClinique::class);
             if ($contexte->estDefini()) {

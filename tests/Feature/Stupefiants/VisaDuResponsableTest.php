@@ -3,6 +3,7 @@
 namespace Tests\Feature\Stupefiants;
 
 use App\Models\Clinique;
+use App\Models\DerogationPermission;
 use App\Models\MouvementStupefiant;
 use App\Models\Produit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -91,5 +92,61 @@ class VisaDuResponsableTest extends TestCase
         $this->putJson('/api/v1/stupefiants/responsable', ['employe_id' => null], $this->enTetes($this->admin))->assertOk()->assertJsonPath('data.responsable', null);
         $this->assertNull($this->clinique->fresh()->responsable_stupefiants_id);
         unset($jetonAsv);
+    }
+
+    /**
+     * Le responsable doit pouvoir viser au moment du visa (vérification du 01.11.2026) : toujours vétérinaire,
+     * accès actif, droit d'inscrire au registre ; sinon personne n'est responsable et personne ne vise
+     */
+    public function test_un_responsable_qui_ne_peut_plus_viser_ne_vise_plus(): void
+    {
+        ['employe' => $meyer, 'jeton' => $jetonMeyer] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dre Anne Meyer']);
+        $this->recevoir($jetonMeyer);
+        $this->putJson('/api/v1/stupefiants/responsable', ['employe_id' => $meyer->id], $this->enTetes($this->admin))->assertOk();
+
+        // Elle n'est plus vétérinaire : la désignation tombe, elle ne vise plus
+        $meyer->update(['role_libelle' => 'Assistante en médecine vétérinaire']);
+        $this->assertNull($this->clinique->fresh()->responsable_stupefiants_id);
+        $this->getJson('/api/v1/stupefiants/responsable', $this->enTetes($this->admin))->assertOk()->assertJsonPath('data.responsable', null);
+        $this->postJson('/api/v1/stupefiants/visa', [], $this->enTetes($jetonMeyer))
+            ->assertUnprocessable()->assertJsonValidationErrors(['visa' => 'Aucun vétérinaire responsable n’est désigné pour cette clinique : un administrateur le désigne dans l’onglet Stupéfiants.']);
+        // Redevenue vétérinaire, elle ne redevient pas responsable toute seule
+        $meyer->update(['role_libelle' => 'Vétérinaire']);
+        $this->getJson('/api/v1/stupefiants/responsable', $this->enTetes($this->admin))->assertOk()->assertJsonPath('data.responsable', null);
+    }
+
+    public function test_un_responsable_suspendu_ou_sans_le_droit_n_est_ni_responsable_ni_candidat(): void
+    {
+        ['employe' => $suspendu] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dr Paul Rochat']);
+        ['employe' => $sansDroit] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dre Léa Favre']);
+        ['employe' => $parti] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dr Marc Dubois']);
+        DerogationPermission::query()->create(['employe_id' => $sansDroit->id, 'domaine' => 'stupefiants', 'est_accordee' => false]);
+        $parti->update(['fin_contrat_le' => now()->subDays(3)->toDateString()]);
+
+        $this->putJson('/api/v1/stupefiants/responsable', ['employe_id' => $sansDroit->id], $this->enTetes($this->admin))
+            ->assertUnprocessable()->assertJsonValidationErrors('employe_id');
+        $this->putJson('/api/v1/stupefiants/responsable', ['employe_id' => $parti->id], $this->enTetes($this->admin))
+            ->assertUnprocessable()->assertJsonValidationErrors('employe_id');
+
+        $this->putJson('/api/v1/stupefiants/responsable', ['employe_id' => $suspendu->id], $this->enTetes($this->admin))->assertOk();
+        $suspendu->update(['acces_suspendu' => true]);
+        $etat = $this->getJson('/api/v1/stupefiants/responsable', $this->enTetes($this->admin))->assertOk()->assertJsonPath('data.responsable', null);
+        $candidats = collect($etat->json('data.candidats'))->pluck('id');
+        $this->assertNotContains($suspendu->id, $candidats);
+        $this->assertNotContains($sansDroit->id, $candidats);
+        $this->assertNotContains($parti->id, $candidats);
+    }
+
+    /** Retiré de la clinique : la désignation tombe, une réaffectation ne la rend pas */
+    public function test_un_responsable_retire_de_la_clinique_ne_le_redevient_pas_en_revenant(): void
+    {
+        ['employe' => $meyer] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dre Anne Meyer']);
+        $ailleurs = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $this->putJson('/api/v1/stupefiants/responsable', ['employe_id' => $meyer->id], $this->enTetes($this->admin))->assertOk();
+
+        $this->putJson('/api/v1/equipe/employes/'.$meyer->id.'/cliniques', ['cliniques' => [$ailleurs->id]], $this->enTetes($this->admin))->assertOk();
+        $this->assertNull($this->clinique->fresh()->responsable_stupefiants_id);
+        $this->putJson('/api/v1/equipe/employes/'.$meyer->id.'/cliniques', ['cliniques' => [$ailleurs->id, $this->clinique->id]], $this->enTetes($this->admin))->assertOk();
+        $this->getJson('/api/v1/stupefiants/responsable', $this->enTetes($this->admin))->assertOk()->assertJsonPath('data.responsable', null);
     }
 }

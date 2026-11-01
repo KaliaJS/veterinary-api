@@ -584,4 +584,41 @@ class RappelsVerificationTest extends TestCase
         $autre->update(['note_accueil' => 'Apporter le carnet']);
         $this->assertNull($autre->fresh()->deplace_le);
     }
+
+    /**
+     * Pris la veille au soir puis déplacé le matin même : toujours rappelé (vérification du 01.11.2026) ;
+     * le déplacement ajoute une raison d'être rappelé le matin, il n'en retire jamais
+     */
+    public function test_un_rendez_vous_pris_la_veille_au_soir_puis_deplace_le_matin_reste_rappele(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 21:00', 'Europe/Zurich'));
+        $rendezVous = $this->rendezVous('2026-11-03 10:00');
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 07:30', 'Europe/Zurich'));
+        $debut = CarbonImmutable::parse('2026-11-03 15:00', 'Europe/Zurich')->utc();
+        $rendezVous->update(['starts_at' => $debut, 'ends_at' => $debut->addMinutes(20)]);
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 08:05', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertSent(RappelRendezVous::class, fn (RappelRendezVous $m) => str_contains($m->render(), 'aujourd’hui, le 03.11.2026 à 15:00'));
+    }
+
+    /** Pris la veille au soir, rappelé à 8 h 05, puis déplacé dans la journée : rappelé à sa nouvelle heure */
+    public function test_un_rendez_vous_rappele_le_matin_puis_deplace_est_rappele_a_sa_nouvelle_heure(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 21:00', 'Europe/Zurich'));
+        $rendezVous = $this->rendezVous('2026-11-03 14:00');
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 08:05', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertSent(RappelRendezVous::class, 1);
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 09:00', 'Europe/Zurich'));
+        $debut = CarbonImmutable::parse('2026-11-03 17:00', 'Europe/Zurich')->utc();
+        $rendezVous->update(['starts_at' => $debut, 'ends_at' => $debut->addMinutes(20)]);
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 09:05', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertSent(RappelRendezVous::class, fn (RappelRendezVous $m) => str_contains($m->render(), 'aujourd’hui, le 03.11.2026 à 17:00'));
+    }
 }

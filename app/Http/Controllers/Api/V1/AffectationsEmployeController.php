@@ -54,6 +54,8 @@ class AffectationsEmployeController extends Controller
         }
 
         $fiche->cliniques()->sync($voulues);
+        // Retiré d'une clinique : n'y est plus responsable des stupéfiants, même s'il revient (01.11.2026)
+        Clinique::query()->whereKey($retirees)->where('responsable_stupefiants_id', $fiche->id)->update(['responsable_stupefiants_id' => null]);
 
         // Les jetons des cliniques retirées disparaissent aussi
         foreach ($retirees as $cliniqueId) {
