@@ -242,4 +242,41 @@ class InternalMessagingTest extends TestCase
         }
         $this->assertSame($une, $compter());
     }
+
+    /** Ni la liste ni « À : » ne coûtent une requête de plus par collègue */
+    public function test_neither_the_list_nor_to_query_once_per_colleague(): void
+    {
+        $compter = function (string $url): int {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->getJson($url, $this->enTetes($this->anneToken))->assertOk();
+
+            return count(DB::getQueryLog());
+        };
+        $this->postJson('/api/v1/messages/e'.$this->marc->id, ['texte' => 'Bonjour'], $this->enTetes($this->anneToken))->assertCreated();
+        $liste = $compter('/api/v1/messages');
+        $contacts = $compter('/api/v1/messages/contacts?q=dr');
+        foreach (range(1, 4) as $n) {
+            ['employe' => $collegue] = $this->employeAvecJeton($this->lausanne, ['nom' => 'Dr Collègue '.$n]);
+            $this->postJson('/api/v1/messages/e'.$collegue->id, ['texte' => 'Bonjour'], $this->enTetes($this->anneToken))->assertCreated();
+        }
+        $this->assertSame($liste, $compter('/api/v1/messages'));
+        $this->assertSame($contacts, $compter('/api/v1/messages/contacts?q=dr'));
+    }
+
+    /** Ses propres envois ne sont jamais des non-lus ; le dernier message dit quand il est parti ; une clinique, sa ville */
+    public function test_own_messages_are_never_unread_and_details_are_given(): void
+    {
+        $centre = Clinique::factory()->create(['nom' => 'Centre vétérinaire', 'ville' => 'Morges']);
+        $this->postJson('/api/v1/messages/e'.$this->marc->id, ['texte' => 'Bonjour'], $this->enTetes($this->anneToken))->assertCreated();
+        $this->postJson('/api/v1/messages/k'.$centre->id, ['texte' => 'Bonjour'], $this->enTetes($this->anneToken))->assertCreated();
+
+        foreach ($this->threads($this->anneToken) as $thread) {
+            $this->assertSame(0, $thread['non_lus'], $thread['cle']);
+            $this->assertTrue($thread['dernier']['is_mine']);
+            $this->assertNotNull($thread['dernier']['envoye_le'], $thread['cle']);
+        }
+        $clinics = $this->getJson('/api/v1/messages/contacts?q=centre', $this->enTetes($this->anneToken))->assertOk()->json('data.clinics');
+        $this->assertSame([['cle' => 'k'.$centre->id, 'name' => 'Centre vétérinaire', 'subtitle' => 'Morges']], $clinics);
+    }
 }

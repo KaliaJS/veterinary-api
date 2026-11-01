@@ -147,7 +147,7 @@ class InternalMessaging
             ->orderByDesc('created_at')->orderByDesc('id')->get()
             ->groupBy(fn (StaffMessage $m): int => $m->sender_employee_id === $me->id ? $m->recipient_employee_id : $m->sender_employee_id);
         $colleagues = Employe::withoutGlobalScopes()->where('organisation_id', $me->organisation_id)->whereKey($messages->keys())
-            ->with(['role', 'derogations'])->get()->keyBy('id');
+            ->with(['role', 'derogations', 'cliniques'])->get()->keyBy('id');
 
         return $messages->map(function (Collection $thread, int $colleagueId) use ($colleagues, $me): ?array {
             $colleague = $colleagues[$colleagueId] ?? null;
@@ -237,7 +237,8 @@ class InternalMessaging
     /** Peut lire les Messages : accès actif, contrat en cours, affecté à une clinique, le droit Patients */
     private function canWriteTo(Employe $employe): bool
     {
-        return $employe->estPresentable() && $employe->cliniques()->withoutGlobalScopes()->exists()
+        // Les affectations sont chargées avec la fiche (liste, « À : », conversation) : aucune requête par collègue
+        return $employe->estPresentable() && $employe->cliniques->isNotEmpty()
             && in_array(DomainePermission::Patients->value, $this->permissions->pour($employe), true);
     }
 
@@ -265,7 +266,7 @@ class InternalMessaging
             throw (new ModelNotFoundException)->setModel(Employe::class, [$id]);
         }
 
-        return Employe::withoutGlobalScopes()->where('organisation_id', $me->organisation_id)->with(['role', 'derogations'])->findOrFail($id);
+        return Employe::withoutGlobalScopes()->where('organisation_id', $me->organisation_id)->with(['role', 'derogations', 'cliniques'])->findOrFail($id);
     }
 
     /** Une autre clinique : ouverte, ou déjà dans une conversation avec la mienne */

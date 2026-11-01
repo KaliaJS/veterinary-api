@@ -57,8 +57,10 @@ class RendezVous extends Model
             $fuseau = Clinique::withoutGlobalScopes()->find($rendezVous->clinique_id)?->fuseau_horaire ?: 'Europe/Zurich';
             $maintenant = CarbonImmutable::now();
             $auLendemain = $rendezVous->starts_at->setTimezone($fuseau)->toDateString() === $maintenant->setTimezone($fuseau)->addDay()->toDateString();
-            if ($auLendemain && RappelsProprietaires::apresLeDernierPassage($maintenant, $fuseau)) {
-                $rendezVous->deplace_le = now();
+            // Le soir : vers le lendemain, la date ; vers un autre jour, un déplacement de la même soirée vers le
+            // lendemain ne compte plus (cinquième vérification du 01.11.2026)
+            if (RappelsProprietaires::apresLeDernierPassage($maintenant, $fuseau)) {
+                $rendezVous->deplace_le = $auLendemain ? now() : null;
             }
         });
         static::saved(function (RendezVous $rendezVous): void {

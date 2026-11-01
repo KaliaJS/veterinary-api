@@ -22,6 +22,7 @@ use App\Services\Rappels\RappelsProprietaires;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -724,5 +725,47 @@ class RappelsVerificationTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-03 08:05', 'Europe/Zurich'));
         $this->envoyer();
         Mail::assertNotSent(RappelRendezVous::class);
+    }
+
+    /** Déplacé lundi soir à mardi, puis lundi soir encore à vendredi, puis mardi matin ramené au jour même : pas de rappel */
+    public function test_un_second_deplacement_du_soir_vers_un_autre_jour_efface_le_premier(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+        $rendezVous = $this->rendezVous('2026-11-10 10:00');
+        foreach ([['2026-11-02 20:00', '2026-11-03 14:00'], ['2026-11-02 21:00', '2026-11-06 10:00'], ['2026-11-03 07:30', '2026-11-03 15:00']] as [$quand, $vers]) {
+            $this->travelTo(CarbonImmutable::parse($quand, 'Europe/Zurich'));
+            $debut = CarbonImmutable::parse($vers, 'Europe/Zurich')->utc();
+            $rendezVous->update(['starts_at' => $debut, 'ends_at' => $debut->addMinutes(20)]);
+        }
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 08:05', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertNotSent(RappelRendezVous::class);
+    }
+
+    /** Le soir et le lendemain se lisent à l'heure de la clinique, pas à celle de Zurich ni en UTC */
+    public function test_deplace_le_se_lit_a_l_heure_de_la_clinique(): void
+    {
+        $this->clinique->update(['fuseau_horaire' => 'America/New_York']);
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'America/New_York'));
+        $rendezVous = $this->rendezVous('2026-11-20 10:00');
+        // 20 h à New York : 2 h du matin à Zurich, le lendemain en UTC
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 20:00', 'America/New_York'));
+        $debut = CarbonImmutable::parse('2026-11-03 10:00', 'America/New_York')->utc();
+        $rendezVous->update(['starts_at' => $debut, 'ends_at' => $debut->addMinutes(20)]);
+        $this->assertNotNull($rendezVous->fresh()->deplace_le);
+    }
+
+    /** Modifier autre chose que l'heure ne lit pas la clinique */
+    public function test_modifier_autre_chose_que_l_heure_ne_lit_pas_la_clinique(): void
+    {
+        $rendezVous = $this->rendezVous('2026-11-20 10:00');
+        $lectures = 0;
+        DB::listen(function ($requete) use (&$lectures): void {
+            // La fiche de la clinique (son fuseau), pas les sous-requêtes d'autres règles
+            $lectures += str_starts_with($requete->sql, 'select * from "cliniques"') ? 1 : 0;
+        });
+        $rendezVous->update(['note_accueil' => 'Apporter le carnet']);
+        $this->assertSame(0, $lectures);
     }
 }
