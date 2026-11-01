@@ -21,7 +21,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Registre des ordonnances (docs/data-model.md §12). La signature crée
- * l'ordonnance ET sort le stock — une unité par ligne, clinique du
+ * l'ordonnance ET sort le stock — la quantité à délivrer de chaque ligne, clinique du
  * jeton, sans blocage en rupture (l'écart réel est tracé, parité
  * front). Jamais de modification après signature ; la seule suppression
  * est l'annulation d'une signature dans sa fenêtre, qui restaure le
@@ -42,7 +42,7 @@ class OrdonnanceController extends Controller
         $this->authorize('viewAny', Ordonnance::class);
 
         $ordonnances = Ordonnance::query()
-            ->with(['lignes.produit', 'clinique.societe', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
+            ->with(Ordonnance::relationsDocument())
             ->when($request->enum('statut', StatutOrdonnance::class), fn (Builder $requete, StatutOrdonnance $statut) => $requete->where('statut', $statut))
             ->when($request->integer('patient_id'), fn (Builder $requete, int $patient) => $requete->where('patient_id', $patient))
             ->when($request->filled('q'), function (Builder $requete) use ($request): void {
@@ -81,15 +81,16 @@ class OrdonnanceController extends Controller
             foreach ($donnees['lignes'] as $ligne) {
                 $ordonnance->lignes()->create([
                     'produit_id' => $ligne['produit_id'],
+                    'quantite' => $ligne['quantite'] ?? 1,
                     'posologie' => $ligne['posologie'],
                     'duree' => $ligne['duree'] ?? 'Selon besoin',
                 ]);
 
-                // Une unité par ligne — sans blocage en rupture : le
+                // La quantité à délivrer — sans blocage en rupture : le
                 // journal trace l'écart réel (parité front).
                 $this->stock->sortir(
                     Produit::findOrFail($ligne['produit_id']),
-                    1,
+                    $ligne['quantite'] ?? 1,
                     'Sortie : ordonnance '.$ordonnance->numero,
                     $request->user(),
                     $ordonnance,
@@ -99,19 +100,14 @@ class OrdonnanceController extends Controller
             return $ordonnance;
         });
 
-        return new OrdonnanceResource($ordonnance->load(['lignes.produit', 'employe', 'patient', 'clinique.societe']));
+        return new OrdonnanceResource($ordonnance->load(Ordonnance::relationsDocument()));
     }
 
     public function show(Ordonnance $ordonnance): OrdonnanceResource
     {
         $this->authorize('view', $ordonnance);
 
-        return new OrdonnanceResource($ordonnance->load([
-            'lignes.produit',
-            'clinique.societe',
-            'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
-            'patient.client',
-        ]));
+        return new OrdonnanceResource($ordonnance->load(Ordonnance::relationsDocument()));
     }
 
     /**

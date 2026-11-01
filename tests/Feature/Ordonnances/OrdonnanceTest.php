@@ -11,6 +11,7 @@ use App\Models\OrdonnanceLigne;
 use App\Models\Patient;
 use App\Models\Produit;
 use App\Models\Stock;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -67,6 +68,128 @@ class OrdonnanceTest extends TestCase
             ->where('clinique_id', $this->clinique->id)
             ->sole()
             ->quantite;
+    }
+
+    /**
+     * L'ordonnance au format A5 (01.11.2026, choisie par Jim) : chaque
+     * médicament avec sa quantité à délivrer, qui sort du stock ; le
+     * document servi porte le prescripteur et son GLN vérifié, l'animal
+     * (espèce, sexe, dernier poids, puce), le détenteur et le lieu.
+     */
+    public function test_l_ordonnance_imprimable_porte_prescripteur_animal_detenteur_et_quantites(): void
+    {
+        ['jeton' => $jeton, 'user' => $user] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dr Anna Meyer', 'role_libelle' => 'Vétérinaire']);
+        $user->forceFill(['gln' => '7601000123456', 'gln_verifie_le' => now()])->save();
+        $this->clinique->update(['ville' => 'Lausanne']);
+        $this->patient->update(['nom' => 'Pilou', 'espece' => 'CH', 'sexe' => 'Mâle', 'est_sterilise' => true, 'puce' => '756098100234567']);
+        $this->patient->client->update(['prenom' => 'Paul', 'nom' => 'Meunier', 'rue' => 'Rue des Pâquis 8', 'npa' => '1201', 'localite' => 'Genève']);
+        $this->patient->pesees()->create(['poids_kg' => 11.9, 'pesee_le' => '2026-09-01']);
+        $this->patient->pesees()->create(['poids_kg' => 12.4, 'pesee_le' => '2026-10-20']);
+        $produit = $this->medicamentEnStock(10);
+
+        $document = $this->postJson('/api/v1/ordonnances', [
+            'patient_id' => $this->patient->id,
+            'lignes' => [['produit_id' => $produit->id, 'quantite' => 2, 'posologie' => '1 comprimé matin et soir', 'duree' => '5 jours']],
+            'renouvellements' => 2,
+        ], $this->enTetes($jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.lignes.0.quantite', 2)
+            ->json('data.document');
+
+        $this->assertSame(8, $this->stockDe($produit));
+        $this->assertSame('Lausanne', $document['lieu']);
+        $this->assertSame(['nom' => 'Dr Anna Meyer', 'titre' => 'Vétérinaire', 'gln' => '7601000123456'], $document['prescripteur']);
+        $this->assertSame(['nom' => 'Pilou', 'espece' => 'Chien', 'sexe' => 'Mâle', 'est_sterilise' => true, 'poids_kg' => 12.4, 'puce' => '756098100234567'], $document['animal']);
+        $this->assertSame('Rue des Pâquis 8, 1201 Genève', $document['detenteur']['adresse']);
+        $this->assertSame([['produit' => $produit->nom, 'quantite' => 2, 'posologie' => '1 comprimé matin et soir', 'duree' => '5 jours']], $document['lignes']);
+        $this->assertSame(2, $document['renouvellements']);
+
+        // Le renouvellement garde les quantités, sans nouvelle sortie de stock
+        $id = Ordonnance::query()->latest('id')->value('id');
+        $this->postJson("/api/v1/ordonnances/{$id}/renouveler", [], $this->enTetes($jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.document.lignes.0.quantite', 2);
+        $this->assertSame(8, $this->stockDe($produit));
+    }
+
+    /** La session donne de quoi composer l'aperçu d'une nouvelle ordonnance : le GLN vérifié et le lieu. */
+    public function test_la_session_donne_le_gln_verifie_et_le_lieu(): void
+    {
+        ['jeton' => $jeton, 'user' => $user] = $this->employeAvecJeton($this->clinique);
+        $this->clinique->update(['ville' => 'Lausanne']);
+        $user->forceFill(['gln' => '7601000123456', 'gln_verifie_le' => null])->save();
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk()
+            ->assertJsonPath('data.employe.gln', null)
+            ->assertJsonPath('data.clinique.ville', 'Lausanne');
+
+        $user->forceFill(['gln_verifie_le' => now()])->save();
+        $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk()->assertJsonPath('data.employe.gln', '7601000123456');
+    }
+
+    /** La demande de renouvellement du propriétaire arrive à la clinique (trou relevé le 01.11.2026) ; renouvelée, elle disparaît. */
+    public function test_la_demande_de_renouvellement_du_proprietaire_arrive_a_la_clinique(): void
+    {
+        $ordonnance = Ordonnance::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id, 'renouvellements' => 2, 'statut' => StatutOrdonnance::Active]);
+        OrdonnanceLigne::factory()->create(['ordonnance_id' => $ordonnance->id, 'produit_id' => $this->medicamentEnStock(5)->id]);
+        $ordonnance->demandesRenouvellement()->create(['user_id' => User::factory()->create()->id]);
+
+        $liste = $this->getJson('/api/v1/ordonnances', $this->enTetes($this->jeton))->assertOk()->json('data');
+        $this->assertNotNull(collect($liste)->firstWhere('id', $ordonnance->id)['renouvellement_demande_le']);
+
+        $this->postJson("/api/v1/ordonnances/{$ordonnance->id}/renouveler", [], $this->enTetes($this->jeton))->assertCreated();
+        $this->getJson("/api/v1/ordonnances/{$ordonnance->id}", $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.renouvellement_demande_le', null);
+    }
+
+    /** La quantité à délivrer : un entier de 1 à 99 */
+    public function test_la_quantite_a_delivrer_va_de_1_a_99(): void
+    {
+        $produit = $this->medicamentEnStock(200);
+        foreach ([0, 100, -5, 2.5] as $quantite) {
+            $this->postJson('/api/v1/ordonnances', ['patient_id' => $this->patient->id, 'lignes' => [['produit_id' => $produit->id, 'quantite' => $quantite, 'posologie' => '1 par jour']]], $this->enTetes($this->jeton))
+                ->assertUnprocessable()
+                ->assertJsonValidationErrors('lignes.0.quantite');
+        }
+        $this->postJson('/api/v1/ordonnances', ['patient_id' => $this->patient->id, 'lignes' => [['produit_id' => $produit->id, 'quantite' => 99, 'posologie' => '1 par jour']]], $this->enTetes($this->jeton))->assertCreated();
+        $this->assertSame(101, $this->stockDe($produit));
+    }
+
+    /** Le code QR mène à la page de vérification par un jeton long ; l'adresse et le code se tapent à la main */
+    public function test_le_document_porte_le_lien_et_le_code_de_verification(): void
+    {
+        config(['app.frontend_url' => 'https://veterinary.app']);
+        $ordonnance = Ordonnance::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id]);
+
+        $this->getJson("/api/v1/ordonnances/{$ordonnance->id}", $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.document.verification', [
+                'adresse' => 'veterinary.app/ordo',
+                'code' => $ordonnance->code_verification,
+                // Le code QR porte le jeton long et secret, pas le code à quatre chiffres
+                'lien' => 'https://veterinary.app/ordo?t='.$ordonnance->jeton_verification,
+            ]);
+    }
+
+    /** Clôturée au lieu d'être renouvelée : la demande du propriétaire ne reste pas en attente pour toujours */
+    public function test_cloturer_traite_la_demande_de_renouvellement(): void
+    {
+        $ordonnance = Ordonnance::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id, 'statut' => StatutOrdonnance::Active]);
+        $demande = $ordonnance->demandesRenouvellement()->create(['user_id' => User::factory()->create()->id]);
+
+        $this->postJson("/api/v1/ordonnances/{$ordonnance->id}/cloturer", [], $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertNotNull($demande->fresh()->traitee_le);
+    }
+
+    /** Un GLN pas encore vérifié auprès de MedReg ne s'imprime pas : le pharmacien le contrôle. */
+    public function test_un_gln_non_verifie_ne_s_imprime_pas(): void
+    {
+        ['jeton' => $jeton, 'user' => $user] = $this->employeAvecJeton($this->clinique);
+        $user->forceFill(['gln' => '7601000123456', 'gln_verifie_le' => null])->save();
+        $ordonnance = Ordonnance::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id]);
+
+        $this->getJson("/api/v1/ordonnances/{$ordonnance->id}", $this->enTetes($jeton))
+            ->assertOk()
+            ->assertJsonPath('data.document.prescripteur.gln', null);
     }
 
     /** Imprimée depuis une clinique sœur : l'en-tête est celui de la clinique qui l'a établie. */

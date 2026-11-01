@@ -5,6 +5,7 @@ namespace Tests\Feature\Espace;
 use App\Enums\CanalDevis;
 use App\Enums\StatutDevis;
 use App\Enums\StatutFacture;
+use App\Events\RenouvellementOrdonnanceDemande;
 use App\Models\Client;
 use App\Models\Devis;
 use App\Models\Document;
@@ -14,6 +15,7 @@ use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\Vaccination;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -109,6 +111,42 @@ class DocumentsProprietaireTest extends TestCase
         $this->assertFalse($item['a_signer']);
         // Rien ne lui est demandé : pas « en attente de votre signature »
         $this->assertSame('EN ATTENTE DE LA RÉPONSE DU PROPRIÉTAIRE', $item['sous_ligne']);
+    }
+
+    /** La demande arrive tout de suite à la clinique qui a établi l'ordonnance (Reverb, 01.11.2026) */
+    public function test_la_demande_de_renouvellement_est_annoncee_a_la_clinique_en_direct(): void
+    {
+        Event::fake([RenouvellementOrdonnanceDemande::class]);
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $fiche = Client::factory()->create(['user_id' => $user->id]);
+        $max = Patient::factory()->create(['client_id' => $fiche->id]);
+        $ordonnance = Ordonnance::factory()->create(['patient_id' => $max->id, 'organisation_id' => $fiche->organisation_id, 'renouvellements' => 1]);
+
+        $this->postJson("/api/v1/espace/ordonnances/{$ordonnance->id}/renouvellement", [], $this->enTetes($jeton))->assertCreated();
+
+        Event::assertDispatched(RenouvellementOrdonnanceDemande::class, fn (RenouvellementOrdonnanceDemande $e) => $e->ordonnance->is($ordonnance)
+            && $e->broadcastOn()[0]->name === 'private-clinique.'.$ordonnance->clinique_id
+            && $e->broadcastAs() === 'ordonnance.renouvellement-demande'
+            && $e->broadcastWith() === ['id' => $ordonnance->id, 'numero' => $ordonnance->numero]);
+    }
+
+    /** L'ordonnance imprimée depuis l'espace : le détenteur seulement pour lui-même, jamais pour qui gère un animal réclamé (01.11.2026) */
+    public function test_l_ordonnance_de_l_espace_ne_montre_le_detenteur_qu_a_lui_meme(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $sienne = Client::factory()->create(['user_id' => $user->id, 'nom' => 'Martin', 'rue' => 'Rue du Lac 3']);
+        $max = Patient::factory()->create(['client_id' => $sienne->id]);
+        Ordonnance::factory()->create(['patient_id' => $max->id, 'organisation_id' => $sienne->organisation_id]);
+        $ficheDUnAutre = Client::factory()->create(['nom' => 'Rochat', 'rue' => 'Chemin Vert 9']);
+        $rex = Patient::factory()->create(['client_id' => $ficheDUnAutre->id, 'proprietaire_id' => $user->id]);
+        Ordonnance::factory()->create(['patient_id' => $rex->id, 'organisation_id' => $ficheDUnAutre->organisation_id]);
+
+        $ordonnances = collect($this->getJson('/api/v1/espace/documents', $this->enTetes($jeton))->assertOk()->json('data'))->where('type', 'ORDONNANCE');
+        $deMax = $ordonnances->first(fn ($d) => $d['pdf']['animal']['nom'] === $max->nom);
+        $deRex = $ordonnances->first(fn ($d) => $d['pdf']['animal']['nom'] === $rex->nom);
+        $this->assertStringContainsString('Rue du Lac 3', $deMax['pdf']['detenteur']['adresse']);
+        $this->assertNull($deRex['pdf']['detenteur']);
+        $this->assertMatchesRegularExpression('/^\d{4}$/', $deRex['pdf']['verification']['code']);
     }
 
     public function test_la_demande_de_renouvellement_est_unique_et_traitee_par_le_renouvellement_clinique(): void

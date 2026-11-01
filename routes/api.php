@@ -159,6 +159,7 @@ use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
 use App\Http\Controllers\Api\V1\VaccinCatalogueController;
 use App\Http\Controllers\Api\V1\VenteComptoirController;
+use App\Http\Controllers\Api\V1\VerificationOrdonnanceController;
 use App\Http\Controllers\Api\V1\Vetpoint\CommandeVetpointController;
 use App\Http\Controllers\Api\V1\Vetpoint\ConnexionVetpointController;
 use App\Http\Controllers\Api\V1\Vetpoint\ProduitVetpointController;
@@ -295,6 +296,8 @@ Route::prefix('v1')->group(function (): void {
                 Route::get('{name}', [VideoViewingController::class, 'media'])->name('videos.hls.media');
             });
         Route::get('certificates/{code}', [VideoViewingController::class, 'verify'])->middleware('throttle:30,1');
+        // Vérifier l'authenticité d'une ordonnance : numéro et code imprimés, ou le code QR (01.11.2026)
+        Route::get('ordonnances/verifier', VerificationOrdonnanceController::class)->middleware('throttle:20,1,verification-ordonnance');
         // L'écran « Vidéos » sans compte, depuis l'accueil du site (31.10.2026, demande de Jim) : les vidéos
         // des clients et l'aperçu qui se lance tout seul ; regarder, acheter et le reste demandent un compte.
         // Leurs compteurs à part : parcourir les vidéos ne bloque ni la boutique ni l'annuaire

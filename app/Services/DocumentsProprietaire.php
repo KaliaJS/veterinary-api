@@ -36,7 +36,7 @@ class DocumentsProprietaire
         }
 
         return collect()
-            ->concat($this->ordonnances($patientIds))
+            ->concat($this->ordonnances($patientIds, $clientIds))
             ->concat($this->factures($clientIds))
             ->concat($this->devis($patientIds, $clientIds))
             ->concat($this->carnets($patientIds))
@@ -50,18 +50,18 @@ class DocumentsProprietaire
      * @param  list<int>  $patientIds
      * @return Collection<int, covariant array<string, mixed>>
      */
-    private function ordonnances(array $patientIds): Collection
+    private function ordonnances(array $patientIds, array $clientIds = []): Collection
     {
         if ($patientIds === []) {
             return collect();
         }
 
         return Ordonnance::withoutGlobalScopes()
-            ->with(['patient', 'employe', 'clinique', 'lignes.produit', 'demandesRenouvellement'])
+            ->with([...Ordonnance::relationsDocument(), 'demandesRenouvellement'])
             ->whereIn('patient_id', $patientIds)
             ->orderByDesc('signee_le')
             ->get()
-            ->map(function (Ordonnance $o): array {
+            ->map(function (Ordonnance $o) use ($clientIds): array {
                 $enAttente = $o->demandesRenouvellement->whereNull('traitee_le')->isNotEmpty();
                 $produits = $o->lignes->map(fn ($l) => $l->produit?->nom)->filter()->implode(', ');
                 $active = $o->statut === StatutOrdonnance::Active;
@@ -76,21 +76,9 @@ class DocumentsProprietaire
                         : mb_strtoupper(($o->employe->nom ?? $o->clinique->nom).' · '.self::dateLongue($o->signee_le)).($active ? '' : ' · CLÔTURÉE'),
                     'peut_renouveler' => $active && $o->renouvellements > 0 && ! $enAttente,
                     'renouvellement_en_attente' => $enAttente,
-                    'pdf' => [
-                        'numero' => $o->numero,
-                        'patient' => $o->patient->nom,
-                        'espece' => $o->patient->espece->libelle(),
-                        'veterinaire' => $o->employe?->nom,
-                        'clinique' => $o->clinique->nom,
-                        'en_tete' => $o->clinique->enTeteDocument(),
-                        'signee_le' => $o->signee_le->toDateString(),
-                        'note' => $o->note,
-                        'lignes' => $o->lignes->map(fn ($l): array => [
-                            'produit' => $l->produit->nom ?? '—',
-                            'posologie' => $l->posologie,
-                            'duree' => $l->duree,
-                        ])->values()->all(),
-                    ],
+                    // L'ordonnance telle qu'elle s'imprime (A5, 01.11.2026) ; le détenteur seulement
+                    // à lui-même, jamais à qui gère l'animal (réclamé par puce) au nom d'une autre fiche
+                    'pdf' => $o->document(in_array((int) $o->patient->client_id, $clientIds, true)),
                 ];
             });
     }

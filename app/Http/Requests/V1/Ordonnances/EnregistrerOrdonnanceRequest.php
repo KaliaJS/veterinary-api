@@ -8,7 +8,8 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * Signature d'une ordonnance : un patient de l'organisation, des lignes
- * de médicaments uniquement (catégorie `med` — parité front), 0 à 3
+ * de médicaments uniquement (catégorie `med` — parité front), chacun
+ * avec sa quantité à délivrer (1 à 99, 1 par défaut), 0 à 3
  * renouvellements.
  */
 class EnregistrerOrdonnanceRequest extends FormRequest
@@ -25,6 +26,7 @@ class EnregistrerOrdonnanceRequest extends FormRequest
                 'required',
                 $this->existeDansLOrganisation('produits')->where('categorie', CategorieProduit::Medicament->value),
             ],
+            'lignes.*.quantite' => ['sometimes', 'integer', 'between:1,99'],
             'lignes.*.posologie' => ['required', 'string', 'max:255'],
             'lignes.*.duree' => ['sometimes', 'string', 'max:255'],
             'renouvellements' => ['sometimes', 'integer', 'between:0,3'],

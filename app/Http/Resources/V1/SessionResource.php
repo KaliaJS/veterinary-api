@@ -54,6 +54,8 @@ class SessionResource extends JsonResource
                 'titre' => $this->employe->titre(),
                 'role_libelle' => $this->employe->role_libelle,
                 'role_id' => $this->employe->role_id,
+                // Imprimé sur ses ordonnances, une fois vérifié auprès de MedReg (01.11.2026)
+                'gln' => $this->user->gln_verifie_le !== null ? $this->user->gln : null,
                 // Paraît sur le site public, s'il l'accepte (nLPD)
                 'accord_site' => $this->employe->accord_site_le !== null,
             ] : null,
@@ -63,6 +65,8 @@ class SessionResource extends JsonResource
                 'id' => $this->jeton->clinique->id,
                 'nom' => $this->jeton->clinique->nom,
                 'nombre_boxes' => $this->jeton->clinique->nombre_boxes,
+                // Le lieu des ordonnances (« Lausanne, le 31 octobre 2026 »)
+                'ville' => $this->jeton->clinique->ville,
                 // En-tête des pièces qu'elle émet (PDF)
                 'en_tete' => $this->jeton->clinique->enTeteDocument(),
                 // Ses services ouvrent les modules (menus) de l'espace vétérinaire

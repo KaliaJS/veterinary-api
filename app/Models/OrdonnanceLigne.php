@@ -16,7 +16,12 @@ class OrdonnanceLigne extends Model
     /** @use HasFactory<OrdonnanceLigneFactory> */
     use HasFactory;
 
-    protected $fillable = ['ordonnance_id', 'produit_id', 'posologie', 'duree'];
+    protected $fillable = ['ordonnance_id', 'produit_id', 'quantite', 'posologie', 'duree'];
+
+    protected function casts(): array
+    {
+        return ['quantite' => 'integer'];
+    }
 
     /** @return BelongsTo<Ordonnance, $this> */
     public function ordonnance(): BelongsTo

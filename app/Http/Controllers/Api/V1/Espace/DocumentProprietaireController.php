@@ -7,6 +7,7 @@ use App\Enums\CanalDevis;
 use App\Enums\StatutDevis;
 use App\Enums\StatutOrdonnance;
 use App\Events\DevisMisAJour;
+use App\Events\RenouvellementOrdonnanceDemande;
 use App\Http\Controllers\Controller;
 use App\Models\Devis;
 use App\Models\Document;
@@ -153,6 +154,8 @@ class DocumentProprietaireController extends Controller
         }
 
         $demande = $ordonnance->demandesRenouvellement()->create(['user_id' => $request->user()->id]);
+        // La clinique le voit tout de suite (Reverb), sans recharger
+        TempsReel::diffuser(fn () => RenouvellementOrdonnanceDemande::dispatch($ordonnance));
 
         return response()->json(['data' => ['demande_id' => $demande->id, 'ordonnance_id' => $ordonnance->id]], 201);
     }

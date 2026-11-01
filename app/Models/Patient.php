@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Patient extends Model
 {
@@ -115,6 +116,13 @@ class Patient extends Model
             'species' => $this->espece,
             'owner_name' => $this->client->nom_affiche ?? $this->proprietaire->name ?? '',
         ];
+    }
+
+    /** La dernière pesée (l'ordonnance imprime le poids, 01.11.2026)
+     * @return HasOne<Pesee, $this> */
+    public function dernierePesee(): HasOne
+    {
+        return $this->hasOne(Pesee::class)->ofMany(['pesee_le' => 'max', 'id' => 'max']);
     }
 
     /** @return HasMany<Pesee, $this> */

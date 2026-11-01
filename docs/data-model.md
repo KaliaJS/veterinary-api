@@ -1162,15 +1162,23 @@ interventions non terminées y sont rattachées.
 | `patientId` | FK → patient | **Vraie FK** |
 | `date` | date | Datée du jour à la signature |
 | `by` | FK praticien | Signataire (« Dr Meyer ») |
-| `lines` | table enfant | `{ pr (FK produit), poso (texte), dur (texte, défaut « Selon besoin ») }` |
+| `lines` | table enfant | `{ pr (FK produit), qty (quantité à délivrer, 1–99, défaut 1, 01.11.2026), poso (texte), dur (texte, défaut « Selon besoin ») }` |
 | `renew` | tinyint | Renouvellements restants (0–3) |
 | `st` | enum | `active` (EN COURS) \| `stop` (CLÔTURÉE) |
 | `note` | text | Note pour le propriétaire |
+| — | `code_verification` char(4), unique avec `numero` | Code de vérification imprimé sous le code QR (01.11.2026) |
+| `doc` | servi (`document`) | L'ordonnance telle qu'elle s'imprime en A5 : en-tête et ville de la clinique, prescripteur (GLN seulement vérifié MedReg), animal (espèce, sexe, dernier poids, puce), détenteur, lignes, vérification (adresse, code, lien du code QR) |
+| — | servi (`renouvellement_demande_le`) | Demande de renouvellement du propriétaire encore à traiter |
 
 Règles implémentées :
 
-- **Signature** = création + **sortie de stock immédiate** (une unité
-  par ligne, clinique `c1` au front — en base : clinique de l'acte),
+- **Vérification publique** (01.11.2026) : `GET /public/ordonnances/verifier?numero=…&code=…`
+  (20 essais par minute, 10 essais faux par heure et par numéro), numéro ET code à quatre chiffres ensemble ; répond la clinique,
+  le prescripteur, l'animal (nom, espèce), les médicaments et l'état,
+  jamais le détenteur. Page web `/ordo`.
+
+- **Signature** = création + **sortie de stock immédiate** (la quantité
+  à délivrer de chaque ligne, clinique `c1` au front — en base : clinique de l'acte),
   annulable (l'annulation supprime l'ordonnance et restaure le stock —
   seul cas de suppression, dans la fenêtre d'undo).
 - **Renouvellement** = nouvelle ordonnance datée du jour avec

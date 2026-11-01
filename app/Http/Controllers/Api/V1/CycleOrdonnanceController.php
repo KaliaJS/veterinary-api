@@ -63,6 +63,7 @@ class CycleOrdonnanceController extends Controller
             foreach ($ordonnance->lignes as $ligne) {
                 $renouvellement->lignes()->create([
                     'produit_id' => $ligne->produit_id,
+                    'quantite' => $ligne->quantite,
                     'posologie' => $ligne->posologie,
                     'duree' => $ligne->duree,
                 ]);
@@ -76,7 +77,7 @@ class CycleOrdonnanceController extends Controller
             return $renouvellement;
         });
 
-        return new OrdonnanceResource($renouvellement->load(['lignes.produit', 'employe', 'patient']));
+        return new OrdonnanceResource($renouvellement->load(Ordonnance::relationsDocument()));
     }
 
     public function cloturer(Request $request, Ordonnance $ordonnance): OrdonnanceResource
@@ -88,10 +89,9 @@ class CycleOrdonnanceController extends Controller
         }
 
         $ordonnance->update(['statut' => StatutOrdonnance::Cloturee]);
+        // La demande du propriétaire, s'il y en avait une, ne reste pas en attente pour toujours
+        $ordonnance->demandesRenouvellement()->whereNull('traitee_le')->update(['traitee_le' => now()]);
 
-        return new OrdonnanceResource($ordonnance->load([
-            'lignes.produit',
-            'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
-        ]));
+        return new OrdonnanceResource($ordonnance->load(Ordonnance::relationsDocument()));
     }
 }
