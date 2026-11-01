@@ -427,7 +427,9 @@ class RappelsVerificationTest extends TestCase
             ['E. coli', ['colibacillose', 'mammite_staph'], false],
             ['E. coli', ['colibacillose', 'maladie_oedeme'], false],
             ['E. coli', ['colibacillose', 'mammite_staph', 'maladie_oedeme'], true],
-            ['E. coli (Œdème)', ['maladie_oedeme'], true],
+            // Une parenthèse ne retire jamais une maladie du nom (décision de Jim, 01.11.2026) : un rappel de trop plutôt que perdu
+            ['E. coli (Œdème)', ['maladie_oedeme'], false],
+            ['E. coli (Œdème)', ['colibacillose', 'mammite_staph', 'maladie_oedeme'], true],
             ['Typhus / Coryza', ['panleucopenie', 'herpes_felin', 'calicivirose'], true],
             ['Typhus / Coryza', ['panleucopenie'], false],
             ['VHD', ['rhd'], true],
@@ -503,7 +505,8 @@ class RappelsVerificationTest extends TestCase
 
     /**
      * Jamais renouvelé à tort (septième vérification du 01.11.2026) : un nom qui peut désigner plusieurs
-     * maladies exige qu'elles soient toutes couvertes ; les parenthèses précisent ; les séparateurs au premier niveau
+     * maladies exige qu'elles soient toutes couvertes ; une parenthèse ajoute, elle ne retire jamais (décision de Jim) ;
+     * les séparateurs au premier niveau
      */
     public function test_le_renouvellement_par_le_nom_n_est_jamais_a_tort(): void
     {
@@ -511,7 +514,10 @@ class RappelsVerificationTest extends TestCase
             ['Toux de chenil', ['carre', 'hepatite', 'parvovirose', 'parainfluenza'], false],
             ['Toux de chenil', ['parainfluenza', 'bordetellose'], true],
             ['Toux de chenil (Bordetella)', ['carre', 'hepatite', 'parvovirose', 'parainfluenza'], false],
-            ['Toux de chenil (Bordetella)', ['bordetellose'], true],
+            // Décision de Jim (01.11.2026) : une parenthèse ne retire jamais une maladie du nom, « Toux de chenil » garde
+            // la Bordetella et le parainfluenza (« Coryza (calici) », lui, est le nom court de la calicivirose)
+            ['Toux de chenil (Bordetella)', ['bordetellose'], false],
+            ['Toux de chenil (Bordetella)', ['bordetellose', 'parainfluenza'], true],
             ['Toux de chenil (Bordetella + Pi)', ['bordetellose'], false],
             ['Coryza', ['herpes_felin'], false],
             ['Typhus / Coryza', ['panleucopenie', 'herpes_felin'], false],

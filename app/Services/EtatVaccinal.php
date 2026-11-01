@@ -315,10 +315,11 @@ final class EtatVaccinal
             return in_array('', $parties, true) && count($parties) > 1 ? [] : array_values(array_filter($parties, fn (string $p): bool => $p !== ''));
         };
         $connu = fn (string $k): ?array => $k !== '' && isset($index[$k]) ? array_values(array_unique($index[$k])) : null;
-        // Le nom entier ; sinon le nom sans ses parenthèses, qu'une parenthèse unique peut préciser (« Toux de
-        // chenil (Bordetella) » : la bordetellose) et que les parenthèses complètent sinon (« Rage (+ Lepto) » : les
-        // deux, exigées). Une parenthèse inconnue (« (+ VHD2) », « (Rabisin) ») peut ajouter une maladie : le nom
-        // reste libre, jamais renouvelé par son nom (un rappel de trop plutôt qu'un rappel perdu ; 01.11.2026)
+        // Le nom entier ; sinon le nom sans ses parenthèses, que les parenthèses complètent (« Rage (+ Lepto) » : les
+        // deux, exigées). Une parenthèse ne retire jamais une maladie du nom (décision de Jim, 01.11.2026) : « Toux de
+        // chenil (Bordetella) » garde la Bordetella et le parainfluenza. Une parenthèse inconnue (« (+ VHD2) »,
+        // « (Rabisin) ») peut ajouter une maladie : le nom reste libre, jamais renouvelé par son nom (un rappel de
+        // trop plutôt qu'un rappel perdu ; 01.11.2026)
         $chercher = function (string $partie) use ($connu, $cle, $decouper): ?array {
             if ($codes = $connu($cle($partie))) {
                 return $codes;
@@ -329,19 +330,13 @@ final class EtatVaccinal
             }
             preg_match_all('/\(([^)]*)\)/', $partie, $m);
             $ajouts = [];
-            $ajoute = false;
             foreach ($m[1] as $dedans) {
-                // « (+ Calici) » ajoute toujours, même une maladie du nom : il ne précise jamais
-                $ajoute = $ajoute || (bool) preg_match('/^\s*(?:\+|&|,|et\b)/u', $dedans);
                 // « (+ Lepto) » : le « + » du début dit un ajout, pas une partie manquante
                 $sous = array_map(fn (string $p): ?array => $connu($cle($p)), $decouper((string) preg_replace('/^\s*(?:\+|&|,|et\b)\s*/u', '', $dedans)));
                 if ($sous === [] || in_array(null, $sous, true)) {
                     return null;
                 }
                 $ajouts[] = array_values(array_unique(array_merge(...$sous)));
-            }
-            if (! $ajoute && count($ajouts) === 1 && array_diff($ajouts[0], $base) === []) {
-                return $ajouts[0];
             }
 
             return array_values(array_unique(array_merge($base, ...$ajouts)));
