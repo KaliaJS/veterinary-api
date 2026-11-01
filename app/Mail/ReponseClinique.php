@@ -10,13 +10,17 @@ use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-/** Au propriétaire : la clinique lui a écrit (réglage « Réponses de la clinique », 28.10.2026). */
+/**
+ * Au propriétaire : la clinique lui a écrit (réglage « Réponses de la clinique », 28.10.2026).
+ * Le premier message d'un fil (la clinique écrit la première, souvent juste
+ * après lui avoir ouvert son espace client, 01.11.2026) dit comment y entrer.
+ */
 class ReponseClinique extends Mailable
 {
     use Queueable;
     use SerializesModels;
 
-    public function __construct(public MessageClientele $message, public Clinique $clinique) {}
+    public function __construct(public MessageClientele $message, public Clinique $clinique, public bool $estPremier = false) {}
 
     public function envelope(): Envelope
     {

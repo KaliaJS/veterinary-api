@@ -84,6 +84,8 @@ class MessagerieCliniqueController extends Controller
         }
         $texte = trim((string) $request->validate(['texte' => ['required', 'string', 'max:2000']])['texte']);
         $contexte = app(ContexteClinique::class);
+        // Le premier message du fil (la clinique écrit la première, 01.11.2026) : l'e-mail dit comment entrer dans l'espace
+        $estPremier = ! MessageClientele::query()->where('clinique_id', $contexte->cliniqueId())->where('user_id', $userId)->exists();
         $message = MessageClientele::create([
             'clinique_id' => $contexte->cliniqueId(),
             'user_id' => $userId,
@@ -99,7 +101,7 @@ class MessagerieCliniqueController extends Controller
         if ($proprietaire !== null && PreferencesProprietaire::query()->where('user_id', $userId)->value('reponses_clinique') !== false) {
             // Resend en panne : la réponse est enregistrée et annoncée, l'erreur va au journal
             try {
-                Mail::to($proprietaire->email)->send(new ReponseClinique($message, $contexte->clinique()));
+                Mail::to($proprietaire->email)->send(new ReponseClinique($message, $contexte->clinique(), $estPremier));
             } catch (Throwable $e) {
                 report($e);
             }
