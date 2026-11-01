@@ -12,6 +12,7 @@ use App\Events\RendezVousMisAJour;
 use App\Events\RendezVousSupprime;
 use App\Jobs\PrevenirMontres;
 use App\Models\Concerns\AppartientAUneClinique;
+use App\Services\Rappels\RappelsProprietaires;
 use App\Support\TempsReel;
 use Carbon\CarbonImmutable;
 use Database\Factories\RendezVousFactory;
@@ -45,9 +46,12 @@ class RendezVous extends Model
      */
     protected static function booted(): void
     {
-        // L'heure de début change : la date du déplacement, pour le rappel du matin (décision de Jim, 01.11.2026)
+        // Déplacé le soir, après le dernier passage des rappels : la date, pour le rappel du matin (décision de Jim,
+        // 01.11.2026). Un déplacement dans la journée ne l'efface pas : déplacé la veille au soir puis redéplacé le
+        // matin, le rendez-vous reste rappelé (troisième vérification du 01.11.2026).
         static::updating(function (RendezVous $rendezVous): void {
-            if ($rendezVous->isDirty('starts_at')) {
+            $fuseau = Clinique::withoutGlobalScopes()->find($rendezVous->clinique_id)?->fuseau_horaire ?: 'Europe/Zurich';
+            if ($rendezVous->isDirty('starts_at') && RappelsProprietaires::apresLeDernierPassage(CarbonImmutable::now(), $fuseau)) {
                 $rendezVous->deplace_le = now();
             }
         });

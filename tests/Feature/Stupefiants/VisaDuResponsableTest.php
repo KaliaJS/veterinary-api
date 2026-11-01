@@ -149,4 +149,36 @@ class VisaDuResponsableTest extends TestCase
         $this->putJson('/api/v1/equipe/employes/'.$meyer->id.'/cliniques', ['cliniques' => [$ailleurs->id, $this->clinique->id]], $this->enTetes($this->admin))->assertOk();
         $this->getJson('/api/v1/stupefiants/responsable', $this->enTetes($this->admin))->assertOk()->assertJsonPath('data.responsable', null);
     }
+
+    /** Un autre intitulé de vétérinaire garde la désignation ; sans le droit Stocks, pas candidat */
+    public function test_un_titre_toujours_veterinaire_garde_la_designation_et_le_droit_stocks_compte(): void
+    {
+        ['employe' => $meyer] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dre Anne Meyer']);
+        ['employe' => $sansStocks] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dr Paul Rochat']);
+        DerogationPermission::query()->create(['employe_id' => $sansStocks->id, 'domaine' => 'stocks', 'est_accordee' => false]);
+        $this->putJson('/api/v1/stupefiants/responsable', ['employe_id' => $meyer->id], $this->enTetes($this->admin))->assertOk();
+
+        $meyer->update(['role_libelle' => 'Vétérinaire chef']);
+        $this->assertSame($meyer->id, $this->clinique->fresh()->responsable_stupefiants_id);
+
+        $candidats = collect($this->getJson('/api/v1/stupefiants/responsable', $this->enTetes($this->admin))->assertOk()->json('data.candidats'))->pluck('id');
+        $this->assertContains($meyer->id, $candidats);
+        $this->assertNotContains($sansStocks->id, $candidats);
+        $this->putJson('/api/v1/stupefiants/responsable', ['employe_id' => $sansStocks->id], $this->enTetes($this->admin))
+            ->assertUnprocessable()->assertJsonValidationErrors('employe_id');
+    }
+
+    /** Retiré d'une clinique seulement : il reste responsable dans l'autre */
+    public function test_retire_d_une_clinique_il_reste_responsable_dans_l_autre(): void
+    {
+        ['employe' => $meyer] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dre Anne Meyer']);
+        $autre = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        $meyer->cliniques()->attach($autre->id);
+        $autre->update(['responsable_stupefiants_id' => $meyer->id]);
+        $this->clinique->update(['responsable_stupefiants_id' => $meyer->id]);
+
+        $this->putJson('/api/v1/equipe/employes/'.$meyer->id.'/cliniques', ['cliniques' => [$autre->id]], $this->enTetes($this->admin))->assertOk();
+        $this->assertNull($this->clinique->fresh()->responsable_stupefiants_id);
+        $this->assertSame($meyer->id, $autre->fresh()->responsable_stupefiants_id);
+    }
 }

@@ -71,6 +71,18 @@ class RappelsProprietaires
 
     private const int TENTATIVES_MAX = 3;
 
+    /**
+     * Après le dernier passage du soir (19 h 05, heure de la clinique) : un
+     * rendez-vous pris ou déplacé à ce moment au lendemain n'a pas eu son
+     * rappel de la veille (RendezVous::booted, `deplace_le`).
+     */
+    public static function apresLeDernierPassage(CarbonImmutable $moment, string $fuseau): bool
+    {
+        $local = $moment->setTimezone($fuseau);
+
+        return $local->gte($local->setTime(self::HEURE_FIN - 1, self::MINUTE_PASSAGE));
+    }
+
     /** La relance d'un rendez-vous manqué part le soir même, de 18 h à 22 h (décision de Jim, 28.10.2026) ; */
     private const int HEURE_RELANCE = 18;
 
