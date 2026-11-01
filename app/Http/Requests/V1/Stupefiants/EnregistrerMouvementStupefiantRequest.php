@@ -2,9 +2,11 @@
 
 namespace App\Http\Requests\V1\Stupefiants;
 
+use App\Enums\StatutOrdonnance;
 use App\Enums\TypeMouvementStupefiant;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
 use App\Models\MouvementStupefiant;
+use App\Models\Ordonnance;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -14,7 +16,7 @@ use Illuminate\Validation\Rule;
  * donne le sens ; une correction est signée (elle redresse la ligne
  * qu'elle pointe) ; un inventaire donne la quantité comptée, l'écart se
  * calcule. Administration et remise : l'animal (la remise, avec
- * l'ordonnance). Réception et retour : le fournisseur. Perte, vol,
+ * l'ordonnance de l'app qui la prescrit). Réception et retour : le fournisseur. Perte, vol,
  * élimination, correction et écart d'inventaire : ce qui s'est passé.
  */
 class EnregistrerMouvementStupefiantRequest extends FormRequest
@@ -58,7 +60,20 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             ],
             'quantite_comptee' => [Rule::requiredIf(fn (): bool => $this->est($t::Inventaire)), 'nullable', 'numeric', 'decimal:0,3', 'between:0,99999.999'],
             'patient_id' => [Rule::requiredIf(fn (): bool => $this->est($t::Administration, $t::Remise)), 'nullable', $this->existeDansLOrganisation('patients')],
-            'ordonnance_numero' => [Rule::requiredIf(fn (): bool => $this->est($t::Remise)), 'nullable', 'string', 'max:30'],
+            // Une remise : une ordonnance de l'app, en cours, signée pour cet animal, qui prescrit cette substance (01.11.2026)
+            'ordonnance_id' => [
+                Rule::requiredIf(fn (): bool => $this->est($t::Remise)), 'nullable', 'integer',
+                function (string $attribut, mixed $valeur, \Closure $echec): void {
+                    $valable = Ordonnance::query()->whereKey((int) $valeur)
+                        ->where('patient_id', (int) $this->input('patient_id'))
+                        ->where('statut', StatutOrdonnance::Active)
+                        ->whereHas('lignes', fn ($ligne) => $ligne->where('produit_id', (int) $this->input('produit_id')))
+                        ->exists();
+                    if (! $valable) {
+                        $echec('Choisissez une ordonnance en cours de cet animal qui prescrit cette substance.');
+                    }
+                },
+            ],
             'fournisseur' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:255'],
             'bulletin' => ['nullable', 'string', 'max:60'],
             'bulletin_le' => ['nullable', 'date', 'before_or_equal:today'],
@@ -78,7 +93,7 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'quantite.not_in' => 'Une correction a une quantité, en plus ou en moins.',
             'quantite_comptee.required' => 'Indiquez la quantité comptée.',
             'patient_id.required' => 'Indiquez l’animal.',
-            'ordonnance_numero.required' => 'Indiquez l’ordonnance de la remise.',
+            'ordonnance_id.required' => 'Choisissez l’ordonnance de la remise.',
             'fournisseur.required' => 'Indiquez le fournisseur.',
             'corrige_id.required' => 'Choisissez la ligne à corriger.',
             'motif.required' => match ($this->type()) {

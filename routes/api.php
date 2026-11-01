@@ -913,6 +913,8 @@ Route::prefix('v1')->group(function (): void {
         Route::middleware('can:stocks')->prefix('stupefiants')->group(function (): void {
             Route::get('mouvements', [MouvementStupefiantController::class, 'index']);
             Route::post('mouvements', [MouvementStupefiantController::class, 'store']);
+            // Les ordonnances en cours d'un animal qui prescrivent une substance, pour une remise (01.11.2026)
+            Route::get('ordonnances', [MouvementStupefiantController::class, 'ordonnances']);
             Route::get('soldes', [RegistreStupefiantController::class, 'soldes']);
             Route::get('registre', [RegistreStupefiantController::class, 'exporter']);
             Route::put('produits/{produit}', SubstanceStupefiantController::class);

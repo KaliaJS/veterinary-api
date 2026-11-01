@@ -2,10 +2,13 @@
 
 namespace Tests\Feature\Stupefiants;
 
+use App\Auth\ContexteClinique;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\MouvementStupefiant;
+use App\Models\Ordonnance;
+use App\Models\OrdonnanceLigne;
 use App\Models\Patient;
 use App\Models\Produit;
 use App\Models\Stock;
@@ -84,21 +87,67 @@ class RegistreStupefiantTest extends TestCase
         $this->recevoir();
         $this->inscrire(['type' => 'administration', 'quantite' => 0.4])->assertUnprocessable()->assertJsonValidationErrors(['patient_id' => 'Indiquez l’animal.']);
 
-        $this->inscrire(['type' => 'administration', 'quantite' => 0.125, 'patient_id' => $this->patient->id, 'ordonnance_numero' => 'RX-2026-041'])
+        $this->inscrire(['type' => 'administration', 'quantite' => 0.125, 'patient_id' => $this->patient->id])
             ->assertCreated()
             ->assertJsonPath('data.quantite', -0.125)
             ->assertJsonPath('data.solde_apres', 19.875)
             ->assertJsonPath('data.patient_nom', 'Pilou')
             ->assertJsonPath('data.detenteur_nom', 'M. Meunier')
-            ->assertJsonPath('data.ordonnance_numero', 'RX-2026-041')
+            ->assertJsonPath('data.ordonnance_numero', null)
             ->assertJsonPath('data.motif', 'Administration');
     }
 
-    public function test_une_remise_au_detenteur_demande_l_ordonnance(): void
+    /** Une ordonnance de l'app : signée pour cet animal, avec cette substance */
+    private function ordonnance(array $attributs = [], ?Produit $produit = null): Ordonnance
+    {
+        app(ContexteClinique::class)->oublier();
+        $ordonnance = Ordonnance::factory()->create(['clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id, 'employe_id' => $this->employe->id, ...$attributs]);
+        OrdonnanceLigne::factory()->create(['ordonnance_id' => $ordonnance->id, 'produit_id' => ($produit ?? $this->substance)->id]);
+
+        return $ordonnance;
+    }
+
+    /**
+     * Une remise se fait sur une ordonnance choisie dans l'app, plus un numéro tapé (accord de Jim, 01.11.2026) :
+     * signée pour cet animal, en cours, avec cette substance ; son numéro est figé sur la ligne
+     */
+    public function test_une_remise_se_fait_sur_une_ordonnance_de_l_app(): void
     {
         $this->recevoir();
-        $this->inscrire(['type' => 'remise', 'quantite' => 2, 'patient_id' => $this->patient->id])->assertUnprocessable()->assertJsonValidationErrors(['ordonnance_numero' => 'Indiquez l’ordonnance de la remise.']);
-        $this->inscrire(['type' => 'remise', 'quantite' => 2, 'patient_id' => $this->patient->id, 'ordonnance_numero' => 'RX-2026-041'])->assertCreated()->assertJsonPath('data.solde_apres', 18);
+        $bonne = $this->ordonnance(['numero' => 'RX-2026-041']);
+        $autreAnimal = $this->ordonnance(['patient_id' => Patient::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id])->id]);
+        $autreProduit = $this->ordonnance([], Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]));
+        $cloturee = $this->ordonnance(['statut' => 'stop']);
+        $ailleurs = Ordonnance::factory()->create();
+        $remise = fn (array $plus) => $this->inscrire(['type' => 'remise', 'quantite' => 2, 'patient_id' => $this->patient->id, ...$plus]);
+
+        $remise([])->assertUnprocessable()->assertJsonValidationErrors(['ordonnance_id' => 'Choisissez l’ordonnance de la remise.']);
+        // Un numéro tapé ne suffit plus
+        $remise(['ordonnance_numero' => 'RX-2026-041'])->assertUnprocessable()->assertJsonValidationErrors('ordonnance_id');
+        foreach ([$autreAnimal, $autreProduit, $cloturee, $ailleurs] as $mauvaise) {
+            $remise(['ordonnance_id' => $mauvaise->id])->assertUnprocessable()->assertJsonValidationErrors('ordonnance_id');
+        }
+        $this->assertSame(0, MouvementStupefiant::query()->where('type', 'remise')->count());
+
+        $remise(['ordonnance_id' => $bonne->id])->assertCreated()
+            ->assertJsonPath('data.solde_apres', 18)
+            ->assertJsonPath('data.ordonnance_id', $bonne->id)
+            ->assertJsonPath('data.ordonnance_numero', 'RX-2026-041');
+    }
+
+    /** Les ordonnances à proposer : celles en cours de cet animal qui prescrivent cette substance */
+    public function test_les_ordonnances_proposees_pour_une_remise(): void
+    {
+        $bonne = $this->ordonnance(['numero' => 'RX-2026-041']);
+        $this->ordonnance([], Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]));
+        $this->ordonnance(['statut' => 'stop']);
+
+        $this->getJson('/api/v1/stupefiants/ordonnances?patient_id='.$this->patient->id.'&produit_id='.$this->substance->id, $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $bonne->id)
+            ->assertJsonPath('data.0.numero', 'RX-2026-041')
+            ->assertJsonPath('data.0.veterinaire', 'Dr Anna Meyer');
     }
 
     /** Perte et vol : sans animal, avec ce qui s'est passé (demande de Jim : les vols, pour toute la Suisse) */

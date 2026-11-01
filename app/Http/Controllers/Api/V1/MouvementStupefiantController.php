@@ -3,14 +3,17 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\StatutOrdonnance;
 use App\Enums\TypeMouvementStupefiant;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Stupefiants\EnregistrerMouvementStupefiantRequest;
 use App\Http\Resources\V1\MouvementStupefiantResource;
 use App\Models\MouvementStupefiant;
+use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\Produit;
 use App\Services\RegistreStupefiants;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
@@ -42,6 +45,31 @@ class MouvementStupefiantController extends Controller
         return MouvementStupefiantResource::collection($mouvements);
     }
 
+    /**
+     * Les ordonnances à proposer pour une remise (01.11.2026) : celles en
+     * cours de l'animal qui prescrivent la substance. Le numéro, la date et
+     * le vétérinaire seulement : le registre n'a pas à lire la prescription.
+     */
+    public function ordonnances(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', MouvementStupefiant::class);
+        $donnees = $request->validate(['patient_id' => ['required', 'integer'], 'produit_id' => ['required', 'integer']]);
+
+        // Le vétérinaire peut être d'une clinique sœur : sa fiche se lit hors du scope de la clinique du jeton
+        $ordonnances = Ordonnance::query()->with(['employe' => fn ($employe) => $employe->withoutGlobalScopes()])
+            ->where('patient_id', $donnees['patient_id'])
+            ->where('statut', StatutOrdonnance::Active)
+            ->whereHas('lignes', fn ($ligne) => $ligne->where('produit_id', $donnees['produit_id']))
+            ->latest('signee_le')->latest('id')->limit(20)->get();
+
+        return response()->json(['data' => $ordonnances->map(fn (Ordonnance $o): array => [
+            'id' => $o->id,
+            'numero' => $o->numero,
+            'signee_le' => $o->signee_le->toDateString(),
+            'veterinaire' => $o->employe?->nom,
+        ])->all()]);
+    }
+
     public function store(EnregistrerMouvementStupefiantRequest $request): MouvementStupefiantResource
     {
         $this->authorize('create', MouvementStupefiant::class);
@@ -55,7 +83,8 @@ class MouvementStupefiantController extends Controller
             $details = [
                 'motif' => filled($donnees['motif'] ?? null) ? trim($donnees['motif']) : $type->libelle(),
                 'patient' => $type->versUnAnimal() ? Patient::query()->with('client')->findOrFail($donnees['patient_id']) : null,
-                'ordonnance_numero' => $donnees['ordonnance_numero'] ?? null,
+                // Une remise : l'ordonnance de l'app que la requête a contrôlée (animal, substance, en cours)
+                'ordonnance' => $type === TypeMouvementStupefiant::Remise ? Ordonnance::query()->findOrFail($donnees['ordonnance_id']) : null,
                 'fournisseur' => $donnees['fournisseur'] ?? null,
                 'bulletin' => $donnees['bulletin'] ?? null,
                 'bulletin_le' => $donnees['bulletin_le'] ?? null,

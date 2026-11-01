@@ -33,6 +33,7 @@ class MouvementStupefiantResource extends JsonResource
             'patient_nom' => $this->patient_nom,
             'detenteur_nom' => $this->detenteur_nom,
             'signataire_nom' => $this->signataire_nom,
+            'ordonnance_id' => $this->ordonnance_id,
             'ordonnance_numero' => $this->ordonnance_numero,
             'fournisseur' => $this->fournisseur,
             'bulletin' => $this->bulletin,

@@ -30,7 +30,7 @@ class MouvementStupefiant extends Model
     protected $fillable = [
         'clinique_id', 'produit_id', 'patient_id', 'employe_id', 'type',
         'quantite', 'solde_apres', 'corrige_id', 'quantite_comptee', 'motif',
-        'patient_nom', 'detenteur_nom', 'signataire_nom', 'ordonnance_numero',
+        'patient_nom', 'detenteur_nom', 'signataire_nom', 'ordonnance_id', 'ordonnance_numero',
         'fournisseur', 'bulletin', 'bulletin_le', 'created_at',
     ];
 
