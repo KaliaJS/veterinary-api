@@ -245,6 +245,8 @@ final class EtatVaccinal
         'felv' => ['leucose'], 'parvo' => ['parvovirose'], 'lepto' => ['leptospirose'], 'typhus' => ['panleucopenie'],
         'coryza' => ['herpes_felin', 'calicivirose'], 'vhd' => ['rhd'], 'rhd' => ['rhd'], 'toux de chenil' => ['parainfluenza', 'bordetellose'],
         'teigne' => ['dermatophytose'], 'piroplasmose' => ['babesiose'], 'panleucopenie' => ['panleucopenie'],
+        // Des noms qui désignent plusieurs maladies : toutes exigées (vérification du 01.11.2026)
+        'e. coli' => ['colibacillose', 'mammite_staph', 'maladie_oedeme'], 'mammites' => ['mammite_staph', 'mammite_uberis'],
     ];
 
     /**
@@ -307,7 +309,10 @@ final class EtatVaccinal
                 }
             }
 
-            return array_values(array_filter(array_map('trim', $parties), fn (string $p): bool => $p !== ''));
+            // Une partie vide (« Rage + », la suite pas tapée ; « Rage () ») : le nom n'est pas sûr, il reste libre
+            $parties = array_map('trim', $parties);
+
+            return in_array('', $parties, true) && count($parties) > 1 ? [] : array_values(array_filter($parties, fn (string $p): bool => $p !== ''));
         };
         $connu = fn (string $k): ?array => $k !== '' && isset($index[$k]) ? array_values(array_unique($index[$k])) : null;
         // Le nom entier ; sinon le nom sans ses parenthèses, qu'une parenthèse unique peut préciser (« Toux de
@@ -325,7 +330,8 @@ final class EtatVaccinal
             preg_match_all('/\(([^)]*)\)/', $partie, $m);
             $ajouts = [];
             foreach ($m[1] as $dedans) {
-                $sous = array_map(fn (string $p): ?array => $connu($cle($p)), $decouper($dedans));
+                // « (+ Lepto) » : le « + » du début dit un ajout, pas une partie manquante
+                $sous = array_map(fn (string $p): ?array => $connu($cle($p)), $decouper((string) preg_replace('/^\s*(?:\+|&|,|et\b)\s*/u', '', $dedans)));
                 if ($sous === [] || in_array(null, $sous, true)) {
                     return null;
                 }

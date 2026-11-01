@@ -409,6 +409,15 @@ class RappelsVerificationTest extends TestCase
     {
         $cas = [
             ['Leucose (FeLV)', ['leucose'], true],
+            // Dixième vérification : deux parenthèses connues complètent ; une partie vide ou un séparateur seul laisse le nom libre ;
+            // « E. coli » et « Mammites » désignent plusieurs maladies
+            ['Toux de chenil (Bordetella) (Parainfluenza)', ['bordetellose'], false],
+            ['Toux de chenil (Bordetella) (Parainfluenza)', ['bordetellose', 'parainfluenza'], true],
+            ['Rage ()', ['leptospirose', 'rage'], false],
+            ['Rage +', ['rage'], false],
+            ['+ Rage', ['rage'], false],
+            ['E. coli', ['colibacillose'], false],
+            ['Mammites', ['mammite_staph'], false],
             ['Typhus / Coryza', ['panleucopenie', 'herpes_felin', 'calicivirose'], true],
             ['Typhus / Coryza', ['panleucopenie'], false],
             ['VHD', ['rhd'], true],
