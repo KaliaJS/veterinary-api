@@ -17,6 +17,7 @@ use App\Models\Patient;
 use App\Models\RappelEnvoye;
 use App\Models\RendezVous;
 use App\Models\Vaccination;
+use App\Services\EtatVaccinal;
 use App\Services\Rappels\RappelsProprietaires;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -371,5 +372,74 @@ class RappelsVerificationTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-02 21:00', 'Europe/Zurich'));
         $this->rendezVous('2026-11-03 09:30', pris: CarbonImmutable::parse('2026-11-02 20:30', 'Europe/Zurich'));
         $this->assertSame('Échéance passée avant le prochain envoi', $this->aVenir()->firstWhere('objet', 'rdv')['bloque']);
+    }
+
+    /** Deux injections contre la rage le même jour : la ligne Rage reste, quel que soit l'ordre de chargement */
+    public function test_deux_injections_le_meme_jour_gardent_leur_maladie(): void
+    {
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Rabisin', 'valences' => ['rage'], 'injectee_le' => '2026-10-01', 'echeance_le' => '2027-10-01']);
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Nobivac Rabies', 'valences' => ['rage'], 'injectee_le' => '2026-10-01', 'echeance_le' => '2027-10-01']);
+        $etat = $this->getJson("/api/v1/patients/{$this->patient->id}/vaccinations", $this->enTetes($this->jeton))->assertOk()->json('etat');
+        $this->assertSame(['rage'], array_column($etat, 'valence'));
+
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->client->update(['user_id' => $user->id]);
+        $carnet = $this->getJson("/api/v1/espace/animaux/{$this->patient->id}", $this->enTetes($jeton))->assertOk()->json('data.vaccinations');
+        $this->assertSame(['rage'], array_column($carnet, 'valence'));
+    }
+
+    /** Un ancien « Rage » saisi à la main, refait par un vaccin du catalogue contre la rage : plus dû nulle part, pas de relance */
+    public function test_un_rage_libre_refait_par_un_vaccin_du_catalogue_n_est_plus_du(): void
+    {
+        $libre = Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Rage', 'valences' => null, 'injectee_le' => '2025-10-26', 'echeance_le' => '2026-10-26']);
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Nobivac Rabies', 'valences' => ['rage'], 'injectee_le' => '2026-10-28', 'echeance_le' => '2027-10-28']);
+
+        $this->assertTrue((bool) $libre->fresh()->renouvelee);
+        $this->envoyer();
+        Mail::assertNotSent(RappelVaccin::class);
+        $etat = $this->getJson("/api/v1/patients/{$this->patient->id}/vaccinations", $this->enTetes($this->jeton))->json('etat');
+        $this->assertSame(['rage'], array_column($etat, 'valence'));
+    }
+
+    /** Un nom libre devient des valences seulement s'il ne nomme que des maladies connues */
+    public function test_un_nom_libre_ne_devient_des_valences_que_s_il_ne_nomme_que_des_maladies(): void
+    {
+        $nommees = fn (string $nom): array => array_keys(EtatVaccinal::valencesDe(new Vaccination(['nom' => $nom])));
+        $this->assertSame(['rage'], $nommees('rage'));
+        $this->assertSame(['carre', 'rage'], $nommees('Carre · Rage'));
+        $this->assertSame(['libre:rage (rabisin)'], $nommees('Rage (Rabisin)'));
+    }
+
+    /** Les deux heures, à la borne : 2 h 30 avant, le rappel du matin part ; 1 h 45 avant, non */
+    public function test_les_deux_heures_du_rappel_du_matin_a_la_borne(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 08:05', 'Europe/Zurich'));
+        $this->rendezVous('2026-11-03 10:35', pris: CarbonImmutable::parse('2026-11-02 20:00', 'Europe/Zurich'));
+        $this->rendezVous('2026-11-03 09:50', pris: CarbonImmutable::parse('2026-11-02 20:00', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertSent(RappelRendezVous::class, 1);
+        Mail::assertSent(RappelRendezVous::class, fn (RappelRendezVous $m) => str_contains($m->render(), 'à 10:35'));
+    }
+
+    /** « À venir » à la même borne : 2 h 30 après le passage de 8 h 05, programmé (moins de deux heures : voir test_a_venir_respecte_les_deux_heures) */
+    public function test_a_venir_aux_deux_heures_a_la_borne(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 21:00', 'Europe/Zurich'));
+        $this->rendezVous('2026-11-03 10:35', pris: CarbonImmutable::parse('2026-11-02 20:30', 'Europe/Zurich'));
+        $this->assertNull($this->aVenir()->firstWhere('objet', 'rdv')['bloque']);
+    }
+
+    /** Le PDF du carnet de l'espace sait qu'une injection est renouvelée */
+    public function test_le_carnet_de_l_espace_dit_renouvelee(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->client->update(['user_id' => $user->id]);
+        $ancienne = Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Rage', 'valences' => ['rage'], 'injectee_le' => '2025-10-01', 'echeance_le' => '2026-10-01']);
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Rage', 'valences' => ['rage'], 'injectee_le' => '2026-10-20', 'echeance_le' => '2027-10-20']);
+
+        $carnet = collect($this->getJson('/api/v1/espace/documents', $this->enTetes($jeton))->assertOk()->json('data'))->firstWhere('type', 'CARNET');
+        $this->assertSame([false, true], array_column($carnet['pdf']['vaccinations'], 'est_renouvelee'));
+        $this->assertSame('2025-10-01', $carnet['pdf']['vaccinations'][1]['injectee_le']);
+        $this->assertTrue((bool) $ancienne->fresh()->renouvelee);
     }
 }

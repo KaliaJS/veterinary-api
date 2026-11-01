@@ -7,6 +7,7 @@ use App\Models\Vaccination;
 use App\Services\Catalogue\DonneesVaccins;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 /**
  * État vaccinal d un patient, valence par valence (16.10.2026) : à partir de
@@ -35,7 +36,8 @@ final class EtatVaccinal
         $aujourdhui ??= aujourdhui();
         $parValence = [];
         $noms = [];
-        foreach ($vaccinations->sortBy('injectee_le')->values() as $vaccination) {
+        // La date, puis l'ordre d'enregistrement : la même « dernière » que la règle du renouvellement, quel que soit l'ordre de chargement
+        foreach ($vaccinations->sortBy([['injectee_le', 'asc'], ['id', 'asc']])->values() as $vaccination) {
             foreach (self::valencesDe($vaccination) as $code => $nom) {
                 $parValence[$code][] = $vaccination;
                 $noms[$code] = $nom;
@@ -207,7 +209,7 @@ final class EtatVaccinal
      */
     public static function valencesDe(Vaccination $vaccination): array
     {
-        $codes = $vaccination->valences ?: $vaccination->produit?->valences->pluck('code')->all() ?: [];
+        $codes = $vaccination->valences ?: $vaccination->produit?->valences->pluck('code')->all() ?: self::valencesDuNom((string) $vaccination->nom);
         if ($codes === []) {
             $nom = trim((string) $vaccination->nom) ?: 'Vaccin';
 
@@ -220,5 +222,37 @@ final class EtatVaccinal
         }
 
         return $resultat;
+    }
+
+    /**
+     * Un nom libre qui nomme des maladies connues (« Rage », « Leucose »,
+     * « Carré · Rage », le nom que prend une injection du catalogue) : leurs
+     * valences, pour qu'un ancien « Rage » saisi à la main soit renouvelé par
+     * un vaccin du catalogue contre la rage (vérification du 01.11.2026).
+     * Une seule partie inconnue, et le nom reste libre.
+     *
+     * @return list<string>
+     */
+    private static function valencesDuNom(string $nom): array
+    {
+        static $index = null;
+        $cle = fn (string $texte): string => Str::lower(Str::ascii(trim($texte)));
+        if ($index === null) {
+            $index = [];
+            foreach (DonneesVaccins::VALENCES as $code => $valence) {
+                $index[$cle($valence['nom'])] = $code;
+                $index[$cle($valence['court'])] = $code;
+            }
+        }
+        $parties = array_values(array_filter(array_map('trim', preg_split('/\s*(?:·|,|\+|\/)\s*/u', $nom) ?: []), fn (string $p): bool => $p !== ''));
+        $codes = [];
+        foreach ($parties as $partie) {
+            if (! isset($index[$cle($partie)])) {
+                return [];
+            }
+            $codes[] = $index[$cle($partie)];
+        }
+
+        return array_values(array_unique($codes));
     }
 }

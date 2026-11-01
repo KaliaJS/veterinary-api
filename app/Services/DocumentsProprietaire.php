@@ -249,6 +249,8 @@ class DocumentsProprietaire
                             'lot' => $v->lot,
                             'injectee_le' => $v->injectee_le->toDateString(),
                             'echeance_le' => $v->echeance_le?->toDateString(),
+                            // Renouvelée : le carnet n'annonce plus son rappel (vérification du 01.11.2026)
+                            'est_renouvelee' => (bool) $v->renouvelee,
                         ])->all(),
                     ],
                 ];
