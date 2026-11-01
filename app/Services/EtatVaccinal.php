@@ -310,21 +310,28 @@ final class EtatVaccinal
             return array_values(array_filter(array_map('trim', $parties), fn (string $p): bool => $p !== ''));
         };
         $connu = fn (string $k): ?array => $k !== '' && isset($index[$k]) ? array_values(array_unique($index[$k])) : null;
-        // Le nom entier ; sinon ce que précisent les parenthèses, si tout y est connu (« (Bordetella) ») ;
-        // sinon le nom sans elles (« Toux de chenil » : les deux maladies)
+        // Le nom entier ; sinon le nom sans ses parenthèses, que les parenthèses peuvent seulement préciser
+        // (« Toux de chenil (Bordetella) » : la bordetellose) ou compléter (« Rage (+ Lepto) » : les deux, exigées) ;
+        // un nom inconnu devant ses parenthèses reste libre (vérification du 01.11.2026)
         $chercher = function (string $partie) use ($connu, $cle, $decouper): ?array {
             if ($codes = $connu($cle($partie))) {
                 return $codes;
             }
+            $base = $connu($cle((string) preg_replace('/\s*\(.*?\)\s*/', ' ', $partie)));
+            if ($base === null) {
+                return null;
+            }
             preg_match_all('/\(([^)]*)\)/', $partie, $m);
             foreach ($m[1] as $dedans) {
                 $sous = array_map(fn (string $p): ?array => $connu($cle($p)), $decouper($dedans));
-                if ($sous !== [] && ! in_array(null, $sous, true)) {
-                    return array_values(array_unique(array_merge(...$sous)));
+                if ($sous === [] || in_array(null, $sous, true)) {
+                    continue;
                 }
+                $precis = array_values(array_unique(array_merge(...$sous)));
+                $base = array_diff($precis, $base) === [] ? $precis : array_values(array_unique(array_merge($base, $precis)));
             }
 
-            return $connu($cle((string) preg_replace('/\s*\(.*?\)\s*/', ' ', $partie)));
+            return $base;
         };
         $parties = $decouper((string) $vaccination->nom);
         if ($parties === []) {

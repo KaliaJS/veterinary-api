@@ -501,6 +501,18 @@ class RappelsVerificationTest extends TestCase
             ['Carré + Rage', ['carre'], false],
             ['Sérum', ['septicemie_poulain'], false],
             ['/', ['rage'], false],
+            // Une parenthèse qui complète : toutes ses maladies exigées (huitième vérification du 01.11.2026)
+            ['Rage (+ Lepto)', ['leptospirose'], false],
+            ['Rage (+ Lepto)', ['rage', 'leptospirose'], true],
+            ['Myxomatose (+ VHD)', ['rhd'], false],
+            ['Carré (Parvo)', ['parvovirose'], false],
+            ['Pas la rage (Leucose)', ['leucose'], false],
+            // Le nom entier d'abord (« Coryza (herpès) » est le nom court de l'herpès félin) ; le repli sur le nom sans parenthèses
+            ['Coryza (herpès)', ['herpes_felin'], true],
+            ['Rage (Rabisin)', ['rage'], true],
+            ['Toux de chenil (Pi)', ['parainfluenza', 'bordetellose'], true],
+            // « Herpès » seul ne nomme pas une maladie
+            ['Herpès', ['herpes_felin'], false],
         ];
         foreach ($cas as [$nom, $valences, $attendu]) {
             $patient = Patient::factory()->create(['organisation_id' => $this->patient->organisation_id]);
