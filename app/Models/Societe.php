@@ -22,7 +22,7 @@ class Societe extends Model
     ];
 
     protected $fillable = [
-        'organisation_id', 'nom', 'ide', 'assujettie_tva',
+        'organisation_id', 'nom', 'ide', 'assujettie_tva', 'iban',
         'stripe_compte_id', 'paiements_actifs', 'virements_actifs', 'paiements_a_completer', 'paiements_maj_le',
     ];
 

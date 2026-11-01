@@ -114,7 +114,7 @@ class FactureController extends Controller
         $this->authorize('view', $facture);
 
         // Avec l'en-tête de la clinique qui l'a émise (PDF d'une clinique sœur)
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'clinique.societe', 'encaisseePar:id,name']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'clinique.societe', 'client', 'encaisseePar:id,name']));
     }
 
     /**

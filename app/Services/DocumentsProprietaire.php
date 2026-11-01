@@ -13,6 +13,7 @@ use App\Models\Facture;
 use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\Vaccination;
+use App\Support\QrFacture;
 use Illuminate\Support\Collection;
 
 /**
@@ -94,7 +95,7 @@ class DocumentsProprietaire
         }
 
         return Facture::withoutGlobalScopes()
-            ->with(['lignes', 'clinique'])
+            ->with(['lignes', 'clinique.societe', 'client'])
             ->whereIn('client_id', $clientIds)
             // Une vente du comptoir annulée n'a jamais rien dû
             ->where('statut', '!=', StatutFacture::Annulee)
@@ -125,6 +126,8 @@ class DocumentsProprietaire
                         // L'acompte payé en ligne, déduit comme sur la facture de la caisse
                         'acompte' => (float) $f->acompte,
                         'reste_a_payer' => $f->resteAPayer(),
+                        // La section paiement de la QR-facture suisse, tant qu'il reste à payer (01.11.2026)
+                        'qr_facture' => QrFacture::pour($f),
                         'montant_tva' => round($f->montantTva(), 2),
                         'total_ht' => $f->totalHt(),
                         'taux_tva' => (float) $f->taux_tva,

@@ -1001,6 +1001,21 @@ caisse.
   le mode sans appeler Stripe (`GET facturation/mode-encaissement`). Sans compte actif,
   ni terminal, ni TWINT, ni acompte (422 `paiements`, `acompte_centimes`).
 
+  QR-facture suisse (01.11.2026, SIX Swiss Implementation Guidelines
+  QR-bill 2.3, à la place de Stripe Invoicing) : `societes.iban` (34,
+  null), IBAN suisse ou liechtensteinois validé (`IbanSuisse` : format et
+  mod 97), gardé sans espaces. `QrFacture::pour(Facture)` sert
+  `qr_facture` sur la facture (`FactureResource`, quand clinique, client
+  et lignes sont chargés) et dans le bloc `pdf` des documents de l'espace :
+  compte, créancier (la société, adresse de la clinique), débiteur (le
+  client, s'il a nom et adresse), montant (reste à payer), devise CHF,
+  référence et message « Facture N ». Null sans IBAN, pour une facture qui
+  n'est pas `due` ou sans reste. Référence QRR (QR-IBAN, IID 30000 à
+  31999 : organisation et identifiant de la facture sur 26 chiffres, clé
+  modulo 10 récursif) ou SCOR (ISO 11649 : RF, clé modulo 97, d'après le
+  numéro). Le web compose la charge utile du code QR et la section
+  paiement (`qrFacture.js`, `factureDocument.js`).
+
 ---
 
 ## 7. Devis (store `devis`)

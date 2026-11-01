@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\V1\Organisation;
 
+use App\Rules\IbanSuisse;
 use App\Rules\NumeroIde;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -27,6 +28,8 @@ class ModifierSocieteRequest extends FormRequest
             'nom' => ['sometimes', 'string', 'max:255'],
             'ide' => ['sometimes', 'nullable', 'string', 'max:30', new NumeroIde],
             'assujettie_tva' => ['sometimes', 'boolean'],
+            // Le compte de la QR-facture : IBAN ou QR-IBAN suisse (01.11.2026)
+            'iban' => ['sometimes', 'nullable', 'string', 'max:42', new IbanSuisse],
         ];
     }
 }

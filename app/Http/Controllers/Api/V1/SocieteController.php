@@ -8,6 +8,7 @@ use App\Http\Requests\V1\Organisation\EnregistrerSocieteRequest;
 use App\Http\Requests\V1\Organisation\ModifierSocieteRequest;
 use App\Http\Resources\V1\SocieteResource;
 use App\Models\Organisation;
+use App\Support\QrFacture;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
@@ -45,7 +46,12 @@ class SocieteController extends Controller
     public function update(ModifierSocieteRequest $request, int $societe): SocieteResource
     {
         $fiche = $this->organisation()->societes()->findOrFail($societe);
-        $fiche->update($request->validated());
+        $donnees = $request->validated();
+        // L'IBAN gardé sans espaces, en majuscules : celui du code QR
+        if (array_key_exists('iban', $donnees)) {
+            $donnees['iban'] = filled($donnees['iban']) ? QrFacture::normaliserIban($donnees['iban']) : null;
+        }
+        $fiche->update($donnees);
 
         return new SocieteResource($fiche->loadCount('cliniques'));
     }

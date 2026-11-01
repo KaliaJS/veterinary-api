@@ -19,6 +19,8 @@ class SocieteResource extends JsonResource
             'nom' => $this->nom,
             'ide' => $this->ide,
             'assujettie_tva' => $this->assujettie_tva !== false,
+            // Le compte de la QR-facture (01.11.2026)
+            'iban' => $this->iban,
             'nombre_cliniques' => $this->whenCounted('cliniques'),
         ];
     }
