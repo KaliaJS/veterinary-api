@@ -185,10 +185,9 @@ class QrFactureTest extends TestCase
     /**
      * La colonne `factures.moyen_paiement` est un enum MySQL figé à sa
      * création : chaque moyen doit figurer dans la dernière migration qui la
-     * change. En test, la table naît de la migration de création, qui lit
-     * MoyenPaiement::cases() : un moyen ajouté au code passe en test et
-     * reste refusé par une base créée avant (vérification du 01.11.2026,
-     * « virement » refusé par MySQL).
+     * change : une base créée avant la garde, quoi que dise le code. Un
+     * moyen ajouté à MoyenPaiement sans migration fait échouer ce test
+     * (vérification du 01.11.2026, « virement » refusé par MySQL).
      */
     public function test_chaque_moyen_de_paiement_est_admis_par_la_colonne_mysql(): void
     {
