@@ -98,6 +98,12 @@ class RegistreStupefiantTest extends TestCase
     }
 
     /** Une ordonnance de l'app : signée pour cet animal, avec cette substance */
+    /** Une substance du tableau b : sa remise se fait sur une ordonnance de l'app (art. 46, al. 3 OCStup) */
+    private function tableauB(): void
+    {
+        $this->substance->update(['tableau_stupefiant' => 'b']);
+    }
+
     private function ordonnance(array $attributs = [], ?Produit $produit = null): Ordonnance
     {
         app(ContexteClinique::class)->oublier();
@@ -113,6 +119,7 @@ class RegistreStupefiantTest extends TestCase
      */
     public function test_une_remise_se_fait_sur_une_ordonnance_de_l_app(): void
     {
+        $this->tableauB();
         $this->recevoir();
         $bonne = $this->ordonnance(['numero' => 'RX-2026-041']);
         $autreAnimal = $this->ordonnance(['patient_id' => Patient::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id])->id]);
@@ -138,6 +145,7 @@ class RegistreStupefiantTest extends TestCase
     /** Les ordonnances à proposer : celles en cours de cet animal qui prescrivent cette substance */
     public function test_les_ordonnances_proposees_pour_une_remise(): void
     {
+        $this->tableauB();
         $bonne = $this->ordonnance(['numero' => 'RX-2026-041']);
         $this->ordonnance([], Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]));
         $this->ordonnance(['statut' => 'stop']);
@@ -412,6 +420,7 @@ class RegistreStupefiantTest extends TestCase
     /** Une ordonnance qui a servi à une remise ne s'annule plus : le registre garde sa pièce (vérification du 01.11.2026) */
     public function test_une_ordonnance_qui_a_servi_a_une_remise_ne_s_annule_plus(): void
     {
+        $this->tableauB();
         $this->recevoir();
         $ordonnance = $this->ordonnance(['numero' => 'RX-2026-777', 'created_at' => now()]);
         $this->inscrire(['type' => 'remise', 'quantite' => 2, 'patient_id' => $this->patient->id, 'ordonnance_id' => $ordonnance->id])->assertCreated();
@@ -425,11 +434,13 @@ class RegistreStupefiantTest extends TestCase
     /** La liste ne montre que les ordonnances de cet animal, la plus récente d'abord, avec le vétérinaire d'une clinique sœur */
     public function test_les_ordonnances_proposees_sont_celles_de_l_animal_avec_leur_veterinaire(): void
     {
+        $this->tableauB();
         $organisation = $this->clinique->societe->organisation_id;
         $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
         app(ContexteClinique::class)->oublier();
         $veterinaireSoeur = Employe::factory()->dans($soeur)->create(['nom' => 'Dre Léa Favre']);
-        $ancienne = $this->ordonnance(['numero' => 'RX-2026-100', 'signee_le' => '2026-09-01']);
+        $this->travelTo(CarbonImmutable::parse('2026-11-01 10:00', 'Europe/Zurich'));
+        $ancienne = $this->ordonnance(['numero' => 'RX-2026-100', 'signee_le' => '2026-10-05']);
         $recente = $this->ordonnance(['numero' => 'RX-2026-200', 'signee_le' => '2026-10-28', 'clinique_id' => $soeur->id, 'employe_id' => $veterinaireSoeur->id]);
         $this->ordonnance(['patient_id' => Patient::factory()->create(['organisation_id' => $organisation])->id]);
 
@@ -444,9 +455,53 @@ class RegistreStupefiantTest extends TestCase
     /** L'ordonnance ne se donne que pour une remise */
     public function test_l_ordonnance_ne_se_donne_que_pour_une_remise(): void
     {
+        $this->tableauB();
         $this->recevoir();
         $ordonnance = $this->ordonnance();
         $this->inscrire(['type' => 'administration', 'quantite' => 0.1, 'patient_id' => $this->patient->id, 'ordonnance_id' => $ordonnance->id])
             ->assertUnprocessable()->assertJsonValidationErrors('ordonnance_id');
+    }
+
+    /**
+     * Tableau a : la remise se fait sur le formulaire officiel numéroté du canton (art. 50, al. 2 OCStup), pas sur une
+     * ordonnance de l'app ; son numéro est inscrit (accord de Jim, 01.11.2026)
+     */
+    public function test_une_remise_du_tableau_a_porte_le_numero_du_formulaire_officiel(): void
+    {
+        $this->recevoir();
+        $ordonnance = $this->ordonnance();
+        $remise = fn (array $plus) => $this->inscrire(['type' => 'remise', 'quantite' => 2, 'patient_id' => $this->patient->id, ...$plus]);
+
+        $remise([])->assertUnprocessable()->assertJsonValidationErrors(['ordonnance_officielle' => 'Indiquez le numéro du formulaire officiel d’ordonnance (tableau a).']);
+        $remise(['ordonnance_id' => $ordonnance->id])->assertUnprocessable()->assertJsonValidationErrors('ordonnance_id');
+        $remise(['ordonnance_officielle' => 'RX-2026-041'])->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle');
+
+        $remise(['ordonnance_officielle' => '7 012 345'])->assertCreated()
+            ->assertJsonPath('data.ordonnance_numero', '7012345')
+            ->assertJsonPath('data.ordonnance_id', null);
+    }
+
+    /** Une substance sans tableau : la remise attend que le tableau soit précisé, elle en dépend */
+    public function test_une_remise_attend_le_tableau_de_la_substance(): void
+    {
+        $this->recevoir();
+        $this->substance->update(['tableau_stupefiant' => null]);
+        $this->inscrire(['type' => 'remise', 'quantite' => 2, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '7012345'])
+            ->assertUnprocessable()->assertJsonValidationErrors(['produit_id' => 'Précisez d’abord le tableau de la substance (a ou b) : la remise en dépend.']);
+    }
+
+    /** Une ordonnance de stupéfiant est valable un mois (art. 47, al. 2 OCStup) : plus vieille, ni proposée ni acceptée */
+    public function test_une_ordonnance_de_plus_d_un_mois_ne_sert_plus_a_une_remise(): void
+    {
+        $this->tableauB();
+        $this->recevoir();
+        $this->travelTo(CarbonImmutable::parse('2026-11-15 10:00', 'Europe/Zurich'));
+        $vieille = $this->ordonnance(['signee_le' => '2026-10-14']);
+        $limite = $this->ordonnance(['signee_le' => '2026-10-15']);
+
+        $this->getJson('/api/v1/stupefiants/ordonnances?patient_id='.$this->patient->id.'&produit_id='.$this->substance->id, $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $limite->id);
+        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_id' => $vieille->id])->assertUnprocessable()->assertJsonValidationErrors('ordonnance_id');
+        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_id' => $limite->id])->assertCreated();
     }
 }

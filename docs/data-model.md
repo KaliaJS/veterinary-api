@@ -1537,8 +1537,8 @@ dès qu'une ligne existe). Table `mouvements_stupefiants`, par clinique :
 | `quantite_comptee` | decimal(10,3) nullable | Inventaire : ce qui a été compté |
 | `patient_id` | FK nullable | Administration et remise |
 | `patient_nom`, `detenteur_nom`, `signataire_nom` | string | Figés à l'inscription |
-| `ordonnance_id` | FK ordonnances | Obligatoire pour une remise : une ordonnance de l'app, en cours, de cet animal, qui prescrit la substance (01.11.2026) |
-| `ordonnance_numero` | string | Son numéro, figé à l'inscription |
+| `ordonnance_id` | FK ordonnances (restrict) | Remise d'une substance du tableau b : une ordonnance de l'app, en cours, de moins d'un mois (art. 47 OCStup), de cet animal, qui prescrit la substance (01.11.2026) |
+| `ordonnance_numero` | string | Son numéro, figé à l'inscription ; au tableau a, le numéro du formulaire officiel du canton (champ `ordonnance_officielle` de la requête, art. 50 OCStup) |
 | `fournisseur`, `bulletin`, `bulletin_le` | string, string, date | Réception et retour (fournisseur obligatoire) |
 | `motif` | string | Obligatoire pour perte, vol, élimination, correction et écart d'inventaire |
 

@@ -7,8 +7,10 @@ use App\Enums\TypeMouvementStupefiant;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
 use App\Models\MouvementStupefiant;
 use App\Models\Ordonnance;
+use App\Models\Produit;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * Une ligne du registre des stupéfiants (mise aux normes, 01.11.2026) :
@@ -39,6 +41,43 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
         return in_array($this->type(), $types, true);
     }
 
+    /**
+     * Le tableau de la substance, d'où dépend la remise (accord de Jim, 01.11.2026) : tableau a, le formulaire
+     * officiel numéroté du canton (art. 50, al. 2 OCStup) ; tableau b, une ordonnance de l'app (art. 46, al. 3).
+     */
+    private function tableau(): ?string
+    {
+        return Produit::query()->whereKey((int) $this->input('produit_id'))->where('est_stupefiant', true)->value('tableau_stupefiant');
+    }
+
+    private function remiseSurFormulaire(): bool
+    {
+        return $this->est(TypeMouvementStupefiant::Remise) && $this->tableau() === 'a';
+    }
+
+    private function remiseSurOrdonnance(): bool
+    {
+        return $this->est(TypeMouvementStupefiant::Remise) && $this->tableau() === 'b';
+    }
+
+    /** Le numéro du formulaire officiel, sans ses espaces (« 7 012 345 ») */
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->input('ordonnance_officielle'))) {
+            $this->merge(['ordonnance_officielle' => preg_replace('/[\s’\'.]/u', '', $this->input('ordonnance_officielle'))]);
+        }
+    }
+
+    /** @return array<int, \Closure> */
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            if ($this->est(TypeMouvementStupefiant::Remise) && $this->tableau() === null && ! $validator->errors()->has('produit_id')) {
+                $validator->errors()->add('produit_id', 'Précisez d’abord le tableau de la substance (a ou b) : la remise en dépend.');
+            }
+        }];
+    }
+
     /** @return array<string, mixed> */
     public function rules(): array
     {
@@ -60,19 +99,29 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             ],
             'quantite_comptee' => [Rule::requiredIf(fn (): bool => $this->est($t::Inventaire)), 'nullable', 'numeric', 'decimal:0,3', 'between:0,99999.999'],
             'patient_id' => [Rule::requiredIf(fn (): bool => $this->est($t::Administration, $t::Remise)), 'nullable', $this->existeDansLOrganisation('patients')],
-            // Une remise : une ordonnance de l'app, en cours, signée pour cet animal, qui prescrit cette substance (01.11.2026)
+            // Remise du tableau b : une ordonnance de l'app, en cours, de moins d'un mois (art. 47, al. 2 OCStup), signée
+            // pour cet animal, qui prescrit cette substance (01.11.2026)
             'ordonnance_id' => [
-                Rule::requiredIf(fn (): bool => $this->est($t::Remise)), 'prohibited_unless:type,remise', 'nullable', 'integer',
+                Rule::requiredIf(fn (): bool => $this->remiseSurOrdonnance()),
+                Rule::prohibitedIf(fn (): bool => ! $this->remiseSurOrdonnance()),
+                'nullable', 'integer',
                 function (string $attribut, mixed $valeur, \Closure $echec): void {
                     $valable = Ordonnance::query()->whereKey((int) $valeur)
                         ->where('patient_id', (int) $this->input('patient_id'))
                         ->where('statut', StatutOrdonnance::Active)
+                        ->whereDate('signee_le', '>=', aujourdhui()->subMonth()->toDateString())
                         ->whereHas('lignes', fn ($ligne) => $ligne->where('produit_id', (int) $this->input('produit_id')))
                         ->exists();
                     if (! $valable) {
-                        $echec('Choisissez une ordonnance en cours de cet animal qui prescrit cette substance.');
+                        $echec('Choisissez une ordonnance de moins d’un mois de cet animal, en cours, qui prescrit cette substance.');
                     }
                 },
+            ],
+            // Remise du tableau a : le numéro du formulaire officiel numéroté (art. 50, al. 2 OCStup)
+            'ordonnance_officielle' => [
+                Rule::requiredIf(fn (): bool => $this->remiseSurFormulaire()),
+                Rule::prohibitedIf(fn (): bool => ! $this->remiseSurFormulaire()),
+                'nullable', 'string', 'regex:/^\d{6,10}$/',
             ],
             'fournisseur' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:255'],
             'bulletin' => ['nullable', 'string', 'max:60'],
@@ -94,7 +143,10 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'quantite_comptee.required' => 'Indiquez la quantité comptée.',
             'patient_id.required' => 'Indiquez l’animal.',
             'ordonnance_id.required' => 'Choisissez l’ordonnance de la remise.',
-            'ordonnance_id.prohibited_unless' => 'Seule une remise au détenteur se fait sur une ordonnance.',
+            'ordonnance_id.prohibited' => 'Seule la remise d’une substance du tableau b se fait sur une ordonnance de l’app ; au tableau a, le formulaire officiel.',
+            'ordonnance_officielle.required' => 'Indiquez le numéro du formulaire officiel d’ordonnance (tableau a).',
+            'ordonnance_officielle.regex' => 'Le numéro du formulaire officiel est fait de chiffres, par exemple 7 012 345.',
+            'ordonnance_officielle.prohibited' => 'Le formulaire officiel ne sert qu’à la remise d’une substance du tableau a.',
             'fournisseur.required' => 'Indiquez le fournisseur.',
             'corrige_id.required' => 'Choisissez la ligne à corriger.',
             'motif.required' => match ($this->type()) {

@@ -26,7 +26,7 @@ class RegistreStupefiants
 
     /**
      * @param  float  $quantite  signée (+ entre, − sort ; 0 pour un visa)
-     * @param  array<string, mixed>  $details  motif, patient, ordonnance, fournisseur, bulletin, bulletin_le, corrige_id, quantite_comptee
+     * @param  array<string, mixed>  $details  motif, patient, ordonnance, ordonnance_officielle, fournisseur, bulletin, bulletin_le, corrige_id, quantite_comptee
      */
     public function ecrire(Produit $produit, TypeMouvementStupefiant $type, float $quantite, array $details, int $cliniqueId, ?User $auteur): MouvementStupefiant
     {
@@ -60,9 +60,9 @@ class RegistreStupefiants
             'patient_nom' => $patient?->nom,
             'detenteur_nom' => $patient?->client?->nom_affiche,
             'signataire_nom' => $employe->nom ?? $auteur?->name,
-            // L'ordonnance de l'app, et son numéro figé (01.11.2026)
+            // L'ordonnance de l'app et son numéro figé, ou le numéro du formulaire officiel du tableau a (01.11.2026)
             'ordonnance_id' => $ordonnance?->id,
-            'ordonnance_numero' => $ordonnance?->numero,
+            'ordonnance_numero' => $ordonnance->numero ?? ($details['ordonnance_officielle'] ?? null),
             'fournisseur' => $details['fournisseur'] ?? null,
             'bulletin' => $details['bulletin'] ?? null,
             'bulletin_le' => $details['bulletin_le'] ?? null,
