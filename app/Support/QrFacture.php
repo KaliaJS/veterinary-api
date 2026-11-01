@@ -91,7 +91,8 @@ class QrFacture
 
     /**
      * Ce que la section paiement imprime pour cette facture, ou null : déjà
-     * payée, annulée, rien à payer, ou la société n'a pas donné son IBAN.
+     * payée, annulée, rien à payer, ticket du comptoir, ou la société n'a pas
+     * donné son IBAN.
      *
      * @return array<string, mixed>|null
      */
@@ -100,7 +101,8 @@ class QrFacture
         $clinique = $facture->clinique;
         $societe = $clinique?->societe;
         $reste = round($facture->resteAPayer(), 2);
-        if ($societe === null || blank($societe->iban) || $facture->statut->value !== 'due' || $reste <= 0) {
+        // Un ticket du comptoir se paie sur place, jamais par virement (vérification du 01.11.2026)
+        if ($societe === null || blank($societe->iban) || $facture->statut->value !== 'due' || $reste <= 0 || $facture->vente_comptoir) {
             return null;
         }
         // SIX 2.3, tableau 8 : une adresse « S » exige NPA et localité ; sans elles, pas de créancier valable

@@ -17,6 +17,7 @@ use App\Models\Patient;
 use App\Models\RappelEnvoye;
 use App\Models\RendezVous;
 use App\Models\Vaccination;
+use App\Services\Rappels\RappelsProprietaires;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Collection;
@@ -134,7 +135,10 @@ class RappelsVerificationTest extends TestCase
                 && str_contains($html, 'Le lien de l’appel vidéo vous arrive par e-mail')
                 && ! str_contains($html, 'nous attendons') && ! str_contains($html, 'Rue du Lac 1');
         });
-        $this->assertSame('Téléconsultation', $this->aVenir()->firstWhere('objet', 'rdv')['libelle'] ?? 'Téléconsultation');
+        // Une téléconsultation à venir se dit comme telle ; le SMS ne promet pas de lien par e-mail
+        $this->rendezVous('2026-11-06 09:00', TypeRendezVous::Teleconsultation);
+        $this->assertSame('Téléconsultation', $this->aVenir()->firstWhere('objet', 'rdv')['libelle']);
+        $this->assertSame('Deux Rives : téléconsultation de Félix demain à 14:30. Un empêchement : 021 600 00 00.', RappelsProprietaires::texteSms($this->clinique, $this->patient, null, RendezVous::query()->where('type', TypeRendezVous::Teleconsultation)->orderBy('starts_at')->first(), 'rdv'));
     }
 
     /** MINEUR 1 : pris la veille après le dernier envoi (19 h 05), rappelé le matin même ; pris le jour même, pas rappelé */
@@ -236,5 +240,55 @@ class RappelsVerificationTest extends TestCase
         $this->clinique->societe->organisation->forceFill(['verification' => VerificationOrganisation::Refusee])->save();
         $this->envoyer();
         Mail::assertNotSent(RelanceDevis::class);
+    }
+
+    /** Un rendez-vous pris bien avant (rappel parti la veille, ou réglage allumé ce jour-là) : pas de rappel le matin même */
+    public function test_pas_de_vague_le_matin_pour_les_rendez_vous_pris_plus_tot(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 10:05', 'Europe/Zurich'));
+        $this->rendezVous('2026-11-03 15:00', pris: CarbonImmutable::parse('2026-10-24 09:00', 'Europe/Zurich'));
+        $this->rendezVous('2026-11-03 16:00', pris: CarbonImmutable::parse('2026-11-02 18:00', 'Europe/Zurich'));
+        // Pris après 19 h 05, mais moins de deux heures avant : trop tard
+        $this->rendezVous('2026-11-03 11:30', pris: CarbonImmutable::parse('2026-11-02 21:00', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertNotSent(RappelRendezVous::class);
+    }
+
+    /** La relance d'un devis : le septième jour, ou les deux suivants ; pas le dixième, comme « À venir » le dit */
+    public function test_la_relance_d_un_devis_ne_part_pas_le_dixieme_jour(): void
+    {
+        $this->devis(['envoye_le' => CarbonImmutable::parse('2026-10-23 08:00', 'Europe/Zurich')]);
+        $this->assertNull($this->aVenir()->firstWhere('objet', 'devis'));
+        $this->envoyer();
+        Mail::assertNotSent(RelanceDevis::class);
+    }
+
+    /** Un rappel à la main la veille de l'échéance n'est pas la relance « en retard » ; le jour même, si */
+    public function test_la_borne_du_rappel_a_la_main(): void
+    {
+        $avant = $this->vaccin('2026-11-03');
+        $leJour = $this->vaccin('2026-11-03', 'Leucose');
+        $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations/{$avant->id}/rappel", [], $this->enTetes($this->jeton))->assertOk();
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 10:00', 'Europe/Zurich'));
+        $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations/{$leJour->id}/rappel", [], $this->enTetes($this->jeton))->assertOk();
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-10 10:00', 'Europe/Zurich'));
+        $this->envoyer();
+        $this->assertSame([$avant->id], RappelEnvoye::query()->where('objet', 'vaccin_retard')->distinct()->pluck('vaccination_id')->all());
+    }
+
+    /** Le carnet relu par l'onglet Vaccins garde « renouvelée » et le dernier rappel parti */
+    public function test_la_liste_des_injections_dit_renouvelee_et_rappel_envoye(): void
+    {
+        $ancienne = $this->vaccin('2026-11-12');
+        $leucose = $this->vaccin('2026-11-20', 'Leucose');
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Rage', 'injectee_le' => '2026-10-30', 'echeance_le' => '2027-10-30']);
+        $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations/{$leucose->id}/rappel", [], $this->enTetes($this->jeton))->assertOk();
+
+        $liste = collect($this->getJson("/api/v1/patients/{$this->patient->id}/vaccinations", $this->enTetes($this->jeton))->assertOk()->json('data'))->keyBy('id');
+        $this->assertTrue($liste[$ancienne->id]['est_renouvelee']);
+        $this->assertFalse($liste[$leucose->id]['est_renouvelee']);
+        $this->assertNotNull($liste[$leucose->id]['rappel_envoye_le']);
+        $this->assertNull($liste[$ancienne->id]['rappel_envoye_le']);
     }
 }

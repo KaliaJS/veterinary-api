@@ -284,7 +284,7 @@ class RappelsProprietaires
                     // La veille : il doit partir avant 20 h le jour d'avant ; pris la veille au soir, le matin même, deux heures avant au plus tard
                     $fuseau = $clinique->fuseau_horaire ?: 'Europe/Zurich';
                     $veille = CarbonImmutable::parse($jour.' '.(self::HEURE_FIN - 1).':59:59', $fuseau)->subDay();
-                    $dernier = $r->created_at !== null && $r->created_at->lt(CarbonImmutable::parse($jour, $fuseau)) ? max($veille, $r->starts_at->toImmutable()->subHours(2)) : $veille;
+                    $dernier = $this->prisApresLeDernierPassage($r, CarbonImmutable::parse($jour, $fuseau)) ? max($veille, $r->starts_at->toImmutable()->subHours(2)) : $veille;
                     $lignes[] = $this->ligneAVenir($clinique, 'rdv', $r->type === TypeRendezVous::Teleconsultation ? 'Téléconsultation' : 'Rendez-vous', $r->patient, $jour, $reglagesVeille, $prochain, $dernier);
                 }
             }
@@ -596,11 +596,11 @@ class RappelsProprietaires
         $moment = $rendezVous->starts_at->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich');
         if ($objet === 'rdv') {
             $quand = $moment->toDateString() === aujourdhui($clinique)->toDateString() ? 'aujourd’hui' : 'demain';
-            // Une téléconsultation : pas de déplacement, le lien arrive par e-mail
+            // Une téléconsultation : pas de déplacement
             $quoi = $rendezVous->type === TypeRendezVous::Teleconsultation ? 'téléconsultation' : 'rendez-vous';
-            $suite = $rendezVous->type === TypeRendezVous::Teleconsultation ? ' Le lien de l’appel vidéo vous arrive par e-mail.' : '';
 
-            return $clinique->nom.' : '.$quoi.' de '.$patient->nom.' '.$quand.' à '.$moment->format('H:i').'.'.$suite.(filled($clinique->tel) ? ' Un empêchement : '.$clinique->tel.'.' : '');
+            // Pas de promesse du lien par e-mail : un client aux SMS seuls n'en reçoit pas (vérification du 01.11.2026)
+            return $clinique->nom.' : '.$quoi.' de '.$patient->nom.' '.$quand.' à '.$moment->format('H:i').'.'.(filled($clinique->tel) ? ' Un empêchement : '.$clinique->tel.'.' : '');
         }
 
         return $clinique->nom.' : contrôle de '.$patient->nom.' le '.$moment->format('d.m.Y').' à '.$moment->format('H:i').'.'.(filled($clinique->tel) ? ' Pour le déplacer : '.$clinique->tel.'.' : '');
@@ -750,8 +750,21 @@ class RappelsProprietaires
         $aujourdhui = CarbonImmutable::parse(aujourdhui($clinique)->toDateString(), $fuseau);
 
         return $rendezVous->starts_at->setTimezone($fuseau)->toDateString() === $aujourdhui->toDateString()
-            && $rendezVous->created_at !== null && $rendezVous->created_at->lt($aujourdhui)
+            && $this->prisApresLeDernierPassage($rendezVous, $aujourdhui)
             && $rendezVous->starts_at->gte(now()->addHours(2));
+    }
+
+    /**
+     * Pris la veille après le dernier passage du soir (19 h 05) et avant
+     * minuit : son rappel de la veille n'a pas pu partir. Un rendez-vous pris
+     * plus tôt a eu le sien, ou ne l'aurait pas eu non plus (réglage allumé
+     * ce jour-là) : pas de vague le matin (vérification du 01.11.2026).
+     */
+    private function prisApresLeDernierPassage(RendezVous $rendezVous, CarbonImmutable $jour): bool
+    {
+        $dernierPassage = $jour->subDay()->setTime(self::HEURE_FIN - 1, self::MINUTE_PASSAGE);
+
+        return $rendezVous->created_at !== null && $rendezVous->created_at->gte($dernierPassage) && $rendezVous->created_at->lt($jour);
     }
 
     /**
@@ -796,12 +809,22 @@ class RappelsProprietaires
             ->where('statut', StatutDevis::Envoye)->where('canal', CanalDevis::Portail)
             ->whereNull('relance_le')->whereNotNull('patient_id')
             ->where('envoye_le', '<=', now()->subDays(self::JOURS_RELANCE))
+            // Envoyé il y a 7 à 9 jours (jour de la clinique, comme « À venir ») ; la journée exacte se décide par clinique plus bas
             ->where('envoye_le', '>=', now()->subDays(self::JOURS_RELANCE + self::JOURS_RATTRAPAGE + 1)->startOfDay())
             ->get()
             ->filter(function (Devis $devis): bool {
                 $clinique = $this->clinique($devis->clinique_id);
 
-                return $clinique !== null && ! $devis->estExpire() && self::reglages($clinique)['relance_devis'] && $this->enJournee($clinique);
+                if ($clinique === null) {
+                    return false;
+                }
+                $fuseau = $clinique->fuseau_horaire ?: 'Europe/Zurich';
+                $envoye = $devis->envoye_le->setTimezone($fuseau)->toDateString();
+                $jour = CarbonImmutable::parse(aujourdhui($clinique)->toDateString());
+
+                return ! $devis->estExpire() && self::reglages($clinique)['relance_devis'] && $this->enJournee($clinique)
+                    && $envoye <= $jour->subDays(self::JOURS_RELANCE)->toDateString()
+                    && $envoye >= $jour->subDays(self::JOURS_RELANCE + self::JOURS_RATTRAPAGE)->toDateString();
             })
             ->values();
     }

@@ -43,8 +43,8 @@ class VaccinationResource extends JsonResource
             'veterinaire' => $this->whenLoaded('employe', fn () => $this->employe?->nom),
             'injectee_le' => $this->injectee_le->toDateString(),
             'echeance_le' => $this->echeance_le?->toDateString(),
-            // Une injection plus récente du même vaccin l'a remplacée : elle n'est plus due
-            'est_renouvelee' => $this->whenHas('est_renouvelee', fn (): bool => (bool) $this->resource->getAttribute('est_renouvelee')),
+            // Renouvelée (même vaccin, ou combiné qui la couvre) : plus due ; la colonne tenue à jour, partout la même (vérification du 01.11.2026)
+            'est_renouvelee' => (bool) $this->resource->getAttribute('renouvelee'),
             // Le dernier rappel parti pour elle (à la main ou automatique)
             'rappel_envoye_le' => $this->whenHas('rappel_envoye_le', function (): ?string {
                 $le = $this->resource->getAttribute('rappel_envoye_le');

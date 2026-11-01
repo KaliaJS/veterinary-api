@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Facturation;
 
+use App\Enums\MoyenPaiement;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Facture;
@@ -160,5 +161,41 @@ class QrFactureTest extends TestCase
 
         $comptoir = $this->facture(['numero' => 'FC-2026-0343', 'vente_comptoir' => true]);
         $this->postJson("/api/v1/facturation/factures/{$comptoir->id}/encaisser", ['moyen_paiement' => 'virement'], $this->enTetes($this->jeton))->assertUnprocessable();
+    }
+
+    /** Un ticket du comptoir resté dû se paie sur place : pas de QR-facture qu'on ne pourrait pas encaisser */
+    public function test_un_ticket_du_comptoir_n_a_pas_de_section_paiement(): void
+    {
+        $this->clinique->societe->update(['iban' => 'CH9300762011623852957']);
+        $ticket = $this->facture(['vente_comptoir' => true]);
+        $this->assertNull($this->getJson("/api/v1/facturation/factures/{$ticket->id}", $this->enTetes($this->jeton))->assertOk()->json('data.qr_facture'));
+    }
+
+    /** Le comptoir ne vend jamais « par virement » ; les statistiques du jour disent les virements à part */
+    public function test_le_comptoir_refuse_le_virement_et_les_statistiques_le_disent(): void
+    {
+        $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'virement', 'lignes' => [['produit_id' => 999999, 'quantite' => 1]]], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('moyen_paiement');
+
+        $facture = $this->facture();
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/encaisser", ['moyen_paiement' => 'virement'], $this->enTetes($this->jeton))->assertOk();
+        $this->getJson('/api/v1/facturation/statistiques', $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.du_jour.virement', 338.2);
+    }
+
+    /**
+     * La colonne `factures.moyen_paiement` est un enum MySQL figé à sa
+     * création : chaque moyen doit figurer dans la dernière migration qui la
+     * change (SQLite, en test, ne garde pas la contrainte ; vérification du
+     * 01.11.2026, « virement » refusé par MySQL).
+     */
+    public function test_chaque_moyen_de_paiement_est_admis_par_la_colonne_mysql(): void
+    {
+        $derniere = collect(glob(database_path('migrations/*.php')))->sort()
+            ->filter(fn (string $fichier): bool => (bool) preg_match("/enum\\('moyen_paiement'/", (string) file_get_contents($fichier)))->last();
+        preg_match("/enum\\('moyen_paiement', \\[([^\\]]*)\\]/", (string) file_get_contents($derniere), $m);
+        $admis = array_map(fn (string $v): string => trim($v, " '"), explode(',', $m[1] ?? ''));
+        foreach (MoyenPaiement::cases() as $moyen) {
+            $this->assertContains($moyen->value, $admis, basename($derniere).' n’admet pas « '.$moyen->value.' »');
+        }
     }
 }

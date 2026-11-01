@@ -190,9 +190,7 @@ class PatientController extends Controller
             'client',
             'pesees' => fn ($requete) => $requete->orderBy('pesee_le')->orderBy('id'),
             // Renouvelée ou non, et le dernier rappel parti : le carnet le dit d'après le serveur (01.11.2026)
-            'vaccinations' => fn ($requete) => $requete->orderBy('echeance_le')
-                ->select('vaccinations.*')->selectRaw('case when '.Vaccination::SQL_NON_RENOUVELEE.' then 0 else 1 end as est_renouvelee')
-                ->withMax('rappelsEnvoyes as rappel_envoye_le', 'envoye_le'),
+            'vaccinations' => fn ($requete) => $requete->orderBy('echeance_le')->withMax('rappelsEnvoyes as rappel_envoye_le', 'envoye_le'),
             'vaccinations.employe' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
             'visites' => fn ($requete) => $requete->orderByDesc('visite_le')->orderByDesc('id'),
             'visites.employe' => fn ($requete) => $requete->withoutGlobalScope('clinique'),

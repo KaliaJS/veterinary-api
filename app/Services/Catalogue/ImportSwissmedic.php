@@ -6,6 +6,7 @@ use App\Mail\NouveauxProduitsCatalogue;
 use App\Models\CatalogueImport;
 use App\Models\ProduitEmballage;
 use App\Models\ProduitVeterinaire;
+use App\Models\Vaccination;
 use App\Models\VaccinSchema;
 use App\Models\Valence;
 use App\Support\MasquageSql;
@@ -295,6 +296,9 @@ final class ImportSwissmedic
         }
         $ids = Valence::query()->whereIn('code', $codes)->pluck('id');
         $produit->valences()->syncWithoutDetaching($ids);
+        // Les injections faites avec ce produit (sans valences photographiées, elles prennent les siennes) : « renouvelée » se refait (vérification du 01.11.2026)
+        Vaccination::query()->withoutGlobalScopes()->where('produit_id', $produit->id)
+            ->distinct()->pluck('patient_id')->each(fn (int $patientId) => Vaccination::recalculerRenouvellements($patientId));
     }
 
     /** @return list<string> */

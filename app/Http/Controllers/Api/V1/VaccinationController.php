@@ -32,6 +32,8 @@ class VaccinationController extends Controller
 
         $vaccinations = $patient->vaccinations()
             ->with(['produit.schema', 'produit.valences', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
+            // Le dernier rappel parti : le carnet le garde quand l'onglet Vaccins se relit (vérification du 01.11.2026)
+            ->withMax('rappelsEnvoyes as rappel_envoye_le', 'envoye_le')
             ->orderByDesc('injectee_le')->orderByDesc('id')
             ->get();
 
