@@ -408,4 +408,45 @@ class RegistreStupefiantTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('quantite');
         $this->assertSame(8, $stock());
     }
+
+    /** Une ordonnance qui a servi à une remise ne s'annule plus : le registre garde sa pièce (vérification du 01.11.2026) */
+    public function test_une_ordonnance_qui_a_servi_a_une_remise_ne_s_annule_plus(): void
+    {
+        $this->recevoir();
+        $ordonnance = $this->ordonnance(['numero' => 'RX-2026-777', 'created_at' => now()]);
+        $this->inscrire(['type' => 'remise', 'quantite' => 2, 'patient_id' => $this->patient->id, 'ordonnance_id' => $ordonnance->id])->assertCreated();
+
+        $this->deleteJson('/api/v1/ordonnances/'.$ordonnance->id, [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['ordonnance' => 'Cette ordonnance a servi à une remise inscrite au registre des stupéfiants : elle ne s’annule plus, clôturez-la.']);
+        $this->assertNotNull($ordonnance->fresh());
+        $this->assertSame($ordonnance->id, MouvementStupefiant::query()->where('type', 'remise')->sole()->ordonnance_id);
+    }
+
+    /** La liste ne montre que les ordonnances de cet animal, la plus récente d'abord, avec le vétérinaire d'une clinique sœur */
+    public function test_les_ordonnances_proposees_sont_celles_de_l_animal_avec_leur_veterinaire(): void
+    {
+        $organisation = $this->clinique->societe->organisation_id;
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        app(ContexteClinique::class)->oublier();
+        $veterinaireSoeur = Employe::factory()->dans($soeur)->create(['nom' => 'Dre Léa Favre']);
+        $ancienne = $this->ordonnance(['numero' => 'RX-2026-100', 'signee_le' => '2026-09-01']);
+        $recente = $this->ordonnance(['numero' => 'RX-2026-200', 'signee_le' => '2026-10-28', 'clinique_id' => $soeur->id, 'employe_id' => $veterinaireSoeur->id]);
+        $this->ordonnance(['patient_id' => Patient::factory()->create(['organisation_id' => $organisation])->id]);
+
+        $this->getJson('/api/v1/stupefiants/ordonnances?patient_id='.$this->patient->id.'&produit_id='.$this->substance->id, $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.id', $recente->id)
+            ->assertJsonPath('data.0.veterinaire', 'Dre Léa Favre')
+            ->assertJsonPath('data.1.id', $ancienne->id);
+    }
+
+    /** L'ordonnance ne se donne que pour une remise */
+    public function test_l_ordonnance_ne_se_donne_que_pour_une_remise(): void
+    {
+        $this->recevoir();
+        $ordonnance = $this->ordonnance();
+        $this->inscrire(['type' => 'administration', 'quantite' => 0.1, 'patient_id' => $this->patient->id, 'ordonnance_id' => $ordonnance->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('ordonnance_id');
+    }
 }

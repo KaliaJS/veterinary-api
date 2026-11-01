@@ -8,6 +8,7 @@ use App\Enums\StatutOrdonnance;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Ordonnances\EnregistrerOrdonnanceRequest;
 use App\Http\Resources\V1\OrdonnanceResource;
+use App\Models\MouvementStupefiant;
 use App\Models\Ordonnance;
 use App\Models\Produit;
 use App\Services\GestionnaireStock;
@@ -127,6 +128,12 @@ class OrdonnanceController extends Controller
         if (! $estDansLaFenetre) {
             throw ValidationException::withMessages([
                 'ordonnance' => 'Une ordonnance signée ne se supprime pas, clôturez-la. Seule l’annulation immédiate d’une signature est tolérée.',
+            ]);
+        }
+        // Une remise de stupéfiant s'appuie sur elle : le registre garde sa pièce (vérification du 01.11.2026)
+        if (MouvementStupefiant::withoutGlobalScopes()->where('ordonnance_id', $ordonnance->id)->exists()) {
+            throw ValidationException::withMessages([
+                'ordonnance' => 'Cette ordonnance a servi à une remise inscrite au registre des stupéfiants : elle ne s’annule plus, clôturez-la.',
             ]);
         }
 

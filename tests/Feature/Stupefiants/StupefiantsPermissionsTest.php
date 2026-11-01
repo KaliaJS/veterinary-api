@@ -99,6 +99,21 @@ class StupefiantsPermissionsTest extends TestCase
             ['postJson', '/api/v1/stupefiants/mouvements', ['produit_id' => $this->substance->id, 'quantite' => 5]],
             ['getJson', '/api/v1/stupefiants/soldes', []],
             ['getJson', '/api/v1/stupefiants/registre', []],
+            ['getJson', '/api/v1/stupefiants/ordonnances?patient_id=1&produit_id='.$this->substance->id, []],
         ];
+    }
+
+    /**
+     * Les ordonnances d'une remise disent quel animal suit quel traitement : le droit Stupéfiants (celui d'inscrire),
+     * pas seulement Stocks, et seulement pour une substance du registre (vérification du 01.11.2026)
+     */
+    public function test_les_ordonnances_d_une_remise_demandent_le_droit_stupefiants_et_une_substance(): void
+    {
+        ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        $autre = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+        $this->getJson('/api/v1/stupefiants/ordonnances?patient_id=1&produit_id='.$autre->id, $this->enTetes($jeton))->assertUnprocessable()->assertJsonValidationErrors('produit_id');
+
+        DerogationPermission::create(['employe_id' => $employe->id, 'domaine' => DomainePermission::Stupefiants, 'est_accordee' => false]);
+        $this->getJson('/api/v1/stupefiants/ordonnances?patient_id=1&produit_id='.$this->substance->id, $this->enTetes($jeton))->assertForbidden();
     }
 }

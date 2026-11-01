@@ -62,7 +62,7 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'patient_id' => [Rule::requiredIf(fn (): bool => $this->est($t::Administration, $t::Remise)), 'nullable', $this->existeDansLOrganisation('patients')],
             // Une remise : une ordonnance de l'app, en cours, signée pour cet animal, qui prescrit cette substance (01.11.2026)
             'ordonnance_id' => [
-                Rule::requiredIf(fn (): bool => $this->est($t::Remise)), 'nullable', 'integer',
+                Rule::requiredIf(fn (): bool => $this->est($t::Remise)), 'prohibited_unless:type,remise', 'nullable', 'integer',
                 function (string $attribut, mixed $valeur, \Closure $echec): void {
                     $valable = Ordonnance::query()->whereKey((int) $valeur)
                         ->where('patient_id', (int) $this->input('patient_id'))
@@ -94,6 +94,7 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'quantite_comptee.required' => 'Indiquez la quantité comptée.',
             'patient_id.required' => 'Indiquez l’animal.',
             'ordonnance_id.required' => 'Choisissez l’ordonnance de la remise.',
+            'ordonnance_id.prohibited_unless' => 'Seule une remise au détenteur se fait sur une ordonnance.',
             'fournisseur.required' => 'Indiquez le fournisseur.',
             'corrige_id.required' => 'Choisissez la ligne à corriger.',
             'motif.required' => match ($this->type()) {

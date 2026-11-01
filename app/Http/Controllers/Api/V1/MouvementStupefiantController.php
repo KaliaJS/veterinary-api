@@ -17,6 +17,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -52,8 +53,12 @@ class MouvementStupefiantController extends Controller
      */
     public function ordonnances(Request $request): JsonResponse
     {
-        $this->authorize('viewAny', MouvementStupefiant::class);
-        $donnees = $request->validate(['patient_id' => ['required', 'integer'], 'produit_id' => ['required', 'integer']]);
+        // Ce qu'un animal prend : le droit d'inscrire au registre (Stupéfiants), une substance du registre
+        $this->authorize('create', MouvementStupefiant::class);
+        $donnees = $request->validate([
+            'patient_id' => ['required', 'integer'],
+            'produit_id' => ['required', 'integer', Rule::exists('produits', 'id')->where('organisation_id', app(ContexteClinique::class)->organisationId())->where('est_stupefiant', true)],
+        ], ['produit_id.exists' => 'Ce produit n’est pas une substance du registre.']);
 
         // Le vétérinaire peut être d'une clinique sœur : sa fiche se lit hors du scope de la clinique du jeton
         $ordonnances = Ordonnance::query()->with(['employe' => fn ($employe) => $employe->withoutGlobalScopes()])
