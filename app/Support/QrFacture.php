@@ -81,6 +81,14 @@ class QrFacture
         return $reste;
     }
 
+    /** Le pays d'une adresse d'après son NPA : 9485 à 9498, le Liechtenstein (dans le réseau postal suisse) ; sinon la Suisse */
+    private static function pays(?string $npa): string
+    {
+        $n = (int) preg_replace('/\D/', '', (string) $npa);
+
+        return $n >= 9485 && $n <= 9498 ? 'LI' : 'CH';
+    }
+
     /**
      * Ce que la section paiement imprime pour cette facture, ou null : déjà
      * payée, annulée, rien à payer, ou la société n'a pas donné son IBAN.
@@ -95,6 +103,10 @@ class QrFacture
         if ($societe === null || blank($societe->iban) || $facture->statut->value !== 'due' || $reste <= 0) {
             return null;
         }
+        // SIX 2.3, tableau 8 : une adresse « S » exige NPA et localité ; sans elles, pas de créancier valable
+        if (blank($clinique->npa) || blank($clinique->ville)) {
+            return null;
+        }
         $iban = self::normaliserIban($societe->iban);
         $estQr = self::estQrIban($iban);
         $client = $facture->client;
@@ -106,19 +118,20 @@ class QrFacture
                 'rue' => $clinique->rue,
                 'npa' => $clinique->npa,
                 'localite' => $clinique->ville,
-                'pays' => 'CH',
+                'pays' => self::pays($clinique->npa),
             ],
-            'debiteur' => $client === null || blank($client->nom) ? null : [
+            // Un client sans NPA ou sans localité : pas de débiteur, la section paiement garde le cadre vide à remplir
+            'debiteur' => $client === null || blank($client->nom) || blank($client->npa) || blank($client->localite) ? null : [
                 'nom' => trim(($client->prenom ?? '').' '.$client->nom),
                 'rue' => $client->rue,
                 'npa' => $client->npa,
                 'localite' => $client->localite,
-                'pays' => 'CH',
+                'pays' => self::pays($client->npa),
             ],
             'montant' => $reste,
             'devise' => 'CHF',
             'type_reference' => $estQr ? 'QRR' : 'SCOR',
-            // Le numéro de la facture, retrouvé tel quel dans le relevé de la banque
+            // QRR : l'organisation et l'identifiant de la facture (clé modulo 10) ; SCOR : le numéro de la facture, lisible dans le relevé
             'reference' => $estQr ? self::referenceQr($facture->organisation_id.str_pad((string) $facture->id, 12, '0', STR_PAD_LEFT)) : self::referenceCreancier((string) $facture->numero),
             'message' => 'Facture '.$facture->numero,
         ];

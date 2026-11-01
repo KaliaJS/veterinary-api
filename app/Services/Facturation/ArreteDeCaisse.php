@@ -7,6 +7,7 @@ use App\Enums\StatutFacture;
 use App\Models\Clinique;
 use App\Models\ClotureCaisse;
 use App\Models\Facture;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -36,6 +37,8 @@ class ArreteDeCaisse
             ->where('statut', StatutFacture::Payee)
             ->whereNull('cloture_caisse_id')
             ->where('clinique_id', $clinique->id)
+            // Un virement (QR-facture) n'est jamais passé par la caisse
+            ->where(fn (Builder $requete) => $requete->whereNull('moyen_paiement')->orWhere('moyen_paiement', '!=', MoyenPaiement::Virement->value))
             ->with(['lignes', 'encaisseePar'])
             // Une carte ou un TWINT payé au terminal : une seule requête pour toutes les factures
             ->withExists(['paiements as preuve_terminal' => fn ($paiements) => $paiements->whereIn('statut', Facture::preuvesDeTerminal())]);
@@ -53,7 +56,7 @@ class ArreteDeCaisse
         $modeIntegre = $clinique->encaisseAvecVeterinary();
 
         $moyens = [];
-        foreach (MoyenPaiement::cases() as $moyen) {
+        foreach (MoyenPaiement::deCaisse() as $moyen) {
             $liste = $factures->filter(fn (Facture $facture): bool => $facture->moyen_paiement === $moyen);
             // Une carte ou un TWINT sans preuve du terminal : saisi à la main
             $sansTerminal = $moyen === MoyenPaiement::Especes ? collect() : $liste->filter(

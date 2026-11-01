@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\MoyenPaiement;
 use App\Enums\StatutFacture;
 use App\Enums\TypeLigneFacture;
 use App\Http\Controllers\Controller;
@@ -51,7 +52,8 @@ class FactureController extends Controller
             ->when($request->boolean('a_cloturer'), fn (Builder $requete) => $requete
                 ->where('statut', StatutFacture::Payee)
                 ->whereNull('cloture_caisse_id')
-                ->where('clinique_id', app(ContexteClinique::class)->cliniqueId()))
+                ->where('clinique_id', app(ContexteClinique::class)->cliniqueId())
+                ->where(fn (Builder $q) => $q->whereNull('moyen_paiement')->orWhere('moyen_paiement', '!=', MoyenPaiement::Virement->value)))
             ->latest('emise_le')
             ->latest('id')
             ->paginate($this->parPage($request));

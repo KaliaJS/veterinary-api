@@ -116,4 +116,49 @@ class QrFactureTest extends TestCase
         $this->assertSame('CH9300762011623852957', $document['pdf']['qr_facture']['iban']);
         $this->assertEquals(338.2, $document['pdf']['qr_facture']['montant']);
     }
+
+    /** SIX 2.3, tableau 8 : NPA et localité obligatoires dans une adresse « S » (vérification du 01.11.2026) */
+    public function test_un_client_sans_npa_ou_localite_n_est_pas_debiteur_et_une_clinique_sans_adresse_n_a_pas_de_section_paiement(): void
+    {
+        $this->clinique->societe->update(['iban' => 'CH9300762011623852957']);
+        $facture = $this->facture();
+        $facture->client->update(['npa' => null, 'localite' => null, 'rue' => null]);
+        $qr = $this->getJson("/api/v1/facturation/factures/{$facture->id}", $this->enTetes($this->jeton))->json('data.qr_facture');
+        $this->assertNotNull($qr);
+        $this->assertNull($qr['debiteur']);
+
+        $this->clinique->update(['npa' => null]);
+        $this->assertNull($this->getJson("/api/v1/facturation/factures/{$facture->id}", $this->enTetes($this->jeton))->json('data.qr_facture'));
+    }
+
+    public function test_une_adresse_du_liechtenstein_porte_le_pays_li(): void
+    {
+        $this->clinique->societe->update(['iban' => 'CH9300762011623852957']);
+        $facture = $this->facture();
+        $facture->client->update(['npa' => '9490', 'localite' => 'Vaduz']);
+        $qr = $this->getJson("/api/v1/facturation/factures/{$facture->id}", $this->enTetes($this->jeton))->json('data.qr_facture');
+        $this->assertSame('LI', $qr['debiteur']['pays']);
+        $this->assertSame('CH', $qr['creancier']['pays']);
+    }
+
+    /**
+     * Un paiement reçu par la QR-facture (vérification du 01.11.2026) : la
+     * facture se marque payée « par virement », qui ne passe jamais par la
+     * caisse (ni arrêté ni clôture) ; une vente du comptoir se paie sur place.
+     */
+    public function test_une_qr_facture_payee_se_marque_payee_par_virement_hors_de_la_caisse(): void
+    {
+        $facture = $this->facture();
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/encaisser", ['moyen_paiement' => 'virement'], $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('data.statut', 'payee')->assertJsonPath('data.moyen_paiement', 'virement');
+
+        // Rien à clôturer : le virement n'est pas passé par la caisse
+        $this->postJson('/api/v1/facturation/clotures-caisse', ['fond' => 200, 'especes_comptees' => 200, 'nouveau_fond' => 200], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('factures');
+        $this->assertNull($facture->fresh()->cloture_caisse_id);
+        $this->getJson('/api/v1/facturation/factures?a_cloturer=1', $this->enTetes($this->jeton))->assertOk()->assertJsonCount(0, 'data');
+
+        $comptoir = $this->facture(['numero' => 'FC-2026-0343', 'vente_comptoir' => true]);
+        $this->postJson("/api/v1/facturation/factures/{$comptoir->id}/encaisser", ['moyen_paiement' => 'virement'], $this->enTetes($this->jeton))->assertUnprocessable();
+    }
 }

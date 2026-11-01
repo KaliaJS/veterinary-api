@@ -39,6 +39,11 @@ class EncaissementController extends Controller
             throw ValidationException::withMessages(['moyen_paiement' => 'Choisissez le moyen de paiement.']);
         }
 
+        // Le virement d'une QR-facture arrive après coup ; une vente du comptoir se paie sur place
+        if ($moyen === MoyenPaiement::Virement) {
+            $this->assurerHorsComptoir($facture, 'Une vente du comptoir se paie sur place, pas par virement.');
+        }
+
         if ($moyen === MoyenPaiement::Especes && $request->filled('montant_recu')) {
             if ((float) $request->validated('montant_recu') < $facture->resteAPayer()) {
                 throw ValidationException::withMessages([

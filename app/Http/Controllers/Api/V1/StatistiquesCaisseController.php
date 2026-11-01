@@ -62,6 +62,8 @@ class StatistiquesCaisseController extends Controller
                 'tpe' => $totalPar(MoyenPaiement::Tpe),
                 'twint' => $totalPar(MoyenPaiement::Twint),
                 'especes' => $totalPar(MoyenPaiement::Especes),
+                // QR-factures payées par virement, hors caisse
+                'virement' => $totalPar(MoyenPaiement::Virement),
                 // Acomptes payés en ligne à la réservation, déduits des factures du jour
                 'acomptes' => round((float) $duJour->sum(fn (Facture $facture): float => (float) $facture->acompte), 2),
                 'total' => round((float) $duJour->sum(fn (Facture $facture): float => $facture->totalTtc()), 2),
