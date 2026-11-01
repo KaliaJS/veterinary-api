@@ -768,4 +768,32 @@ class RappelsVerificationTest extends TestCase
         $rendezVous->update(['note_accueil' => 'Apporter le carnet']);
         $this->assertSame(0, $lectures);
     }
+
+    /** Le rattrapage du matin se lit à l'heure de la clinique : à New York, déplacé lundi 20 h à mardi, rappelé mardi 8 h 05 */
+    public function test_le_rappel_du_matin_part_a_l_heure_de_la_clinique(): void
+    {
+        $this->clinique->update(['fuseau_horaire' => 'America/New_York']);
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'America/New_York'));
+        $rendezVous = $this->rendezVous('2026-11-20 10:00');
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 20:00', 'America/New_York'));
+        $debut = CarbonImmutable::parse('2026-11-03 14:00', 'America/New_York')->utc();
+        $rendezVous->update(['starts_at' => $debut, 'ends_at' => $debut->addMinutes(20)]);
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 08:05', 'America/New_York'));
+        $this->envoyer();
+        Mail::assertSent(RappelRendezVous::class, 1);
+    }
+
+    /** La migration du 01.11.2026 recalcule les renouvellements déjà enregistrés avec la règle des parenthèses */
+    public function test_la_migration_recalcule_les_renouvellements_enregistres(): void
+    {
+        $ancienne = Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Toux de chenil (Bordetella)', 'valences' => null, 'injectee_le' => '2025-10-01', 'echeance_le' => '2026-10-01']);
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Nobivac Bb', 'valences' => ['bordetellose'], 'injectee_le' => '2026-10-20', 'echeance_le' => '2027-10-20']);
+        // Ce que l'ancienne règle avait enregistré
+        DB::table('vaccinations')->where('id', $ancienne->id)->update(['renouvelee' => true]);
+
+        (require database_path('migrations/2026_11_01_000014_recompute_renewed_vaccinations.php'))->up();
+
+        $this->assertFalse((bool) $ancienne->fresh()->renouvelee);
+    }
 }
