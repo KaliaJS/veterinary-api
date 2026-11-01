@@ -90,7 +90,8 @@ class MouvementStupefiantController extends Controller
                 'patient' => $type->versUnAnimal() ? Patient::query()->with('client')->findOrFail($donnees['patient_id']) : null,
                 // Une remise : l'ordonnance de l'app (tableau b) ou le numéro du formulaire officiel (tableau a), contrôlés par la requête
                 'ordonnance' => filled($donnees['ordonnance_id'] ?? null) ? Ordonnance::query()->findOrFail($donnees['ordonnance_id']) : null,
-                'ordonnance_officielle' => $donnees['ordonnance_officielle'] ?? null,
+                // « 07012345 » et « 7012345 » : le même formulaire
+                'ordonnance_officielle' => filled($donnees['ordonnance_officielle'] ?? null) ? ltrim((string) $donnees['ordonnance_officielle'], '0') : null,
                 'ordonnance_officielle_le' => $donnees['ordonnance_officielle_le'] ?? null,
                 'fournisseur' => $donnees['fournisseur'] ?? null,
                 'bulletin' => $donnees['bulletin'] ?? null,
@@ -124,8 +125,27 @@ class MouvementStupefiantController extends Controller
             throw ValidationException::withMessages(['corrige_id' => 'Choisissez une ligne de cette substance à corriger.']);
         }
         $details['corrige_id'] = $corrigee->id;
+        $quantite = (float) $donnees['quantite'];
 
-        return (float) $donnees['quantite'];
+        // Une correction redresse la ligne, sans la dépasser ni en inverser le sens (vérification du 01.11.2026)
+        $origine = (float) $corrigee->quantite;
+        $net = $origine + (float) MouvementStupefiant::query()->where('corrige_id', $corrigee->id)->where('type', TypeMouvementStupefiant::Correction)->sum('quantite');
+        $apres = $net + $quantite;
+        if ($apres * $origine < -0.0000005 || abs($apres) > abs($origine) + 0.0005) {
+            throw ValidationException::withMessages(['quantite' => 'Une correction ne peut pas dépasser la ligne corrigée ('.RegistreStupefiants::quantite($origine).').']);
+        }
+        // Une remise sur formulaire officiel annulée, dont le formulaire a resservi : elle ne se rétablit plus (art. 51, al. 3)
+        if ($corrigee->type === TypeMouvementStupefiant::Remise && $corrigee->ordonnance_id === null && filled($corrigee->ordonnance_numero)
+            && abs($net) < 0.0005 && abs($apres) >= 0.0005) {
+            $autres = MouvementStupefiant::withoutGlobalScopes()->where('produit_id', $produit->id)->where('type', TypeMouvementStupefiant::Remise)
+                ->whereNull('ordonnance_id')->where('ordonnance_numero', $corrigee->ordonnance_numero)->whereKeyNot($corrigee->id)->lockForUpdate()->get(['id', 'quantite']);
+            $actives = $autres->filter(fn (MouvementStupefiant $r): bool => abs((float) $r->quantite + (float) MouvementStupefiant::withoutGlobalScopes()->where('corrige_id', $r->id)->sum('quantite')) > 0.0005);
+            if ($actives->isNotEmpty()) {
+                throw ValidationException::withMessages(['corrige_id' => 'Le formulaire officiel de cette remise a resservi à une autre remise : elle ne se rétablit plus.']);
+            }
+        }
+
+        return $quantite;
     }
 
     /**

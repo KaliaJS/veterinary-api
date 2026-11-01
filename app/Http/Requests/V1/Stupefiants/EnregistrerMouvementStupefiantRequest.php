@@ -64,8 +64,8 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (is_string($this->input('ordonnance_officielle'))) {
-            // Sans espaces ni zéros en tête : « 07 012 345 » et « 7012345 » sont le même formulaire
-            $this->merge(['ordonnance_officielle' => ltrim((string) preg_replace('/[\s’\'.]/u', '', $this->input('ordonnance_officielle')), '0')]);
+            // Sans espaces : « 7 012 345 » ; les zéros en tête s'ôtent après le contrôle (MouvementStupefiantController)
+            $this->merge(['ordonnance_officielle' => (string) preg_replace('/[\s’\'.]/u', '', $this->input('ordonnance_officielle'))]);
         }
     }
 
@@ -121,7 +121,7 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'ordonnance_officielle' => [
                 Rule::requiredIf(fn (): bool => $this->remiseSurFormulaire()),
                 Rule::prohibitedIf(fn (): bool => ! $this->remiseSurFormulaire()),
-                'nullable', 'string', 'regex:/^\d{6,10}$/',
+                'nullable', 'string', 'regex:/^(?!0+$)\d{6,10}$/',
             ],
             // Sa date : valable un mois (art. 47, al. 2 OCStup ; décision de Jim, 01.11.2026)
             'ordonnance_officielle_le' => [
@@ -171,7 +171,7 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'ordonnance_id.required' => 'Choisissez l’ordonnance de la remise.',
             'ordonnance_id.prohibited' => 'Seule la remise d’une substance du tableau b se fait sur une ordonnance de l’app ; au tableau a, le formulaire officiel.',
             'ordonnance_officielle.required' => 'Indiquez le numéro du formulaire officiel d’ordonnance (tableau a).',
-            'ordonnance_officielle.regex' => 'Le numéro du formulaire officiel est fait de chiffres, par exemple 7 012 345.',
+            'ordonnance_officielle.regex' => 'Le numéro du formulaire officiel a de 6 à 10 chiffres, par exemple 7 012 345.',
             'ordonnance_officielle.prohibited' => 'Le formulaire officiel ne sert qu’à la remise d’une substance du tableau a.',
             'ordonnance_officielle_le.required' => 'Indiquez la date du formulaire officiel.',
             'ordonnance_officielle_le.date_format' => 'Indiquez la date du formulaire officiel.',

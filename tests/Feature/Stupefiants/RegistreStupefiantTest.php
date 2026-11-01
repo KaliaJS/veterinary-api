@@ -769,4 +769,42 @@ class RegistreStupefiantTest extends TestCase
         $remise('7000001', '2026-02-27')->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle_le');
         $remise('7000002', '2026-02-28')->assertCreated();
     }
+
+    /** Le numéro officiel : 6 à 10 chiffres tapés, pas que des zéros ; « 07012345 » est « 7012345 » */
+    public function test_le_numero_officiel_et_ses_zeros(): void
+    {
+        $this->recevoir();
+        $aujourdhui = now('Europe/Zurich')->toDateString();
+        $remise = fn (string $numero) => $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => $numero, 'ordonnance_officielle_le' => $aujourdhui]);
+        $remise('0 000 000')->assertUnprocessable()->assertJsonValidationErrors(['ordonnance_officielle' => 'Le numéro du formulaire officiel a de 6 à 10 chiffres, par exemple 7 012 345.']);
+        $remise('00000001234567')->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle');
+        $remise('0012345')->assertCreated()->assertJsonPath('data.ordonnance_numero', '12345');
+        $remise('7012345')->assertCreated();
+        $remise('07012345')->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle');
+    }
+
+    /** Une correction partielle ne libère pas le formulaire ; une correction ne dépasse pas sa ligne */
+    public function test_une_correction_partielle_ne_libere_pas_et_ne_depasse_pas(): void
+    {
+        $this->recevoir();
+        $aujourdhui = now('Europe/Zurich')->toDateString();
+        $id = $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '7012345', 'ordonnance_officielle_le' => $aujourdhui])->assertCreated()->json('data.id');
+        $this->inscrire(['type' => 'correction', 'quantite' => 2, 'corrige_id' => $id, 'motif' => 'Trop'])->assertUnprocessable()->assertJsonValidationErrors('quantite');
+        $this->inscrire(['type' => 'correction', 'quantite' => -1, 'corrige_id' => $id, 'motif' => 'Sens inversé'])->assertUnprocessable()->assertJsonValidationErrors('quantite');
+        $this->inscrire(['type' => 'correction', 'quantite' => 0.5, 'corrige_id' => $id, 'motif' => 'Demi-dose'])->assertCreated();
+        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '7012345', 'ordonnance_officielle_le' => $aujourdhui])
+            ->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle');
+    }
+
+    /** Une remise annulée dont le formulaire a resservi ne se rétablit plus */
+    public function test_une_remise_annulee_dont_le_formulaire_a_resservi_ne_se_retablit_plus(): void
+    {
+        $this->recevoir();
+        $aujourdhui = now('Europe/Zurich')->toDateString();
+        $a = $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '7012345', 'ordonnance_officielle_le' => $aujourdhui])->assertCreated()->json('data.id');
+        $this->inscrire(['type' => 'correction', 'quantite' => 1, 'corrige_id' => $a, 'motif' => 'Mauvais animal'])->assertCreated();
+        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '7012345', 'ordonnance_officielle_le' => $aujourdhui])->assertCreated();
+        $this->inscrire(['type' => 'correction', 'quantite' => -1, 'corrige_id' => $a, 'motif' => 'Rétablir'])
+            ->assertUnprocessable()->assertJsonValidationErrors(['corrige_id' => 'Le formulaire officiel de cette remise a resservi à une autre remise : elle ne se rétablit plus.']);
+    }
 }
