@@ -1014,8 +1014,12 @@ caisse.
   31999 : organisation et identifiant de la facture sur 26 chiffres, clé
   modulo 10 récursif) ou SCOR (ISO 11649 : RF, clé modulo 97, d'après le
   numéro). Le web compose la charge utile du code QR et la section
-  paiement (`qrFacture.js`, `factureDocument.js`), au jeu de caractères
-  SIX. Créancier sans NPA ou localité : pas de section ; débiteur sans
+  paiement (`qrFacture.js`, `factureDocument.js`), dans un sous-ensemble
+  du jeu SIX : le Latin-1 que le PDF imprime (ć → c, œ → oe, € → EUR),
+  pour que le papier porte exactement le texte du code QR ; adresses
+  coupées comme dans le code (70/70/35), code pays devant le NPA hors de
+  Suisse, récépissé et colonne d'information resserrés jusqu'au minimum
+  SIX quand la place manque. Créancier sans NPA ou localité : pas de section ; débiteur sans
   NPA ou localité : cadre vide ; pays LI pour les NPA 9485 à 9498. Payée
   depuis la banque : `moyen_paiement` = `virement`, jamais pour une vente
   du comptoir, hors de l'arrêté et de la clôture
