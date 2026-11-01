@@ -1468,8 +1468,10 @@ faut journaliser les envois :
   renouvelé n'est plus dû : `vaccinations.renouvelee`, tenu à jour à chaque
   injection d'après la règle unique `EtatVaccinal::renouvelees` (même nom,
   ou injections plus récentes qui couvrent toutes ses valences), lu en SQL
-  par `Vaccination::nonRenouvelees` ; la ressource dit `est_renouvelee` et
-  `rappel_envoye_le`.
+  par `Vaccination::nonRenouvelees` (liste des patients, carnet, accueil de
+  l'espace et montre) ; recalculée aussi quand l'import Swissmedic ajoute
+  une valence à un produit ; la ressource dit `est_renouvelee` (la
+  colonne) et `rappel_envoye_le` (fiche et liste des injections).
 
 ---
 

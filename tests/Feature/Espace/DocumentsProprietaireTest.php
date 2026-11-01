@@ -100,7 +100,7 @@ class DocumentsProprietaireTest extends TestCase
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
         // La fiche est celle d'un autre client ; le compte gère l'animal (réclamé par puce)
         $ficheDUnAutre = Client::factory()->create();
-        $rex = Patient::factory()->create(['client_id' => $ficheDUnAutre->id, 'proprietaire_id' => $user->id]);
+        $rex = Patient::factory()->create(['client_id' => $ficheDUnAutre->id, 'proprietaire_id' => $user->id, 'nom' => 'Rex']);
         $devis = Devis::factory()->create(['patient_id' => $rex->id, 'organisation_id' => $ficheDUnAutre->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail]);
 
         $this->postJson("/api/v1/espace/devis/{$devis->id}/signer", ['accepte' => true], $this->enTetes($jeton))->assertNotFound();
@@ -135,10 +135,11 @@ class DocumentsProprietaireTest extends TestCase
     {
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
         $sienne = Client::factory()->create(['user_id' => $user->id, 'nom' => 'Martin', 'rue' => 'Rue du Lac 3']);
-        $max = Patient::factory()->create(['client_id' => $sienne->id]);
+        // Des noms fixes : deux noms tirés au hasard peuvent être égaux (test instable, vérification du 01.11.2026)
+        $max = Patient::factory()->create(['client_id' => $sienne->id, 'nom' => 'Max']);
         Ordonnance::factory()->create(['patient_id' => $max->id, 'organisation_id' => $sienne->organisation_id]);
         $ficheDUnAutre = Client::factory()->create(['nom' => 'Rochat', 'rue' => 'Chemin Vert 9']);
-        $rex = Patient::factory()->create(['client_id' => $ficheDUnAutre->id, 'proprietaire_id' => $user->id]);
+        $rex = Patient::factory()->create(['client_id' => $ficheDUnAutre->id, 'proprietaire_id' => $user->id, 'nom' => 'Rex']);
         Ordonnance::factory()->create(['patient_id' => $rex->id, 'organisation_id' => $ficheDUnAutre->organisation_id]);
 
         $ordonnances = collect($this->getJson('/api/v1/espace/documents', $this->enTetes($jeton))->assertOk()->json('data'))->where('type', 'ORDONNANCE');

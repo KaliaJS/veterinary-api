@@ -61,7 +61,7 @@ class VaccinationController extends Controller
         }
         $vaccination->save();
 
-        return new VaccinationResource($vaccination->load(['produit', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
+        return new VaccinationResource($vaccination->refresh()->load(['produit', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
     }
 
     public function update(EnregistrerVaccinationRequest $request, Patient $patient, Vaccination $vaccination): VaccinationResource
@@ -75,7 +75,7 @@ class VaccinationController extends Controller
         $vaccination->fill($this->attributs($donnees, $produit));
         $vaccination->save();
 
-        return new VaccinationResource($vaccination->load(['produit', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
+        return new VaccinationResource($vaccination->refresh()->load(['produit', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
     }
 
     public function destroy(Patient $patient, Vaccination $vaccination): JsonResponse

@@ -4,8 +4,10 @@ namespace Tests\Feature\Catalogue;
 
 use App\Enums\Espece;
 use App\Models\CatalogueImport;
+use App\Models\Patient;
 use App\Models\ProduitEmballage;
 use App\Models\ProduitVeterinaire;
+use App\Models\Vaccination;
 use App\Services\Catalogue\DonneesVaccins;
 use App\Services\Catalogue\ImportRefdata;
 use App\Services\Catalogue\ImportSwissmedic;
@@ -53,6 +55,24 @@ class ImportCatalogueTest extends TestCase
         $rage = ProduitVeterinaire::query()->where('numero_autorisation', '1337')->with('valences')->firstOrFail();
         $this->assertEqualsCanonicalizing(['CH', 'CT', 'CV', 'BV', 'OV', 'CP', 'FU'], $rage->especes);
         $this->assertSame(['rage'], $rage->valences->pluck('code')->all());
+    }
+
+    /**
+     * Une valence ajoutée par l'import à un produit déjà utilisé : ses
+     * injections sans valences photographiées prennent les siennes, et
+     * « renouvelée » se refait (vérification du 01.11.2026).
+     */
+    public function test_une_valence_ajoutee_par_l_import_refait_renouvelee(): void
+    {
+        $produit = ProduitVeterinaire::query()->create(['numero_autorisation' => '1337', 'nom' => 'Nobivac Rabies', 'nom_court' => 'Nobivac Rabies', 'categorie' => ProduitVeterinaire::VACCIN]);
+        $patient = Patient::factory()->create();
+        $ancienne = Vaccination::factory()->create(['patient_id' => $patient->id, 'produit_id' => $produit->id, 'nom' => 'Nobivac Rabies', 'valences' => null, 'injectee_le' => '2025-11-01', 'echeance_le' => '2026-11-01']);
+        Vaccination::factory()->create(['patient_id' => $patient->id, 'produit_id' => null, 'nom' => 'Combiné', 'valences' => ['carre', 'rage'], 'injectee_le' => '2026-10-01', 'echeance_le' => '2027-10-01']);
+        $this->assertFalse((bool) $ancienne->fresh()->renouvelee);
+
+        app(ImportSwissmedic::class)->importer($this->archiveSwissmedic());
+
+        $this->assertTrue((bool) $ancienne->fresh()->renouvelee);
     }
 
     public function test_les_tables_curees_ne_citent_que_des_especes_connues(): void

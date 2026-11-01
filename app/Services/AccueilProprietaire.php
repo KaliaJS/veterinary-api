@@ -101,8 +101,9 @@ class AccueilProprietaire
     }
 
     /**
-     * Par animal et par vaccin, seule la DERNIÈRE injection compte : un
-     * rappel fait rend l'échéance précédente caduque. Retards (jours
+     * Seules les injections pas encore renouvelées comptent : la règle
+     * unique de la clinique (`vaccinations.renouvelee` : même vaccin, ou
+     * combiné qui le couvre ; vérification du 01.11.2026). Retards (jours
      * négatifs) et échéances à J+30, du plus urgent au moins urgent.
      *
      * @param  list<int>  $patientIds
@@ -121,9 +122,9 @@ class AccueilProprietaire
             ->with('patient')
             ->whereIn('patient_id', $patientIds)
             ->whereNotNull('echeance_le')
+            ->nonRenouvelees()
             ->orderByDesc('injectee_le')
             ->get()
-            ->unique(fn (Vaccination $vaccination): string => $vaccination->patient_id.'|'.mb_strtolower($vaccination->nom))
             ->filter(fn (Vaccination $vaccination): bool => $vaccination->echeance_le->lte($limite))
             ->sortBy(fn (Vaccination $vaccination) => $vaccination->echeance_le->timestamp)
             ->map(function (Vaccination $vaccination) use ($aujourdhui): array {

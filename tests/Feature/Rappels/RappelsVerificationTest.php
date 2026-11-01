@@ -79,7 +79,8 @@ class RappelsVerificationTest extends TestCase
         $debut = CarbonImmutable::parse($quand, 'Europe/Zurich')->utc();
         $rendezVous = RendezVous::factory()->pourPatient($this->patient)->create(['clinique_id' => $this->clinique->id, 'type' => $type, 'starts_at' => $debut, 'ends_at' => $debut->addMinutes(20)]);
         if ($pris !== null) {
-            $rendezVous->forceFill(['created_at' => $pris])->saveQuietly();
+            // En UTC, comme l'application l'écrit (sinon l'heure de Zurich serait relue comme UTC)
+            $rendezVous->forceFill(['created_at' => $pris->utc()])->saveQuietly();
         }
 
         return $rendezVous;
@@ -290,5 +291,57 @@ class RappelsVerificationTest extends TestCase
         $this->assertFalse($liste[$leucose->id]['est_renouvelee']);
         $this->assertNotNull($liste[$leucose->id]['rappel_envoye_le']);
         $this->assertNull($liste[$ancienne->id]['rappel_envoye_le']);
+    }
+
+    /** La fenêtre exacte : pris à 19 h 02, le passage de 19 h 05 l'a rappelé ; pris à 19 h 30, rappelé le matin */
+    public function test_la_fenetre_du_dernier_passage(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 08:05', 'Europe/Zurich'));
+        $this->rendezVous('2026-11-03 14:00', pris: CarbonImmutable::parse('2026-11-02 19:02', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertNotSent(RappelRendezVous::class);
+
+        $this->rendezVous('2026-11-03 15:00', pris: CarbonImmutable::parse('2026-11-02 19:30', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertSent(RappelRendezVous::class, 1);
+    }
+
+    /** « À venir » suit la même règle : un rendez-vous pris bien avant, pas rappelé la veille, est dit trop tard, pas « programmé » ce matin */
+    public function test_a_venir_ne_promet_pas_le_rappel_du_matin_a_un_ancien_rendez_vous(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 09:00', 'Europe/Zurich'));
+        $this->rendezVous('2026-11-03 15:00', pris: CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+        $this->assertSame('Échéance passée avant le prochain envoi', $this->aVenir()->firstWhere('objet', 'rdv')['bloque']);
+    }
+
+    /** Le neuvième jour (dernier jour de rattrapage) part encore, au jour de la clinique */
+    public function test_la_relance_d_un_devis_part_encore_le_neuvieme_jour_au_jour_de_la_clinique(): void
+    {
+        // Envoyé le 24.10 à 00 h 30 à Zurich (le 23.10 en UTC) : neuvième jour le 02.11
+        $this->devis(['envoye_le' => CarbonImmutable::parse('2026-10-24 00:30', 'Europe/Zurich')->utc()]);
+        $this->envoyer();
+        Mail::assertSent(RelanceDevis::class, 1);
+    }
+
+    /** L'espace du propriétaire (et la montre) suit la règle unique : un vaccin refait par un combiné n'y est plus dû */
+    public function test_l_espace_du_proprietaire_suit_la_regle_unique(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->client->update(['user_id' => $user->id]);
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Rage', 'valences' => ['rage'], 'injectee_le' => '2025-11-12', 'echeance_le' => '2026-11-12']);
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Combiné', 'valences' => ['carre', 'rage'], 'injectee_le' => '2026-10-01', 'echeance_le' => '2027-10-01']);
+
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Leucose', 'valences' => ['leucose'], 'injectee_le' => '2025-11-10', 'echeance_le' => '2026-11-10']);
+
+        $rappels = $this->getJson('/api/v1/espace/accueil', $this->enTetes($jeton))->assertOk()->json('data.rappels');
+        $this->assertSame(['Leucose'], collect($rappels)->pluck('vaccin')->all());
+    }
+
+    /** La réponse d'un ajout dit « renouvelée » comme la base (injection antidatée) */
+    public function test_la_reponse_d_un_ajout_dit_renouvelee_comme_la_base(): void
+    {
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Rage', 'injectee_le' => '2026-06-01', 'echeance_le' => '2027-06-01']);
+        $reponse = $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations", ['nom' => 'Rage', 'injectee_le' => '2025-06-01', 'echeance_le' => '2026-06-01'], $this->enTetes($this->jeton));
+        $reponse->assertCreated()->assertJsonPath('data.est_renouvelee', true);
     }
 }

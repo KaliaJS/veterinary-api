@@ -295,10 +295,13 @@ final class ImportSwissmedic
             return;
         }
         $ids = Valence::query()->whereIn('code', $codes)->pluck('id');
-        $produit->valences()->syncWithoutDetaching($ids);
-        // Les injections faites avec ce produit (sans valences photographiées, elles prennent les siennes) : « renouvelée » se refait (vérification du 01.11.2026)
-        Vaccination::query()->withoutGlobalScopes()->where('produit_id', $produit->id)
-            ->distinct()->pluck('patient_id')->each(fn (int $patientId) => Vaccination::recalculerRenouvellements($patientId));
+        $ajoutees = $produit->valences()->syncWithoutDetaching($ids)['attached'];
+        // Une valence ajoutée au produit : les injections faites avec lui sans valences photographiées prennent
+        // les siennes, « renouvelée » se refait ; rien d'ajouté, rien à refaire (vérification du 01.11.2026)
+        if ($ajoutees !== []) {
+            Vaccination::query()->withoutGlobalScopes()->where('produit_id', $produit->id)->whereNull('valences')
+                ->distinct()->pluck('patient_id')->each(fn (int $patientId) => Vaccination::recalculerRenouvellements($patientId));
+        }
     }
 
     /** @return list<string> */
