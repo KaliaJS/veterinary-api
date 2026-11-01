@@ -185,8 +185,10 @@ class QrFactureTest extends TestCase
     /**
      * La colonne `factures.moyen_paiement` est un enum MySQL figé à sa
      * création : chaque moyen doit figurer dans la dernière migration qui la
-     * change (SQLite, en test, ne garde pas la contrainte ; vérification du
-     * 01.11.2026, « virement » refusé par MySQL).
+     * change. En test, la table naît de la migration de création, qui lit
+     * MoyenPaiement::cases() : un moyen ajouté au code passe en test et
+     * reste refusé par une base créée avant (vérification du 01.11.2026,
+     * « virement » refusé par MySQL).
      */
     public function test_chaque_moyen_de_paiement_est_admis_par_la_colonne_mysql(): void
     {
@@ -197,5 +199,15 @@ class QrFactureTest extends TestCase
         foreach (MoyenPaiement::cases() as $moyen) {
             $this->assertContains($moyen->value, $admis, basename($derniere).' n’admet pas « '.$moyen->value.' »');
         }
+    }
+
+    /** L'arrêté de caisse ne connaît que les moyens de la caisse : pas de ligne « virement », même à zéro */
+    public function test_l_arrete_ne_compte_que_les_moyens_de_la_caisse(): void
+    {
+        $facture = $this->facture();
+        $this->postJson("/api/v1/facturation/factures/{$facture->id}/encaisser", ['moyen_paiement' => 'virement'], $this->enTetes($this->jeton))->assertOk();
+        $moyens = $this->getJson('/api/v1/facturation/clotures-caisse/apercu', $this->enTetes($this->jeton))->assertOk()->json('data.moyens');
+        $this->assertSame(['tpe', 'twint', 'cash'], array_keys($moyens));
+        $this->assertSame(0, array_sum(array_column($moyens, 'nombre')));
     }
 }
