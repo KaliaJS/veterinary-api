@@ -666,4 +666,33 @@ class RegistreStupefiantTest extends TestCase
         $this->inscrire(['type' => 'elimination', 'quantite' => 1, 'motif' => 'Envoi recommandé au pharmacien cantonal', 'bulletin' => 'ENV-7'])
             ->assertCreated()->assertJsonPath('data.bulletin', 'ENV-7');
     }
+
+    /** Deux arrêts : le dernier compte ; un visa à 0 h 30 à Zurich (la veille en UTC) arrête ce jour-là */
+    public function test_le_dernier_arret_compte_et_se_lit_a_l_heure_de_la_clinique(): void
+    {
+        $jour = CarbonImmutable::now('Europe/Zurich')->subDays(3);
+        // Un inventaire il y a quatre jours, un visa il y a trois jours à 0 h 30
+        $this->travelTo($jour->subDay()->setTime(10, 0));
+        ['employe' => $this->employe, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        $this->recevoir(10);
+        $this->inscrire(['type' => 'inventaire', 'quantite_comptee' => 10])->assertCreated();
+        $this->travelTo($jour->setTime(0, 30));
+        ['employe' => $this->employe, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        $this->clinique->update(['responsable_stupefiants_id' => $this->employe->id]);
+        $this->postJson('/api/v1/stupefiants/visa', [], $this->enTetes($this->jeton))->assertOk();
+
+        // Le lendemain, un bulletin du jour du visa : daté du lendemain (le visa arrête ce jour, à l'heure de Zurich)
+        $this->travelTo($jour->addDay()->setTime(10, 0));
+        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        $this->inscrire(['type' => 'reception', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-6', 'bulletin_le' => $jour->toDateString()])
+            ->assertCreated()->assertJsonPath('data.date_registre', $jour->addDay()->toDateString());
+    }
+
+    /** Une date de bulletin va avec son numéro */
+    public function test_une_date_de_bulletin_va_avec_son_numero(): void
+    {
+        $this->recevoir();
+        $this->inscrire(['type' => 'retour', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin_le' => now('Europe/Zurich')->toDateString()])
+            ->assertUnprocessable()->assertJsonValidationErrors(['bulletin' => 'Indiquez le numéro du bulletin, avec sa date.']);
+    }
 }

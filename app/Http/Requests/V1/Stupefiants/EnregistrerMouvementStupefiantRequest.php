@@ -126,7 +126,7 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'fournisseur' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception, $t::Retour)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:255'],
             // Chaque achat attesté par un bulletin de livraison, son numéro et sa date (art. 62, al. 1 OCStup) ; un retour
             // ou une élimination peut porter le sien (art. 62, al. 2)
-            'bulletin' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour, $t::Elimination)), 'nullable', 'string', 'max:60'],
+            'bulletin' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception)), 'required_with:bulletin_le', Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour, $t::Elimination)), 'nullable', 'string', 'max:60'],
             // La date du bulletin date la ligne d'une réception (art. 57, al. 3 OCStup ; RegistreStupefiants::ecrire) ;
             // jamais dans le futur, à l'heure de la clinique
             'bulletin_le' => [
@@ -166,6 +166,7 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'bulletin_le.date_format' => 'Indiquez la date du bulletin.',
             'bulletin_le.required' => 'Indiquez la date du bulletin.',
             'bulletin.required' => 'Indiquez le numéro du bulletin de livraison.',
+            'bulletin.required_with' => 'Indiquez le numéro du bulletin, avec sa date.',
             'motif.required' => match ($this->type()) {
                 TypeMouvementStupefiant::Elimination => 'Indiquez comment la substance a été éliminée (par exemple l’envoi recommandé au pharmacien cantonal).',
                 TypeMouvementStupefiant::Correction => 'Indiquez pourquoi vous corrigez.',

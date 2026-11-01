@@ -140,7 +140,9 @@ class RegistreStupefiants
     public static function lastCheckpoint(int $produitId, int $cliniqueId): ?CarbonImmutable
     {
         $quand = MouvementStupefiant::withoutGlobalScopes()->where('clinique_id', $cliniqueId)->where('produit_id', $produitId)
-            ->whereIn('type', [TypeMouvementStupefiant::Visa, TypeMouvementStupefiant::Inventaire])->max('created_at');
+            // Lecture verrouillante : sous MySQL, une lecture ordinaire verrait l'instantané du début de la transaction,
+            // sans un visa inscrit entre-temps (vérification du 01.11.2026)
+            ->whereIn('type', [TypeMouvementStupefiant::Visa, TypeMouvementStupefiant::Inventaire])->lockForUpdate()->max('created_at');
         if ($quand === null) {
             return null;
         }
