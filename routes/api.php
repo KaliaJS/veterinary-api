@@ -175,6 +175,7 @@ use App\Http\Controllers\Api\V1\Videos\VideoLocalFileController;
 use App\Http\Controllers\Api\V1\Videos\VideoPosterController;
 use App\Http\Controllers\Api\V1\Videos\VideoPurchaseController;
 use App\Http\Controllers\Api\V1\Videos\VideoViewingController;
+use App\Http\Controllers\Api\V1\VisaStupefiantController;
 use App\Http\Controllers\Api\V1\VisioController;
 use App\Http\Controllers\Api\V1\VisioPubliqueController;
 use App\Http\Controllers\Api\V1\VisiteController;
@@ -913,6 +914,10 @@ Route::prefix('v1')->group(function (): void {
             Route::get('soldes', [RegistreStupefiantController::class, 'soldes']);
             Route::get('registre', [RegistreStupefiantController::class, 'exporter']);
             Route::put('produits/{produit}', SubstanceStupefiantController::class);
+            // Le visa, réservé au vétérinaire responsable que désigne un administrateur (décision de Jim, 01.11.2026)
+            Route::get('responsable', [VisaStupefiantController::class, 'show']);
+            Route::put('responsable', [VisaStupefiantController::class, 'designer'])->middleware('can:organisation');
+            Route::post('visa', [VisaStupefiantController::class, 'viser']);
         });
 
         // Domaine hospitalisation — rattaché au domaine patients (soins

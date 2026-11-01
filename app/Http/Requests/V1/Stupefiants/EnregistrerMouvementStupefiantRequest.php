@@ -44,7 +44,8 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
 
         return [
             'produit_id' => ['required', $this->existeDansLOrganisation('produits')->where('est_stupefiant', true)],
-            'type' => ['required', Rule::enum($t)],
+            // Le visa passe par son chemin à lui, réservé au vétérinaire responsable (POST /stupefiants/visa, 01.11.2026)
+            'type' => ['required', Rule::enum($t)->except([$t::Visa])],
             'quantite' => [
                 Rule::requiredIf(fn (): bool => ! $this->est($t::Inventaire, $t::Visa)),
                 'nullable', 'numeric', 'decimal:0,3',
@@ -71,6 +72,7 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
     {
         return [
             'produit_id.exists' => 'Ce produit n’est pas marqué stupéfiant dans le catalogue.',
+            'type.enum' => $this->input('type') === 'visa' ? 'Le visa se donne par « Viser le registre », réservé au vétérinaire responsable.' : 'Choisissez le type de la ligne.',
             'quantite.required' => 'Indiquez la quantité.',
             'quantite.between' => 'Indiquez une quantité positive, avec au plus trois décimales.',
             'quantite.not_in' => 'Une correction a une quantité, en plus ou en moins.',

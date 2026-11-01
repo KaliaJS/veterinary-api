@@ -755,16 +755,18 @@ class RappelsProprietaires
     }
 
     /**
-     * Pris la veille après le dernier passage du soir (19 h 05) et avant
-     * minuit : son rappel de la veille n'a pas pu partir. Un rendez-vous pris
+     * Pris (ou déplacé à cette date) la veille après le dernier passage du
+     * soir (19 h 05) et avant minuit : son rappel de la veille n'a pas pu partir. Un rendez-vous pris
      * plus tôt a eu le sien, ou ne l'aurait pas eu non plus (réglage allumé
      * ce jour-là) : pas de vague le matin (vérification du 01.11.2026).
      */
     private function prisApresLeDernierPassage(RendezVous $rendezVous, CarbonImmutable $jour): bool
     {
         $dernierPassage = $jour->subDay()->setTime(self::HEURE_FIN - 1, self::MINUTE_PASSAGE);
+        // Pris, ou déplacé à cette date (décision de Jim, 01.11.2026) : le dernier des deux
+        $moment = collect([$rendezVous->created_at, $rendezVous->deplace_le])->filter()->max();
 
-        return $rendezVous->created_at !== null && $rendezVous->created_at->gte($dernierPassage) && $rendezVous->created_at->lt($jour);
+        return $moment !== null && $moment->gte($dernierPassage) && $moment->lt($jour);
     }
 
     /**

@@ -167,9 +167,12 @@ class RegistreStupefiantTest extends TestCase
     public function test_le_visa_du_veterinaire_s_inscrit_sans_rien_changer(): void
     {
         $this->recevoir(20);
-        $this->inscrire(['type' => 'visa', 'motif' => 'Registre visé, octobre 2026'])->assertCreated()
-            ->assertJsonPath('data.type_libelle', 'Visa')->assertJsonPath('data.quantite', 0)->assertJsonPath('data.solde_apres', 20)
-            ->assertJsonPath('data.signataire_nom', 'Dr Anna Meyer');
+        // Le visa passe par son chemin, réservé au vétérinaire responsable (01.11.2026)
+        $this->clinique->update(['responsable_stupefiants_id' => $this->employe->id]);
+        $this->postJson('/api/v1/stupefiants/visa', ['mention' => 'Registre visé, octobre 2026'], $this->enTetes($this->jeton))->assertOk();
+        $this->getJson('/api/v1/stupefiants/mouvements', $this->enTetes($this->jeton))->assertOk()
+            ->assertJsonPath('data.0.type_libelle', 'Visa')->assertJsonPath('data.0.quantite', 0)->assertJsonPath('data.0.solde_apres', 20)
+            ->assertJsonPath('data.0.signataire_nom', 'Dr Anna Meyer')->assertJsonPath('data.0.motif', 'Registre visé, octobre 2026');
     }
 
     /** Renommer quelqu'un ne change pas le registre : les noms sont figés à l'inscription */

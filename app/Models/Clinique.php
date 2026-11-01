@@ -31,7 +31,7 @@ class Clinique extends Model
     protected $fillable = [
         'societe_id', 'nom', 'raison_sociale', 'rue', 'npa', 'ville',
         'latitude', 'longitude', 'tel', 'email', 'fuseau_horaire', 'nombre_boxes', 'affiche_veterinaires', 'rdv_sans_compte', 'rdv_a_valider', 'urgences_a_valider',
-        'acompte_centimes', 'paiements_integres',
+        'acompte_centimes', 'paiements_integres', 'responsable_stupefiants_id',
         'stripe_location_id', 'photo_chemin', 'photo_apercu',
     ];
 

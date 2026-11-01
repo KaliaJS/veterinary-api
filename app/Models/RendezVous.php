@@ -45,6 +45,12 @@ class RendezVous extends Model
      */
     protected static function booted(): void
     {
+        // L'heure de début change : la date du déplacement, pour le rappel du matin (décision de Jim, 01.11.2026)
+        static::updating(function (RendezVous $rendezVous): void {
+            if ($rendezVous->isDirty('starts_at')) {
+                $rendezVous->deplace_le = now();
+            }
+        });
         static::saved(function (RendezVous $rendezVous): void {
             TempsReel::diffuser(function () use ($rendezVous): void {
                 $frais = RendezVous::withoutGlobalScopes()->find($rendezVous->id);
@@ -87,6 +93,7 @@ class RendezVous extends Model
     protected function casts(): array
     {
         return [
+            'deplace_le' => 'datetime',
             'species' => Espece::class,
             'type' => TypeRendezVous::class,
             'status' => StatutRendezVous::class,

@@ -559,4 +559,29 @@ class RappelsVerificationTest extends TestCase
         $this->assertTrue((bool) $rage->fresh()->renouvelee);
         $this->assertFalse((bool) $bb->fresh()->renouvelee);
     }
+
+    /**
+     * Décision de Jim (01.11.2026) : un rendez-vous déplacé la veille au soir au lendemain est rappelé le matin,
+     * comme un rendez-vous pris la veille au soir ; « À venir » le dit programmé, plus bloqué
+     */
+    public function test_un_rendez_vous_deplace_la_veille_au_soir_est_rappele_le_matin(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-10-20 10:00', 'Europe/Zurich'));
+        $rendezVous = $this->rendezVous('2026-11-10 10:00');
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 21:00', 'Europe/Zurich'));
+        $debut = CarbonImmutable::parse('2026-11-03 14:00', 'Europe/Zurich')->utc();
+        $rendezVous->update(['starts_at' => $debut, 'ends_at' => $debut->addMinutes(20)]);
+        $this->assertNotNull($rendezVous->fresh()->deplace_le);
+        $this->assertNull($this->aVenir()->firstWhere('objet', 'rdv')['bloque']);
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 08:05', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertSent(RappelRendezVous::class, fn (RappelRendezVous $m) => str_contains($m->render(), 'aujourd’hui, le 03.11.2026 à 14:00'));
+
+        // Une modification qui ne change pas l'heure ne compte pas comme un déplacement
+        $autre = $this->rendezVous('2026-11-12 09:00');
+        $autre->update(['note_accueil' => 'Apporter le carnet']);
+        $this->assertNull($autre->fresh()->deplace_le);
+    }
 }
