@@ -28,7 +28,7 @@ class RegistreStupefiants
 
     /**
      * @param  float  $quantite  signée (+ entre, − sort ; 0 pour un visa)
-     * @param  array<string, mixed>  $details  motif, patient, ordonnance, ordonnance_officielle, fournisseur, bulletin, bulletin_le, corrige_id, quantite_comptee
+     * @param  array<string, mixed>  $details  motif, patient, ordonnance, ordonnance_officielle, ordonnance_officielle_le, fournisseur, bulletin, bulletin_le, corrige_id, quantite_comptee
      */
     public function ecrire(Produit $produit, TypeMouvementStupefiant $type, float $quantite, array $details, int $cliniqueId, ?User $auteur): MouvementStupefiant
     {
@@ -37,6 +37,18 @@ class RegistreStupefiants
             throw ValidationException::withMessages([
                 'quantite' => 'Le registre n’en compte que '.self::quantite(max(0, $solde)).' : une sortie ne dépasse jamais le stock.',
             ]);
+        }
+
+        // Un formulaire officiel du tableau a ne sert qu'à une remise par médicament : il ne se renouvelle pas (art. 51,
+        // al. 3 OCStup ; décision de Jim, 01.11.2026). Lu sous le verrou de la substance, dans toute l'organisation
+        if ($type === TypeMouvementStupefiant::Remise && filled($details['ordonnance_officielle'] ?? null)) {
+            $organisation = Clinique::query()->find($cliniqueId)?->societe?->organisation_id;
+            $cliniques = Clinique::withoutGlobalScopes()->whereHas('societe', fn ($societe) => $societe->where('organisation_id', $organisation))->pluck('id');
+            $dejaServi = MouvementStupefiant::withoutGlobalScopes()->whereIn('clinique_id', $cliniques)->where('produit_id', $produit->id)
+                ->where('type', TypeMouvementStupefiant::Remise)->whereNull('ordonnance_id')->where('ordonnance_numero', $details['ordonnance_officielle'])->exists();
+            if ($dejaServi) {
+                throw ValidationException::withMessages(['ordonnance_officielle' => 'Ce formulaire officiel a déjà servi à la remise de ce médicament : une ordonnance du tableau a ne se renouvelle pas (art. 51, al. 3 OCStup).']);
+            }
         }
 
         /** @var Patient|null $patient */
@@ -65,6 +77,7 @@ class RegistreStupefiants
             // L'ordonnance de l'app et son numéro figé, ou le numéro du formulaire officiel du tableau a (01.11.2026)
             'ordonnance_id' => $ordonnance?->id,
             'ordonnance_numero' => $ordonnance->numero ?? ($details['ordonnance_officielle'] ?? null),
+            'ordonnance_le' => $details['ordonnance_officielle_le'] ?? null,
             'fournisseur' => $details['fournisseur'] ?? null,
             'bulletin' => $details['bulletin'] ?? null,
             'bulletin_le' => $details['bulletin_le'] ?? null,

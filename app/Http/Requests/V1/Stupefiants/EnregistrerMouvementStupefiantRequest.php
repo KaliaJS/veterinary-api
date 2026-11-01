@@ -99,8 +99,8 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             ],
             'quantite_comptee' => [Rule::requiredIf(fn (): bool => $this->est($t::Inventaire)), 'nullable', 'numeric', 'decimal:0,3', 'between:0,99999.999'],
             'patient_id' => [Rule::requiredIf(fn (): bool => $this->est($t::Administration, $t::Remise)), 'nullable', $this->existeDansLOrganisation('patients')],
-            // Remise du tableau b : une ordonnance de l'app, en cours, de moins d'un mois (art. 47, al. 2 OCStup), signée
-            // pour cet animal, qui prescrit cette substance (01.11.2026)
+            // Remise du tableau b : une ordonnance de l'app, en cours, signée pour cet animal, qui prescrit cette substance ;
+            // « valable un mois » (art. 47, al. 2 OCStup) ne vise que le formulaire officiel (décision de Jim, 01.11.2026)
             'ordonnance_id' => [
                 Rule::requiredIf(fn (): bool => $this->remiseSurOrdonnance()),
                 Rule::prohibitedIf(fn (): bool => ! $this->remiseSurOrdonnance()),
@@ -109,11 +109,10 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
                     $valable = Ordonnance::query()->whereKey((int) $valeur)
                         ->where('patient_id', (int) $this->input('patient_id'))
                         ->where('statut', StatutOrdonnance::Active)
-                        ->whereDate('signee_le', '>=', aujourdhui()->subMonth()->toDateString())
                         ->whereHas('lignes', fn ($ligne) => $ligne->where('produit_id', (int) $this->input('produit_id')))
                         ->exists();
                     if (! $valable) {
-                        $echec('Choisissez une ordonnance de moins d’un mois de cet animal, en cours, qui prescrit cette substance.');
+                        $echec('Choisissez une ordonnance en cours de cet animal qui prescrit cette substance.');
                     }
                 },
             ],
@@ -122,6 +121,21 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
                 Rule::requiredIf(fn (): bool => $this->remiseSurFormulaire()),
                 Rule::prohibitedIf(fn (): bool => ! $this->remiseSurFormulaire()),
                 'nullable', 'string', 'regex:/^\d{6,10}$/',
+            ],
+            // Sa date : valable un mois (art. 47, al. 2 OCStup ; décision de Jim, 01.11.2026)
+            'ordonnance_officielle_le' => [
+                'bail',
+                Rule::requiredIf(fn (): bool => $this->remiseSurFormulaire()),
+                Rule::prohibitedIf(fn (): bool => ! $this->remiseSurFormulaire()),
+                'nullable', 'date_format:Y-m-d',
+                function (string $attribut, mixed $valeur, \Closure $echec): void {
+                    $aujourdhui = aujourdhui();
+                    if ((string) $valeur > $aujourdhui->toDateString()) {
+                        $echec('La date du formulaire ne peut pas être dans le futur.');
+                    } elseif ((string) $valeur < $aujourdhui->copy()->subMonthNoOverflow()->toDateString()) {
+                        $echec('Ce formulaire officiel a plus d’un mois : il n’est plus valable (art. 47, al. 2 OCStup).');
+                    }
+                },
             ],
             'fournisseur' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception, $t::Retour)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:255'],
             // Chaque achat attesté par un bulletin de livraison, son numéro et sa date (art. 62, al. 1 OCStup) ; un retour
@@ -158,6 +172,9 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'ordonnance_officielle.required' => 'Indiquez le numéro du formulaire officiel d’ordonnance (tableau a).',
             'ordonnance_officielle.regex' => 'Le numéro du formulaire officiel est fait de chiffres, par exemple 7 012 345.',
             'ordonnance_officielle.prohibited' => 'Le formulaire officiel ne sert qu’à la remise d’une substance du tableau a.',
+            'ordonnance_officielle_le.required' => 'Indiquez la date du formulaire officiel.',
+            'ordonnance_officielle_le.date_format' => 'Indiquez la date du formulaire officiel.',
+            'ordonnance_officielle_le.prohibited' => 'Le formulaire officiel ne sert qu’à la remise d’une substance du tableau a.',
             'fournisseur.required' => 'Indiquez le fournisseur.',
             'corrige_id.required' => 'Choisissez la ligne à corriger.',
             'fournisseur.prohibited' => 'Le fournisseur ne se donne qu’à une réception ou un retour.',

@@ -32,7 +32,7 @@ class MouvementStupefiant extends Model
     protected $fillable = [
         'clinique_id', 'produit_id', 'patient_id', 'employe_id', 'type',
         'quantite', 'solde_apres', 'corrige_id', 'quantite_comptee', 'motif',
-        'patient_nom', 'detenteur_nom', 'signataire_nom', 'ordonnance_id', 'ordonnance_numero',
+        'patient_nom', 'detenteur_nom', 'signataire_nom', 'ordonnance_id', 'ordonnance_numero', 'ordonnance_le',
         'fournisseur', 'bulletin', 'bulletin_le', 'date_registre', 'created_at',
     ];
 
@@ -59,6 +59,7 @@ class MouvementStupefiant extends Model
             'quantite_comptee' => 'decimal:3',
             'bulletin_le' => 'date',
             'date_registre' => 'date',
+            'ordonnance_le' => 'date',
             'created_at' => 'datetime',
         ];
     }

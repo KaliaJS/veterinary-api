@@ -64,8 +64,6 @@ class MouvementStupefiantController extends Controller
         $ordonnances = Ordonnance::query()->with(['employe' => fn ($employe) => $employe->withoutGlobalScopes()])
             ->where('patient_id', $donnees['patient_id'])
             ->where('statut', StatutOrdonnance::Active)
-            // Valable un mois (art. 47, al. 2 OCStup)
-            ->whereDate('signee_le', '>=', aujourdhui()->subMonth()->toDateString())
             ->whereHas('lignes', fn ($ligne) => $ligne->where('produit_id', $donnees['produit_id']))
             ->latest('signee_le')->latest('id')->limit(20)->get();
 
@@ -93,6 +91,7 @@ class MouvementStupefiantController extends Controller
                 // Une remise : l'ordonnance de l'app (tableau b) ou le numéro du formulaire officiel (tableau a), contrôlés par la requête
                 'ordonnance' => filled($donnees['ordonnance_id'] ?? null) ? Ordonnance::query()->findOrFail($donnees['ordonnance_id']) : null,
                 'ordonnance_officielle' => $donnees['ordonnance_officielle'] ?? null,
+                'ordonnance_officielle_le' => $donnees['ordonnance_officielle_le'] ?? null,
                 'fournisseur' => $donnees['fournisseur'] ?? null,
                 'bulletin' => $donnees['bulletin'] ?? null,
                 'bulletin_le' => $donnees['bulletin_le'] ?? null,

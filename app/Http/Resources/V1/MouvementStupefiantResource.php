@@ -35,6 +35,7 @@ class MouvementStupefiantResource extends JsonResource
             'signataire_nom' => $this->signataire_nom,
             'ordonnance_id' => $this->ordonnance_id,
             'ordonnance_numero' => $this->ordonnance_numero,
+            'ordonnance_le' => $this->ordonnance_le?->toDateString(),
             'fournisseur' => $this->fournisseur,
             'bulletin' => $this->bulletin,
             'bulletin_le' => $this->bulletin_le?->toDateString(),

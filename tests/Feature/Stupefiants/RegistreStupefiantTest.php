@@ -479,9 +479,34 @@ class RegistreStupefiantTest extends TestCase
         $remise(['ordonnance_id' => $ordonnance->id])->assertUnprocessable()->assertJsonValidationErrors('ordonnance_id');
         $remise(['ordonnance_officielle' => 'RX-2026-041'])->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle');
 
-        $remise(['ordonnance_officielle' => '7 012 345'])->assertCreated()
+        $remise(['ordonnance_officielle' => '7 012 345', 'ordonnance_officielle_le' => now('Europe/Zurich')->toDateString()])->assertCreated()
             ->assertJsonPath('data.ordonnance_numero', '7012345')
+            ->assertJsonPath('data.ordonnance_le', now('Europe/Zurich')->toDateString())
             ->assertJsonPath('data.ordonnance_id', null);
+    }
+
+    /**
+     * Décision de Jim (01.11.2026) : au tableau a, la date du formulaire officiel, valable un mois (art. 47, al. 2) ;
+     * un même formulaire ne sert qu'à une remise par médicament (il ne se renouvelle pas, art. 51, al. 3)
+     */
+    public function test_le_formulaire_officiel_a_sa_date_et_ne_sert_qu_une_fois_par_medicament(): void
+    {
+        $this->recevoir();
+        $aujourdhui = CarbonImmutable::now('Europe/Zurich');
+        $remise = fn (array $plus) => $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '7012345', ...$plus]);
+
+        $remise([])->assertUnprocessable()->assertJsonValidationErrors(['ordonnance_officielle_le' => 'Indiquez la date du formulaire officiel.']);
+        $remise(['ordonnance_officielle_le' => $aujourdhui->addDay()->toDateString()])->assertUnprocessable()->assertJsonValidationErrors(['ordonnance_officielle_le' => 'La date du formulaire ne peut pas être dans le futur.']);
+        $remise(['ordonnance_officielle_le' => $aujourdhui->subMonthNoOverflow()->subDay()->toDateString()])
+            ->assertUnprocessable()->assertJsonValidationErrors(['ordonnance_officielle_le' => 'Ce formulaire officiel a plus d’un mois : il n’est plus valable (art. 47, al. 2 OCStup).']);
+        $remise(['ordonnance_officielle_le' => $aujourdhui->subMonthNoOverflow()->toDateString()])->assertCreated();
+
+        // Le même formulaire, le même médicament : refusé ; un autre médicament du même formulaire (deux au plus) : accepté
+        $remise(['ordonnance_officielle_le' => $aujourdhui->toDateString()])
+            ->assertUnprocessable()->assertJsonValidationErrors(['ordonnance_officielle' => 'Ce formulaire officiel a déjà servi à la remise de ce médicament : une ordonnance du tableau a ne se renouvelle pas (art. 51, al. 3 OCStup).']);
+        $autre = Produit::factory()->stupefiant()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Morphine 10 mg/ml', 'tableau_stupefiant' => 'a']);
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $autre->id, 'type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Grossiste', 'bulletin' => 'BL-9', 'bulletin_le' => $aujourdhui->toDateString()], $this->enTetes($this->jeton))->assertCreated();
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $autre->id, 'type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '7012345', 'ordonnance_officielle_le' => $aujourdhui->toDateString()], $this->enTetes($this->jeton))->assertCreated();
     }
 
     /** Une substance sans tableau : la remise attend que le tableau soit précisé, elle en dépend */
@@ -493,19 +518,20 @@ class RegistreStupefiantTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors(['produit_id' => 'Précisez d’abord le tableau de la substance (a ou b) : la remise en dépend.']);
     }
 
-    /** Une ordonnance de stupéfiant est valable un mois (art. 47, al. 2 OCStup) : plus vieille, ni proposée ni acceptée */
-    public function test_une_ordonnance_de_plus_d_un_mois_ne_sert_plus_a_une_remise(): void
+    /**
+     * Décision de Jim (01.11.2026) : « valable un mois » (art. 47, al. 2) ne vise que le formulaire officiel ; au
+     * tableau b, toute ordonnance en cours de l'app est proposée et acceptée, même ancienne
+     */
+    public function test_au_tableau_b_une_ordonnance_en_cours_sert_meme_ancienne(): void
     {
         $this->tableauB();
         $this->recevoir();
-        $this->travelTo(CarbonImmutable::parse('2026-11-15 10:00', 'Europe/Zurich'));
-        $vieille = $this->ordonnance(['signee_le' => '2026-10-14']);
-        $limite = $this->ordonnance(['signee_le' => '2026-10-15']);
+        $ancienne = $this->ordonnance(['signee_le' => now('Europe/Zurich')->subMonths(4)->toDateString()]);
 
         $this->getJson('/api/v1/stupefiants/ordonnances?patient_id='.$this->patient->id.'&produit_id='.$this->substance->id, $this->enTetes($this->jeton))
-            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $limite->id);
-        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_id' => $vieille->id])->assertUnprocessable()->assertJsonValidationErrors('ordonnance_id');
-        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_id' => $limite->id])->assertCreated();
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $ancienne->id);
+        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_id' => $ancienne->id])->assertCreated();
+        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_id' => $ancienne->id])->assertCreated();
     }
 
     /** Le numéro officiel : des chiffres seulement ; jamais au tableau b ni pour une administration */
