@@ -166,6 +166,27 @@ class AnalyseTest extends TestCase
             ->assertJsonPath('data.resultats.2.drapeau', null);
     }
 
+    /**
+     * Décision de Jim (01.11.2026) : à peine hors normes (moins de 10 % de l'écart de la norme), la valeur est
+     * « limite » (orange) ; au-delà, « hors » (rouge) ; dans la norme, rien
+     */
+    public function test_le_niveau_dit_si_la_valeur_est_limite_ou_franchement_hors_normes(): void
+    {
+        $analyse = $this->analyse();
+        $analyse->update(['statut' => StatutAnalyse::Cours]);
+        $uree = $analyse->resultats()->orderBy('id')->first(); // bornes 2,5 à 9,6 : écart 7,1, 10 % = 0,71
+        $saisir = fn (float $valeur) => $this->putJson("/api/v1/laboratoire/analyses/{$analyse->id}/resultats", [
+            'resultats' => [['id' => $uree->id, 'valeur' => $valeur]],
+        ], $this->jeton())->assertOk();
+
+        $saisir(10.0)->assertJsonPath('data.resultats.0.drapeau', 'H')->assertJsonPath('data.resultats.0.niveau', 'limite');
+        $saisir(10.31)->assertJsonPath('data.resultats.0.niveau', 'limite');
+        $saisir(10.32)->assertJsonPath('data.resultats.0.niveau', 'hors');
+        $saisir(2.0)->assertJsonPath('data.resultats.0.drapeau', 'L')->assertJsonPath('data.resultats.0.niveau', 'limite');
+        $saisir(1.5)->assertJsonPath('data.resultats.0.niveau', 'hors');
+        $saisir(5.0)->assertJsonPath('data.resultats.0.niveau', null);
+    }
+
     public function test_le_passage_a_valider_exige_la_saisie_complete(): void
     {
         $analyse = $this->analyse(['statut' => StatutAnalyse::Cours]);

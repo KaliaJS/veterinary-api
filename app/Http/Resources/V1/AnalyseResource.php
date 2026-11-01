@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\V1;
 
+use App\Enums\DrapeauResultatLabo;
 use App\Models\Analyse;
 use App\Models\AnalysePanel;
 use App\Models\AnalyseResultat;
@@ -54,6 +55,7 @@ class AnalyseResource extends JsonResource
                 'borne_haute' => $resultat->borne_haute,
                 'valeur' => $resultat->valeur,
                 'drapeau' => $resultat->drapeau,
+                'niveau' => DrapeauResultatLabo::niveau($resultat->valeur === null ? null : (float) $resultat->valeur, (float) $resultat->borne_basse, (float) $resultat->borne_haute),
             ])),
         ];
     }
