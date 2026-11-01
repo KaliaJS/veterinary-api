@@ -44,8 +44,14 @@ class RegistreStupefiants
         if ($type === TypeMouvementStupefiant::Remise && filled($details['ordonnance_officielle'] ?? null)) {
             $organisation = Clinique::query()->find($cliniqueId)?->societe?->organisation_id;
             $cliniques = Clinique::withoutGlobalScopes()->whereHas('societe', fn ($societe) => $societe->where('organisation_id', $organisation))->pluck('id');
-            $dejaServi = MouvementStupefiant::withoutGlobalScopes()->whereIn('clinique_id', $cliniques)->where('produit_id', $produit->id)
-                ->where('type', TypeMouvementStupefiant::Remise)->whereNull('ordonnance_id')->where('ordonnance_numero', $details['ordonnance_officielle'])->exists();
+            // Lecture verrouillante (une lecture ordinaire verrait sous MySQL l'instantané du début de la transaction) ;
+            // une remise entièrement annulée par ses corrections ne compte pas : elle se refait sur le bon animal
+            $remises = MouvementStupefiant::withoutGlobalScopes()->whereIn('clinique_id', $cliniques)->where('produit_id', $produit->id)
+                ->where('type', TypeMouvementStupefiant::Remise)->whereNull('ordonnance_id')->where('ordonnance_numero', $details['ordonnance_officielle'])
+                ->lockForUpdate()->get(['id', 'quantite']);
+            $corrections = MouvementStupefiant::withoutGlobalScopes()->whereIn('corrige_id', $remises->pluck('id'))->where('type', TypeMouvementStupefiant::Correction)
+                ->lockForUpdate()->get(['corrige_id', 'quantite'])->groupBy('corrige_id');
+            $dejaServi = $remises->contains(fn (MouvementStupefiant $r): bool => abs((float) $r->quantite + (float) ($corrections[$r->id] ?? collect())->sum('quantite')) > 0.0005);
             if ($dejaServi) {
                 throw ValidationException::withMessages(['ordonnance_officielle' => 'Ce formulaire officiel a déjà servi à la remise de ce médicament : une ordonnance du tableau a ne se renouvelle pas (art. 51, al. 3 OCStup).']);
             }

@@ -64,7 +64,8 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         if (is_string($this->input('ordonnance_officielle'))) {
-            $this->merge(['ordonnance_officielle' => preg_replace('/[\s’\'.]/u', '', $this->input('ordonnance_officielle'))]);
+            // Sans espaces ni zéros en tête : « 07 012 345 » et « 7012345 » sont le même formulaire
+            $this->merge(['ordonnance_officielle' => ltrim((string) preg_replace('/[\s’\'.]/u', '', $this->input('ordonnance_officielle')), '0')]);
         }
     }
 

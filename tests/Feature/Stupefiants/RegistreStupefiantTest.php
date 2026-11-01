@@ -721,4 +721,52 @@ class RegistreStupefiantTest extends TestCase
         $this->inscrire(['type' => 'retour', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin_le' => now('Europe/Zurich')->toDateString()])
             ->assertUnprocessable()->assertJsonValidationErrors(['bulletin' => 'Indiquez le numéro du bulletin, avec sa date.']);
     }
+
+    /** Une remise annulée par une correction (mauvais animal) libère son formulaire : la remise se refait */
+    public function test_une_remise_corrigee_libere_son_formulaire_officiel(): void
+    {
+        $this->recevoir();
+        $aujourdhui = now('Europe/Zurich')->toDateString();
+        $fausse = $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '7012345', 'ordonnance_officielle_le' => $aujourdhui])->assertCreated()->json('data.id');
+        $this->inscrire(['type' => 'correction', 'quantite' => 1, 'corrige_id' => $fausse, 'motif' => 'Mauvais animal'])->assertCreated();
+        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '07 012 345', 'ordonnance_officielle_le' => $aujourdhui])->assertCreated();
+        // Le même, une troisième fois : refusé (la remise refaite compte), même écrit avec un zéro en tête
+        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '07012345', 'ordonnance_officielle_le' => $aujourdhui])
+            ->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle');
+    }
+
+    /** Un formulaire déjà servi dans une clinique sœur de l'organisation compte aussi */
+    public function test_un_formulaire_servi_dans_une_clinique_soeur_compte(): void
+    {
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        app(ContexteClinique::class)->oublier();
+        $patientSoeur = Patient::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+        MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create([
+            'clinique_id' => $soeur->id, 'produit_id' => $this->substance->id, 'patient_id' => $patientSoeur->id, 'type' => 'remise', 'quantite' => -1, 'motif' => 'Remise',
+            'ordonnance_numero' => '7012345', 'created_at' => now(), 'date_registre' => now()->toDateString(),
+        ]));
+        $this->recevoir();
+        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '7012345', 'ordonnance_officielle_le' => now('Europe/Zurich')->toDateString()])
+            ->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle');
+    }
+
+    /** La date du formulaire officiel ne se donne qu'au tableau a */
+    public function test_la_date_du_formulaire_seulement_au_tableau_a(): void
+    {
+        $this->tableauB();
+        $this->recevoir();
+        $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_id' => $this->ordonnance()->id, 'ordonnance_officielle_le' => now('Europe/Zurich')->toDateString()])
+            ->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle_le');
+    }
+
+    /** Valable un mois, en fin de mois : le 31 mars, un formulaire du 28 février l'est encore, du 27 non */
+    public function test_le_mois_de_validite_en_fin_de_mois(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-03-31 10:00', 'Europe/Zurich'));
+        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        $this->recevoir();
+        $remise = fn (string $numero, string $le) => $this->inscrire(['type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => $numero, 'ordonnance_officielle_le' => $le]);
+        $remise('7000001', '2026-02-27')->assertUnprocessable()->assertJsonValidationErrors('ordonnance_officielle_le');
+        $remise('7000002', '2026-02-28')->assertCreated();
+    }
 }
