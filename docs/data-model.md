@@ -1473,7 +1473,11 @@ faut journaliser les envois :
   pour l'échéance, et après l'échéance tient lieu de relance. Un vaccin
   renouvelé n'est plus dû : `vaccinations.renouvelee`, tenu à jour à chaque
   injection d'après la règle unique `EtatVaccinal::renouvelees` (même nom,
-  ou injections plus récentes qui couvrent toutes ses valences), lu en SQL
+  ou injections plus récentes qui couvrent toutes ses valences ; une
+  injection saisie à la main est couverte quand chaque maladie que nomme
+  son nom l'est : noms de DonneesVaccins, parenthèses, alias comme FeLV,
+  Parvo, VHD, Typhus / Coryza ; pour cette règle seulement, l'affichage et
+  la primo-vaccination gardent le nom libre), lu en SQL
   par `Vaccination::nonRenouvelees` (liste des patients, carnet, accueil de
   l'espace et montre) ; recalculée aussi quand l'import Swissmedic ajoute
   une valence à un produit ; la ressource dit `est_renouvelee` (la

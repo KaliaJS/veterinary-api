@@ -401,13 +401,37 @@ class RappelsVerificationTest extends TestCase
         $this->assertSame(['rage'], array_column($etat, 'valence'));
     }
 
-    /** Un nom libre devient des valences seulement s'il ne nomme que des maladies connues */
-    public function test_un_nom_libre_ne_devient_des_valences_que_s_il_ne_nomme_que_des_maladies(): void
+    /**
+     * Les noms que l'app et les cliniques emploient : renouvelés quand chaque maladie nommée est couverte ;
+     * une partie inconnue (« Rage, Rabisin »), et le nom reste libre (sixième vérification du 01.11.2026)
+     */
+    public function test_les_noms_saisis_a_la_main_que_le_renouvellement_reconnait(): void
     {
-        $nommees = fn (string $nom): array => array_keys(EtatVaccinal::valencesDe(new Vaccination(['nom' => $nom])));
-        $this->assertSame(['rage'], $nommees('rage'));
-        $this->assertSame(['carre', 'rage'], $nommees('Carre · Rage'));
-        $this->assertSame(['libre:rage (rabisin)'], $nommees('Rage (Rabisin)'));
+        $cas = [
+            ['Leucose (FeLV)', ['leucose'], true],
+            ['Typhus / Coryza', ['panleucopenie', 'herpes_felin', 'calicivirose'], true],
+            ['Typhus / Coryza', ['panleucopenie'], false],
+            ['VHD', ['rhd'], true],
+            ['Parvo et Lepto', ['parvovirose', 'leptospirose', 'carre'], true],
+            ['Maladie hémorragique virale du lapin (RHD/VHD)', ['rhd'], true],
+            ['RAGE', ['rage'], true],
+            ['Rage, Rabisin', ['rage'], false],
+            ['Rage', ['carre'], false],
+        ];
+        foreach ($cas as [$nom, $valences, $attendu]) {
+            $patient = Patient::factory()->create(['organisation_id' => $this->patient->organisation_id]);
+            $ancienne = Vaccination::factory()->create(['patient_id' => $patient->id, 'produit_id' => null, 'nom' => $nom, 'valences' => null, 'injectee_le' => '2025-10-01', 'echeance_le' => '2026-10-01']);
+            Vaccination::factory()->create(['patient_id' => $patient->id, 'produit_id' => null, 'nom' => 'Catalogue', 'valences' => $valences, 'injectee_le' => '2026-10-20', 'echeance_le' => '2027-10-20']);
+            $this->assertSame($attendu, (bool) $ancienne->fresh()->renouvelee, $nom.' + '.implode(',', $valences));
+        }
+    }
+
+    /** Le nom libre ne change ni l'affichage ni la primo-vaccination : seule la règle du renouvellement le lit */
+    public function test_le_nom_libre_garde_son_nom_et_sa_valence_libre(): void
+    {
+        $this->assertSame(['libre:chlamydiose'], array_keys(EtatVaccinal::valencesDe(new Vaccination(['nom' => 'Chlamydiose']))));
+        $this->assertSame('Chlamydiose', EtatVaccinal::valencesDe(new Vaccination(['nom' => 'Chlamydiose']))['libre:chlamydiose']['nom']);
+        $this->assertSame(['libre:parvovirose'], array_keys(EtatVaccinal::valencesDe(new Vaccination(['nom' => 'Parvovirose']))));
     }
 
     /** Les deux heures, à la borne : 2 h 30 avant, le rappel du matin part ; 1 h 45 avant, non */
@@ -441,5 +465,20 @@ class RappelsVerificationTest extends TestCase
         $this->assertSame([false, true], array_column($carnet['pdf']['vaccinations'], 'est_renouvelee'));
         $this->assertSame('2025-10-01', $carnet['pdf']['vaccinations'][1]['injectee_le']);
         $this->assertTrue((bool) $ancienne->fresh()->renouvelee);
+    }
+
+    /** À la minute : 10 h 05 est à deux heures du passage de 8 h 05 (part), 10 h 04 non ; « À venir » dit pareil */
+    public function test_les_deux_heures_a_la_minute(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 21:00', 'Europe/Zurich'));
+        $limite = $this->rendezVous('2026-11-03 10:05', pris: CarbonImmutable::parse('2026-11-02 20:00', 'Europe/Zurich'));
+        $this->rendezVous('2026-11-03 10:04', pris: CarbonImmutable::parse('2026-11-02 20:00', 'Europe/Zurich'));
+        $lignes = $this->aVenir()->where('objet', 'rdv')->values();
+        $this->assertSame([null, 'Échéance passée avant le prochain envoi'], $lignes->sortByDesc(fn ($l) => $l['bloque'] === null)->pluck('bloque')->values()->all());
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-03 08:05', 'Europe/Zurich'));
+        $this->envoyer();
+        Mail::assertSent(RappelRendezVous::class, 1);
+        Mail::assertSent(RappelRendezVous::class, fn (RappelRendezVous $m) => $m->rendezVous->is($limite));
     }
 }
