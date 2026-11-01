@@ -178,6 +178,10 @@ class CommandeFournisseurController extends Controller
 
         $this->authorize('update', $commande);
 
+        if ($commande->statut !== StatutCommandeFournisseur::Envoyee) {
+            throw ValidationException::withMessages(['statut' => 'Seule une commande envoyée se réceptionne.']);
+        }
+
         // Un stupéfiant reçu : le bulletin de livraison et sa date, inscrits au registre (art. 57, 62 et 63 OCStup)
         $aDesStupefiants = $commande->lignes()->whereHas('produit', fn ($produit) => $produit->where('est_stupefiant', true))->exists();
         // Sans le droit des stupéfiants, un refus avant toute question de bulletin
@@ -186,7 +190,7 @@ class CommandeFournisseurController extends Controller
         }
         $bulletin = $request->validate([
             'bulletin' => [Rule::requiredIf($aDesStupefiants), 'nullable', 'string', 'max:60'],
-            'bulletin_le' => [Rule::requiredIf($aDesStupefiants), 'nullable', 'date_format:Y-m-d', 'before_or_equal:'.aujourdhui()->toDateString()],
+            'bulletin_le' => ['bail', Rule::requiredIf($aDesStupefiants), 'nullable', 'date_format:Y-m-d', 'before_or_equal:'.aujourdhui($commande->clinique)->toDateString()],
         ], [
             'bulletin.required' => 'Indiquez le numéro du bulletin de livraison : la commande contient un stupéfiant.',
             'bulletin_le.required' => 'Indiquez la date du bulletin de livraison : la commande contient un stupéfiant.',
@@ -196,9 +200,9 @@ class CommandeFournisseurController extends Controller
         // Une période visée ne bouge plus : un bulletin plus ancien que le dernier visa d'une substance est refusé
         if ($aDesStupefiants && filled($bulletin['bulletin_le'] ?? null)) {
             foreach ($commande->lignes()->whereHas('produit', fn ($produit) => $produit->where('est_stupefiant', true))->pluck('produit_id') as $produitId) {
-                $vise = RegistreStupefiants::dernierVisa((int) $produitId, (int) $commande->clinique_id);
+                $vise = RegistreStupefiants::lastCheckpoint((int) $produitId, (int) $commande->clinique_id);
                 if ($vise !== null && $bulletin['bulletin_le'] < $vise->toDateString()) {
-                    throw ValidationException::withMessages(['bulletin_le' => 'Le registre de cette substance est visé au '.$vise->format('d.m.Y').' : un bulletin plus ancien s’inscrit avec une correction expliquée.']);
+                    throw ValidationException::withMessages(['bulletin_le' => 'Le registre de cette substance est arrêté au '.$vise->format('d.m.Y').' (visa ou inventaire) : un bulletin plus ancien s’inscrit avec une correction expliquée.']);
                 }
             }
         }

@@ -82,6 +82,8 @@ class StupefiantsPermissionsTest extends TestCase
             'type' => 'reception',
             'fournisseur' => 'Grossiste',
             'quantite' => 10,
+            'bulletin' => 'BL-1',
+            'bulletin_le' => now('Europe/Zurich')->toDateString(),
         ], $entetes)->assertCreated();
     }
 

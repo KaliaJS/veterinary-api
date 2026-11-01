@@ -39,7 +39,7 @@ class VisaDuResponsableTest extends TestCase
     private function recevoir(string $jeton): void
     {
         foreach (Produit::query()->where('est_stupefiant', true)->get() as $produit) {
-            $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $produit->id, 'type' => 'reception', 'quantite' => 20, 'fournisseur' => 'Grossiste'], $this->enTetes($jeton))->assertCreated();
+            $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $produit->id, 'type' => 'reception', 'quantite' => 20, 'fournisseur' => 'Grossiste', 'bulletin' => 'BL-1', 'bulletin_le' => now('Europe/Zurich')->toDateString()], $this->enTetes($jeton))->assertCreated();
         }
     }
 

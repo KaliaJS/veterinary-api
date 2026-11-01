@@ -82,9 +82,9 @@ class DroitsFinsTest extends TestCase
     {
         $substance = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'est_stupefiant' => true]);
 
-        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $substance->id, 'type' => 'reception', 'fournisseur' => 'Grossiste', 'quantite' => 10], $this->enTetes($this->jeton('asv')))
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $substance->id, 'type' => 'reception', 'fournisseur' => 'Grossiste', 'bulletin' => 'BL-1', 'bulletin_le' => now('Europe/Zurich')->toDateString(), 'quantite' => 10], $this->enTetes($this->jeton('asv')))
             ->assertForbidden();
-        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $substance->id, 'type' => 'reception', 'fournisseur' => 'Grossiste', 'quantite' => 10], $this->enTetes($this->jeton()))
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $substance->id, 'type' => 'reception', 'fournisseur' => 'Grossiste', 'bulletin' => 'BL-1', 'bulletin_le' => now('Europe/Zurich')->toDateString(), 'quantite' => 10], $this->enTetes($this->jeton()))
             ->assertCreated();
     }
 

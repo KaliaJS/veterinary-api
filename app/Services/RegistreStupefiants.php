@@ -117,11 +117,14 @@ class RegistreStupefiants
             ->sum('quantite'), 3);
     }
 
-    /** Le jour du dernier visa d'une substance dans une clinique, à l'heure de la clinique ; null sans visa */
-    public static function dernierVisa(int $produitId, int $cliniqueId): ?CarbonImmutable
+    /**
+     * Le jour du dernier arrêt du registre d'une substance dans une clinique (visa ou inventaire), à l'heure de la
+     * clinique ; null sans arrêt. Une ligne datée avant lui changerait un stock visé ou compté (01.11.2026).
+     */
+    public static function lastCheckpoint(int $produitId, int $cliniqueId): ?CarbonImmutable
     {
         $quand = MouvementStupefiant::withoutGlobalScopes()->where('clinique_id', $cliniqueId)->where('produit_id', $produitId)
-            ->where('type', TypeMouvementStupefiant::Visa)->max('created_at');
+            ->whereIn('type', [TypeMouvementStupefiant::Visa, TypeMouvementStupefiant::Inventaire])->max('created_at');
         if ($quand === null) {
             return null;
         }

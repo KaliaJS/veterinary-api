@@ -126,11 +126,12 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
                 'nullable', 'string', 'regex:/^\d{6,10}$/',
             ],
             'fournisseur' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception, $t::Retour)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:255'],
-            'bulletin' => [Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:60'],
+            // Chaque achat attesté par un bulletin de livraison, son numéro et sa date (art. 62, al. 1 OCStup)
+            'bulletin' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'string', 'max:60'],
             // La date du bulletin devient celle de la ligne (art. 57, al. 3 OCStup) : jamais dans le futur, à l'heure de
             // la clinique, ni avant le dernier visa de la substance (une période visée ne bouge plus ; 01.11.2026)
             'bulletin_le' => [
-                Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'date_format:Y-m-d',
+                'bail', Rule::requiredIf(fn (): bool => $this->est($t::Reception)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception, $t::Retour)), 'nullable', 'date_format:Y-m-d',
                 function (string $attribut, mixed $valeur, \Closure $echec): void {
                     $date = (string) $valeur;
                     if ($date > aujourdhui()->toDateString()) {
@@ -138,9 +139,9 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
 
                         return;
                     }
-                    $vise = RegistreStupefiants::dernierVisa((int) $this->input('produit_id'), (int) app(ContexteClinique::class)->cliniqueId());
+                    $vise = RegistreStupefiants::lastCheckpoint((int) $this->input('produit_id'), (int) app(ContexteClinique::class)->cliniqueId());
                     if ($vise !== null && $date < $vise->toDateString()) {
-                        $echec('Le registre de cette substance est visé au '.$vise->format('d.m.Y').' : un bulletin plus ancien s’inscrit avec une correction expliquée.');
+                        $echec('Le registre de cette substance est arrêté au '.$vise->format('d.m.Y').' (visa ou inventaire) : un bulletin plus ancien s’inscrit avec une correction expliquée.');
                     }
                 },
             ],
@@ -171,6 +172,8 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'bulletin.prohibited' => 'Le bulletin ne se donne qu’à une réception ou un retour.',
             'bulletin_le.prohibited' => 'Le bulletin ne se donne qu’à une réception ou un retour.',
             'bulletin_le.date_format' => 'Indiquez la date du bulletin.',
+            'bulletin_le.required' => 'Indiquez la date du bulletin.',
+            'bulletin.required' => 'Indiquez le numéro du bulletin de livraison.',
             'motif.required' => match ($this->type()) {
                 TypeMouvementStupefiant::Elimination => 'Indiquez comment la substance a été éliminée (par exemple l’envoi recommandé au pharmacien cantonal).',
                 TypeMouvementStupefiant::Correction => 'Indiquez pourquoi vous corrigez.',
