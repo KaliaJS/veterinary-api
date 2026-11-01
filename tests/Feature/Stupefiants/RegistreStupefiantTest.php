@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Stupefiants;
 
+use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\MouvementStupefiant;
@@ -15,10 +16,12 @@ use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
 /**
- * Comportement du registre (art. 62 OCStup, docs/data-model.md §16) :
- * mouvements immuables signés par l'employé du jeton, patient
- * obligatoire pour une sortie, solde par substance = Σ des mouvements,
- * export soldes + mouvements pour les contrôles cantonaux.
+ * Le registre des stupéfiants mis aux normes (01.11.2026, demande de Jim ;
+ * art. 57, 63 et 64 OCStup, directives OSAV du 6.10.2025) : une fiche par
+ * substance, chaque ligne typée (réception, administration, remise,
+ * perte, vol, retour, élimination, correction, inventaire, visa) avec le
+ * stock après elle et les noms figés ; produits marqués avec leur
+ * tableau ; bilan d'une période ; journal immuable.
  */
 class RegistreStupefiantTest extends TestCase
 {
@@ -40,164 +43,204 @@ class RegistreStupefiantTest extends TestCase
         parent::setUp();
 
         $this->clinique = Clinique::factory()->create();
-        ['employe' => $this->employe, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        ['employe' => $this->employe, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dr Anna Meyer']);
 
         $organisation = $this->clinique->societe->organisation_id;
-        $this->substance = Produit::factory()->stupefiant()->create(['organisation_id' => $organisation]);
-        $this->patient = Patient::factory()->create(['organisation_id' => $organisation]);
+        $this->substance = Produit::factory()->stupefiant()->create(['organisation_id' => $organisation, 'nom' => 'Méthadone 10 mg/ml', 'tableau_stupefiant' => 'a']);
+        $client = Client::factory()->create(['organisation_id' => $organisation, 'civilite' => 'M.', 'nom' => 'Meunier']);
+        $this->patient = Patient::factory()->for($client)->create(['organisation_id' => $organisation, 'nom' => 'Pilou']);
     }
 
-    public function test_une_reception_s_enregistre_sans_patient_signee_par_l_employe_du_jeton(): void
+    private function inscrire(array $donnees)
     {
-        $reponse = $this->postJson('/api/v1/stupefiants/mouvements', [
-            'produit_id' => $this->substance->id,
-            'quantite' => 20,
-            'motif' => 'Réception grossiste — lot MT-4471',
-        ], $this->enTetes($this->jeton));
+        return $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $this->substance->id, ...$donnees], $this->enTetes($this->jeton));
+    }
 
-        $reponse->assertCreated()
+    private function recevoir(float $quantite = 20): void
+    {
+        $this->inscrire(['type' => 'reception', 'quantite' => $quantite, 'fournisseur' => 'Grossiste'])->assertCreated();
+    }
+
+    public function test_une_reception_porte_le_fournisseur_le_bulletin_et_sa_date(): void
+    {
+        $this->inscrire(['type' => 'reception', 'quantite' => 20])->assertUnprocessable()->assertJsonValidationErrors(['fournisseur' => 'Indiquez le fournisseur.']);
+
+        $this->inscrire(['type' => 'reception', 'quantite' => 20, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-88214', 'bulletin_le' => '2026-10-14'])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'reception')
+            ->assertJsonPath('data.quantite', 20)
+            ->assertJsonPath('data.solde_apres', 20)
+            ->assertJsonPath('data.fournisseur', 'Vetpoint')
+            ->assertJsonPath('data.bulletin', 'BL-88214')
+            ->assertJsonPath('data.bulletin_le', '2026-10-14')
             ->assertJsonPath('data.patient_id', null)
             ->assertJsonPath('data.employe_id', $this->employe->id)
-            ->assertJsonPath('data.clinique_id', $this->clinique->id)
-            ->assertJsonPath('data.motif', 'Réception grossiste — lot MT-4471')
-            ->assertJsonPath('data.produit.unite', 'ml');
+            ->assertJsonPath('data.signataire_nom', 'Dr Anna Meyer')
+            ->assertJsonPath('data.clinique_id', $this->clinique->id);
     }
 
-    public function test_une_sortie_exige_un_patient(): void
+    public function test_une_administration_inscrit_l_animal_et_son_detenteur_et_la_quantite_sort(): void
     {
-        $this->postJson('/api/v1/stupefiants/mouvements', [
-            'produit_id' => $this->substance->id,
-            'quantite' => -0.4,
-        ], $this->enTetes($this->jeton))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('patient_id');
-    }
+        $this->recevoir();
+        $this->inscrire(['type' => 'administration', 'quantite' => 0.4])->assertUnprocessable()->assertJsonValidationErrors(['patient_id' => 'Indiquez l’animal.']);
 
-    public function test_une_sortie_s_enregistre_avec_patient_et_motif_par_defaut(): void
-    {
-        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $this->substance->id, 'quantite' => 10], $this->enTetes($this->jeton))->assertCreated();
-
-        $reponse = $this->postJson('/api/v1/stupefiants/mouvements', [
-            'produit_id' => $this->substance->id,
-            'quantite' => -0.4,
-            'patient_id' => $this->patient->id,
-        ], $this->enTetes($this->jeton));
-
-        $reponse->assertCreated()
-            ->assertJsonPath('data.patient_id', $this->patient->id)
+        $this->inscrire(['type' => 'administration', 'quantite' => 0.125, 'patient_id' => $this->patient->id, 'ordonnance_numero' => 'RX-2026-041'])
+            ->assertCreated()
+            ->assertJsonPath('data.quantite', -0.125)
+            ->assertJsonPath('data.solde_apres', 19.875)
+            ->assertJsonPath('data.patient_nom', 'Pilou')
+            ->assertJsonPath('data.detenteur_nom', 'M. Meunier')
+            ->assertJsonPath('data.ordonnance_numero', 'RX-2026-041')
             ->assertJsonPath('data.motif', 'Administration');
     }
 
-    public function test_le_patient_est_ignore_sur_une_reception(): void
+    public function test_une_remise_au_detenteur_demande_l_ordonnance(): void
     {
-        // Parité front : « — » pour une réception, même si un patient
-        // est envoyé par erreur.
-        $reponse = $this->postJson('/api/v1/stupefiants/mouvements', [
-            'produit_id' => $this->substance->id,
-            'quantite' => 10,
-            'patient_id' => $this->patient->id,
-        ], $this->enTetes($this->jeton));
-
-        $reponse->assertCreated()->assertJsonPath('data.patient_id', null);
-
-        $this->assertNull(MouvementStupefiant::withoutGlobalScopes()->sole()->patient_id);
+        $this->recevoir();
+        $this->inscrire(['type' => 'remise', 'quantite' => 2, 'patient_id' => $this->patient->id])->assertUnprocessable()->assertJsonValidationErrors(['ordonnance_numero' => 'Indiquez l’ordonnance de la remise.']);
+        $this->inscrire(['type' => 'remise', 'quantite' => 2, 'patient_id' => $this->patient->id, 'ordonnance_numero' => 'RX-2026-041'])->assertCreated()->assertJsonPath('data.solde_apres', 18);
     }
 
-    public function test_une_quantite_nulle_est_refusee(): void
+    /** Perte et vol : sans animal, avec ce qui s'est passé (demande de Jim : les vols, pour toute la Suisse) */
+    public function test_une_perte_et_un_vol_s_inscrivent_sans_animal_avec_ce_qui_s_est_passe(): void
     {
-        $this->postJson('/api/v1/stupefiants/mouvements', [
-            'produit_id' => $this->substance->id,
-            'quantite' => 0,
-        ], $this->enTetes($this->jeton))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('quantite');
+        $this->recevoir();
+        $this->inscrire(['type' => 'vol', 'quantite' => 5])->assertUnprocessable()->assertJsonValidationErrors(['motif' => 'Décrivez ce qui s’est passé.']);
+
+        $this->inscrire(['type' => 'perte', 'quantite' => 0.5, 'motif' => 'Flacon cassé à la préparation'])->assertCreated()
+            ->assertJsonPath('data.type_libelle', 'Perte')->assertJsonPath('data.quantite', -0.5)->assertJsonPath('data.patient_id', null);
+        $this->inscrire(['type' => 'vol', 'quantite' => 5, 'motif' => 'Coffre forcé, plainte déposée le 01.11.2026'])->assertCreated()
+            ->assertJsonPath('data.type_libelle', 'Vol')->assertJsonPath('data.solde_apres', 14.5);
+    }
+
+    public function test_une_elimination_dit_comment_et_un_retour_dit_a_qui(): void
+    {
+        $this->recevoir();
+        $this->inscrire(['type' => 'elimination', 'quantite' => 3])->assertUnprocessable()->assertJsonValidationErrors('motif');
+        $this->inscrire(['type' => 'elimination', 'quantite' => 3, 'motif' => 'Envoi recommandé n° 98.12.345678 au pharmacien cantonal'])->assertCreated()->assertJsonPath('data.quantite', -3);
+        $this->inscrire(['type' => 'retour', 'quantite' => 2])->assertUnprocessable()->assertJsonValidationErrors('fournisseur');
+        $this->inscrire(['type' => 'retour', 'quantite' => 2, 'fournisseur' => 'Vetpoint'])->assertCreated()->assertJsonPath('data.solde_apres', 15);
+    }
+
+    public function test_une_sortie_ne_depasse_jamais_le_stock(): void
+    {
+        $this->recevoir(1);
+        $this->inscrire(['type' => 'perte', 'quantite' => 1.5, 'motif' => 'Flacon cassé'])->assertUnprocessable()->assertJsonValidationErrors(['quantite' => 'Le registre n’en compte que 1 : une sortie ne dépasse jamais le stock.']);
+    }
+
+    /** Une erreur se corrige par une ligne liée à la ligne fausse, sans inventer d'animal ni de réception */
+    public function test_une_correction_pointe_la_ligne_corrigee_et_dit_pourquoi(): void
+    {
+        $this->recevoir();
+        $fausse = $this->inscrire(['type' => 'administration', 'quantite' => 1.2, 'patient_id' => $this->patient->id])->assertCreated()->json('data.id');
+
+        $this->inscrire(['type' => 'correction', 'quantite' => 1.08])->assertUnprocessable()->assertJsonValidationErrors(['corrige_id', 'motif']);
+        $this->inscrire(['type' => 'correction', 'quantite' => 0, 'corrige_id' => $fausse, 'motif' => 'x'])->assertUnprocessable()->assertJsonValidationErrors('quantite');
+
+        $this->inscrire(['type' => 'correction', 'quantite' => 1.08, 'corrige_id' => $fausse, 'motif' => 'Saisi 1,2 ml au lieu de 0,12 ml'])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'correction')
+            ->assertJsonPath('data.quantite', 1.08)
+            ->assertJsonPath('data.solde_apres', 19.88)
+            ->assertJsonPath('data.patient_id', null)
+            ->assertJsonPath('data.corrige.id', $fausse)
+            ->assertJsonPath('data.corrige.type_libelle', 'Administration');
+
+        // Une correction ne corrige ni un visa, ni une autre correction, ni une autre substance
+        $correction = MouvementStupefiant::query()->latest('id')->value('id');
+        $this->inscrire(['type' => 'correction', 'quantite' => 0.1, 'corrige_id' => $correction, 'motif' => 'x'])->assertUnprocessable()->assertJsonValidationErrors('corrige_id');
+    }
+
+    /** L'inventaire : compté contre le registre ; un écart s'explique et redresse le stock (OSAV D 06) */
+    public function test_l_inventaire_inscrit_l_ecart_et_l_ecart_s_explique(): void
+    {
+        $this->recevoir(20);
+        $this->inscrire(['type' => 'inventaire', 'quantite_comptee' => 20])->assertCreated()
+            ->assertJsonPath('data.quantite', 0)->assertJsonPath('data.quantite_comptee', 20)->assertJsonPath('data.motif', 'Stock compté, conforme au registre');
+
+        $this->inscrire(['type' => 'inventaire', 'quantite_comptee' => 19.5])->assertUnprocessable()
+            ->assertJsonValidationErrors(['motif' => 'Le compte diffère du registre de -0,5 : expliquez l’écart.']);
+        $this->inscrire(['type' => 'inventaire', 'quantite_comptee' => 19.5, 'motif' => 'Évaporation, flacon entamé'])->assertCreated()
+            ->assertJsonPath('data.quantite', -0.5)->assertJsonPath('data.solde_apres', 19.5);
+    }
+
+    public function test_le_visa_du_veterinaire_s_inscrit_sans_rien_changer(): void
+    {
+        $this->recevoir(20);
+        $this->inscrire(['type' => 'visa', 'motif' => 'Registre visé, octobre 2026'])->assertCreated()
+            ->assertJsonPath('data.type_libelle', 'Visa')->assertJsonPath('data.quantite', 0)->assertJsonPath('data.solde_apres', 20)
+            ->assertJsonPath('data.signataire_nom', 'Dr Anna Meyer');
+    }
+
+    /** Renommer quelqu'un ne change pas le registre : les noms sont figés à l'inscription */
+    public function test_les_noms_sont_figes_a_l_inscription(): void
+    {
+        $this->recevoir();
+        $this->inscrire(['type' => 'administration', 'quantite' => 0.4, 'patient_id' => $this->patient->id])->assertCreated();
+        $this->employe->update(['nom' => 'Dr Anna Meyer-Rochat']);
+        $this->patient->update(['nom' => 'Pilou II']);
+
+        $ligne = $this->getJson('/api/v1/stupefiants/mouvements?produit_id='.$this->substance->id, $this->enTetes($this->jeton))->assertOk()->json('data.0');
+        $this->assertSame('Pilou', $ligne['patient_nom']);
+        $this->assertSame('Dr Anna Meyer', $ligne['signataire_nom']);
     }
 
     public function test_un_produit_non_stupefiant_est_refuse(): void
     {
-        $ordinaire = Produit::factory()->medicament()->create([
-            'organisation_id' => $this->clinique->societe->organisation_id,
-        ]);
-
-        $this->postJson('/api/v1/stupefiants/mouvements', [
-            'produit_id' => $ordinaire->id,
-            'quantite' => 5,
-        ], $this->enTetes($this->jeton))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('produit_id');
+        $ordinaire = Produit::factory()->medicament()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $ordinaire->id, 'type' => 'reception', 'quantite' => 5, 'fournisseur' => 'x'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('produit_id');
     }
 
-    public function test_le_solde_est_la_somme_des_mouvements_avec_alerte_stock_bas(): void
+    /** Marquer un produit stupéfiant, avec son tableau (jusque-là, seule la démo en avait) */
+    public function test_un_produit_se_marque_stupefiant_avec_son_tableau(): void
     {
-        $organisation = $this->clinique->societe->organisation_id;
-        $basse = Produit::factory()->stupefiant()->create(['organisation_id' => $organisation, 'nom' => 'Buprénorphine 0,3 mg/ml']);
-        $this->substance->update(['nom' => 'Kétamine 100 mg/ml']);
+        $midazolam = Produit::factory()->medicament()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Midazolam 5 mg/ml']);
 
-        foreach ([[$this->substance, 48], [$this->substance, -1.2], [$basse, 9.5], [$basse, -0.6]] as [$produit, $quantite]) {
-            MouvementStupefiant::factory()->create([
-                'clinique_id' => $this->clinique->id,
-                'produit_id' => $produit->id,
-                'patient_id' => $quantite < 0 ? $this->patient->id : null,
-                'quantite' => $quantite,
-            ]);
-        }
+        $this->putJson("/api/v1/stupefiants/produits/{$midazolam->id}", ['est_stupefiant' => true], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors(['tableau' => 'Choisissez le tableau : a ou b.']);
+        $this->putJson("/api/v1/stupefiants/produits/{$midazolam->id}", ['est_stupefiant' => true, 'tableau' => 'b'], $this->enTetes($this->jeton))
+            ->assertOk()->assertJsonPath('data.est_stupefiant', true)->assertJsonPath('data.tableau_stupefiant', 'b');
+        $marque = collect($this->getJson('/api/v1/stupefiants/soldes', $this->enTetes($this->jeton))->assertOk()->json('data'))->firstWhere('nom', 'Midazolam 5 mg/ml');
+        $this->assertSame('b', $marque['tableau']);
 
-        $this->getJson('/api/v1/stupefiants/soldes', $this->enTetes($this->jeton))
-            ->assertOk()
-            ->assertJsonCount(2, 'data')
-            ->assertJsonPath('data.0.nom', 'Buprénorphine 0,3 mg/ml')
-            ->assertJsonPath('data.0.solde', 8.9)
-            ->assertJsonPath('data.0.stock_bas', true)
-            ->assertJsonPath('data.1.nom', 'Kétamine 100 mg/ml')
-            ->assertJsonPath('data.1.solde', 46.8)
-            ->assertJsonPath('data.1.stock_bas', false);
+        // Sans ligne au registre, il se retire ; avec, il reste stupéfiant
+        $this->putJson("/api/v1/stupefiants/produits/{$midazolam->id}", ['est_stupefiant' => false], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.tableau_stupefiant', null);
+        $this->recevoir();
+        $this->putJson("/api/v1/stupefiants/produits/{$this->substance->id}", ['est_stupefiant' => false], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('est_stupefiant');
     }
 
-    public function test_le_registre_s_exporte_avec_soldes_et_mouvements_filtres_par_periode(): void
+    /** Plus de « stock bas » dans un registre légal : le stock, le tableau et la dernière ligne */
+    public function test_les_substances_disent_leur_stock_et_leur_tableau_sans_stock_bas(): void
     {
-        MouvementStupefiant::factory()->create([
-            'clinique_id' => $this->clinique->id,
-            'produit_id' => $this->substance->id,
-            'quantite' => 25,
-            'created_at' => now()->subDays(40),
-        ]);
-        MouvementStupefiant::factory()->create([
-            'clinique_id' => $this->clinique->id,
-            'produit_id' => $this->substance->id,
-            'patient_id' => $this->patient->id,
-            'quantite' => -0.4,
-            'created_at' => now()->subDay(),
-        ]);
+        $this->recevoir(9.5);
+        $this->inscrire(['type' => 'administration', 'quantite' => 0.6, 'patient_id' => $this->patient->id])->assertCreated();
 
-        $complet = $this->getJson('/api/v1/stupefiants/registre', $this->enTetes($this->jeton))
-            ->assertOk();
-
-        $complet->assertJsonCount(2, 'data.mouvements');
-        // Le solde ne dépend pas de la période : il reste la somme totale.
-        $complet->assertJsonPath('data.soldes.0.solde', 24.6);
-
-        $this->getJson('/api/v1/stupefiants/registre?du='.now()->subDays(7)->toDateString(), $this->enTetes($this->jeton))
-            ->assertOk()
-            ->assertJsonCount(1, 'data.mouvements')
-            ->assertJsonPath('data.soldes.0.solde', 24.6);
+        $substance = $this->getJson('/api/v1/stupefiants/soldes', $this->enTetes($this->jeton))->assertOk()->json('data.0');
+        $this->assertSame(8.9, $substance['solde']);
+        $this->assertSame('a', $substance['tableau']);
+        $this->assertNotNull($substance['dernier_le']);
+        $this->assertArrayNotHasKey('stock_bas', $substance);
     }
 
-    public function test_le_journal_est_immuable(): void
+    /** Le bilan d'une période (art. 57 OCStup) : stock au début, lignes avec le stock après, totaux, stock à la fin */
+    public function test_le_bilan_d_une_periode_donne_stock_debut_totaux_et_stock_fin(): void
     {
-        $mouvement = MouvementStupefiant::factory()->create([
-            'clinique_id' => $this->clinique->id,
-            'produit_id' => $this->substance->id,
-        ]);
+        $ligne = fn (array $a) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'motif' => 'x', ...$a]));
+        $ligne(['type' => 'reception', 'quantite' => 25, 'solde_apres' => 25, 'created_at' => '2025-12-20 10:00:00']);
+        $ligne(['type' => 'reception', 'quantite' => 20, 'solde_apres' => 45, 'created_at' => '2026-03-01 10:00:00']);
+        $ligne(['type' => 'administration', 'quantite' => -1.2, 'solde_apres' => 43.8, 'created_at' => '2026-04-01 10:00:00']);
+        $ligne(['type' => 'vol', 'quantite' => -5, 'solde_apres' => 38.8, 'created_at' => '2026-05-01 10:00:00']);
+        $ligne(['type' => 'correction', 'quantite' => 0.2, 'solde_apres' => 39, 'created_at' => '2026-05-02 10:00:00']);
+        $ligne(['type' => 'reception', 'quantite' => 3, 'solde_apres' => 42, 'created_at' => '2027-01-02 10:00:00']);
 
-        // Aucune route unitaire : ni modification ni suppression.
-        $this->putJson("/api/v1/stupefiants/mouvements/{$mouvement->id}", [], $this->enTetes($this->jeton))
-            ->assertNotFound();
-        $this->deleteJson("/api/v1/stupefiants/mouvements/{$mouvement->id}", [], $this->enTetes($this->jeton))
-            ->assertNotFound();
-
-        // La collection ne répond qu'en lecture et en création.
-        $this->putJson('/api/v1/stupefiants/mouvements', [], $this->enTetes($this->jeton))
-            ->assertStatus(405);
+        $fiche = $this->getJson('/api/v1/stupefiants/registre?du=2026-01-01&au=2026-12-31', $this->enTetes($this->jeton))->assertOk()->json('data.fiches.0');
+        $this->assertSame(25.0, (float) $fiche['stock_debut']);
+        $this->assertSame(39.0, (float) $fiche['stock_fin']);
+        $this->assertEquals(['receptions' => 20, 'utilisations' => 1.2, 'pertes' => 0, 'vols' => 5, 'retours' => 0, 'eliminations' => 0, 'corrections' => 0.2, 'ecarts_inventaire' => 0], $fiche['totaux']);
+        $this->assertSame(['reception', 'administration', 'vol', 'correction'], array_column($fiche['lignes'], 'type'));
+        $this->assertSame('a', $fiche['produit']['tableau']);
     }
 
     /** Le registre d'un jour suit le calendrier de la clinique : 23 h 30 à Zurich est encore ce jour-là. */
@@ -206,7 +249,7 @@ class RegistreStupefiantTest extends TestCase
         $this->clinique->update(['fuseau_horaire' => 'Europe/Zurich']);
         $jour = CarbonImmutable::parse('2026-07-14', 'Europe/Zurich');
         $mouvement = fn (CarbonImmutable $quand) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create([
-            'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'quantite' => 5, 'motif' => 'Réception grossiste', 'created_at' => $quand->utc(),
+            'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'type' => 'reception', 'quantite' => 5, 'motif' => 'Réception grossiste', 'created_at' => $quand->utc(),
         ]));
         $tard = $mouvement($jour->setTime(23, 30));
         // 00:30 le 14 à Zurich, encore le 13 en UTC : compté par « du »
@@ -214,8 +257,19 @@ class RegistreStupefiantTest extends TestCase
         $mouvement($jour->addDay()->setTime(0, 30));
         $mouvement($jour->subDay()->setTime(23, 30));
 
-        $ids = collect($this->getJson('/api/v1/stupefiants/registre?du=2026-07-14&au=2026-07-14', $this->enTetes($this->jeton))->assertOk()->json('data.mouvements'))->pluck('id');
+        $ids = collect($this->getJson('/api/v1/stupefiants/registre?du=2026-07-14&au=2026-07-14', $this->enTetes($this->jeton))->assertOk()->json('data.fiches.0.lignes'))->pluck('id');
         $this->assertEqualsCanonicalizing([$tard->id, $tot->id], $ids->all());
+    }
+
+    public function test_le_journal_est_immuable(): void
+    {
+        $mouvement = MouvementStupefiant::factory()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id]);
+
+        $this->putJson("/api/v1/stupefiants/mouvements/{$mouvement->id}", [], $this->enTetes($this->jeton))->assertNotFound();
+        $this->deleteJson("/api/v1/stupefiants/mouvements/{$mouvement->id}", [], $this->enTetes($this->jeton))->assertNotFound();
+        $this->putJson('/api/v1/stupefiants/mouvements', [], $this->enTetes($this->jeton))->assertStatus(405);
+        $this->expectException(\LogicException::class);
+        $mouvement->update(['quantite' => 1]);
     }
 
     /** Le registre seul fait bouger le stock d'un stupéfiant (24.10.2026) : arrondi à l'unité inférieure. */
@@ -224,9 +278,9 @@ class RegistreStupefiantTest extends TestCase
         $entetes = $this->enTetes($this->jeton);
         $stock = fn (): int => (int) Stock::withoutGlobalScopes()->where('produit_id', $this->substance->id)->where('clinique_id', $this->clinique->id)->value('quantite');
 
-        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $this->substance->id, 'quantite' => 10], $entetes)->assertCreated();
+        $this->recevoir(10);
         $this->assertSame(10, $stock());
-        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $this->substance->id, 'patient_id' => $this->patient->id, 'quantite' => -1.2], $entetes)->assertCreated();
+        $this->inscrire(['type' => 'administration', 'patient_id' => $this->patient->id, 'quantite' => 1.2])->assertCreated();
         $this->assertSame(8, $stock());
 
         // Une facture, une ordonnance, un soin : rien ne sort sans le registre

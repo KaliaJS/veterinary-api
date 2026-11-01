@@ -7,6 +7,10 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
+ * Une ligne du registre des stupéfiants : son type, sa quantité signée, le
+ * stock après elle, et les noms tels qu'ils étaient à l'inscription
+ * (01.11.2026). Une correction dit la ligne qu'elle corrige.
+ *
  * @mixin MouvementStupefiant
  */
 class MouvementStupefiantResource extends JsonResource
@@ -20,22 +24,31 @@ class MouvementStupefiantResource extends JsonResource
             'produit_id' => $this->produit_id,
             'patient_id' => $this->patient_id,
             'employe_id' => $this->employe_id,
-            'quantite' => $this->quantite,
+            'type' => $this->type->value,
+            'type_libelle' => $this->type->libelle(),
+            'quantite' => (float) $this->quantite,
+            'solde_apres' => $this->solde_apres === null ? null : (float) $this->solde_apres,
+            'quantite_comptee' => $this->quantite_comptee === null ? null : (float) $this->quantite_comptee,
             'motif' => $this->motif,
+            'patient_nom' => $this->patient_nom,
+            'detenteur_nom' => $this->detenteur_nom,
+            'signataire_nom' => $this->signataire_nom,
+            'ordonnance_numero' => $this->ordonnance_numero,
+            'fournisseur' => $this->fournisseur,
+            'bulletin' => $this->bulletin,
+            'bulletin_le' => $this->bulletin_le?->toDateString(),
             'created_at' => $this->created_at,
+            'corrige' => $this->whenLoaded('corrige', fn (): ?array => $this->corrige === null ? null : [
+                'id' => $this->corrige->id,
+                'type_libelle' => $this->corrige->type->libelle(),
+                'quantite' => (float) $this->corrige->quantite,
+                'created_at' => $this->corrige->created_at,
+            ]),
             'produit' => $this->whenLoaded('produit', fn (): array => [
                 'id' => $this->produit->id,
                 'nom' => $this->produit->nom,
                 'unite' => $this->produit->unite,
-            ]),
-            'patient' => $this->whenLoaded('patient', fn (): ?array => $this->patient === null ? null : [
-                'id' => $this->patient->id,
-                'nom' => $this->patient->nom,
-                'espece' => $this->patient->espece,
-            ]),
-            'signataire' => $this->whenLoaded('employe', fn (): ?array => $this->employe === null ? null : [
-                'id' => $this->employe->id,
-                'nom' => $this->employe->nom,
+                'tableau' => $this->produit->tableau_stupefiant,
             ]),
         ];
     }

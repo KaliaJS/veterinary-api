@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\TypeMouvementStupefiant;
 use App\Models\Concerns\AppartientAUneClinique;
 use Database\Factories\MouvementStupefiantFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,12 +11,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use LogicException;
 
 /**
- * Ligne du registre des stupéfiants (art. 62 OCStup) — immuable
- * (UPDATED_AT null, comme les audits et le journal de stock) : jamais
- * modifiée ni supprimée, une erreur se corrige par un mouvement
- * inverse. Le solde d'une substance est la somme des mouvements de la
- * clinique ; le patient est une vraie clé étrangère, obligatoire pour
- * une sortie.
+ * Ligne du registre des stupéfiants (art. 57, 63 et 64 OCStup ; tenu dix
+ * ans, art. 62 al. 3) — immuable (UPDATED_AT null, comme les audits et le
+ * journal de stock) : jamais modifiée ni supprimée, une erreur se corrige
+ * par une ligne « correction » qui pointe la ligne fausse. Le stock d'une
+ * substance est la somme des lignes de la clinique ; chaque ligne garde le
+ * stock après elle et les noms figés à l'inscription (01.11.2026).
  */
 class MouvementStupefiant extends Model
 {
@@ -24,14 +25,13 @@ class MouvementStupefiant extends Model
 
     public const null UPDATED_AT = null;
 
-    /** Seuil d'alerte du front (tools.js) : « STOCK BAS » sous 10 ml. */
-    public const float SEUIL_STOCK_BAS = 10.0;
-
     protected $table = 'mouvements_stupefiants';
 
     protected $fillable = [
-        'clinique_id', 'produit_id', 'patient_id', 'employe_id',
-        'quantite', 'motif', 'created_at',
+        'clinique_id', 'produit_id', 'patient_id', 'employe_id', 'type',
+        'quantite', 'solde_apres', 'corrige_id', 'quantite_comptee', 'motif',
+        'patient_nom', 'detenteur_nom', 'signataire_nom', 'ordonnance_numero',
+        'fournisseur', 'bulletin', 'bulletin_le', 'created_at',
     ];
 
     /** Immuable : ni modification ni suppression, même hors de l'API */
@@ -44,7 +44,11 @@ class MouvementStupefiant extends Model
     protected function casts(): array
     {
         return [
-            'quantite' => 'decimal:2',
+            'type' => TypeMouvementStupefiant::class,
+            'quantite' => 'decimal:3',
+            'solde_apres' => 'decimal:3',
+            'quantite_comptee' => 'decimal:3',
+            'bulletin_le' => 'date',
             'created_at' => 'datetime',
         ];
     }
@@ -75,6 +79,13 @@ class MouvementStupefiant extends Model
     public function employe(): BelongsTo
     {
         return $this->belongsTo(Employe::class);
+    }
+
+    /** La ligne qu'une correction corrige
+     * @return BelongsTo<MouvementStupefiant, $this> */
+    public function corrige(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'corrige_id');
     }
 
     public function estUneSortie(): bool

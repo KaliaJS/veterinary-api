@@ -3,33 +3,36 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\TypeMouvementStupefiant;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Stupefiants\EnregistrerMouvementStupefiantRequest;
 use App\Http\Resources\V1\MouvementStupefiantResource;
 use App\Models\MouvementStupefiant;
+use App\Models\Patient;
 use App\Models\Produit;
-use App\Services\GestionnaireStock;
+use App\Services\RegistreStupefiants;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Registre des stupéfiants de la clinique du jeton (art. 62 OCStup,
- * docs/data-model.md §16). Journal immuable : création seule — ni
- * update ni delete, une erreur se corrige par un mouvement inverse.
- * Contrairement au journal de stock (lecture transversale), le
- * registre se lit PAR CLINIQUE : c'est elle qui le tient et le
- * présente aux contrôles cantonaux.
+ * Registre des stupéfiants de la clinique du jeton (art. 57, 63 et 64
+ * OCStup, docs/data-model.md §16) : journal immuable, création seule.
+ * Une fiche par substance (`produit_id`), chaque ligne avec son type et le
+ * stock après elle (mise aux normes, 01.11.2026). Le registre se lit PAR
+ * CLINIQUE : c'est elle qui le tient et le présente aux contrôles.
  */
 class MouvementStupefiantController extends Controller
 {
+    public function __construct(private RegistreStupefiants $registre) {}
+
     public function index(Request $request): AnonymousResourceCollection
     {
         $this->authorize('viewAny', MouvementStupefiant::class);
 
         $mouvements = MouvementStupefiant::query()
-            ->with(['produit', 'patient', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
+            ->with(['produit', 'corrige'])
             ->when($request->integer('produit_id'), fn ($requete, int $produit) => $requete->where('produit_id', $produit))
             ->when($request->integer('patient_id'), fn ($requete, int $patient) => $requete->where('patient_id', $patient))
             ->latest('created_at')
@@ -44,39 +47,70 @@ class MouvementStupefiantController extends Controller
         $this->authorize('create', MouvementStupefiant::class);
 
         $donnees = $request->validated();
-        $quantite = (float) $donnees['quantite'];
+        $type = TypeMouvementStupefiant::from($donnees['type']);
+        $cliniqueId = (int) app(ContexteClinique::class)->cliniqueId();
 
-        $mouvement = DB::transaction(function () use ($donnees, $quantite, $request): MouvementStupefiant {
-            // Une inscription à la fois par substance : le solde lu reste vrai
-            $produit = Produit::query()->whereKey($donnees['produit_id'])->lockForUpdate()->firstOrFail();
+        $mouvement = DB::transaction(function () use ($donnees, $type, $cliniqueId, $request): MouvementStupefiant {
+            $produit = Produit::query()->findOrFail($donnees['produit_id']);
+            $details = [
+                'motif' => filled($donnees['motif'] ?? null) ? trim($donnees['motif']) : $type->libelle(),
+                'patient' => $type->versUnAnimal() ? Patient::query()->with('client')->findOrFail($donnees['patient_id']) : null,
+                'ordonnance_numero' => $donnees['ordonnance_numero'] ?? null,
+                'fournisseur' => $donnees['fournisseur'] ?? null,
+                'bulletin' => $donnees['bulletin'] ?? null,
+                'bulletin_le' => $donnees['bulletin_le'] ?? null,
+            ];
 
-            $solde = (float) MouvementStupefiant::query()->where('produit_id', $donnees['produit_id'])->sum('quantite');
-            if ($quantite < 0 && $solde + $quantite < -0.001) {
-                throw ValidationException::withMessages([
-                    'quantite' => 'Le registre n’en compte que '.number_format(max(0, $solde), 2, '.', '’').' : une sortie ne dépasse jamais le solde.',
-                ]);
-            }
+            $quantite = match ($type) {
+                TypeMouvementStupefiant::Correction => $this->correction($donnees, $produit, $details),
+                TypeMouvementStupefiant::Inventaire => $this->inventaire($donnees, $produit, $cliniqueId, $details),
+                TypeMouvementStupefiant::Visa => 0.0,
+                default => $type->sens() * (float) $donnees['quantite'],
+            };
 
-            // Parité front (tools.js) : pas de patient sur une réception,
-            // motif par défaut selon le sens du mouvement. Le signataire
-            // est toujours la personne connectée (23.10.2026).
-            $mouvement = MouvementStupefiant::create([
-                'produit_id' => $donnees['produit_id'],
-                'patient_id' => $quantite < 0 ? $donnees['patient_id'] : null,
-                'employe_id' => app(ContexteClinique::class)->employe()?->id,
-                'quantite' => $donnees['quantite'],
-                'motif' => blank($donnees['motif'] ?? null)
-                    ? ($quantite < 0 ? 'Administration' : 'Réception grossiste')
-                    : $donnees['motif'],
-                'created_at' => now(),
-            ]);
-
-            // Le registre seul fait bouger le stock d'un stupéfiant (24.10.2026)
-            app(GestionnaireStock::class)->alignerSurLeRegistre($produit, $mouvement, $request->user());
-
-            return $mouvement;
+            return $this->registre->ecrire($produit, $type, $quantite, $details, $cliniqueId, $request->user());
         });
 
-        return new MouvementStupefiantResource($mouvement->load(['produit', 'patient', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
+        return new MouvementStupefiantResource($mouvement->load(['produit', 'corrige']));
+    }
+
+    /**
+     * Une correction pointe une ligne de la même substance, de la clinique,
+     * qui n'est ni un visa ni elle-même une correction.
+     *
+     * @param  array<string, mixed>  $donnees
+     * @param  array<string, mixed>  $details
+     */
+    private function correction(array $donnees, Produit $produit, array &$details): float
+    {
+        $corrigee = MouvementStupefiant::query()->whereKey($donnees['corrige_id'])->where('produit_id', $produit->id)->first();
+        if ($corrigee === null || in_array($corrigee->type, [TypeMouvementStupefiant::Visa, TypeMouvementStupefiant::Correction], true)) {
+            throw ValidationException::withMessages(['corrige_id' => 'Choisissez une ligne de cette substance à corriger.']);
+        }
+        $details['corrige_id'] = $corrigee->id;
+
+        return (float) $donnees['quantite'];
+    }
+
+    /**
+     * L'inventaire : ce qui est compté contre ce que dit le registre ; un
+     * écart doit être expliqué (OSAV D 06 : écarts justifiés et corrigés).
+     *
+     * @param  array<string, mixed>  $donnees
+     * @param  array<string, mixed>  $details
+     */
+    private function inventaire(array $donnees, Produit $produit, int $cliniqueId, array &$details): float
+    {
+        $compte = round((float) $donnees['quantite_comptee'], 3);
+        $ecart = round($compte - $this->registre->soldeVerrouille($produit, $cliniqueId), 3);
+        if ($ecart !== 0.0 && blank($donnees['motif'] ?? null)) {
+            throw ValidationException::withMessages(['motif' => 'Le compte diffère du registre de '.RegistreStupefiants::quantite($ecart).' : expliquez l’écart.']);
+        }
+        $details['quantite_comptee'] = $compte;
+        if ($ecart === 0.0 && blank($donnees['motif'] ?? null)) {
+            $details['motif'] = 'Stock compté, conforme au registre';
+        }
+
+        return $ecart;
     }
 }

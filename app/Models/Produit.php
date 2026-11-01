@@ -49,7 +49,7 @@ class Produit extends Model
     protected $fillable = [
         'organisation_id', 'nom', 'categorie', 'reference', 'prix', 'cout',
         'unite', 'seuil_alerte', 'est_boutique', 'est_sur_ordonnance',
-        'est_stupefiant', 'peremption_le', 'fournisseur', 'ean',
+        'est_stupefiant', 'tableau_stupefiant', 'peremption_le', 'fournisseur', 'ean',
         'promo_pct', 'est_vedette',
     ];
 

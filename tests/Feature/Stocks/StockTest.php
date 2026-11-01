@@ -246,7 +246,7 @@ class StockTest extends TestCase
         $this->postJson("/api/v1/stocks/lots/{$lot->id}/ecarter", [], $this->enTetes($this->jeton))->assertNoContent();
 
         $destruction = MouvementStupefiant::withoutGlobalScopes()->where('quantite', '<', 0)->sole();
-        $this->assertSame('-4.00', $destruction->quantite);
+        $this->assertSame('-4.000', $destruction->quantite);
         $this->assertSame('Destruction : lot '.$lot->numero_lot.' périmé', $destruction->motif);
         $this->assertNull($destruction->patient_id);
         $this->assertSame(2, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->where('clinique_id', $this->clinique->id)->sole()->quantite);
@@ -264,7 +264,7 @@ class StockTest extends TestCase
 
         $this->postJson("/api/v1/stocks/lots/{$lot->id}/ecarter", [], $this->enTetes($this->jeton))->assertNoContent();
 
-        $this->assertSame('-7.00', MouvementStupefiant::withoutGlobalScopes()->where('motif', 'like', 'Destruction%')->sole()->quantite);
+        $this->assertSame('-7.000', MouvementStupefiant::withoutGlobalScopes()->where('motif', 'like', 'Destruction%')->sole()->quantite);
         $this->assertSame(0, Stock::withoutGlobalScopes()->where('produit_id', $produit->id)->where('clinique_id', $this->clinique->id)->sole()->quantite);
         $this->assertDatabaseMissing('lots', ['id' => $lot->id]);
 

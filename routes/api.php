@@ -150,6 +150,7 @@ use App\Http\Controllers\Api\V1\SortieSejourController;
 use App\Http\Controllers\Api\V1\StatistiquesBoutiqueController;
 use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
+use App\Http\Controllers\Api\V1\SubstanceStupefiantController;
 use App\Http\Controllers\Api\V1\SuggestionDiagnostiqueController;
 use App\Http\Controllers\Api\V1\TerminalPaiementController;
 use App\Http\Controllers\Api\V1\TrameImagerieController;
@@ -900,14 +901,16 @@ Route::prefix('v1')->group(function (): void {
         });
 
         // Registre des stupéfiants — domaine stocks, tenu PAR CLINIQUE
-        // (art. 62 OCStup) : journal immuable en création seule (une
-        // erreur se corrige par un mouvement inverse), soldes et export
-        // pour les contrôles cantonaux.
+        // (art. 57, 63 et 64 OCStup ; mis aux normes le 01.11.2026) :
+        // journal immuable en création seule (une erreur se corrige par une
+        // ligne de correction), substances, bilan d'une période pour les
+        // contrôles cantonaux, produits marqués stupéfiants (tableau a ou b).
         Route::middleware('can:stocks')->prefix('stupefiants')->group(function (): void {
             Route::get('mouvements', [MouvementStupefiantController::class, 'index']);
             Route::post('mouvements', [MouvementStupefiantController::class, 'store']);
             Route::get('soldes', [RegistreStupefiantController::class, 'soldes']);
             Route::get('registre', [RegistreStupefiantController::class, 'exporter']);
+            Route::put('produits/{produit}', SubstanceStupefiantController::class);
         });
 
         // Domaine hospitalisation — rattaché au domaine patients (soins

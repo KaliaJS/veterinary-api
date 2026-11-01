@@ -71,7 +71,8 @@ class StupefiantsIsolationTest extends TestCase
 
         $this->getJson('/api/v1/stupefiants/registre', $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonCount(1, 'data.mouvements');
+            ->assertJsonCount(1, 'data.fiches.0.lignes')
+            ->assertJsonPath('data.fiches.0.stock_fin', 25);
     }
 
     public function test_le_solde_est_borne_a_la_clinique_du_jeton(): void
@@ -100,6 +101,8 @@ class StupefiantsIsolationTest extends TestCase
 
         $this->postJson('/api/v1/stupefiants/mouvements', [
             'produit_id' => $etranger->id,
+            'type' => 'reception',
+            'fournisseur' => 'Grossiste',
             'quantite' => 5,
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
@@ -114,7 +117,8 @@ class StupefiantsIsolationTest extends TestCase
 
         $this->postJson('/api/v1/stupefiants/mouvements', [
             'produit_id' => $this->substance->id,
-            'quantite' => -0.4,
+            'type' => 'administration',
+            'quantite' => 0.4,
             'patient_id' => $etranger->id,
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
@@ -125,6 +129,8 @@ class StupefiantsIsolationTest extends TestCase
     {
         $this->postJson('/api/v1/stupefiants/mouvements', [
             'produit_id' => $this->substance->id,
+            'type' => 'reception',
+            'fournisseur' => 'Grossiste',
             'quantite' => 20,
         ], $this->enTetes($this->jeton))->assertCreated();
 

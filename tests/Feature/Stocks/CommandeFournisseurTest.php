@@ -133,7 +133,7 @@ class CommandeFournisseurTest extends TestCase
         $this->postJson("/api/v1/stocks/commandes/{$commande->id}/receptionner", [], $this->enTetes($jetonVeto))->assertOk();
 
         $inscription = MouvementStupefiant::withoutGlobalScopes()->sole();
-        $this->assertSame('10.00', $inscription->quantite);
+        $this->assertSame('10.000', $inscription->quantite);
         $this->assertSame('Réception '.$commande->numero, $inscription->motif);
         $this->assertSame($veto->id, $inscription->employe_id);
         $this->assertNull($inscription->patient_id);

@@ -1444,23 +1444,33 @@ déclaration exige une puce. Obligation légale : annonce sous 10 jours
 (LFE / OI-BDTA) — la déclaration du front est une simulation, la vraie
 intégration AMICUS est un chantier API.
 
-### Registre des stupéfiants (OCStup, art. 62)
+### Registre des stupéfiants (OCStup, art. 57, 63 et 64 ; mis aux normes le 01.11.2026)
 
-| Champ front | Type suggéré | Description |
+Une fiche par substance (`produits.est_stupefiant` + `tableau_stupefiant` a ou b,
+OTStup-DFI ; marquage par `PUT /stupefiants/produits/{id}`, retrait refusé
+dès qu'une ligne existe). Table `mouvements_stupefiants`, par clinique :
+
+| Colonne | Type | Description |
 |---|---|---|
-| `id` | PK | |
-| `d` | datetime | Date + heure du mouvement |
-| `sub` | FK → produit stupéfiant | Méthadone 10 mg/ml, Kétamine 100 mg/ml, Buprénorphine 0,3 mg/ml, Diazépam 5 mg/ml |
-| `mv` | decimal signé | Quantité (+ entrée / − sortie), unité ml |
-| `pat` | string → FK patient nullable | Obligatoire pour une sortie ; « — » pour une réception |
-| `by` | FK praticien | Signataire du mouvement |
-| `motif` | string | « Induction anesthésie », « Réception grossiste — lot … » |
+| `type` | string | reception, administration, remise, perte, vol, retour, elimination, correction, inventaire, visa (`TypeMouvementStupefiant`) |
+| `quantite` | decimal(10,3) signé | Saisie positive, le type donne le sens ; correction signée ; inventaire = écart compté − registre ; visa 0 |
+| `solde_apres` | decimal(10,3) | Stock de la substance après la ligne |
+| `corrige_id` | FK self nullable | La ligne qu'une correction corrige (ni visa, ni correction) |
+| `quantite_comptee` | decimal(10,3) nullable | Inventaire : ce qui a été compté |
+| `patient_id` | FK nullable | Administration et remise |
+| `patient_nom`, `detenteur_nom`, `signataire_nom` | string | Figés à l'inscription |
+| `ordonnance_numero` | string | Obligatoire pour une remise |
+| `fournisseur`, `bulletin`, `bulletin_le` | string, string, date | Réception et retour (fournisseur obligatoire) |
+| `motif` | string | Obligatoire pour perte, vol, élimination, correction et écart d'inventaire |
 
-Solde par substance = base + Σ mouvements (alerte « STOCK BAS » < 10 ml).
-Depuis le 23.10.2026 : le signataire est toujours la personne connectée,
-qui doit avoir le droit `stupefiants` ; une sortie ne dépasse jamais le
-solde (vérifié sous verrou) ; le modèle refuse toute modification ou
-suppression.
+Une sortie ne dépasse jamais le stock (vérifié sous verrou, `RegistreStupefiants`,
+seule porte d'écriture, aussi pour la réception d'une commande et
+l'élimination d'un lot) ; le modèle refuse toute modification ou suppression ;
+le signataire est la personne connectée (droit `stupefiants`, vérifié avant
+la saisie). `GET /stupefiants/registre?du&au` donne le bilan d'une période
+(art. 57) : par substance, stock au début, lignes, totaux par type, stock à
+la fin. Plus de « stock bas » dans le registre : le réapprovisionnement reste
+aux alertes de Stocks. Conservation : dix ans (art. 62 al. 3).
 Export PDF pour les contrôles cantonaux. En production, ces mouvements
 devraient être un sous-ensemble signé de `mouvements_stock` (section
 14) plutôt qu'un registre parallèle.

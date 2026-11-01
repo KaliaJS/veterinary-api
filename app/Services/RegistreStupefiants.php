@@ -3,68 +3,107 @@
 namespace App\Services;
 
 use App\Auth\ContexteClinique;
+use App\Enums\TypeMouvementStupefiant;
 use App\Models\MouvementStupefiant;
+use App\Models\Patient;
 use App\Models\Produit;
 use App\Models\User;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Inscriptions au registre des stupéfiants faites par un autre geste
- * (24.10.2026) : la réception d'une commande (entrée) et le retrait d'un
- * lot périmé (destruction, sans patient). Le signataire est la personne
- * connectée ; le stock suit le registre. À appeler dans une transaction.
+ * L'écriture au registre des stupéfiants (24.10.2026, mise aux normes le
+ * 01.11.2026) : une seule porte pour chaque ligne, qu'elle vienne du
+ * registre lui-même, de la réception d'une commande ou du retrait d'un
+ * lot périmé. La substance est verrouillée le temps de l'écriture : le
+ * stock lu reste vrai, une sortie ne le dépasse jamais. Chaque ligne garde
+ * le stock après elle et les noms figés (animal, détenteur, signataire).
+ * Le stock de l'article suit le registre. À appeler dans une transaction.
  */
 class RegistreStupefiants
 {
     public function __construct(private GestionnaireStock $stock) {}
 
-    public function inscrire(Produit $produit, float $quantite, string $motif, int $cliniqueId, ?User $auteur): MouvementStupefiant
+    /**
+     * @param  float  $quantite  signée (+ entre, − sort ; 0 pour un visa)
+     * @param  array<string, mixed>  $details  motif, patient, ordonnance_numero, fournisseur, bulletin, bulletin_le, corrige_id, quantite_comptee
+     */
+    public function ecrire(Produit $produit, TypeMouvementStupefiant $type, float $quantite, array $details, int $cliniqueId, ?User $auteur): MouvementStupefiant
     {
         $solde = $this->soldeVerrouille($produit, $cliniqueId);
-        if ($quantite < 0 && $solde + $quantite < -0.001) {
+        if ($quantite < 0 && $solde + $quantite < -0.0005) {
             throw ValidationException::withMessages([
-                'quantite' => 'Le registre n’en compte que '.number_format(max(0, $solde), 2, '.', '’').' : une sortie ne dépasse jamais le solde.',
+                'quantite' => 'Le registre n’en compte que '.self::quantite(max(0, $solde)).' : une sortie ne dépasse jamais le stock.',
             ]);
         }
+
+        /** @var Patient|null $patient */
+        $patient = $details['patient'] ?? null;
+        $employe = app(ContexteClinique::class)->employe();
 
         // La clinique visée peut être une clinique sœur (ajustement de son
         // stock) : posée ici, hors des événements qui imposent celle du jeton
         $mouvement = MouvementStupefiant::withoutEvents(fn (): MouvementStupefiant => MouvementStupefiant::create([
             'clinique_id' => $cliniqueId,
             'produit_id' => $produit->id,
-            'patient_id' => null,
-            'employe_id' => app(ContexteClinique::class)->employe()?->id,
-            'quantite' => $quantite,
-            'motif' => $motif,
+            'type' => $type,
+            'patient_id' => $patient?->id,
+            'employe_id' => $employe?->id,
+            'quantite' => round($quantite, 3),
+            'solde_apres' => round($solde + $quantite, 3),
+            'corrige_id' => $details['corrige_id'] ?? null,
+            'quantite_comptee' => $details['quantite_comptee'] ?? null,
+            'motif' => (string) ($details['motif'] ?? $type->libelle()),
+            // Figés à l'inscription : renommer quelqu'un ne change pas le registre
+            'patient_nom' => $patient?->nom,
+            'detenteur_nom' => $patient?->client?->nom_affiche,
+            'signataire_nom' => $employe->nom ?? $auteur?->name,
+            'ordonnance_numero' => $details['ordonnance_numero'] ?? null,
+            'fournisseur' => $details['fournisseur'] ?? null,
+            'bulletin' => $details['bulletin'] ?? null,
+            'bulletin_le' => $details['bulletin_le'] ?? null,
             'created_at' => now(),
         ]));
 
-        $this->stock->alignerSurLeRegistre($produit, $mouvement, $auteur);
+        if ($quantite !== 0.0) {
+            $this->stock->alignerSurLeRegistre($produit, $mouvement, $auteur);
+        }
 
         return $mouvement;
     }
 
+    /** Réception d'une commande fournisseur (entrée) */
+    public function inscrire(Produit $produit, float $quantite, string $motif, int $cliniqueId, ?User $auteur, array $details = []): MouvementStupefiant
+    {
+        return $this->ecrire($produit, TypeMouvementStupefiant::Reception, $quantite, ['motif' => $motif, ...$details], $cliniqueId, $auteur);
+    }
+
     /**
-     * Destruction d'un lot périmé (24.10.2026) : un lot ne baisse pas quand
+     * Élimination d'un lot périmé (24.10.2026) : un lot ne baisse pas quand
      * une dose est inscrite au registre, sa quantité peut dépasser ce que le
-     * registre compte encore. Est détruit le moins des deux ; rien s'il ne
+     * registre compte encore. Est éliminé le moins des deux ; rien s'il ne
      * reste rien (null).
      */
     public function detruire(Produit $produit, float $auPlus, string $motif, int $cliniqueId, ?User $auteur): ?MouvementStupefiant
     {
-        $quantite = round(min($auPlus, max(0.0, $this->soldeVerrouille($produit, $cliniqueId))), 2);
+        $quantite = round(min($auPlus, max(0.0, $this->soldeVerrouille($produit, $cliniqueId))), 3);
 
-        return $quantite > 0 ? $this->inscrire($produit, -$quantite, $motif, $cliniqueId, $auteur) : null;
+        return $quantite > 0 ? $this->ecrire($produit, TypeMouvementStupefiant::Elimination, -$quantite, ['motif' => $motif], $cliniqueId, $auteur) : null;
     }
 
-    /** Le solde de la substance, la substance verrouillée : une inscription à la fois, le solde lu reste vrai. */
-    private function soldeVerrouille(Produit $produit, int $cliniqueId): float
+    /** Le stock de la substance au registre, la substance verrouillée : une inscription à la fois. */
+    public function soldeVerrouille(Produit $produit, int $cliniqueId): float
     {
         Produit::query()->whereKey($produit->id)->lockForUpdate()->first();
 
-        return (float) MouvementStupefiant::withoutGlobalScopes()
+        return round((float) MouvementStupefiant::withoutGlobalScopes()
             ->where('clinique_id', $cliniqueId)
             ->where('produit_id', $produit->id)
-            ->sum('quantite');
+            ->sum('quantite'), 3);
+    }
+
+    /** « 12,5 » : la quantité écrite à la suisse romande, sans zéros inutiles */
+    public static function quantite(float $q): string
+    {
+        return str_replace('.', ',', rtrim(rtrim(number_format($q, 3, '.', ''), '0'), '.'));
     }
 }

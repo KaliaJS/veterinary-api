@@ -33,6 +33,7 @@ class ProduitResource extends JsonResource
             'est_boutique' => $this->est_boutique,
             'est_sur_ordonnance' => $this->est_sur_ordonnance,
             'est_stupefiant' => $this->est_stupefiant,
+            'tableau_stupefiant' => $this->tableau_stupefiant,
             'peremption' => $this->peremptionAffichee(),
             'fournisseur' => $this->fournisseur,
             'ean' => $this->ean,

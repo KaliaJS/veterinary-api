@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\TypeMouvementStupefiant;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\MouvementStupefiantResource;
 use App\Models\MouvementStupefiant;
@@ -10,11 +11,12 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Soldes et export du registre des stupéfiants — par clinique, celle
- * du jeton. Solde d'une substance = Σ des mouvements (le solde de
- * départ du front est un mouvement de report) ; « STOCK BAS » sous
- * MouvementStupefiant::SEUIL_STOCK_BAS, parité front. L'export sert le
- * PDF des contrôles cantonaux, généré au front comme les autres pièces.
+ * Les substances du registre et le bilan d'une période (mise aux normes,
+ * 01.11.2026 ; art. 57 OCStup : stock au début et à la fin, achats,
+ * utilisations, pertes, éliminations ; OSAV D 06 : bilan visé). Par
+ * clinique, celle du jeton. Le PDF se compose au front, comme les autres
+ * pièces. Plus de « stock bas » : le réapprovisionnement reste dans les
+ * alertes de Stocks, pas dans un registre légal.
  */
 class RegistreStupefiantController extends Controller
 {
@@ -22,9 +24,14 @@ class RegistreStupefiantController extends Controller
     {
         $this->authorize('viewAny', MouvementStupefiant::class);
 
-        return response()->json(['data' => $this->calculerSoldes()]);
+        return response()->json(['data' => $this->substances()]);
     }
 
+    /**
+     * Le bilan d'une période, une fiche par substance : stock au début,
+     * chaque ligne avec le stock après elle, les totaux par type, stock à
+     * la fin. Sans période : l'année en cours.
+     */
     public function exporter(Request $request): JsonResponse
     {
         $this->authorize('viewAny', MouvementStupefiant::class);
@@ -32,45 +39,78 @@ class RegistreStupefiantController extends Controller
         $periode = $request->validate([
             'du' => ['sometimes', 'date'],
             'au' => ['sometimes', 'date', 'after_or_equal:du'],
+            'produit_id' => ['sometimes', 'integer'],
         ]);
+        $du = $request->date('du') ?? aujourdhui()->startOfYear();
+        $au = $request->date('au') ?? aujourdhui();
+        $debut = minuitLocal($du);
+        $fin = minuitLocal($au)->addDay();
 
-        $mouvements = MouvementStupefiant::query()
-            ->with(['produit', 'patient', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')])
-            // Jours du calendrier de la clinique (24.10.2026), pas de minuit UTC
-            ->when($request->date('du'), fn ($requete, $du) => $requete->where('created_at', '>=', minuitLocal($du)))
-            ->when($request->date('au'), fn ($requete, $au) => $requete->where('created_at', '<', minuitLocal($au)->addDay()))
-            ->latest('created_at')
-            ->latest('id')
-            ->get();
+        $fiches = Produit::query()
+            ->where('est_stupefiant', true)
+            ->when($periode['produit_id'] ?? null, fn ($requete, int $id) => $requete->whereKey($id))
+            ->orderBy('nom')
+            ->get()
+            ->map(function (Produit $produit) use ($debut, $fin): array {
+                $avant = round((float) MouvementStupefiant::query()->where('produit_id', $produit->id)->where('created_at', '<', $debut)->sum('quantite'), 3);
+                $lignes = MouvementStupefiant::query()->with(['produit', 'corrige'])
+                    ->where('produit_id', $produit->id)
+                    ->where('created_at', '>=', $debut)->where('created_at', '<', $fin)
+                    ->oldest('created_at')->oldest('id')
+                    ->get();
+                $total = fn (TypeMouvementStupefiant ...$types): float => round(abs((float) $lignes->filter(fn (MouvementStupefiant $m) => in_array($m->type, $types, true))->sum('quantite')), 3);
+
+                return [
+                    'produit' => ['id' => $produit->id, 'nom' => $produit->nom, 'unite' => $produit->unite, 'tableau' => $produit->tableau_stupefiant],
+                    'stock_debut' => $avant,
+                    'stock_fin' => round($avant + (float) $lignes->sum('quantite'), 3),
+                    'totaux' => [
+                        'receptions' => $total(TypeMouvementStupefiant::Reception),
+                        'utilisations' => $total(TypeMouvementStupefiant::Administration, TypeMouvementStupefiant::Remise),
+                        'pertes' => $total(TypeMouvementStupefiant::Perte),
+                        'vols' => $total(TypeMouvementStupefiant::Vol),
+                        'retours' => $total(TypeMouvementStupefiant::Retour),
+                        'eliminations' => $total(TypeMouvementStupefiant::Elimination),
+                        'corrections' => round((float) $lignes->where('type', TypeMouvementStupefiant::Correction)->sum('quantite'), 3),
+                        'ecarts_inventaire' => round((float) $lignes->where('type', TypeMouvementStupefiant::Inventaire)->sum('quantite'), 3),
+                    ],
+                    'lignes' => MouvementStupefiantResource::collection($lignes)->resolve(),
+                ];
+            })
+            // Une substance sans rien dans la période ni en stock n'a pas de fiche
+            ->filter(fn (array $f): bool => $f['stock_debut'] != 0 || $f['lignes'] !== [])
+            ->values();
 
         return response()->json(['data' => [
             'etabli_le' => now(),
-            'periode' => ['du' => $periode['du'] ?? null, 'au' => $periode['au'] ?? null],
-            'soldes' => $this->calculerSoldes(),
-            'mouvements' => MouvementStupefiantResource::collection($mouvements),
+            'periode' => ['du' => $du->toDateString(), 'au' => $au->toDateString()],
+            'fiches' => $fiches,
         ]]);
     }
 
     /**
-     * Soldes courants de toutes les substances du catalogue pour la
-     * clinique du jeton (le scope clinique borne la somme).
+     * Les substances marquées stupéfiant, avec leur stock au registre de la
+     * clinique, leur tableau et la date de la dernière ligne.
      *
      * @return list<array<string, mixed>>
      */
-    private function calculerSoldes(): array
+    private function substances(): array
     {
         return Produit::query()
             ->where('est_stupefiant', true)
             ->withSum('mouvementsStupefiants as solde', 'quantite')
+            ->withMax('mouvementsStupefiants as dernier_le', 'created_at')
             ->orderBy('nom')
             ->get()
             ->map(fn (Produit $produit): array => [
                 'produit_id' => $produit->id,
                 'nom' => $produit->nom,
                 'unite' => $produit->unite,
-                'solde' => round((float) $produit->solde, 2),
-                'stock_bas' => (float) $produit->solde < MouvementStupefiant::SEUIL_STOCK_BAS,
+                'tableau' => $produit->tableau_stupefiant,
+                'solde' => round((float) $produit->solde, 3),
+                'dernier_le' => $produit->getAttribute('dernier_le'),
             ])
+            ->values()
             ->all();
     }
 }

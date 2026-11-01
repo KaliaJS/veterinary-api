@@ -23,12 +23,12 @@ class StupefiantSeeder extends Seeder
 {
     use WithoutModelEvents;
 
-    /** [nom → réf, prix, coût, report STUP_BASE (ml)] */
+    /** [nom → réf, prix, coût, report STUP_BASE (ml), tableau (OTStup-DFI)] */
     private const array SUBSTANCES = [
-        ['Méthadone 10 mg/ml', 'MED-0910', 38.5, 21.2, 25],
-        ['Kétamine 100 mg/ml', 'MED-0911', 29.9, 16.8, 48],
-        ['Buprénorphine 0,3 mg/ml', 'MED-0912', 44.0, 25.6, 9],
-        ['Diazépam 5 mg/ml', 'MED-0913', 18.9, 9.4, 14],
+        ['Méthadone 10 mg/ml', 'MED-0910', 38.5, 21.2, 25, 'a'],
+        ['Kétamine 100 mg/ml', 'MED-0911', 29.9, 16.8, 48, 'b'],
+        ['Buprénorphine 0,3 mg/ml', 'MED-0912', 44.0, 25.6, 9, 'a'],
+        ['Diazépam 5 mg/ml', 'MED-0913', 18.9, 9.4, 14, 'b'],
     ];
 
     public function run(): void
@@ -42,7 +42,8 @@ class StupefiantSeeder extends Seeder
 
         $produits = [];
 
-        foreach (self::SUBSTANCES as [$nom, $reference, $prix, $cout, $report]) {
+        $soldes = [];
+        foreach (self::SUBSTANCES as [$nom, $reference, $prix, $cout, $report, $tableau]) {
             $produits[$nom] = Produit::create([
                 'organisation_id' => $organisation->id,
                 'nom' => $nom,
@@ -55,34 +56,49 @@ class StupefiantSeeder extends Seeder
                 'est_boutique' => false,
                 'est_sur_ordonnance' => true,
                 'est_stupefiant' => true,
+                'tableau_stupefiant' => $tableau,
                 'fournisseur' => 'Vetopharm SA',
             ]);
 
+            // L'ouverture du registre : un inventaire, le stock compté
             MouvementStupefiant::create([
                 'clinique_id' => $deuxRives->id,
                 'produit_id' => $produits[$nom]->id,
                 'employe_id' => $meyer?->id,
+                'type' => 'inventaire',
                 'quantite' => $report,
-                'motif' => "Report d'inventaire : ouverture du registre",
+                'quantite_comptee' => $report,
+                'solde_apres' => $report,
+                'signataire_nom' => $meyer?->nom,
+                'motif' => 'Ouverture du registre : stock compté',
                 'created_at' => now()->subDays(30)->setTime(8, 0),
             ]);
+            $soldes[$nom] = $report;
         }
 
         // stupMoves du front, du plus ancien au plus récent.
         $mouvements = [
             ['Buprénorphine 0,3 mg/ml', -0.6, 'Nala', $solal, 'Analgésie post-op', now()->subDays(6)->setTime(15, 25)],
-            ['Méthadone 10 mg/ml', 20, null, $meyer, 'Réception grossiste : lot MT-4471', now()->subDays(3)->setTime(11, 0)],
+            ['Méthadone 10 mg/ml', 20, null, $meyer, 'Lot MT-4471', now()->subDays(3)->setTime(11, 0)],
             ['Kétamine 100 mg/ml', -1.2, 'Marcel', $adjei, 'Induction anesthésie', now()->subDay()->setTime(9, 10)],
             ['Méthadone 10 mg/ml', -0.4, 'Isis', $meyer, 'Analgésie pré-op ostéosynthèse', now()->subDay()->setTime(16, 40)],
         ];
 
         foreach ($mouvements as [$substance, $quantite, $nomPatient, $signataire, $motif, $date]) {
+            $patient = $nomPatient === null ? null : $this->patient($organisation, $nomPatient);
+            $soldes[$substance] = round($soldes[$substance] + $quantite, 3);
             MouvementStupefiant::create([
                 'clinique_id' => $deuxRives->id,
                 'produit_id' => $produits[$substance]->id,
-                'patient_id' => $nomPatient === null ? null : $this->patient($organisation, $nomPatient)->id,
+                'patient_id' => $patient?->id,
                 'employe_id' => $signataire?->id,
+                'type' => $quantite > 0 ? 'reception' : 'administration',
                 'quantite' => $quantite,
+                'solde_apres' => $soldes[$substance],
+                'patient_nom' => $patient?->nom,
+                'detenteur_nom' => $patient?->client?->nom_affiche,
+                'signataire_nom' => $signataire?->nom,
+                'fournisseur' => $quantite > 0 ? 'Vetopharm SA' : null,
                 'motif' => $motif,
                 'created_at' => $date,
             ]);
