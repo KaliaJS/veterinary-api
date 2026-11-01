@@ -31,6 +31,7 @@ use App\Support\TexteSms;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\URL;
@@ -64,6 +65,9 @@ class RappelsProprietaires
     private const int HEURE_DEBUT = 8;
 
     private const int HEURE_FIN = 20;
+
+    /** La minute de chaque heure où passe `rappels:envoyer` (routes/console.php, hourlyAt(5)) */
+    private const int MINUTE_PASSAGE = 5;
 
     private const int TENTATIVES_MAX = 3;
 
@@ -99,6 +103,14 @@ class RappelsProprietaires
 
     /** Une relance de vaccin en retard, ou de devis sans réponse, part sept jours après */
     public const int JOURS_RELANCE = 7;
+
+    /**
+     * Une relance (vaccin en retard, devis sans réponse) part le septième
+     * jour, ou dans les deux jours qui suivent si l'envoi a manqué ; jamais
+     * plus tard : allumer la relance n'envoie pas d'un coup tout l'arriéré
+     * (vérification du 01.11.2026).
+     */
+    public const int JOURS_RATTRAPAGE = 2;
 
     /** @return array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool, rendez_vous: bool, relance_vaccin_retard: bool, relance_devis: bool, relance_noshow: bool, messages_recus: bool, messages_reponses_seulement: bool} */
     public static function reglages(Clinique $clinique): array
@@ -148,19 +160,12 @@ class RappelsProprietaires
         return $partis;
     }
 
-    /** Un vaccin déjà renouvelé (injection plus récente du même vaccin, ou d'un combiné qui le couvre) */
+    /** Un vaccin déjà renouvelé (injection plus récente du même vaccin, ou d'un combiné qui le couvre) : la règle unique */
     public function estRenouvele(Vaccination $vaccination): bool
     {
-        $plusRecentes = Vaccination::query()->with('produit.valences')->where('patient_id', $vaccination->patient_id)->whereKeyNot($vaccination->id)->get()
-            ->filter(fn (Vaccination $autre): bool => $autre->injectee_le->gt($vaccination->injectee_le)
-                || ($autre->injectee_le->equalTo($vaccination->injectee_le) && $autre->id > $vaccination->id));
-        if ($plusRecentes->contains(fn (Vaccination $autre): bool => mb_strtolower(trim($autre->nom)) === mb_strtolower(trim($vaccination->nom)))) {
-            return true;
-        }
-        $siennes = array_keys(EtatVaccinal::valencesDe($vaccination));
-        $couvertes = $plusRecentes->flatMap(fn (Vaccination $autre): array => array_keys(EtatVaccinal::valencesDe($autre)))->unique()->all();
+        $injections = Vaccination::query()->with('produit.valences')->where('patient_id', $vaccination->patient_id)->get();
 
-        return $siennes !== [] && array_diff($siennes, $couvertes) === [];
+        return isset(EtatVaccinal::renouvelees($injections)[$vaccination->id]);
     }
 
     /**
@@ -276,25 +281,29 @@ class RappelsProprietaires
             foreach ($rendezVous as $r) {
                 if (! self::dejaParti($envoyes, 'rdv', $r->id, $this->momentLocal($r, $clinique))) {
                     $jour = substr($this->momentLocal($r, $clinique), 0, 10);
-                    // La veille : il doit partir avant 20 h le jour d'avant
-                    $veille = CarbonImmutable::parse($jour.' '.(self::HEURE_FIN - 1).':59:59', $clinique->fuseau_horaire ?: 'Europe/Zurich')->subDay();
-                    $lignes[] = $this->ligneAVenir($clinique, 'rdv', 'Rendez-vous', $r->patient, $jour, $reglagesVeille, $prochain, $veille);
+                    // La veille : il doit partir avant 20 h le jour d'avant ; pris la veille au soir, le matin même, deux heures avant au plus tard
+                    $fuseau = $clinique->fuseau_horaire ?: 'Europe/Zurich';
+                    $veille = CarbonImmutable::parse($jour.' '.(self::HEURE_FIN - 1).':59:59', $fuseau)->subDay();
+                    $dernier = $r->created_at !== null && $r->created_at->lt(CarbonImmutable::parse($jour, $fuseau)) ? max($veille, $r->starts_at->toImmutable()->subHours(2)) : $veille;
+                    $lignes[] = $this->ligneAVenir($clinique, 'rdv', $r->type === TypeRendezVous::Teleconsultation ? 'Téléconsultation' : 'Rendez-vous', $r->patient, $jour, $reglagesVeille, $prochain, $dernier);
                 }
             }
         }
         if ($reglages['vaccins'] && $reglages['relance_vaccin_retard']) {
             // Échus depuis peu, encore dus : la relance part sept jours après l'échéance
-            $retards = $this->dernieresInjections($aujourdhui->subDays(30), $aujourdhui->subDay(), $clinique->societe->organisation_id);
+            $retards = $this->dernieresInjections($aujourdhui->subDays(self::JOURS_RELANCE + self::JOURS_RATTRAPAGE), $aujourdhui->subDay(), $clinique->societe->organisation_id);
             $references = $this->cliniquesDeReference($retards->pluck('patient'));
             $envoyes = $this->clesEnvoyees($retards->flatMap(fn (Vaccination $v): array => self::cles('vaccin_retard', $v->id, $v->echeance_le->toDateString())));
             $this->lireLesRefus($retards->map(fn (Vaccination $v): ?Client => $v->patient?->client));
             $reglagesRetard = [...$reglages, 'delai_jours' => -self::JOURS_RELANCE];
+            $relancesALaMain = $this->relancesALaMain($retards);
             foreach ($retards as $vaccination) {
-                if (($references[$vaccination->patient_id] ?? null)?->id !== $clinique->id || self::dejaParti($envoyes, 'vaccin_retard', $vaccination->id, $vaccination->echeance_le->toDateString())) {
+                if (($references[$vaccination->patient_id] ?? null)?->id !== $clinique->id || self::dejaParti($envoyes, 'vaccin_retard', $vaccination->id, $vaccination->echeance_le->toDateString())
+                    || isset($relancesALaMain[$vaccination->id])) {
                     continue;
                 }
                 $echeance = $vaccination->echeance_le->toDateString();
-                $dernier = CarbonImmutable::parse($echeance.' 23:59:59', $clinique->fuseau_horaire ?: 'Europe/Zurich')->addDays(30);
+                $dernier = CarbonImmutable::parse($echeance.' 23:59:59', $clinique->fuseau_horaire ?: 'Europe/Zurich')->addDays(self::JOURS_RELANCE + self::JOURS_RATTRAPAGE);
                 $lignes[] = [...$this->ligneAVenir($clinique, 'vaccin_retard', $vaccination->nom.', en retard', $vaccination->patient, $echeance, $reglagesRetard, $prochain, $dernier)];
             }
         }
@@ -303,9 +312,15 @@ class RappelsProprietaires
                 ->where('clinique_id', $clinique->id)->where('statut', StatutDevis::Envoye)->where('canal', CanalDevis::Portail)
                 ->whereNull('relance_le')->whereNotNull('patient_id')->whereNotNull('envoye_le')->get()
                 ->reject(fn (Devis $d): bool => $d->estExpire());
+            $this->lireLesRefus($devis->map(fn (Devis $d): ?Client => $d->patient?->client));
             foreach ($devis as $d) {
                 $envoi = CarbonImmutable::parse($d->envoye_le->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich')->toDateString())->addDays(self::JOURS_RELANCE);
+                // Au-delà du rattrapage de deux jours, elle ne partira plus (pas de vague au déploiement) : l'équipe le voit dans « À faire »
+                if ($envoi->addDays(self::JOURS_RATTRAPAGE)->lt(CarbonImmutable::parse($prochain->toDateString()))) {
+                    continue;
+                }
                 $client = $d->patient?->client;
+                $adresse = $client?->user?->email ?: $client?->email;
                 $lignes[] = [
                     'objet' => 'devis',
                     'libelle' => 'Devis '.$d->numero.' sans réponse',
@@ -313,8 +328,15 @@ class RappelsProprietaires
                     'proprietaire' => $client ? self::nomDe($client) : null,
                     'echeance_le' => ($d->valide_jusquau ?? $envoi)->toDateString(),
                     'envoi_le' => max($envoi, CarbonImmutable::parse($prochain->toDateString()))->toDateString(),
-                    'canaux' => filled($client?->user?->email ?: $client?->email) ? ['email'] : [],
-                    'bloque' => filled($client?->user?->email ?: $client?->email) ? null : 'Pas d’adresse e-mail',
+                    'canaux' => filled($adresse) ? ['email'] : [],
+                    'bloque' => match (true) {
+                        $d->patient->decede_le !== null => 'Animal décédé',
+                        (bool) $d->patient->rappels_coupes => 'Rappels coupés pour '.$d->patient->nom,
+                        $client === null || blank($adresse) => 'Pas d’adresse e-mail',
+                        ! $this->accepteLesRappels($client) => 'Refusés par le propriétaire',
+                        default => null,
+                    },
+                    'devis_id' => $d->id,
                 ];
             }
         }
@@ -573,7 +595,12 @@ class RappelsProprietaires
         }
         $moment = $rendezVous->starts_at->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich');
         if ($objet === 'rdv') {
-            return $clinique->nom.' : rendez-vous de '.$patient->nom.' demain à '.$moment->format('H:i').'.'.(filled($clinique->tel) ? ' Un empêchement : '.$clinique->tel.'.' : '');
+            $quand = $moment->toDateString() === aujourdhui($clinique)->toDateString() ? 'aujourd’hui' : 'demain';
+            // Une téléconsultation : pas de déplacement, le lien arrive par e-mail
+            $quoi = $rendezVous->type === TypeRendezVous::Teleconsultation ? 'téléconsultation' : 'rendez-vous';
+            $suite = $rendezVous->type === TypeRendezVous::Teleconsultation ? ' Le lien de l’appel vidéo vous arrive par e-mail.' : '';
+
+            return $clinique->nom.' : '.$quoi.' de '.$patient->nom.' '.$quand.' à '.$moment->format('H:i').'.'.$suite.(filled($clinique->tel) ? ' Un empêchement : '.$clinique->tel.'.' : '');
         }
 
         return $clinique->nom.' : contrôle de '.$patient->nom.' le '.$moment->format('d.m.Y').' à '.$moment->format('H:i').'.'.(filled($clinique->tel) ? ' Pour le déplacer : '.$clinique->tel.'.' : '');
@@ -702,12 +729,29 @@ class RappelsProprietaires
                     return false;
                 }
                 $rendezVous->setRelation('clinique', $clinique);
-                $demain = CarbonImmutable::parse(aujourdhui($clinique)->toDateString())->addDay()->toDateString();
+                $aujourdhui = CarbonImmutable::parse(aujourdhui($clinique)->toDateString());
+                $jour = substr($this->momentLocal($rendezVous, $clinique), 0, 10);
 
                 return self::reglages($clinique)['rendez_vous'] && $this->enJournee($clinique)
-                    && substr($this->momentLocal($rendezVous, $clinique), 0, 10) === $demain;
+                    && ($jour === $aujourdhui->addDay()->toDateString() || $this->rattrapeLeMatin($rendezVous, $clinique));
             })
             ->values();
+    }
+
+    /**
+     * Un rendez-vous d'aujourd'hui pris la veille trop tard pour son rappel
+     * (après le dernier envoi de 19 h 05) : rappelé le matin même, s'il reste
+     * au moins deux heures (vérification du 01.11.2026). Un rendez-vous pris
+     * le jour même n'est pas rappelé : le client vient de le prendre.
+     */
+    private function rattrapeLeMatin(RendezVous $rendezVous, Clinique $clinique): bool
+    {
+        $fuseau = $clinique->fuseau_horaire ?: 'Europe/Zurich';
+        $aujourdhui = CarbonImmutable::parse(aujourdhui($clinique)->toDateString(), $fuseau);
+
+        return $rendezVous->starts_at->setTimezone($fuseau)->toDateString() === $aujourdhui->toDateString()
+            && $rendezVous->created_at !== null && $rendezVous->created_at->lt($aujourdhui)
+            && $rendezVous->starts_at->gte(now()->addHours(2));
     }
 
     /**
@@ -719,7 +763,7 @@ class RappelsProprietaires
     private function vaccinsEnRetard(): Collection
     {
         $aujourdhui = CarbonImmutable::parse(aujourdhui()->toDateString());
-        $vaccins = $this->dernieresInjections($aujourdhui->subDays(31), $aujourdhui->subDays(self::JOURS_RELANCE - 1), null);
+        $vaccins = $this->dernieresInjections($aujourdhui->subDays(self::JOURS_RELANCE + self::JOURS_RATTRAPAGE + 1), $aujourdhui->subDays(self::JOURS_RELANCE - 1), null);
         $references = $this->cliniquesDeReference($vaccins->pluck('patient'));
 
         return $vaccins
@@ -733,7 +777,8 @@ class RappelsProprietaires
                 $jour = CarbonImmutable::parse(aujourdhui($clinique)->toDateString());
 
                 return $reglages['vaccins'] && $reglages['relance_vaccin_retard'] && $this->enJournee($clinique)
-                    && $vaccination->echeance_le->toDateString() <= $jour->subDays(self::JOURS_RELANCE)->toDateString();
+                    && $vaccination->echeance_le->toDateString() <= $jour->subDays(self::JOURS_RELANCE)->toDateString()
+                    && $vaccination->echeance_le->toDateString() >= $jour->subDays(self::JOURS_RELANCE + self::JOURS_RATTRAPAGE)->toDateString();
             })
             ->values();
     }
@@ -751,7 +796,7 @@ class RappelsProprietaires
             ->where('statut', StatutDevis::Envoye)->where('canal', CanalDevis::Portail)
             ->whereNull('relance_le')->whereNotNull('patient_id')
             ->where('envoye_le', '<=', now()->subDays(self::JOURS_RELANCE))
-            ->where('envoye_le', '>=', now()->subDays(60))
+            ->where('envoye_le', '>=', now()->subDays(self::JOURS_RELANCE + self::JOURS_RATTRAPAGE + 1)->startOfDay())
             ->get()
             ->filter(function (Devis $devis): bool {
                 $clinique = $this->clinique($devis->clinique_id);
@@ -769,7 +814,13 @@ class RappelsProprietaires
         $client = $patient?->client;
         $adresse = $client?->user?->email ?: $client?->email;
         $ouverte = $clinique !== null && ($this->organisationsOuvertes[$clinique->id] ??= (bool) $clinique->societe?->organisation?->estOuverte());
-        if (! $ouverte || $patient === null || $client === null || blank($adresse)) {
+        // Comme tout rappel (vérification du 01.11.2026) : ni animal décédé, ni rappels coupés, ni propriétaire qui les refuse
+        if (! $ouverte || $patient === null || $client === null || blank($adresse)
+            || $patient->decede_le !== null || $patient->rappels_coupes || ! $this->accepteLesRappels($client)) {
+            return false;
+        }
+        // Une relance à la main aujourd'hui : pas une seconde automatique (même clé que CycleDevisController)
+        if (! Cache::add('devis-relance:'.$devis->id.':'.aujourdhui()->toDateString(), true, now()->addDays(2))) {
             return false;
         }
         $rappel = $this->prendre(self::cle('devis', $devis->id, $devis->envoye_le->toDateString()), [
@@ -787,6 +838,7 @@ class RappelsProprietaires
             $devis->update(['relance_le' => now()]);
         } catch (Throwable $e) {
             report($e);
+            Cache::forget('devis-relance:'.$devis->id.':'.aujourdhui()->toDateString());
             $rappel->fill(['statut' => 'echec', 'erreur' => mb_substr($e->getMessage(), 0, 500)]);
         }
         $rappel->save();
@@ -817,6 +869,27 @@ class RappelsProprietaires
     }
 
     /**
+     * Les vaccins rappelés à la main le jour de leur échéance ou après : la
+     * relance « en retard » automatique ne repart pas.
+     *
+     * @param  Collection<int, Vaccination>  $vaccins
+     * @return array<int, true>
+     */
+    private function relancesALaMain(Collection $vaccins): array
+    {
+        if ($vaccins->isEmpty()) {
+            return [];
+        }
+        $echeances = $vaccins->mapWithKeys(fn (Vaccination $v): array => [$v->id => $v->echeance_le->toDateString()]);
+        $ids = RappelEnvoye::withoutGlobalScopes()->where('manuel', true)->where('statut', 'envoye')
+            ->whereIn('vaccination_id', $vaccins->pluck('id')->all())->get(['vaccination_id', 'envoye_le'])
+            ->filter(fn (RappelEnvoye $r): bool => $r->envoye_le !== null && $r->envoye_le->copy()->setTimezone('Europe/Zurich')->toDateString() >= ($echeances[$r->vaccination_id] ?? '9999'))
+            ->pluck('vaccination_id')->unique()->all();
+
+        return array_fill_keys($ids, true);
+    }
+
+    /**
      * Les injections d'échéance dans la période qui sont encore dues : comme
      * le carnet, une injection plus récente qui couvre ses valences (même
      * vaccin, ou combiné qui le contient) rend l'échéance caduque. Toutes les
@@ -837,24 +910,13 @@ class RappelsProprietaires
         }
         $parAnimal = Vaccination::query()->with('produit.valences')
             ->whereIn('patient_id', $candidates->pluck('patient_id')->unique()->all())->get()->groupBy('patient_id');
+        // La règle unique du renouvellement (EtatVaccinal::renouvelees), animal par animal
+        $renouvelees = [];
+        foreach ($parAnimal as $injections) {
+            $renouvelees += EtatVaccinal::renouvelees($injections);
+        }
 
-        return $candidates->filter(function (Vaccination $vaccination) use ($parAnimal): bool {
-            $siennes = array_keys(EtatVaccinal::valencesDe($vaccination));
-            $couvertes = [];
-            foreach ($parAnimal[$vaccination->patient_id] ?? [] as $autre) {
-                $plusRecente = $autre->injectee_le->gt($vaccination->injectee_le)
-                    || ($autre->injectee_le->equalTo($vaccination->injectee_le) && $autre->id > $vaccination->id);
-                if (! $plusRecente) {
-                    continue;
-                }
-                if (mb_strtolower(trim($autre->nom)) === mb_strtolower(trim($vaccination->nom))) {
-                    return false;
-                }
-                $couvertes += array_fill_keys(array_keys(EtatVaccinal::valencesDe($autre)), true);
-            }
-
-            return array_diff($siennes, array_keys($couvertes)) !== [];
-        })->values();
+        return $candidates->filter(fn (Vaccination $vaccination): bool => ! isset($renouvelees[$vaccination->id]))->values();
     }
 
     private function envoyerAutomatique(Clinique $clinique, ?Patient $patient, string $objet, ?Vaccination $vaccination, ?RendezVous $rendezVous): bool
@@ -870,6 +932,10 @@ class RappelsProprietaires
         $echeance = $vaccination !== null ? $vaccination->echeance_le->toDateString() : $this->momentLocal($rendezVous, $clinique);
         // Déjà rappelé à la main pour cette échéance : l'automatique ne repart pas
         if ($objet === 'vaccin' && isset($this->rappelesALaMain(collect([$vaccination]))[$vaccination->id.':'.$echeance])) {
+            return false;
+        }
+        // Rappelé à la main après l'échéance : c'était déjà la relance (vérification du 01.11.2026)
+        if ($objet === 'vaccin_retard' && isset($this->relancesALaMain(collect([$vaccination]))[$vaccination->id])) {
             return false;
         }
         $id = $vaccination->id ?? $rendezVous->id;
@@ -1067,12 +1133,14 @@ class RappelsProprietaires
     /** Le prochain moment où un rappel peut partir, à l'heure de la clinique (jamais la nuit). */
     private function prochainEnvoiPossible(Clinique $clinique): CarbonImmutable
     {
-        $maintenant = CarbonImmutable::now($clinique->fuseau_horaire ?: 'Europe/Zurich');
+        // Le prochain passage du planificateur (rappels:envoyer, chaque heure à hh:05), de 8 h à 20 h (vérification du 01.11.2026)
+        $maintenant = CarbonImmutable::now($clinique->fuseau_horaire ?: 'Europe/Zurich')->startOfMinute();
+        $passage = $maintenant->minute <= self::MINUTE_PASSAGE ? $maintenant->setTime($maintenant->hour, self::MINUTE_PASSAGE) : $maintenant->addHour()->setTime($maintenant->addHour()->hour, self::MINUTE_PASSAGE);
 
         return match (true) {
-            $maintenant->hour < self::HEURE_DEBUT => $maintenant->setTime(self::HEURE_DEBUT, 0),
-            $maintenant->hour >= self::HEURE_FIN => $maintenant->addDay()->setTime(self::HEURE_DEBUT, 0),
-            default => $maintenant,
+            $passage->hour < self::HEURE_DEBUT => $passage->setTime(self::HEURE_DEBUT, self::MINUTE_PASSAGE),
+            $passage->hour >= self::HEURE_FIN => $passage->addDay()->setTime(self::HEURE_DEBUT, self::MINUTE_PASSAGE),
+            default => $passage,
         };
     }
 

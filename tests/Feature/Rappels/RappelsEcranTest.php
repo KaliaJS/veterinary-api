@@ -205,6 +205,29 @@ class RappelsEcranTest extends TestCase
         $this->assertStringStartsWith('2027-10-30', collect($this->getJson('/api/v1/patients', $this->enTetes($this->jeton))->json('data'))->firstWhere('id', $this->patient->id)['echeance_vaccinale']);
     }
 
+    /**
+     * Renouvelé par un combiné, sous un autre nom (vérification du
+     * 01.11.2026) : la liste des patients, le carnet et l'envoi suivent la
+     * même règle, par valences ; retirer le combiné rend la rage due.
+     */
+    public function test_un_vaccin_renouvele_par_un_combine_n_est_plus_du_nulle_part(): void
+    {
+        $rage = Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Rage', 'valences' => ['rage'], 'injectee_le' => '2025-11-05', 'echeance_le' => '2026-11-05']);
+        $combine = Vaccination::factory()->create(['patient_id' => $this->patient->id, 'nom' => 'Carré · Hépatite · Parvovirose · Leptospirose · Rage', 'valences' => ['carre', 'hepatite', 'parvovirose', 'leptospirose', 'rage'], 'injectee_le' => '2026-10-30', 'echeance_le' => '2027-10-30']);
+
+        $patients = $this->getJson('/api/v1/patients?filtre=rappels', $this->enTetes($this->jeton))->assertOk();
+        $this->assertSame(0, $patients->json('meta.facettes.rappels'));
+        $vaccins = collect($this->getJson("/api/v1/patients/{$this->patient->id}", $this->enTetes($this->jeton))->json('data.vaccinations'))->keyBy('id');
+        $this->assertTrue($vaccins[$rage->id]['est_renouvelee']);
+        $this->postJson("/api/v1/patients/{$this->patient->id}/vaccinations/{$rage->id}/rappel", [], $this->enTetes($this->jeton))->assertUnprocessable();
+
+        // Le combiné retiré : la rage redevient due partout
+        $combine->delete();
+        $this->assertSame(1, $this->getJson('/api/v1/patients?filtre=rappels', $this->enTetes($this->jeton))->json('meta.facettes.rappels'));
+        $vaccins = collect($this->getJson("/api/v1/patients/{$this->patient->id}", $this->enTetes($this->jeton))->json('data.vaccinations'))->keyBy('id');
+        $this->assertFalse($vaccins[$rage->id]['est_renouvelee']);
+    }
+
     /** Le carnet sait, d'après le serveur, qu'un vaccin est renouvelé et qu'un rappel est parti (plus seulement pendant la session) */
     public function test_le_carnet_dit_renouvele_et_rappel_envoye_d_apres_le_serveur(): void
     {

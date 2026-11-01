@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Enums\TypeRendezVous;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\RendezVous;
@@ -13,7 +14,10 @@ use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Mail\Mailables\Headers;
 use Illuminate\Queue\SerializesModels;
 
-/** Au propriétaire : son rendez-vous de demain (01.11.2026 : l’accueil public le promettait, « Un rappel vous attend la veille »). */
+/**
+ * Au propriétaire : son rendez-vous de demain (01.11.2026 : l’accueil public le promettait, « Un rappel vous attend la veille »).
+ * Une téléconsultation se dit comme telle, sans adresse ; pris la veille au soir, il est rappelé le matin même.
+ */
 class RappelRendezVous extends Mailable
 {
     use Queueable;
@@ -28,8 +32,10 @@ class RappelRendezVous extends Mailable
 
     public function envelope(): Envelope
     {
+        $quoi = $this->rendezVous->type === TypeRendezVous::Teleconsultation ? 'téléconsultation' : 'rendez-vous';
+
         return new Envelope(
-            subject: 'Rappel : rendez-vous de '.$this->rendezVous->patient->nom.' demain chez '.$this->clinique->nom,
+            subject: 'Rappel : '.$quoi.' de '.$this->rendezVous->patient->nom.' '.$this->quand().' avec '.$this->clinique->nom,
             replyTo: $this->clinique->email ? [new Address($this->clinique->email, $this->clinique->nom)] : [],
         );
     }
@@ -48,6 +54,16 @@ class RappelRendezVous extends Mailable
             'patient' => $this->rendezVous->patient,
             'jour' => $debut->format('d.m.Y'),
             'heure' => $debut->format('H:i'),
+            'quand' => $this->quand(),
+            'estTele' => $this->rendezVous->type === TypeRendezVous::Teleconsultation,
         ]);
+    }
+
+    /** « demain », ou « aujourd'hui » pour un rendez-vous pris la veille au soir, rappelé le matin même */
+    private function quand(): string
+    {
+        $fuseau = $this->clinique->fuseau_horaire ?: 'Europe/Zurich';
+
+        return $this->rendezVous->starts_at->setTimezone($fuseau)->toDateString() === aujourdhui($this->clinique)->toDateString() ? 'aujourd’hui' : 'demain';
     }
 }

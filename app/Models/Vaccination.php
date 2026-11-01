@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\EtatVaccinal;
 use Database\Factories\VaccinationFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -26,7 +27,37 @@ class Vaccination extends Model
             'injectee_le' => 'date',
             'echeance_le' => 'date',
             'peremption_le' => 'date',
+            'renouvelee' => 'boolean',
         ];
+    }
+
+    /** Chaque injection ajoutée, changée ou retirée refait les « renouvelée » de l'animal (01.11.2026) */
+    protected static function booted(): void
+    {
+        static::saved(function (Vaccination $vaccination): void {
+            self::recalculerRenouvellements($vaccination->patient_id);
+            // Passée à un autre animal : l'ancien se refait aussi
+            if ($vaccination->wasChanged('patient_id')) {
+                self::recalculerRenouvellements($vaccination->getOriginal('patient_id'));
+            }
+        });
+        static::deleted(fn (Vaccination $vaccination) => self::recalculerRenouvellements($vaccination->patient_id));
+    }
+
+    /** `renouvelee` d'après la règle unique (EtatVaccinal::renouvelees), sans événements */
+    public static function recalculerRenouvellements(?int $patientId): void
+    {
+        if ($patientId === null) {
+            return;
+        }
+        $injections = self::query()->withoutGlobalScopes()->with('produit.valences')->where('patient_id', $patientId)->get();
+        $renouvelees = EtatVaccinal::renouvelees($injections);
+        foreach ($injections as $injection) {
+            $doit = isset($renouvelees[$injection->id]);
+            if ((bool) $injection->getAttribute('renouvelee') !== $doit) {
+                self::query()->withoutGlobalScopes()->whereKey($injection->id)->update(['renouvelee' => $doit]);
+            }
+        }
     }
 
     /** @return BelongsTo<ProduitVeterinaire, $this> */
@@ -59,9 +90,9 @@ class Vaccination extends Model
     }
 
     /**
-     * Les injections pas encore renouvelées : aucune injection plus récente
-     * du même vaccin pour l'animal (01.11.2026 : un vaccin renouvelé ne
-     * compte plus comme un rappel dû dans la liste des patients).
+     * Les injections pas encore renouvelées (01.11.2026) : `renouvelee`,
+     * tenu à jour à chaque injection d'après la règle unique
+     * (EtatVaccinal::renouvelees : même vaccin, ou combiné qui le couvre).
      *
      * @param  Builder<Vaccination>  $requete
      */
@@ -71,5 +102,5 @@ class Vaccination extends Model
     }
 
     /** La même condition, en SQL, pour les comptes bruts (facettes) */
-    public const string SQL_NON_RENOUVELEE = 'not exists (select 1 from vaccinations as plus_recente where plus_recente.patient_id = vaccinations.patient_id and lower(plus_recente.nom) = lower(vaccinations.nom) and (plus_recente.injectee_le > vaccinations.injectee_le or (plus_recente.injectee_le = vaccinations.injectee_le and plus_recente.id > vaccinations.id)))';
+    public const string SQL_NON_RENOUVELEE = 'vaccinations.renouvelee = 0';
 }

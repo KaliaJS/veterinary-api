@@ -1454,12 +1454,22 @@ faut journaliser les envois :
   renouvellement d'ordonnance, devis sans réponse), `GET /rappels/apercu/{objet}`
   (sujet, e-mail rendu, SMS). Rappels ajoutés, réglables par clinique
   (`cliniques.rappels_rendez_vous`, `relance_vaccin_retard`, `relance_devis`) :
-  objet `rdv` (la veille, sauf contrôle, euthanasie, urgence, tampon),
-  `vaccin_retard` (7 jours après l'échéance, une fois), `devis` (envoyé en
-  ligne, 7 jours sans réponse ni relance ; `rappels_envoyes.devis_id`).
-  Un rappel manuel compte pour l'échéance ; un vaccin renouvelé (injection
-  plus récente du même nom) n'est plus dû (`Vaccination::nonRenouvelees`),
-  et la ressource dit `est_renouvelee` et `rappel_envoye_le`.
+  objet `rdv` (la veille, sauf contrôle, euthanasie, urgence, tampon ; une
+  téléconsultation a son texte, sans adresse ; pris la veille après le
+  dernier passage de 19 h 05, le matin même, deux heures avant au plus
+  tard), `vaccin_retard` (7 jours après l'échéance, une fois), `devis`
+  (envoyé en ligne, 7 jours sans réponse ni relance, mêmes règles que tout
+  rappel : animal décédé, rappels coupés, refus ; `rappels_envoyes.devis_id`,
+  clé de cache partagée avec la relance à la main, une par jour). Une
+  relance part le 7e jour ou dans les deux suivants
+  (`JOURS_RATTRAPAGE`), jamais l'arriéré. « À venir » calcule le prochain
+  passage du planificateur (hh:05, de 8 h à 20 h). Un rappel manuel compte
+  pour l'échéance, et après l'échéance tient lieu de relance. Un vaccin
+  renouvelé n'est plus dû : `vaccinations.renouvelee`, tenu à jour à chaque
+  injection d'après la règle unique `EtatVaccinal::renouvelees` (même nom,
+  ou injections plus récentes qui couvrent toutes ses valences), lu en SQL
+  par `Vaccination::nonRenouvelees` ; la ressource dit `est_renouvelee` et
+  `rappel_envoye_le`.
 
 ---
 

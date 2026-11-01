@@ -155,6 +155,45 @@ final class EtatVaccinal
     }
 
     /**
+     * Les injections d'un animal déjà renouvelées : une injection plus
+     * récente du même vaccin (même nom, espaces et casse ignorés), ou des
+     * injections plus récentes qui couvrent toutes ses valences (combiné,
+     * autre produit). La seule règle, pour l'envoi des rappels, le carnet et
+     * la liste des patients (vérification du 01.11.2026).
+     *
+     * @param  iterable<Vaccination>  $injections  toutes celles de l'animal, produits et valences chargés
+     * @return array<int, true> les identifiants des injections renouvelées
+     */
+    public static function renouvelees(iterable $injections): array
+    {
+        $liste = collect($injections)->values();
+        $renouvelees = [];
+        foreach ($liste as $vaccination) {
+            $siennes = array_keys(self::valencesDe($vaccination));
+            $nom = mb_strtolower(trim((string) $vaccination->nom));
+            $couvertes = [];
+            foreach ($liste as $autre) {
+                $plusRecente = $autre->injectee_le->gt($vaccination->injectee_le)
+                    || ($autre->injectee_le->equalTo($vaccination->injectee_le) && $autre->id > $vaccination->id);
+                if (! $plusRecente) {
+                    continue;
+                }
+                if (mb_strtolower(trim((string) $autre->nom)) === $nom) {
+                    $renouvelees[$vaccination->id] = true;
+
+                    continue 2;
+                }
+                $couvertes += array_fill_keys(array_keys(self::valencesDe($autre)), true);
+            }
+            if ($siennes !== [] && array_diff($siennes, array_keys($couvertes)) === []) {
+                $renouvelees[$vaccination->id] = true;
+            }
+        }
+
+        return $renouvelees;
+    }
+
+    /**
      * Valences d une injection : la photographie posée à l injection,
      * sinon celles du produit, sinon le nom libre comme valence unique.
      *

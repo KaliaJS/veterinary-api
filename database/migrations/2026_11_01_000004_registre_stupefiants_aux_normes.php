@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\TypeStupefiantAncien;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -52,37 +53,14 @@ return new class extends Migration
             $patient = $m->patient_id ? DB::table('patients')->where('id', $m->patient_id)->first(['nom', 'client_id']) : null;
             $client = $patient?->client_id ? DB::table('clients')->where('id', $patient->client_id)->first(['civilite', 'prenom', 'nom']) : null;
             DB::table('mouvements_stupefiants')->where('id', $m->id)->update([
-                'type' => self::typeAncien((float) $m->quantite, $m->patient_id !== null, (string) $m->motif),
-                'quantite_comptee' => self::typeAncien((float) $m->quantite, $m->patient_id !== null, (string) $m->motif) === 'inventaire' ? $soldes[$cle] : null,
+                'type' => TypeStupefiantAncien::type((float) $m->quantite, $m->patient_id !== null, (string) $m->motif),
+                'quantite_comptee' => TypeStupefiantAncien::type((float) $m->quantite, $m->patient_id !== null, (string) $m->motif) === 'inventaire' ? $soldes[$cle] : null,
                 'solde_apres' => $soldes[$cle],
                 'patient_nom' => $patient?->nom,
                 'detenteur_nom' => $client ? trim(($client->civilite ?? '').' '.$client->nom) : null,
                 'signataire_nom' => $m->employe_id ? DB::table('employes')->where('id', $m->employe_id)->value('nom') : null,
             ]);
         });
-    }
-
-    /**
-     * Le type d'une ligne d'avant la mise aux normes, d'après son sens et son
-     * motif (vérification du 01.11.2026) : un report d'ouverture est un
-     * inventaire, un vol un vol, un flacon cassé une perte, une destruction
-     * une élimination ; une entrée sans réception ni report, ou une sortie
-     * sans animal ni motif connu, une correction.
-     */
-    private static function typeAncien(float $quantite, bool $versUnAnimal, string $motif): string
-    {
-        $m = mb_strtolower($motif);
-
-        return match (true) {
-            $versUnAnimal => 'administration',
-            str_contains($m, 'report') || str_contains($m, 'ouverture') => 'inventaire',
-            $quantite > 0 && (str_contains($m, 'récep') || str_contains($m, 'recep') || str_contains($m, 'grossiste') || str_contains($m, 'commande') || str_contains($m, 'lot ')) => 'reception',
-            str_contains($m, 'vol') => 'vol',
-            str_contains($m, 'cass') || str_contains($m, 'perte') || str_contains($m, 'perdu') || str_contains($m, 'renvers') => 'perte',
-            str_contains($m, 'destruct') || str_contains($m, 'périm') || str_contains($m, 'elimin') || str_contains($m, 'élimin') => 'elimination',
-            $quantite > 0 && blank($m) => 'reception',
-            default => 'correction',
-        };
     }
 
     public function down(): void
