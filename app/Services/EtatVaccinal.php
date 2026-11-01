@@ -329,7 +329,10 @@ final class EtatVaccinal
             }
             preg_match_all('/\(([^)]*)\)/', $partie, $m);
             $ajouts = [];
+            $ajoute = false;
             foreach ($m[1] as $dedans) {
+                // « (+ Calici) » ajoute toujours, même une maladie du nom : il ne précise jamais
+                $ajoute = $ajoute || (bool) preg_match('/^\s*(?:\+|&|,|et\b)/u', $dedans);
                 // « (+ Lepto) » : le « + » du début dit un ajout, pas une partie manquante
                 $sous = array_map(fn (string $p): ?array => $connu($cle($p)), $decouper((string) preg_replace('/^\s*(?:\+|&|,|et\b)\s*/u', '', $dedans)));
                 if ($sous === [] || in_array(null, $sous, true)) {
@@ -337,7 +340,7 @@ final class EtatVaccinal
                 }
                 $ajouts[] = array_values(array_unique(array_merge(...$sous)));
             }
-            if (count($ajouts) === 1 && array_diff($ajouts[0], $base) === []) {
+            if (! $ajoute && count($ajouts) === 1 && array_diff($ajouts[0], $base) === []) {
                 return $ajouts[0];
             }
 
