@@ -481,4 +481,43 @@ class RappelsVerificationTest extends TestCase
         Mail::assertSent(RappelRendezVous::class, 1);
         Mail::assertSent(RappelRendezVous::class, fn (RappelRendezVous $m) => $m->rendezVous->is($limite));
     }
+
+    /**
+     * Jamais renouvelé à tort (septième vérification du 01.11.2026) : un nom qui peut désigner plusieurs
+     * maladies exige qu'elles soient toutes couvertes ; les parenthèses précisent ; les séparateurs au premier niveau
+     */
+    public function test_le_renouvellement_par_le_nom_n_est_jamais_a_tort(): void
+    {
+        $cas = [
+            ['Toux de chenil', ['carre', 'hepatite', 'parvovirose', 'parainfluenza'], false],
+            ['Toux de chenil', ['parainfluenza', 'bordetellose'], true],
+            ['Toux de chenil (Bordetella)', ['carre', 'hepatite', 'parvovirose', 'parainfluenza'], false],
+            ['Toux de chenil (Bordetella)', ['bordetellose'], true],
+            ['Toux de chenil (Bordetella + Pi)', ['bordetellose'], false],
+            ['Coryza', ['herpes_felin'], false],
+            ['Typhus / Coryza', ['panleucopenie', 'herpes_felin'], false],
+            ['Carré · Parvo', ['carre', 'parvovirose'], true],
+            ['Myxomatose & VHD', ['myxomatose', 'rhd'], true],
+            ['Carré + Rage', ['carre'], false],
+            ['Sérum', ['septicemie_poulain'], false],
+            ['/', ['rage'], false],
+        ];
+        foreach ($cas as [$nom, $valences, $attendu]) {
+            $patient = Patient::factory()->create(['organisation_id' => $this->patient->organisation_id]);
+            $ancienne = Vaccination::factory()->create(['patient_id' => $patient->id, 'produit_id' => null, 'nom' => $nom, 'valences' => null, 'injectee_le' => '2025-10-01', 'echeance_le' => '2026-10-01']);
+            Vaccination::factory()->create(['patient_id' => $patient->id, 'produit_id' => null, 'nom' => 'Catalogue', 'valences' => $valences, 'injectee_le' => '2026-10-20', 'echeance_le' => '2027-10-20']);
+            $this->assertSame($attendu, (bool) $ancienne->fresh()->renouvelee, $nom.' + '.implode(',', $valences));
+        }
+    }
+
+    /** Une plus récente saisie à la main couvre ce qu'elle nomme sans ambiguïté : « Rage » oui, « Toux de chenil » non */
+    public function test_une_plus_recente_saisie_a_la_main_couvre_sans_ambiguite(): void
+    {
+        $rage = Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Rabisin', 'valences' => ['rage'], 'injectee_le' => '2025-10-01', 'echeance_le' => '2026-10-01']);
+        $bb = Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Nobivac Bb', 'valences' => ['bordetellose'], 'injectee_le' => '2025-10-01', 'echeance_le' => '2026-10-01']);
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Rage', 'valences' => null, 'injectee_le' => '2026-10-20', 'echeance_le' => '2027-10-20']);
+        Vaccination::factory()->create(['patient_id' => $this->patient->id, 'produit_id' => null, 'nom' => 'Toux de chenil', 'valences' => null, 'injectee_le' => '2026-10-20', 'echeance_le' => '2027-10-20']);
+        $this->assertTrue((bool) $rage->fresh()->renouvelee);
+        $this->assertFalse((bool) $bb->fresh()->renouvelee);
+    }
 }

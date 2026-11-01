@@ -192,9 +192,12 @@ final class EtatVaccinal
                     continue 2;
                 }
                 $couvertes += array_fill_keys(array_keys(self::valencesDe($autre)), true);
-                // Une plus récente saisie à la main qui nomme des maladies les couvre aussi
+                // Une plus récente saisie à la main couvre les maladies qu'elle nomme sans ambiguïté (« Rage »,
+                // pas « Toux de chenil », qui peut n'être que l'une des deux)
                 foreach (self::maladiesDuNom($autre) ?? [] as $candidates) {
-                    $couvertes += array_fill_keys($candidates, true);
+                    if (count($candidates) === 1) {
+                        $couvertes[$candidates[0]] = true;
+                    }
                 }
             }
             if ($siennes !== [] && array_diff($siennes, array_keys($couvertes)) === []) {
@@ -203,9 +206,10 @@ final class EtatVaccinal
                 continue;
             }
             // Saisie à la main (« Rage », « Leucose (FeLV) », « Typhus / Coryza ») : renouvelée quand chaque maladie
-            // qu'elle nomme est couverte, ici seulement ; l'affichage et la primo-vaccination gardent le nom libre
+            // qu'elle peut désigner est couverte (« Toux de chenil » : parainfluenza ET bordetellose), jamais à tort ;
+            // ici seulement, l'affichage et la primo-vaccination gardent le nom libre (vérification du 01.11.2026)
             $parties = self::maladiesDuNom($vaccination);
-            if ($parties !== null && $parties !== [] && collect($parties)->every(fn (array $candidates): bool => array_intersect($candidates, array_keys($couvertes)) !== [])) {
+            if ($parties !== null && $parties !== [] && collect($parties)->every(fn (array $candidates): bool => array_diff($candidates, array_keys($couvertes)) === [])) {
                 $renouvelees[$vaccination->id] = true;
             }
         }
@@ -285,21 +289,49 @@ final class EtatVaccinal
                     $index[$alias][] = $code;
                 }
             }
+            // Des mots trop généraux pour nommer une maladie (« (sérum) » du poulain, « (herpès) » du chat)
+            unset($index['serum'], $index['herpes']);
         }
-        $chercher = function (string $partie) use ($index, $cle): ?array {
-            $sansParentheses = $cle((string) preg_replace('/\s*\(.*?\)\s*/', ' ', $partie));
-            preg_match_all('/\(([^)]*)\)/', $partie, $m);
-            foreach ([$cle($partie), $sansParentheses, ...array_map($cle, $m[1])] as $k) {
-                if ($k !== '' && isset($index[$k])) {
-                    return array_values(array_unique($index[$k]));
+        // Les séparateurs au premier niveau seulement : « Toux de chenil (Bordetella + Pi) » reste une partie
+        $decouper = function (string $texte): array {
+            $parties = [''];
+            $profondeur = 0;
+            foreach (preg_split('/(\s*(?:·|,|\+|\/|&|\bet\b)\s*|[()])/u', $texte, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) ?: [] as $bout) {
+                if ($bout === '(' || $bout === ')') {
+                    $profondeur += $bout === '(' ? 1 : -1;
+                    $parties[count($parties) - 1] .= $bout;
+                } elseif ($profondeur === 0 && preg_match('/^\s*(?:·|,|\+|\/|&|\bet\b)\s*$/u', $bout)) {
+                    $parties[] = '';
+                } else {
+                    $parties[count($parties) - 1] .= $bout;
                 }
             }
 
-            return null;
+            return array_values(array_filter(array_map('trim', $parties), fn (string $p): bool => $p !== ''));
         };
-        $parties = preg_split('/\s*(?:·|,|\+|\/(?![^(]*\))|\bet\b)\s*/u', (string) $vaccination->nom) ?: [];
+        $connu = fn (string $k): ?array => $k !== '' && isset($index[$k]) ? array_values(array_unique($index[$k])) : null;
+        // Le nom entier ; sinon ce que précisent les parenthèses, si tout y est connu (« (Bordetella) ») ;
+        // sinon le nom sans elles (« Toux de chenil » : les deux maladies)
+        $chercher = function (string $partie) use ($connu, $cle, $decouper): ?array {
+            if ($codes = $connu($cle($partie))) {
+                return $codes;
+            }
+            preg_match_all('/\(([^)]*)\)/', $partie, $m);
+            foreach ($m[1] as $dedans) {
+                $sous = array_map(fn (string $p): ?array => $connu($cle($p)), $decouper($dedans));
+                if ($sous !== [] && ! in_array(null, $sous, true)) {
+                    return array_values(array_unique(array_merge(...$sous)));
+                }
+            }
+
+            return $connu($cle((string) preg_replace('/\s*\(.*?\)\s*/', ' ', $partie)));
+        };
+        $parties = $decouper((string) $vaccination->nom);
+        if ($parties === []) {
+            return null;
+        }
         $maladies = [];
-        foreach (array_filter(array_map('trim', $parties), fn (string $p): bool => $p !== '') as $partie) {
+        foreach ($parties as $partie) {
             $codes = $chercher($partie);
             if ($codes === null) {
                 return null;
