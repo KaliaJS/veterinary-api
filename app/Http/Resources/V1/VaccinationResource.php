@@ -6,6 +6,7 @@ use App\Models\Vaccination;
 use App\Services\EtatVaccinal;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Carbon;
 
 /**
  * Une injection du carnet : produit du catalogue (ou saisie libre), valences
@@ -42,6 +43,14 @@ class VaccinationResource extends JsonResource
             'veterinaire' => $this->whenLoaded('employe', fn () => $this->employe?->nom),
             'injectee_le' => $this->injectee_le->toDateString(),
             'echeance_le' => $this->echeance_le?->toDateString(),
+            // Une injection plus récente du même vaccin l'a remplacée : elle n'est plus due
+            'est_renouvelee' => $this->whenHas('est_renouvelee', fn (): bool => (bool) $this->resource->getAttribute('est_renouvelee')),
+            // Le dernier rappel parti pour elle (à la main ou automatique)
+            'rappel_envoye_le' => $this->whenHas('rappel_envoye_le', function (): ?string {
+                $le = $this->resource->getAttribute('rappel_envoye_le');
+
+                return $le ? Carbon::parse($le)->toIso8601String() : null;
+            }),
             'jours' => $this->echeance_le ? (int) aujourdhui()->diffInDays($this->echeance_le, false) : null,
         ];
     }

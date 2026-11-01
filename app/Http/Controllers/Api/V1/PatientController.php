@@ -10,6 +10,7 @@ use App\Http\Resources\V1\PatientResource;
 use App\Models\Client;
 use App\Models\Patient;
 use App\Models\Pesee;
+use App\Models\Vaccination;
 use App\Rules\NumeroPuce;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -34,7 +35,8 @@ class PatientController extends Controller
 
         $patients = Patient::query()
             ->with(['client', 'courbePoids', 'rendezVousAVenir'])
-            ->withMin('vaccinations', 'echeance_le')
+            // Les injections pas encore renouvelées : un vaccin renouvelé n'est plus dû (01.11.2026)
+            ->withMin(['vaccinations' => fn ($requete) => $requete->nonRenouvelees()], 'echeance_le')
             ->withMax('visites', 'visite_le')
             ->tap(fn (Builder $requete) => $this->rechercher($requete, $request))
             ->when($request->string('filtre')->toString(), fn (Builder $requete, string $filtre) => match ($filtre) {
@@ -47,7 +49,7 @@ class PatientController extends Controller
                     ->orWhere('dette', '>', 0)),
                 'rappels' => $requete->whereHas(
                     'vaccinations',
-                    fn (Builder $vaccination) => $vaccination->where('echeance_le', '<=', $this->horizonRappels()),
+                    fn (Builder $vaccination) => $vaccination->nonRenouvelees()->where('echeance_le', '<=', $this->horizonRappels()),
                 ),
                 default => $requete,
             })
@@ -132,7 +134,7 @@ class PatientController extends Controller
                 $compte('patients.espece = ?').' as chat',
                 $compte('patients.espece not in (?, ?)').' as nac',
                 $compte('patients.est_agressif = 1 or patients.a_allergies = 1 or patients.dette > 0').' as alertes',
-                $compte('exists (select 1 from vaccinations where vaccinations.patient_id = patients.id and vaccinations.echeance_le <= ?)').' as rappels',
+                $compte('exists (select 1 from vaccinations where vaccinations.patient_id = patients.id and vaccinations.echeance_le <= ? and '.Vaccination::SQL_NON_RENOUVELEE.')').' as rappels',
             ]), [
                 Espece::Chien->value,
                 Espece::Chat->value,
@@ -187,7 +189,10 @@ class PatientController extends Controller
         $patient->load([
             'client',
             'pesees' => fn ($requete) => $requete->orderBy('pesee_le')->orderBy('id'),
-            'vaccinations' => fn ($requete) => $requete->orderBy('echeance_le'),
+            // Renouvelée ou non, et le dernier rappel parti : le carnet le dit d'après le serveur (01.11.2026)
+            'vaccinations' => fn ($requete) => $requete->orderBy('echeance_le')
+                ->select('vaccinations.*')->selectRaw('case when '.Vaccination::SQL_NON_RENOUVELEE.' then 0 else 1 end as est_renouvelee')
+                ->withMax('rappelsEnvoyes as rappel_envoye_le', 'envoye_le'),
             'vaccinations.employe' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
             'visites' => fn ($requete) => $requete->orderByDesc('visite_le')->orderByDesc('id'),
             'visites.employe' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
@@ -196,7 +201,7 @@ class PatientController extends Controller
             'relevesDentaires',
             'courbePoids',
             'rendezVousAVenir',
-        ])->loadMin('vaccinations', 'echeance_le')->loadMax('visites', 'visite_le');
+        ])->loadMin(['vaccinations' => fn ($requete) => $requete->nonRenouvelees()], 'echeance_le')->loadMax('visites', 'visite_le');
 
         return new PatientResource($patient);
     }

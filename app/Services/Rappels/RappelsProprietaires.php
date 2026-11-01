@@ -2,13 +2,20 @@
 
 namespace App\Services\Rappels;
 
+use App\Enums\CanalDevis;
+use App\Enums\StatutDevis;
+use App\Enums\StatutOrdonnance;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
 use App\Mail\RappelControle;
+use App\Mail\RappelRendezVous;
 use App\Mail\RappelVaccin;
+use App\Mail\RelanceDevis;
 use App\Mail\RelanceNoShow;
 use App\Models\Client;
 use App\Models\Clinique;
+use App\Models\Devis;
+use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\PreferencesProprietaire;
 use App\Models\RappelEnvoye;
@@ -42,6 +49,13 @@ use Throwable;
  *   décédé, propriétaire sans adresse ou qui a refusé (lien de l'e-mail ou
  *   son espace), ni la nuit (de 8 h à 20 h, à l'heure de la clinique).
  * - Chaque envoi est gardé ; un échec est retenté au plus trois fois.
+ *
+ * Ajoutés le 01.11.2026 (écran « Rappels », choix A de Jim), chacun
+ * réglable : chaque rendez-vous la veille ; une relance quand un vaccin
+ * est en retard (sept jours après l'échéance, une fois) ; une relance d'un
+ * devis envoyé en ligne et resté sans réponse (sept jours après, une fois,
+ * jamais s'il a déjà été relancé à la main). Un rappel de vaccin envoyé à
+ * la main compte : l'automatique ne repart pas pour la même échéance.
  */
 class RappelsProprietaires
 {
@@ -76,7 +90,17 @@ class RappelsProprietaires
     /** @var array<int, ?bool> choix SMS de l'espace, null tant qu'il n'a pas choisi */
     private array $smsEspace = [];
 
-    /** @return array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool, relance_noshow: bool, messages_recus: bool, messages_reponses_seulement: bool} */
+    /**
+     * Les rendez-vous qui ne se rappellent pas la veille : le contrôle (son
+     * propre rappel), l'euthanasie et l'urgence (un message serait déplacé),
+     * le créneau tampon (sans animal).
+     */
+    private const array SANS_RAPPEL_VEILLE = [TypeRendezVous::Controle, TypeRendezVous::Euthanasie, TypeRendezVous::Urgence, TypeRendezVous::Tampon];
+
+    /** Une relance de vaccin en retard, ou de devis sans réponse, part sept jours après */
+    public const int JOURS_RELANCE = 7;
+
+    /** @return array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool, rendez_vous: bool, relance_vaccin_retard: bool, relance_devis: bool, relance_noshow: bool, messages_recus: bool, messages_reponses_seulement: bool} */
     public static function reglages(Clinique $clinique): array
     {
         return [
@@ -90,6 +114,10 @@ class RappelsProprietaires
             'delai_jours' => (int) ($clinique->rappels_delai_jours ?? 7),
             'vaccins' => (bool) ($clinique->rappels_vaccins ?? true),
             'controles' => (bool) ($clinique->rappels_controles ?? true),
+            // Écran « Rappels » (01.11.2026)
+            'rendez_vous' => (bool) ($clinique->rappels_rendez_vous ?? true),
+            'relance_vaccin_retard' => (bool) ($clinique->relance_vaccin_retard ?? true),
+            'relance_devis' => (bool) ($clinique->relance_devis ?? true),
             // Branchés le 28.10.2026 (décision de Jim)
             'relance_noshow' => (bool) ($clinique->relance_noshow ?? false),
             'messages_recus' => (bool) ($clinique->messages_recus ?? true),
@@ -107,8 +135,32 @@ class RappelsProprietaires
         foreach ($this->controlesDus() as $rendezVous) {
             $partis += $this->envoyerAutomatique($rendezVous->clinique, $rendezVous->patient, 'controle', null, $rendezVous) ? 1 : 0;
         }
+        foreach ($this->rendezVousDus() as $rendezVous) {
+            $partis += $this->envoyerAutomatique($rendezVous->clinique, $rendezVous->patient, 'rdv', null, $rendezVous) ? 1 : 0;
+        }
+        foreach ($this->vaccinsEnRetard() as [$vaccination, $clinique]) {
+            $partis += $this->envoyerAutomatique($clinique, $vaccination->patient, 'vaccin_retard', $vaccination, null) ? 1 : 0;
+        }
+        foreach ($this->devisSansReponse() as $devis) {
+            $partis += $this->relancerDevis($devis) ? 1 : 0;
+        }
 
         return $partis;
+    }
+
+    /** Un vaccin déjà renouvelé (injection plus récente du même vaccin, ou d'un combiné qui le couvre) */
+    public function estRenouvele(Vaccination $vaccination): bool
+    {
+        $plusRecentes = Vaccination::query()->with('produit.valences')->where('patient_id', $vaccination->patient_id)->whereKeyNot($vaccination->id)->get()
+            ->filter(fn (Vaccination $autre): bool => $autre->injectee_le->gt($vaccination->injectee_le)
+                || ($autre->injectee_le->equalTo($vaccination->injectee_le) && $autre->id > $vaccination->id));
+        if ($plusRecentes->contains(fn (Vaccination $autre): bool => mb_strtolower(trim($autre->nom)) === mb_strtolower(trim($vaccination->nom)))) {
+            return true;
+        }
+        $siennes = array_keys(EtatVaccinal::valencesDe($vaccination));
+        $couvertes = $plusRecentes->flatMap(fn (Vaccination $autre): array => array_keys(EtatVaccinal::valencesDe($autre)))->unique()->all();
+
+        return $siennes !== [] && array_diff($siennes, $couvertes) === [];
     }
 
     /**
@@ -126,6 +178,8 @@ class RappelsProprietaires
         $mobile = $client !== null ? $this->mobilePourSms($clinique, $client) : null;
         $raison = match (true) {
             $patient->decede_le !== null => 'Animal décédé : aucun rappel ne part.',
+            // Déjà renouvelé : « à faire avant le… » serait faux (vérification du 01.11.2026)
+            $vaccination->echeance_le !== null && $this->estRenouvele($vaccination) => 'Ce vaccin a déjà été renouvelé : aucun rappel à envoyer.',
             $parEmail || $mobile !== null => null,
             $client === null => 'Pas d’adresse e-mail pour ce propriétaire.',
             default => $this->raisonSansCanal($clinique, $client),
@@ -183,10 +237,12 @@ class RappelsProprietaires
             $vaccins = $this->dernieresInjections($aujourdhui, $limite, $clinique->societe->organisation_id);
             $references = $this->cliniquesDeReference($vaccins->pluck('patient'));
             $envoyes = $this->clesEnvoyees($vaccins->flatMap(fn (Vaccination $v): array => self::cles('vaccin', $v->id, $v->echeance_le->toDateString())));
+            $aLaMain = $this->rappelesALaMain($vaccins);
             $this->lireLesRefus($vaccins->map(fn (Vaccination $v): ?Client => $v->patient?->client));
             foreach ($vaccins as $vaccination) {
                 if (($references[$vaccination->patient_id] ?? null)?->id !== $clinique->id
-                    || self::dejaParti($envoyes, 'vaccin', $vaccination->id, $vaccination->echeance_le->toDateString())) {
+                    || self::dejaParti($envoyes, 'vaccin', $vaccination->id, $vaccination->echeance_le->toDateString())
+                    || isset($aLaMain[$vaccination->id.':'.$vaccination->echeance_le->toDateString()])) {
                     continue;
                 }
                 $echeance = $vaccination->echeance_le->toDateString();
@@ -210,9 +266,182 @@ class RappelsProprietaires
             }
         }
 
+        if ($reglages['rendez_vous']) {
+            $rendezVous = RendezVous::withoutGlobalScopes()->with(['patient' => fn ($p) => $p->withoutGlobalScopes(), 'patient.client' => fn ($c) => $c->withoutGlobalScopes()])
+                ->where('clinique_id', $clinique->id)->whereNotIn('type', self::SANS_RAPPEL_VEILLE)->where('status', StatutRendezVous::Prevu)
+                ->whereNotNull('patient_id')->whereBetween('starts_at', [now(), $limite->endOfDay()])->get();
+            $envoyes = $this->clesEnvoyees($rendezVous->flatMap(fn (RendezVous $r): array => self::cles('rdv', $r->id, $this->momentLocal($r, $clinique))));
+            $this->lireLesRefus($rendezVous->map(fn (RendezVous $r): ?Client => $r->patient?->client));
+            $reglagesVeille = [...$reglages, 'delai_jours' => 1];
+            foreach ($rendezVous as $r) {
+                if (! self::dejaParti($envoyes, 'rdv', $r->id, $this->momentLocal($r, $clinique))) {
+                    $jour = substr($this->momentLocal($r, $clinique), 0, 10);
+                    // La veille : il doit partir avant 20 h le jour d'avant
+                    $veille = CarbonImmutable::parse($jour.' '.(self::HEURE_FIN - 1).':59:59', $clinique->fuseau_horaire ?: 'Europe/Zurich')->subDay();
+                    $lignes[] = $this->ligneAVenir($clinique, 'rdv', 'Rendez-vous', $r->patient, $jour, $reglagesVeille, $prochain, $veille);
+                }
+            }
+        }
+        if ($reglages['vaccins'] && $reglages['relance_vaccin_retard']) {
+            // Échus depuis peu, encore dus : la relance part sept jours après l'échéance
+            $retards = $this->dernieresInjections($aujourdhui->subDays(30), $aujourdhui->subDay(), $clinique->societe->organisation_id);
+            $references = $this->cliniquesDeReference($retards->pluck('patient'));
+            $envoyes = $this->clesEnvoyees($retards->flatMap(fn (Vaccination $v): array => self::cles('vaccin_retard', $v->id, $v->echeance_le->toDateString())));
+            $this->lireLesRefus($retards->map(fn (Vaccination $v): ?Client => $v->patient?->client));
+            $reglagesRetard = [...$reglages, 'delai_jours' => -self::JOURS_RELANCE];
+            foreach ($retards as $vaccination) {
+                if (($references[$vaccination->patient_id] ?? null)?->id !== $clinique->id || self::dejaParti($envoyes, 'vaccin_retard', $vaccination->id, $vaccination->echeance_le->toDateString())) {
+                    continue;
+                }
+                $echeance = $vaccination->echeance_le->toDateString();
+                $dernier = CarbonImmutable::parse($echeance.' 23:59:59', $clinique->fuseau_horaire ?: 'Europe/Zurich')->addDays(30);
+                $lignes[] = [...$this->ligneAVenir($clinique, 'vaccin_retard', $vaccination->nom.', en retard', $vaccination->patient, $echeance, $reglagesRetard, $prochain, $dernier)];
+            }
+        }
+        if ($reglages['relance_devis']) {
+            $devis = Devis::query()->with(['patient' => fn ($p) => $p->withoutGlobalScopes(), 'patient.client' => fn ($c) => $c->withoutGlobalScopes(), 'patient.client.user'])
+                ->where('clinique_id', $clinique->id)->where('statut', StatutDevis::Envoye)->where('canal', CanalDevis::Portail)
+                ->whereNull('relance_le')->whereNotNull('patient_id')->whereNotNull('envoye_le')->get()
+                ->reject(fn (Devis $d): bool => $d->estExpire());
+            foreach ($devis as $d) {
+                $envoi = CarbonImmutable::parse($d->envoye_le->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich')->toDateString())->addDays(self::JOURS_RELANCE);
+                $client = $d->patient?->client;
+                $lignes[] = [
+                    'objet' => 'devis',
+                    'libelle' => 'Devis '.$d->numero.' sans réponse',
+                    'patient' => ['id' => $d->patient->id, 'nom' => $d->patient->nom],
+                    'proprietaire' => $client ? self::nomDe($client) : null,
+                    'echeance_le' => ($d->valide_jusquau ?? $envoi)->toDateString(),
+                    'envoi_le' => max($envoi, CarbonImmutable::parse($prochain->toDateString()))->toDateString(),
+                    'canaux' => filled($client?->user?->email ?: $client?->email) ? ['email'] : [],
+                    'bloque' => filled($client?->user?->email ?: $client?->email) ? null : 'Pas d’adresse e-mail',
+                ];
+            }
+        }
+
         usort($lignes, fn (array $a, array $b): int => [$a['envoi_le'], $a['echeance_le']] <=> [$b['envoi_le'], $b['echeance_le']]);
 
         return $lignes;
+    }
+
+    /**
+     * Ce qui attend l'équipe (01.11.2026) : ce qu'aucun message automatique
+     * ne règle. Un vaccin en retard depuis quatorze jours ou plus et
+     * toujours pas renouvelé ; une demande de renouvellement d'ordonnance ;
+     * un devis sans réponse depuis quatorze jours (en ligne, malgré la
+     * relance) ou sept jours (papier : il se relance par téléphone).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function aFaire(Clinique $clinique): array
+    {
+        $aujourdhui = CarbonImmutable::parse(aujourdhui($clinique)->toDateString());
+        $lignes = [];
+
+        $retards = $this->dernieresInjections($aujourdhui->subDays(180), $aujourdhui->subDays(14), $clinique->societe->organisation_id);
+        $references = $this->cliniquesDeReference($retards->pluck('patient'));
+        foreach ($retards as $vaccination) {
+            if (($references[$vaccination->patient_id] ?? null)?->id !== $clinique->id || $vaccination->patient->rappels_coupes) {
+                continue;
+            }
+            $client = $vaccination->patient->client;
+            $lignes[] = [
+                'type' => 'vaccin',
+                'id' => $vaccination->id,
+                'patient' => ['id' => $vaccination->patient->id, 'nom' => $vaccination->patient->nom],
+                'proprietaire' => $client ? self::nomDe($client) : null,
+                'telephone' => $client?->tel,
+                'quoi' => $vaccination->nom.' en retard depuis le '.$vaccination->echeance_le->format('d.m.Y'),
+                'depuis_le' => $vaccination->echeance_le->toDateString(),
+            ];
+        }
+
+        $demandes = Ordonnance::query()
+            ->with(['patient' => fn ($p) => $p->withoutGlobalScopes(), 'patient.client' => fn ($c) => $c->withoutGlobalScopes(), 'demandesRenouvellement' => fn ($d) => $d->whereNull('traitee_le')])
+            ->where('clinique_id', $clinique->id)->where('statut', StatutOrdonnance::Active)
+            ->whereHas('demandesRenouvellement', fn ($d) => $d->whereNull('traitee_le'))
+            ->get();
+        foreach ($demandes as $ordonnance) {
+            $client = $ordonnance->patient?->client;
+            $le = $ordonnance->demandesRenouvellement->sortBy('created_at')->first()?->created_at;
+            $lignes[] = [
+                'type' => 'ordonnance',
+                'id' => $ordonnance->id,
+                'patient' => ['id' => $ordonnance->patient_id, 'nom' => $ordonnance->patient?->nom],
+                'proprietaire' => $client ? self::nomDe($client) : null,
+                'telephone' => $client?->tel,
+                'quoi' => 'Demande le renouvellement de '.$ordonnance->numero.' depuis son espace',
+                'depuis_le' => $le?->toDateString(),
+            ];
+        }
+
+        $devis = Devis::query()->with(['patient' => fn ($p) => $p->withoutGlobalScopes(), 'patient.client' => fn ($c) => $c->withoutGlobalScopes()])
+            ->where('clinique_id', $clinique->id)->where('statut', StatutDevis::Envoye)->whereNotNull('patient_id')->whereNotNull('envoye_le')
+            ->get()
+            ->reject(fn (Devis $d): bool => $d->estExpire());
+        foreach ($devis as $d) {
+            $jours = (int) $d->envoye_le->diffInDays(now());
+            $seuil = $d->canal === CanalDevis::Papier ? self::JOURS_RELANCE : 2 * self::JOURS_RELANCE;
+            if ($jours < $seuil) {
+                continue;
+            }
+            $client = $d->patient?->client;
+            $lignes[] = [
+                'type' => 'devis',
+                'id' => $d->id,
+                'patient' => ['id' => $d->patient_id, 'nom' => $d->patient?->nom],
+                'proprietaire' => $client ? self::nomDe($client) : null,
+                'telephone' => $client?->tel,
+                'quoi' => ($d->canal === CanalDevis::Papier ? 'Devis papier ' : 'Devis ').$d->numero.' sans réponse depuis '.$jours.' jours',
+                'depuis_le' => $d->envoye_le->toDateString(),
+            ];
+        }
+
+        usort($lignes, fn (array $a, array $b): int => ($a['depuis_le'] ?? '') <=> ($b['depuis_le'] ?? ''));
+
+        return $lignes;
+    }
+
+    /**
+     * Le message tel que le client le reçoit (01.11.2026) : sujet, e-mail
+     * rendu, SMS, pour un animal d'exemple, avec la clinique elle-même.
+     *
+     * @return array{sujet: string, html: string, sms: ?string}
+     */
+    public function apercu(Clinique $clinique, string $objet): array
+    {
+        $fuseau = $clinique->fuseau_horaire ?: 'Europe/Zurich';
+        $client = new Client(['prenom' => 'Paul', 'nom' => 'Exemple', 'email' => 'paul.exemple@exemple.ch']);
+        $patient = new Patient(['nom' => 'Pilou']);
+        $patient->setRelation('client', $client);
+        $jour = CarbonImmutable::parse(aujourdhui($clinique)->toDateString());
+        $vaccination = new Vaccination(['nom' => 'Rage', 'injectee_le' => $jour->subYear(), 'echeance_le' => $objet === 'vaccin_retard' ? $jour->subDays(self::JOURS_RELANCE) : $jour->addDays(self::reglages($clinique)['delai_jours'])]);
+        $vaccination->setRelation('patient', $patient);
+        $rendezVous = new RendezVous(['starts_at' => CarbonImmutable::parse($jour->addDay()->toDateString().' 10:30', $fuseau)->utc()]);
+        $rendezVous->setRelation('patient', $patient);
+        $lien = rtrim((string) config('app.frontend_url'), '/');
+
+        $mail = match ($objet) {
+            'vaccin', 'vaccin_retard' => new RappelVaccin($vaccination, $clinique, $client, $lien, $objet === 'vaccin_retard'),
+            'controle' => new RappelControle($rendezVous, $clinique, $client, $lien),
+            'rdv' => new RappelRendezVous($rendezVous, $clinique, $client, $lien),
+            'noshow' => new RelanceNoShow($rendezVous, $clinique, $client, $lien, self::lienReprise($clinique)),
+            default => (function () use ($clinique, $patient, $jour): RelanceDevis {
+                $devis = new Devis(['numero' => 'DV-2026-017', 'valide_jusquau' => $jour->addDays(23)]);
+                $devis->setRelation('clinique', $clinique);
+                $devis->setRelation('patient', $patient);
+
+                return new RelanceDevis($devis);
+            })(),
+        };
+        $sms = match ($objet) {
+            'vaccin', 'vaccin_retard' => self::texteSms($clinique, $patient, $vaccination, null, $objet),
+            'controle', 'rdv' => self::texteSms($clinique, $patient, null, $rendezVous, $objet),
+            'noshow' => $clinique->nom.' : '.$patient->nom.' n’a pas pu venir au rendez-vous. '.(self::lienReprise($clinique) !== null ? 'Reprenez rendez-vous : '.self::lienReprise($clinique) : (filled($clinique->tel) ? 'Pour reprendre rendez-vous : '.$clinique->tel.'.' : 'Contactez la clinique pour reprendre rendez-vous.')),
+            default => null,
+        };
+
+        return ['sujet' => (string) $mail->envelope()->subject, 'html' => $mail->render(), 'sms' => $sms === null ? null : TexteSms::versGsm($sms)];
     }
 
     /**
@@ -332,13 +561,20 @@ class RappelsProprietaires
     }
 
     /** Le texte du SMS : court (160 caractères), sans détail médical, la clinique et son téléphone. */
-    public static function texteSms(Clinique $clinique, Patient $patient, ?Vaccination $vaccination, ?RendezVous $rendezVous): string
+    public static function texteSms(Clinique $clinique, Patient $patient, ?Vaccination $vaccination, ?RendezVous $rendezVous, string $objet = ''): string
     {
         $tel = filled($clinique->tel) ? ' Rendez-vous : '.$clinique->tel.'.' : '';
         if ($vaccination !== null) {
-            return $clinique->nom.' : le vaccin '.$vaccination->nom.' de '.$patient->nom.' est à faire avant le '.($vaccination->echeance_le ?? $vaccination->injectee_le)->format('d.m.Y').'.'.$tel;
+            $echeance = ($vaccination->echeance_le ?? $vaccination->injectee_le)->format('d.m.Y');
+
+            return $objet === 'vaccin_retard'
+                ? $clinique->nom.' : le vaccin '.$vaccination->nom.' de '.$patient->nom.' était à faire le '.$echeance.'.'.$tel
+                : $clinique->nom.' : le vaccin '.$vaccination->nom.' de '.$patient->nom.' est à faire avant le '.$echeance.'.'.$tel;
         }
         $moment = $rendezVous->starts_at->setTimezone($clinique->fuseau_horaire ?: 'Europe/Zurich');
+        if ($objet === 'rdv') {
+            return $clinique->nom.' : rendez-vous de '.$patient->nom.' demain à '.$moment->format('H:i').'.'.(filled($clinique->tel) ? ' Un empêchement : '.$clinique->tel.'.' : '');
+        }
 
         return $clinique->nom.' : contrôle de '.$patient->nom.' le '.$moment->format('d.m.Y').' à '.$moment->format('H:i').'.'.(filled($clinique->tel) ? ' Pour le déplacer : '.$clinique->tel.'.' : '');
     }
@@ -449,6 +685,138 @@ class RappelsProprietaires
     }
 
     /**
+     * Les rendez-vous de demain (sauf les contrôles, rappelés à part), un
+     * rappel la veille.
+     *
+     * @return Collection<int, RendezVous>
+     */
+    private function rendezVousDus(): Collection
+    {
+        return RendezVous::withoutGlobalScopes()->with(['patient' => fn ($p) => $p->withoutGlobalScopes(), 'patient.client' => fn ($c) => $c->withoutGlobalScopes()])
+            ->whereNotIn('type', self::SANS_RAPPEL_VEILLE)->where('status', StatutRendezVous::Prevu)->whereNotNull('patient_id')
+            ->whereBetween('starts_at', [now(), now()->addHours(60)])
+            ->get()
+            ->filter(function (RendezVous $rendezVous): bool {
+                $clinique = $this->clinique($rendezVous->clinique_id);
+                if ($clinique === null) {
+                    return false;
+                }
+                $rendezVous->setRelation('clinique', $clinique);
+                $demain = CarbonImmutable::parse(aujourdhui($clinique)->toDateString())->addDay()->toDateString();
+
+                return self::reglages($clinique)['rendez_vous'] && $this->enJournee($clinique)
+                    && substr($this->momentLocal($rendezVous, $clinique), 0, 10) === $demain;
+            })
+            ->values();
+    }
+
+    /**
+     * Les vaccins en retard depuis sept jours ou plus (et au plus trente) et
+     * toujours pas renouvelés : une relance, une fois.
+     *
+     * @return Collection<int, array{0: Vaccination, 1: Clinique}>
+     */
+    private function vaccinsEnRetard(): Collection
+    {
+        $aujourdhui = CarbonImmutable::parse(aujourdhui()->toDateString());
+        $vaccins = $this->dernieresInjections($aujourdhui->subDays(31), $aujourdhui->subDays(self::JOURS_RELANCE - 1), null);
+        $references = $this->cliniquesDeReference($vaccins->pluck('patient'));
+
+        return $vaccins
+            ->map(fn (Vaccination $vaccination): ?array => ($clinique = $references[$vaccination->patient_id] ?? null) ? [$vaccination, $clinique] : null)
+            ->filter(function (?array $paire): bool {
+                if ($paire === null) {
+                    return false;
+                }
+                [$vaccination, $clinique] = $paire;
+                $reglages = self::reglages($clinique);
+                $jour = CarbonImmutable::parse(aujourdhui($clinique)->toDateString());
+
+                return $reglages['vaccins'] && $reglages['relance_vaccin_retard'] && $this->enJournee($clinique)
+                    && $vaccination->echeance_le->toDateString() <= $jour->subDays(self::JOURS_RELANCE)->toDateString();
+            })
+            ->values();
+    }
+
+    /**
+     * Les devis envoyés en ligne il y a sept jours ou plus, encore sans
+     * réponse ni relance, encore valables.
+     *
+     * @return Collection<int, Devis>
+     */
+    private function devisSansReponse(): Collection
+    {
+        return Devis::withoutGlobalScopes()
+            ->with(['clinique' => fn ($q) => $q->withoutGlobalScopes(), 'patient' => fn ($q) => $q->withoutGlobalScopes(), 'patient.client' => fn ($q) => $q->withoutGlobalScopes(), 'patient.client.user'])
+            ->where('statut', StatutDevis::Envoye)->where('canal', CanalDevis::Portail)
+            ->whereNull('relance_le')->whereNotNull('patient_id')
+            ->where('envoye_le', '<=', now()->subDays(self::JOURS_RELANCE))
+            ->where('envoye_le', '>=', now()->subDays(60))
+            ->get()
+            ->filter(function (Devis $devis): bool {
+                $clinique = $this->clinique($devis->clinique_id);
+
+                return $clinique !== null && ! $devis->estExpire() && self::reglages($clinique)['relance_devis'] && $this->enJournee($clinique);
+            })
+            ->values();
+    }
+
+    /** La relance automatique d'un devis : à l'adresse de son espace, une fois, notée sur le devis */
+    private function relancerDevis(Devis $devis): bool
+    {
+        $clinique = $this->clinique($devis->clinique_id);
+        $patient = $devis->patient;
+        $client = $patient?->client;
+        $adresse = $client?->user?->email ?: $client?->email;
+        $ouverte = $clinique !== null && ($this->organisationsOuvertes[$clinique->id] ??= (bool) $clinique->societe?->organisation?->estOuverte());
+        if (! $ouverte || $patient === null || $client === null || blank($adresse)) {
+            return false;
+        }
+        $rappel = $this->prendre(self::cle('devis', $devis->id, $devis->envoye_le->toDateString()), [
+            'clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'client_id' => $client->id, 'objet' => 'devis', 'devis_id' => $devis->id,
+            'libelle' => 'Devis '.$devis->numero, 'echeance_le' => ($devis->valide_jusquau ?? $devis->envoye_le)->toDateString(), 'canal' => 'email',
+        ]);
+        if ($rappel === null) {
+            return false;
+        }
+        $rappel->adresse = $adresse;
+        $rappel->tentatives = (int) $rappel->tentatives + 1;
+        try {
+            Mail::to($adresse)->send(new RelanceDevis($devis->setRelation('clinique', $clinique)));
+            $rappel->fill(['statut' => 'envoye', 'erreur' => null, 'envoye_le' => now()]);
+            $devis->update(['relance_le' => now()]);
+        } catch (Throwable $e) {
+            report($e);
+            $rappel->fill(['statut' => 'echec', 'erreur' => mb_substr($e->getMessage(), 0, 500)]);
+        }
+        $rappel->save();
+
+        return $rappel->statut === 'envoye';
+    }
+
+    /**
+     * Les vaccins déjà rappelés à la main pour leur échéance : l'automatique
+     * ne repart pas (vérification du 01.11.2026).
+     *
+     * @param  Collection<int, Vaccination>  $vaccins
+     * @return array<string, true> « id:échéance »
+     */
+    private function rappelesALaMain(Collection $vaccins): array
+    {
+        if ($vaccins->isEmpty()) {
+            return [];
+        }
+
+        $cles = RappelEnvoye::withoutGlobalScopes()->where('manuel', true)->where('statut', 'envoye')
+            ->whereIn('vaccination_id', $vaccins->pluck('id')->all())
+            ->get(['vaccination_id', 'echeance_le'])
+            ->map(fn (RappelEnvoye $r): string => $r->vaccination_id.':'.$r->echeance_le->toDateString())
+            ->all();
+
+        return array_fill_keys($cles, true);
+    }
+
+    /**
      * Les injections d'échéance dans la période qui sont encore dues : comme
      * le carnet, une injection plus récente qui couvre ses valences (même
      * vaccin, ou combiné qui le contient) rend l'échéance caduque. Toutes les
@@ -500,11 +868,20 @@ class RappelsProprietaires
         }
 
         $echeance = $vaccination !== null ? $vaccination->echeance_le->toDateString() : $this->momentLocal($rendezVous, $clinique);
+        // Déjà rappelé à la main pour cette échéance : l'automatique ne repart pas
+        if ($objet === 'vaccin' && isset($this->rappelesALaMain(collect([$vaccination]))[$vaccination->id.':'.$echeance])) {
+            return false;
+        }
         $id = $vaccination->id ?? $rendezVous->id;
         $attributs = [
             'clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'client_id' => $client->id, 'objet' => $objet,
             'vaccination_id' => $vaccination?->id, 'rendez_vous_id' => $rendezVous?->id,
-            'libelle' => $vaccination !== null ? $vaccination->nom : 'Contrôle', 'echeance_le' => substr($echeance, 0, 10),
+            'libelle' => match ($objet) {
+                'controle' => 'Contrôle',
+                'rdv' => 'Rendez-vous',
+                default => $vaccination->nom ?? 'Rappel',
+            },
+            'echeance_le' => substr($echeance, 0, 10),
         ];
         $parti = false;
 
@@ -520,7 +897,7 @@ class RappelsProprietaires
         if ($mobile !== null) {
             $rappel = $this->prendre(self::cle($objet, $id, $echeance, 'sms'), [...$attributs, 'canal' => 'sms']);
             if ($rappel !== null) {
-                $this->expedierSms($rappel, $clinique, $mobile, self::texteSms($clinique, $patient, $vaccination, $rendezVous));
+                $this->expedierSms($rappel, $clinique, $mobile, self::texteSms($clinique, $patient, $vaccination, $rendezVous, $objet));
                 $parti = $parti || $rappel->statut === 'envoye';
             }
         }
@@ -643,8 +1020,9 @@ class RappelsProprietaires
         $rappel->tentatives = (int) $rappel->tentatives + 1;
         try {
             Mail::to($client->email)->send(match (true) {
-                $vaccination !== null => new RappelVaccin($vaccination, $clinique, $client, $lien),
+                $vaccination !== null => new RappelVaccin($vaccination, $clinique, $client, $lien, $rappel->objet === 'vaccin_retard'),
                 $rappel->objet === 'noshow' => new RelanceNoShow($rendezVous, $clinique, $client, $lien, self::lienReprise($clinique)),
+                $rappel->objet === 'rdv' => new RappelRendezVous($rendezVous, $clinique, $client, $lien),
                 default => new RappelControle($rendezVous, $clinique, $client, $lien),
             });
             $rappel->fill(['statut' => 'envoye', 'erreur' => null, 'envoye_le' => now()]);

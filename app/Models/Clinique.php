@@ -53,6 +53,9 @@ class Clinique extends Model
             'rappels_vaccins' => 'boolean',
             'rappels_controles' => 'boolean',
             'relance_noshow' => 'boolean',
+            'rappels_rendez_vous' => 'boolean',
+            'relance_vaccin_retard' => 'boolean',
+            'relance_devis' => 'boolean',
             'messages_recus' => 'boolean',
             'messages_reponses_seulement' => 'boolean',
         ];

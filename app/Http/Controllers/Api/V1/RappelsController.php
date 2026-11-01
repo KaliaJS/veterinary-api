@@ -16,9 +16,10 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Rappels aux propriétaires (28.10.2026) : réglages de la clinique, la
- * fenêtre « Rappels automatiques » (prochains et envois réels) et
- * « Rappeler le propriétaire » depuis le carnet.
+ * Rappels aux propriétaires (28.10.2026) : réglages de la clinique, l'écran
+ * « Rappels » (01.11.2026, choix A de Jim : prochains, envois réels, ce qui
+ * attend l'équipe, aperçu des messages) et « Rappeler le propriétaire »
+ * depuis le carnet.
  */
 class RappelsController extends Controller
 {
@@ -34,6 +35,7 @@ class RappelsController extends Controller
         Gate::authorize(DomainePermission::Organisation->value);
         $clinique = app(ContexteClinique::class)->clinique();
         $correspondance = ['delai_jours' => 'rappels_delai_jours', 'vaccins' => 'rappels_vaccins', 'controles' => 'rappels_controles',
+            'rendez_vous' => 'rappels_rendez_vous', 'relance_vaccin_retard' => 'relance_vaccin_retard', 'relance_devis' => 'relance_devis',
             'relance_noshow' => 'relance_noshow', 'messages_recus' => 'messages_recus', 'messages_reponses_seulement' => 'messages_reponses_seulement'];
         foreach ($request->validated() as $cle => $valeur) {
             $clinique->{$correspondance[$cle]} = $valeur;
@@ -79,6 +81,31 @@ class RappelsController extends Controller
             'a_venir' => $aVenir,
             'envoyes' => $envoyes,
         ]]);
+    }
+
+    /**
+     * Ce qu'aucun message automatique ne règle et qui attend l'équipe
+     * (01.11.2026) : un vaccin toujours en retard malgré la relance, un
+     * renouvellement d'ordonnance demandé, un devis resté sans réponse.
+     */
+    public function aFaire(): JsonResponse
+    {
+        Gate::authorize(DomainePermission::Patients->value);
+        $clinique = app(ContexteClinique::class)->clinique();
+
+        return response()->json(['data' => $this->rappels->aFaire($clinique)]);
+    }
+
+    /**
+     * Le message tel que le client le reçoit (01.11.2026) : l'e-mail rendu et
+     * le SMS, pour un animal d'exemple, avec l'en-tête de la clinique.
+     */
+    public function apercu(string $objet): JsonResponse
+    {
+        Gate::authorize(DomainePermission::Patients->value);
+        abort_unless(in_array($objet, ['vaccin', 'vaccin_retard', 'controle', 'rdv', 'noshow', 'devis'], true), 404);
+
+        return response()->json(['data' => $this->rappels->apercu(app(ContexteClinique::class)->clinique(), $objet)]);
     }
 
     /** « Rappeler le propriétaire » depuis le carnet : part tout de suite, gardé. */

@@ -25,12 +25,14 @@ class RappelVaccin extends Mailable
         public Clinique $clinique,
         public Client $client,
         public string $lienDesabonnement,
+        // La relance d'un vaccin en retard (01.11.2026) : l'échéance est passée
+        public bool $estEnRetard = false,
     ) {}
 
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Rappel de vaccin pour '.$this->vaccination->patient->nom.' chez '.$this->clinique->nom,
+            subject: ($this->estEnRetard ? 'Vaccin en retard pour ' : 'Rappel de vaccin pour ').$this->vaccination->patient->nom.' chez '.$this->clinique->nom,
             replyTo: $this->clinique->email ? [new Address($this->clinique->email, $this->clinique->nom)] : [],
         );
     }
@@ -46,6 +48,7 @@ class RappelVaccin extends Mailable
         return new Content(markdown: 'emails.rappels.vaccin', with: [
             'patient' => $this->vaccination->patient,
             'echeance' => $this->vaccination->echeance_le?->format('d.m.Y'),
+            'estEnRetard' => $this->estEnRetard,
             'lienRendezVous' => rtrim((string) config('app.frontend_url'), '/').'/cliniques/'.$this->clinique->id.'-'.Str::slug($this->clinique->nom),
         ]);
     }

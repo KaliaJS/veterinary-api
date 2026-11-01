@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use Database\Factories\VaccinationFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Vaccination extends Model
 {
@@ -44,4 +46,30 @@ class Vaccination extends Model
     {
         return $this->belongsTo(Employe::class);
     }
+
+    /**
+     * Les rappels partis pour cette injection (le carnet dit « Rappel envoyé »
+     * d'après le serveur, plus seulement pendant la session, 01.11.2026).
+     *
+     * @return HasMany<RappelEnvoye, $this>
+     */
+    public function rappelsEnvoyes(): HasMany
+    {
+        return $this->hasMany(RappelEnvoye::class)->withoutGlobalScopes()->where('statut', 'envoye');
+    }
+
+    /**
+     * Les injections pas encore renouvelées : aucune injection plus récente
+     * du même vaccin pour l'animal (01.11.2026 : un vaccin renouvelé ne
+     * compte plus comme un rappel dû dans la liste des patients).
+     *
+     * @param  Builder<Vaccination>  $requete
+     */
+    public function scopeNonRenouvelees(Builder $requete): void
+    {
+        $requete->whereRaw(self::SQL_NON_RENOUVELEE);
+    }
+
+    /** La même condition, en SQL, pour les comptes bruts (facettes) */
+    public const string SQL_NON_RENOUVELEE = 'not exists (select 1 from vaccinations as plus_recente where plus_recente.patient_id = vaccinations.patient_id and lower(plus_recente.nom) = lower(vaccinations.nom) and (plus_recente.injectee_le > vaccinations.injectee_le or (plus_recente.injectee_le = vaccinations.injectee_le and plus_recente.id > vaccinations.id)))';
 }

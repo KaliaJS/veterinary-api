@@ -1429,6 +1429,17 @@ faut journaliser les envois :
   envoyé = journalisé.
 - Le carnet permet aussi un **rappel manuel** par ligne de vaccination
   (« Rappeler le propriétaire », flag `sent`) — même journal.
+- **Écran « Rappels » (01.11.2026)** : `GET /rappels` (à venir, envoyés),
+  `GET /rappels/a-faire` (vaccins en retard depuis 14 jours, demandes de
+  renouvellement d'ordonnance, devis sans réponse), `GET /rappels/apercu/{objet}`
+  (sujet, e-mail rendu, SMS). Rappels ajoutés, réglables par clinique
+  (`cliniques.rappels_rendez_vous`, `relance_vaccin_retard`, `relance_devis`) :
+  objet `rdv` (la veille, sauf contrôle, euthanasie, urgence, tampon),
+  `vaccin_retard` (7 jours après l'échéance, une fois), `devis` (envoyé en
+  ligne, 7 jours sans réponse ni relance ; `rappels_envoyes.devis_id`).
+  Un rappel manuel compte pour l'échéance ; un vaccin renouvelé (injection
+  plus récente du même nom) n'est plus dû (`Vaccination::nonRenouvelees`),
+  et la ressource dit `est_renouvelee` et `rappel_envoye_le`.
 
 ---
 
