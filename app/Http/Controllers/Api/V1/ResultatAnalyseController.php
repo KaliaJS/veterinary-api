@@ -36,10 +36,13 @@ class ResultatAnalyseController extends Controller
             foreach ($request->validated('resultats') as $saisie) {
                 $resultat = $analyse->resultats()->findOrFail($saisie['id']);
 
+                // Arrondie comme la colonne (deux décimales) : le drapeau et le niveau se lisent sur la même valeur
+                $valeur = $saisie['valeur'] === null ? null : round((float) $saisie['valeur'], 2);
+
                 $resultat->update([
-                    'valeur' => $saisie['valeur'],
-                    'drapeau' => $saisie['valeur'] === null ? null : DrapeauResultatLabo::depuis(
-                        (float) $saisie['valeur'],
+                    'valeur' => $valeur,
+                    'drapeau' => $valeur === null ? null : DrapeauResultatLabo::depuis(
+                        $valeur,
                         (float) $resultat->borne_basse,
                         (float) $resultat->borne_haute,
                     ),

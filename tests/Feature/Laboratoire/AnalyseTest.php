@@ -187,6 +187,22 @@ class AnalyseTest extends TestCase
         $saisir(5.0)->assertJsonPath('data.resultats.0.niveau', null);
     }
 
+    public function test_le_drapeau_et_le_niveau_se_lisent_sur_la_valeur_gardee_a_deux_decimales(): void
+    {
+        $analyse = $this->analyse();
+        $analyse->update(['statut' => StatutAnalyse::Cours]);
+        $uree = $analyse->resultats()->orderBy('id')->first(); // bornes 2,5 à 9,6
+
+        // 9,604 est gardée 9,60 : égale à la borne, ni drapeau ni niveau
+        $this->putJson("/api/v1/laboratoire/analyses/{$analyse->id}/resultats", [
+            'resultats' => [['id' => $uree->id, 'valeur' => 9.604]],
+        ], $this->jeton())
+            ->assertOk()
+            ->assertJsonPath('data.resultats.0.drapeau', null)
+            ->assertJsonPath('data.resultats.0.niveau', null);
+        $this->assertEquals(9.6, (float) $uree->fresh()->valeur);
+    }
+
     public function test_le_passage_a_valider_exige_la_saisie_complete(): void
     {
         $analyse = $this->analyse(['statut' => StatutAnalyse::Cours]);
