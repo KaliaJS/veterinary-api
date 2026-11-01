@@ -310,9 +310,10 @@ final class EtatVaccinal
             return array_values(array_filter(array_map('trim', $parties), fn (string $p): bool => $p !== ''));
         };
         $connu = fn (string $k): ?array => $k !== '' && isset($index[$k]) ? array_values(array_unique($index[$k])) : null;
-        // Le nom entier ; sinon le nom sans ses parenthèses, que les parenthèses peuvent seulement préciser
-        // (« Toux de chenil (Bordetella) » : la bordetellose) ou compléter (« Rage (+ Lepto) » : les deux, exigées) ;
-        // un nom inconnu devant ses parenthèses reste libre (vérification du 01.11.2026)
+        // Le nom entier ; sinon le nom sans ses parenthèses, qu'une parenthèse unique peut préciser (« Toux de
+        // chenil (Bordetella) » : la bordetellose) et que les parenthèses complètent sinon (« Rage (+ Lepto) » : les
+        // deux, exigées). Une parenthèse inconnue (« (+ VHD2) », « (Rabisin) ») peut ajouter une maladie : le nom
+        // reste libre, jamais renouvelé par son nom (un rappel de trop plutôt qu'un rappel perdu ; 01.11.2026)
         $chercher = function (string $partie) use ($connu, $cle, $decouper): ?array {
             if ($codes = $connu($cle($partie))) {
                 return $codes;
@@ -322,16 +323,19 @@ final class EtatVaccinal
                 return null;
             }
             preg_match_all('/\(([^)]*)\)/', $partie, $m);
+            $ajouts = [];
             foreach ($m[1] as $dedans) {
                 $sous = array_map(fn (string $p): ?array => $connu($cle($p)), $decouper($dedans));
                 if ($sous === [] || in_array(null, $sous, true)) {
-                    continue;
+                    return null;
                 }
-                $precis = array_values(array_unique(array_merge(...$sous)));
-                $base = array_diff($precis, $base) === [] ? $precis : array_values(array_unique(array_merge($base, $precis)));
+                $ajouts[] = array_values(array_unique(array_merge(...$sous)));
+            }
+            if (count($ajouts) === 1 && array_diff($ajouts[0], $base) === []) {
+                return $ajouts[0];
             }
 
-            return $base;
+            return array_values(array_unique(array_merge($base, ...$ajouts)));
         };
         $parties = $decouper((string) $vaccination->nom);
         if ($parties === []) {

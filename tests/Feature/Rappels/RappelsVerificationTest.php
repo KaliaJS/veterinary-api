@@ -509,8 +509,16 @@ class RappelsVerificationTest extends TestCase
             ['Pas la rage (Leucose)', ['leucose'], false],
             // Le nom entier d'abord (« Coryza (herpès) » est le nom court de l'herpès félin) ; le repli sur le nom sans parenthèses
             ['Coryza (herpès)', ['herpes_felin'], true],
-            ['Rage (Rabisin)', ['rage'], true],
-            ['Toux de chenil (Pi)', ['parainfluenza', 'bordetellose'], true],
+            // Une parenthèse inconnue peut ajouter une maladie : le nom reste libre, un rappel de trop plutôt qu'un rappel perdu
+            ['Rage (Rabisin)', ['rage'], false],
+            ['Toux de chenil (Pi)', ['parainfluenza', 'bordetellose'], false],
+            ['Rage (+ Lepto)', ['rage'], false],
+            ['Myxomatose (+ VHD2)', ['myxomatose'], false],
+            ['Rage (avec Lepto)', ['rage'], false],
+            ['Rage (Lepto + Pi)', ['rage'], false],
+            ['Toux de chenil (Bordetella) (Pi)', ['bordetellose'], false],
+            ['Coryza (Calici) (+ Herpès)', ['calicivirose'], false],
+            ['Leucose (FeLV)', ['leucose'], true],
             // « Herpès » seul ne nomme pas une maladie
             ['Herpès', ['herpes_felin'], false],
         ];
