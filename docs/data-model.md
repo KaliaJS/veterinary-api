@@ -1491,6 +1491,22 @@ faut journaliser les envois :
   l'espace et montre) ; recalculée aussi quand l'import Swissmedic ajoute
   une valence à un produit ; la ressource dit `est_renouvelee` (la
   colonne) et `rappel_envoye_le` (fiche et liste des injections).
+- **Messages entre collègues et entre cliniques (01.11.2026)** : dans la
+  même liste que les fils des clients (`GET /messages`, chaque fil avec
+  `kind` : `client`, `staff`, `clinic`, `name`, `subtitle`), le plus récent
+  d'abord. `staff_messages` (organisation, `sender_employee_id`,
+  `recipient_employee_id`, `body`, `read_at`) : une conversation à deux,
+  clé « e12 », lue par ces deux collègues seulement ; on n'écrit qu'à un
+  collègue de l'organisation qui lit les Messages (accès actif, contrat en
+  cours, droit Patients). `clinic_messages` (`sender_clinic_id`,
+  `recipient_clinic_id`, `author_employee_id`, `body`, `read_at`) : un canal
+  entre deux cliniques, clé « k34 », lu par toute l'équipe de chacune comme
+  un groupe, sans destinataire nommé ; `read_at` posé quand quelqu'un de la
+  clinique destinataire l'ouvre ; on n'écrit qu'à une clinique ouverte
+  (vérifiée et payée). `GET /messages/contacts?q=` : collègues et cliniques
+  pour « À : ». Annonce sans contenu (`messages.change`) sur
+  `utilisateur.{id}` (collègues) et `clinique.{id}` (les deux cliniques).
+  Seul le texte part, aucun document.
 
 ---
 

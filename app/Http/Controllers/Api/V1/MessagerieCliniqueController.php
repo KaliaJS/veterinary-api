@@ -9,6 +9,7 @@ use App\Mail\ReponseClinique;
 use App\Models\Client;
 use App\Models\MessageClientele;
 use App\Models\PreferencesProprietaire;
+use App\Services\Messages\InternalMessaging;
 use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -25,11 +26,34 @@ use Throwable;
  * Un compte effacé ou détaché de sa fiche garde son fil lisible ; on n'y
  * répond plus. Le propriétaire est prévenu en temps réel, et par e-mail
  * s'il l'a choisi.
+ *
+ * Dans la même liste (décision de Jim, 01.11.2026) : les collègues (« e12 »)
+ * et les autres cliniques (« k34 »), par InternalMessaging. Chaque fil dit
+ * son genre (`kind` : client, staff, clinic), son nom et son sous-titre.
  */
 class MessagerieCliniqueController extends Controller
 {
-    /** Les fils de la clinique, le plus récent d'abord. */
+    public function __construct(private InternalMessaging $internes) {}
+
+    /** Les fils de la clinique, de ses clients, de l'employé avec ses collègues, avec les autres cliniques : le plus récent d'abord. */
     public function index(): JsonResponse
+    {
+        $fils = collect([...$this->filsDesClients(), ...$this->internes->threads()])
+            ->sortByDesc(fn (array $fil): string => (string) ($fil['dernier']['envoye_le'] ?? ''))->values();
+
+        return response()->json(['data' => $fils]);
+    }
+
+    /** « À : » : les collègues et les cliniques (les clients se cherchent par /clients) */
+    public function contacts(Request $request): JsonResponse
+    {
+        $q = (string) ($request->validate(['q' => ['nullable', 'string', 'max:100']])['q'] ?? '');
+
+        return response()->json(['data' => $this->internes->contacts($q)]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function filsDesClients(): array
     {
         $cliniqueId = app(ContexteClinique::class)->cliniqueId();
         $messages = MessageClientele::query()->where('clinique_id', $cliniqueId)->orderByDesc('created_at')->orderByDesc('id')->get()
@@ -37,36 +61,47 @@ class MessagerieCliniqueController extends Controller
         // Les fiches de l'organisation : par compte (lié) et par fiche (gardée sur les messages)
         $parCompte = Client::query()->whereIn('user_id', $messages->flatten()->pluck('user_id')->filter()->unique())->get()->keyBy('user_id');
         $parFiche = Client::query()->whereIn('id', $messages->flatten()->pluck('client_id')->filter()->unique())->get()->keyBy('id');
+        $animaux = Client::query()->whereIn('id', $parCompte->pluck('id')->merge($parFiche->keys())->unique())
+            ->with('patientsParNom')->get()->mapWithKeys(fn (Client $c): array => [$c->id => $c->patientsParNom->pluck('nom')->take(2)->implode(', ')]);
 
-        $fils = $messages->map(function ($fil, string $cle) use ($parCompte, $parFiche): array {
+        return $messages->map(function ($fil, string $cle) use ($parCompte, $parFiche, $animaux): array {
             /** @var MessageClientele $dernier */
             $dernier = $fil->first();
             $lie = $dernier->user_id !== null ? ($parCompte[$dernier->user_id] ?? null) : null;
             $fiche = $lie ?? ($parFiche[$fil->pluck('client_id')->filter()->first()] ?? null);
 
+            $nom = $fiche ? trim($fiche->prenom.' '.$fiche->nom) : null;
+
             return [
                 'cle' => $cle,
+                'kind' => 'client',
+                'name' => $nom,
+                'subtitle' => $fiche ? ($animaux[$fiche->id] ?? '') : '',
                 'user_id' => $dernier->user_id,
                 'client_id' => $fiche?->id,
-                'client' => $fiche ? trim($fiche->prenom.' '.$fiche->nom) : null,
+                'client' => $nom,
                 'peut_repondre' => $lie !== null,
                 'non_lus' => $fil->where('auteur', 'proprietaire')->whereNull('lu_le')->count(),
-                'dernier' => ['texte' => mb_strimwidth($dernier->texte, 0, 140, '…'), 'auteur' => $dernier->auteur, 'envoye_le' => $dernier->created_at?->toIso8601String()],
+                'dernier' => ['texte' => mb_strimwidth($dernier->texte, 0, 140, '…'), 'auteur' => $dernier->auteur, 'is_mine' => $dernier->auteur === 'clinique', 'envoye_le' => $dernier->created_at?->toIso8601String()],
             ];
-        })->values();
-
-        return response()->json(['data' => $fils]);
+        })->values()->all();
     }
 
     /** Un fil : ses messages, ceux du propriétaire marqués lus. */
     public function fil(string $cle): JsonResponse
     {
+        if (in_array($cle[0], ['e', 'k'], true)) {
+            return response()->json(['data' => $this->internes->thread($cle)]);
+        }
         [$fiche, $userId, $lie] = $this->fiche($cle);
         $this->messagesDu($cle, $fiche)->where('auteur', 'proprietaire')->whereNull('lu_le')->update(['lu_le' => now()]);
         $messages = $this->messagesDu($cle, $fiche)->with('employe')->orderBy('created_at')->orderBy('id')->get();
 
         return response()->json(['data' => [
             'cle' => $cle,
+            'kind' => 'client',
+            'name' => trim($fiche->prenom.' '.$fiche->nom),
+            'subtitle' => $fiche->patientsParNom()->limit(2)->pluck('nom')->implode(', '),
             'user_id' => $userId,
             'client' => trim($fiche->prenom.' '.$fiche->nom),
             'client_id' => $fiche->id,
@@ -78,11 +113,14 @@ class MessagerieCliniqueController extends Controller
     /** Répondre, ou ouvrir un fil avec un client qui a un compte. */
     public function repondre(Request $request, string $cle): JsonResponse
     {
+        $texte = trim((string) $request->validate(['texte' => ['required', 'string', 'max:2000']])['texte']);
+        if (in_array($cle[0], ['e', 'k'], true)) {
+            return response()->json(['data' => $this->internes->send($cle, $texte)], 201);
+        }
         [$fiche, $userId, $lie] = $this->fiche($cle);
         if (! $lie || $userId === null) {
             throw ValidationException::withMessages(['texte' => 'Ce client n’a plus de compte lié : il ne lirait pas ce message. Appelez-le.']);
         }
-        $texte = trim((string) $request->validate(['texte' => ['required', 'string', 'max:2000']])['texte']);
         $contexte = app(ContexteClinique::class);
         // Le premier message du fil (la clinique écrit la première, 01.11.2026) : l'e-mail dit comment entrer dans l'espace
         $estPremier = ! MessageClientele::query()->where('clinique_id', $contexte->cliniqueId())->where('user_id', $userId)->exists();
@@ -148,6 +186,7 @@ class MessagerieCliniqueController extends Controller
         return [
             'id' => $m->id,
             'auteur' => $m->auteur,
+            'is_mine' => $m->auteur === 'clinique',
             'signature' => $m->auteur === 'clinique' ? $m->employe?->nom : null,
             'texte' => $m->texte,
             'envoye_le' => $m->created_at?->toIso8601String(),
