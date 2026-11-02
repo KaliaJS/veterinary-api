@@ -13,6 +13,7 @@ use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Services\CalculateurCreneaux;
 use App\Services\MutationRendezVous;
+use App\Services\Notifications\Push;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -121,7 +122,12 @@ class RendezVousController extends Controller
         // `endsAt` qui suit le début sans changer la durée reste muet.
         $champsNonAudites = $duree === $dureeActuelle ? ['ends_at'] : [];
 
+        $avant = $rendezVous->starts_at->copy();
         $this->mutation->appliquer($rendezVous, $attributs, $request->user(), $champsNonAudites);
+        // L'heure changée depuis la fiche : le propriétaire le sait aussi (02.11.2026)
+        if (! $rendezVous->starts_at->equalTo($avant)) {
+            Push::appointment($rendezVous, 'déplacé', except: $request->user()?->id);
+        }
 
         return new RendezVousResource($rendezVous);
     }

@@ -106,7 +106,7 @@ class InternalMessaging
             TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$cliniqueId));
         }
         // Toute l'équipe de l'autre clinique qui lit les Messages (droit patients, comme pour y écrire)
-        Push::to(Push::staffOf($other->id, DomainePermission::Patients), PushType::TeamMessage, $mine->nom, mb_strimwidth($body, 0, 120, '…'), '/clinique/messages');
+        Push::to(Push::staffOf($other->id, DomainePermission::Patients), PushType::TeamMessage, $mine->nom, mb_strimwidth($body, 0, 120, '…'), '/clinique/messages', except: $me->user_id);
 
         return $this->clinicMessage($message->load('author'), $mine, $other);
     }

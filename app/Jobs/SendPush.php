@@ -41,7 +41,7 @@ class SendPush implements ShouldQueue
         if (! NotificationSetting::for($this->userId)->allows($type)) {
             return;
         }
-        $appareils = AppareilNotification::query()->where('user_id', $this->userId)->where('plateforme', 'ios')->get()->groupBy('environnement');
+        $appareils = AppareilNotification::query()->actifs()->where('user_id', $this->userId)->where('plateforme', 'ios')->get()->groupBy('environnement');
         $contenu = [
             'aps' => ['alert' => ['title' => $this->title, 'body' => $this->body], 'sound' => 'default', 'thread-id' => $type->value],
             'type' => $type->value,

@@ -5,6 +5,7 @@ namespace App\Services\Notifications;
 use App\Auth\CalculateurPermissions;
 use App\Enums\DomainePermission;
 use App\Enums\PushType;
+use App\Enums\StatutRendezVous;
 use App\Jobs\SendPush;
 use App\Models\Client;
 use App\Models\Clinique;
@@ -32,8 +33,13 @@ class Push
      * Un rendez-vous confirmé, déplacé ou annulé par la clinique : au
      * propriétaire qui a un compte, avec le jour et l'heure de la clinique.
      */
-    public static function appointment(RendezVous $rendezVous, string $what, ?int $except = null): void
+    public static function appointment(RendezVous $rendezVous, string $what, ?int $except = null, bool $isTermine = false): void
     {
+        // Passé, terminé ou absent : plus rien à annoncer (un geste après coup ne réveille personne)
+        if ($rendezVous->starts_at->isPast() || in_array($rendezVous->status, [StatutRendezVous::Fini, StatutRendezVous::Noshow], true)
+            || (! $isTermine && $what !== 'annulé' && $rendezVous->status === StatutRendezVous::Annule)) {
+            return;
+        }
         $userId = $rendezVous->client_id ? Client::withoutGlobalScopes()->whereKey($rendezVous->client_id)->value('user_id') : null;
         if ($userId === null) {
             return;
@@ -54,7 +60,9 @@ class Push
     {
         $calcul = app(CalculateurPermissions::class);
 
+        // Rôles et dérogations lus hors du contexte de la requête : la clinique d'à côté peut être d'une autre organisation
         return Employe::withoutGlobalScopes()
+            ->with(['role' => fn ($q) => $q->withoutGlobalScopes(), 'derogations' => fn ($q) => $q->withoutGlobalScopes()])
             ->whereNotNull('user_id')
             ->where('acces_suspendu', false)
             ->whereHas('cliniques', fn ($q) => $q->withoutGlobalScopes()->where('cliniques.id', $cliniqueId))

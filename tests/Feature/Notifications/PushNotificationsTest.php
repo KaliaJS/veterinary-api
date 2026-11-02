@@ -7,6 +7,7 @@ use App\Jobs\SendPush;
 use App\Models\AppareilNotification;
 use App\Models\Client;
 use App\Models\Clinique;
+use App\Models\JetonApi;
 use App\Models\NotificationSetting;
 use App\Models\Patient;
 use App\Models\RendezVous;
@@ -196,5 +197,59 @@ class PushNotificationsTest extends TestCase
         $this->postJson("/api/v1/rendez-vous/{$rdv->id}/annuler", [], $this->enTetes($jeton))->assertOk();
 
         Queue::assertPushed(SendPush::class, fn (SendPush $j): bool => $j->userId === $proprietaire->id && $j->type === 'appointment' && str_contains($j->body, 'annulé') && $j->url === '/espace/rendez-vous');
+    }
+
+    public function test_un_telephone_dont_la_session_est_fermee_ou_expiree_ne_recoit_plus_rien(): void
+    {
+        $this->fauxApple();
+        $this->travelTo(CarbonImmutable::parse('2026-11-05 10:00', 'Europe/Zurich'));
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $this->postJson('/api/v1/auth/appareil', ['jeton' => str_repeat('a', 64), 'environnement' => 'production', 'plateforme' => 'ios'], $this->enTetes($jeton))->assertNoContent();
+        $appareil = AppareilNotification::query()->sole();
+        $this->assertNotNull($appareil->personal_access_token_id);
+
+        // Expirée : rien ne part
+        JetonApi::query()->whereKey($appareil->personal_access_token_id)->update(['expires_at' => now()->subMinute()]);
+        (new SendPush($user->id, 'quote', 'Deux Rives', 'x'))->handle($this->app->make(CanalApns::class));
+        $this->assertSame([], $this->envois);
+
+        // Fermée (« Déconnecter les autres appareils », déconnexion) : l'appareil disparaît avec elle
+        JetonApi::query()->whereKey($appareil->personal_access_token_id)->delete();
+        $this->assertSame(0, AppareilNotification::query()->count());
+    }
+
+    public function test_un_rendez_vous_deplace_depuis_la_fiche_previent_mais_pas_un_rendez_vous_passe(): void
+    {
+        Queue::fake([SendPush::class]);
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        $proprietaire = User::factory()->create();
+        $client = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'user_id' => $proprietaire->id]);
+        $patient = Patient::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'client_id' => $client->id]);
+        $rdv = RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $clinique->id, 'starts_at' => now()->addDays(2)->setTime(9, 0), 'ends_at' => now()->addDays(2)->setTime(9, 20)]);
+
+        $this->putJson("/api/v1/rendez-vous/{$rdv->id}", ['starts_at' => now()->addDays(3)->setTime(10, 0)->toIso8601String()], $this->enTetes($jeton))->assertOk();
+        Queue::assertPushed(SendPush::class, fn (SendPush $j): bool => $j->userId === $proprietaire->id && str_contains($j->body, 'déplacé'));
+
+        $passe = RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $clinique->id, 'starts_at' => now()->subDays(2)->setTime(9, 0), 'ends_at' => now()->subDays(2)->setTime(9, 20)]);
+        Queue::fake([SendPush::class]);
+        $this->postJson("/api/v1/rendez-vous/{$passe->id}/annuler", [], $this->enTetes($jeton));
+        Queue::assertNotPushed(SendPush::class);
+    }
+
+    public function test_un_message_a_une_autre_clinique_ne_previent_pas_son_auteur(): void
+    {
+        Queue::fake([SendPush::class]);
+        $lausanne = Clinique::factory()->create(['nom' => 'Lausanne']);
+        $morges = Clinique::factory()->create(['nom' => 'Morges']);
+        ['employe' => $anne, 'jeton' => $jeton] = $this->employeAvecJeton($lausanne);
+        $anne->cliniques()->attach($morges->id);
+        // Marc lit les Messages de Morges (droit patients)
+        ['employe' => $marc] = $this->administrateurAvecJeton($morges);
+
+        $this->postJson('/api/v1/messages/k'.$morges->id, ['texte' => 'Bonjour'], $this->enTetes($jeton))->assertCreated();
+
+        Queue::assertPushed(SendPush::class, fn (SendPush $j): bool => $j->userId === $marc->user_id);
+        Queue::assertNotPushed(SendPush::class, fn (SendPush $j): bool => $j->userId === $anne->user_id);
     }
 }

@@ -57,7 +57,7 @@ class PrevenirMontres implements ShouldBeUnique, ShouldQueue
         if (blank(config('services.apns.cle_base64'))) {
             return;
         }
-        $appareils = AppareilNotification::query()->whereIn('user_id', $this->concernes())->where('plateforme', 'watchos')->get()->groupBy('environnement');
+        $appareils = AppareilNotification::query()->actifs()->whereIn('user_id', $this->concernes())->where('plateforme', 'watchos')->get()->groupBy('environnement');
         foreach ($appareils as $environnement => $liste) {
             $morts = $apns->envoyer($liste->pluck('jeton')->values()->all(), (string) $environnement, self::SUJET_MONTRE, ['aps' => ['content-available' => 1], 'veterinary' => 'journee'], visible: false);
             if ($morts !== []) {

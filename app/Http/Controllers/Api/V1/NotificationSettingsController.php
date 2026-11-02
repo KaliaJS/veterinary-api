@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Auth\CalculateurPermissions;
+use App\Enums\DomainePermission;
 use App\Enums\PushType;
 use App\Http\Controllers\Controller;
 use App\Models\AppareilNotification;
@@ -59,8 +61,15 @@ class NotificationSettingsController extends Controller
     private function present(NotificationSetting $s, int $userId): array
     {
         $isOwner = Client::withoutGlobalScopes()->where('user_id', $userId)->exists();
-        $isStaff = Employe::withoutGlobalScopes()->where('user_id', $userId)->exists();
-        $types = array_values(array_filter(PushType::cases(), fn (PushType $t): bool => $t->forStaff() ? $isStaff : $isOwner));
+        $employes = Employe::withoutGlobalScopes()->with(['role' => fn ($q) => $q->withoutGlobalScopes(), 'derogations' => fn ($q) => $q->withoutGlobalScopes()])->where('user_id', $userId)->where('acces_suspendu', false)->get();
+        $isStaff = $employes->isNotEmpty();
+        $calcul = app(CalculateurPermissions::class);
+        $hasPlanning = $employes->contains(fn (Employe $e): bool => in_array(DomainePermission::Planning->value, $calcul->pour($e), true));
+        $types = array_values(array_filter(PushType::cases(), fn (PushType $t): bool => match (true) {
+            $t === PushType::Emergency => $hasPlanning,
+            $t->forStaff() => $isStaff,
+            default => $isOwner,
+        }));
 
         return [
             'types' => array_map(fn (PushType $t): array => [
@@ -74,7 +83,7 @@ class NotificationSettingsController extends Controller
             'quiet_to' => $s->quiet_to,
             'urgent_at_night' => (bool) $s->urgent_at_night,
             'timezone' => $s->timezone,
-            'has_emergencies' => $isStaff,
+            'has_emergencies' => $hasPlanning,
         ];
     }
 }

@@ -74,7 +74,7 @@ class ConsentRecorder
 
         // Signé à distance : le chirurgien et qui a envoyé le lien le savent sur leur téléphone (02.11.2026)
         if ($method === ConsentMethod::Remote) {
-            $employes = Employe::withoutGlobalScopes()->whereIn('id', array_filter([$intervention->chirurgien_id, $request?->sent_by_employee_id]))->pluck('user_id');
+            $employes = Employe::withoutGlobalScopes()->whereIn('id', array_filter([$intervention->chirurgien_id, $request?->sent_by_employee_id]))->where('acces_suspendu', false)->pluck('user_id');
             Push::to($employes, PushType::ConsentSigned, 'Consentement signé', trim($signer).' a signé pour '.$intervention->patient->nom.' : '.$intervention->procedure, '/clinique/bloc');
         }
     }

@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Paiements\ErreurPaiement;
 use App\Services\Alertes\DestinatairesAlertes;
 use App\Services\MutationRendezVous;
+use App\Services\Notifications\Push;
 use App\Services\TraitementDemande;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -296,6 +297,10 @@ class AcomptesRendezVous
             $demande->update(['annulation_decision' => $decision, 'annulation_traitee_le' => now()]);
             $this->drapeauAcompte($demande);
         });
+
+        if ($decision->annule() && $rendezVous !== null) {
+            Push::appointment($rendezVous->refresh(), 'annulé à votre demande', except: $auteur->id, isTermine: true);
+        }
 
         // La décision est enregistrée : un e-mail qui ne part pas (panne du
         // serveur d'e-mails) ne la fait pas échouer (24.10.2026)

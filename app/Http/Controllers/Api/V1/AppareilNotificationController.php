@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\AppareilNotification;
+use App\Models\JetonApi;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
@@ -22,7 +23,13 @@ class AppareilNotificationController extends Controller
         ]);
         AppareilNotification::query()->updateOrCreate(
             ['jeton' => strtolower($donnees['jeton'])],
-            ['user_id' => $request->user()->id, 'environnement' => $donnees['environnement'], 'plateforme' => $donnees['plateforme']],
+            [
+                'user_id' => $request->user()->id,
+                // Lié à cette session : fermée, l'appareil ne reçoit plus rien (02.11.2026)
+                'personal_access_token_id' => ($jeton = $request->user()->currentAccessToken()) instanceof JetonApi ? $jeton->id : null,
+                'environnement' => $donnees['environnement'],
+                'plateforme' => $donnees['plateforme'],
+            ],
         );
 
         return response()->noContent();
