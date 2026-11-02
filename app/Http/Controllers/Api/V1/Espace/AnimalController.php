@@ -34,6 +34,9 @@ use Illuminate\Validation\ValidationException;
  */
 class AnimalController extends Controller
 {
+    /** La même réponse pour tous les refus d'une réclamation par puce (rien ne se révèle, 24.10.2026) */
+    private const REFUS_RECLAMATION = 'Cet animal ne peut pas être ajouté à votre espace : la puce ou le nom ne correspondent pas, ou il est déjà dans l’espace d’un autre compte. Vérifiez-les, ou appelez la clinique qui le suit.';
+
     public function index(ContexteProprietaire $contexte): AnonymousResourceCollection
     {
         $animaux = $contexte->filtrerAnimaux(Patient::withoutGlobalScopes())
@@ -134,7 +137,8 @@ class AnimalController extends Controller
      * (24.10.2026 : le second facteur que demandait l'audit ; une puce seule
      * ne révèle rien) ; une demande en attente est créée, que la clinique
      * accepte ou refuse. Une même réponse pour une puce inconnue, un nom qui
-     * ne correspond pas ou un animal déjà rattaché ailleurs.
+     * ne correspond pas, un animal déjà rattaché ailleurs, ou dont la fiche a
+     * déjà son compte (un animal, un seul compte, 02.11.2026).
      */
     public function reclamer(ReclamerAnimalRequest $request, ContexteProprietaire $contexte): JsonResponse
     {
@@ -149,11 +153,19 @@ class AnimalController extends Controller
             ->get()
             ->first(fn (Patient $p): bool => $p->client !== null && self::sansAccents((string) $p->client->nom) === $nom);
 
-        if ($animal?->proprietaire_id === $user->id) {
+        // Le compte de sa fiche à la clinique, s'il en a un
+        $compteDeLaFiche = $animal?->client?->user_id;
+        if ($animal?->proprietaire_id === $user->id || ($compteDeLaFiche !== null && (int) $compteDeLaFiche === $user->id)) {
             throw ValidationException::withMessages(['puce' => 'Cet animal est déjà dans votre espace.']);
         }
+        // Un animal, un seul compte (02.11.2026) : sa fiche a déjà le sien. La
+        // même réponse que les autres refus (rien ne se révèle, 24.10.2026),
+        // qui dit aussi ce cas
+        if ($animal !== null && $animal->proprietaire_id === null && $compteDeLaFiche !== null) {
+            throw ValidationException::withMessages(['puce' => self::REFUS_RECLAMATION]);
+        }
         if ($animal === null || $animal->proprietaire_id !== null) {
-            throw ValidationException::withMessages(['puce' => 'Aucun animal ne correspond à ce numéro de puce et à ce nom de famille. Vérifiez-les, ou appelez la clinique qui le suit.']);
+            throw ValidationException::withMessages(['puce' => self::REFUS_RECLAMATION]);
         }
 
         $demande = DemandeRattachement::withoutGlobalScopes()

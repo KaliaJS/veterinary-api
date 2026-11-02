@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\Civilite;
 use App\Enums\StatutRendezVous;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Services\Patients\OneAccountPerPet;
 use Database\Factories\ClientFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,6 +22,16 @@ class Client extends Model
         'organisation_id', 'user_id', 'civilite', 'prenom', 'nom',
         'tel', 'email', 'rue', 'npa', 'localite', 'rappels_sms',
     ];
+
+    /** Un animal, un seul compte (02.11.2026) : la fiche ne prend pas un compte autre que celui de ses animaux */
+    protected static function booted(): void
+    {
+        static::saving(function (Client $client): void {
+            if ($client->isDirty('user_id')) {
+                OneAccountPerPet::assertClient($client);
+            }
+        });
+    }
 
     protected function casts(): array
     {

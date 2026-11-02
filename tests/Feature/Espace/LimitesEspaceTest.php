@@ -23,7 +23,7 @@ class LimitesEspaceTest extends TestCase
         for ($i = 0; $i < 5; $i++) {
             $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '75609800000000'.$i, 'nom_proprietaire' => 'Pérez'], $this->enTetes($jeton))
                 ->assertStatus(422)
-                ->assertJsonValidationErrors(['puce' => 'Aucun animal ne correspond à ce numéro de puce et à ce nom de famille. Vérifiez-les, ou appelez la clinique qui le suit.']);
+                ->assertJsonValidationErrors(['puce' => 'Cet animal ne peut pas être ajouté à votre espace : la puce ou le nom ne correspondent pas, ou il est déjà dans l’espace d’un autre compte. Vérifiez-les, ou appelez la clinique qui le suit.']);
         }
 
         $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756098000000009', 'nom_proprietaire' => 'Pérez'], $this->enTetes($jeton))

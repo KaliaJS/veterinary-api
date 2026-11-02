@@ -8,6 +8,7 @@ use App\Enums\Sexe;
 use App\Enums\StatutRendezVous;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use App\Models\Concerns\AUnePhoto;
+use App\Services\Patients\OneAccountPerPet;
 use Database\Factories\PatientFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -40,6 +41,16 @@ class Patient extends Model
         'a_allergies', 'traitement_en_cours', 'rappels_coupes',
         'amicus_declare_le', 'client_depuis',
     ];
+
+    /** Un animal, un seul compte (02.11.2026) : sa fiche et sa puce ne disent jamais deux comptes */
+    protected static function booted(): void
+    {
+        static::saving(function (Patient $patient): void {
+            if ($patient->isDirty(['client_id', 'proprietaire_id'])) {
+                OneAccountPerPet::assertPatient($patient);
+            }
+        });
+    }
 
     protected function casts(): array
     {

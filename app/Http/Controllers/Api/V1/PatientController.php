@@ -12,10 +12,12 @@ use App\Models\Patient;
 use App\Models\Pesee;
 use App\Models\Vaccination;
 use App\Rules\NumeroPuce;
+use App\Services\Patients\OneAccountPerPet;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Patients — niveau ORGANISATION comme les clients (scope global
@@ -218,6 +220,11 @@ class PatientController extends Controller
 
         if (isset($donnees['puce'])) {
             $donnees['puce'] = NumeroPuce::formater($donnees['puce']);
+        }
+
+        // Un animal, un seul compte (02.11.2026) : la nouvelle fiche n'a pas un autre compte que le sien
+        if (array_key_exists('client_id', $donnees) && OneAccountPerPet::conflictFor($patient->proprietaire_id, $donnees['client_id'])) {
+            throw ValidationException::withMessages(['client_id' => $patient->nom.' est déjà dans l’espace d’un autre compte que celui de cette fiche. Un animal n’appartient qu’à un seul compte.']);
         }
 
         $patient->update($donnees);

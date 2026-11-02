@@ -176,7 +176,7 @@ class AnimauxProprietaireTest extends TestCase
 
         // Puce inconnue, bonne puce avec le nom de l'animal (public) ou un autre
         // nom de famille : la même réponse, rien ne se révèle (24.10.2026)
-        $refus = 'Aucun animal ne correspond à ce numéro de puce et à ce nom de famille. Vérifiez-les, ou appelez la clinique qui le suit.';
+        $refus = 'Cet animal ne peut pas être ajouté à votre espace : la puce ou le nom ne correspondent pas, ou il est déjà dans l’espace d’un autre compte. Vérifiez-les, ou appelez la clinique qui le suit.';
         $this->postJson('/api/v1/espace/animaux/reclamer', ['puce' => '756 098 100 000 000', 'nom_proprietaire' => 'Pérez'], $this->enTetes($jeton))
             ->assertUnprocessable()->assertJsonValidationErrors(['puce' => $refus]);
         foreach (['Rex', 'Martin'] as $autre) {
