@@ -43,7 +43,8 @@ class ChecklistInterventionController extends Controller
         $point = $intervention->checklist()->where('code', $code)->firstOrFail();
         $estCoche = $request->boolean('est_coche');
 
-        if ($point->code === 'consent' && $estCoche && ! $point->est_coche) {
+        // Se coche par sa signature ; déjà recueilli (point décoché par l'ancien écran), il se recoche (02.11.2026)
+        if ($point->code === 'consent' && $estCoche && ! $point->est_coche && $intervention->consentement_signe_le === null) {
             throw ValidationException::withMessages([
                 'est_coche' => 'Le consentement ne se coche que par sa signature.',
             ]);

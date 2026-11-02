@@ -297,4 +297,14 @@ class ConsentTest extends TestCase
             ->assertUnprocessable()->assertJsonValidationErrors('est_coche');
         $this->assertTrue($this->consentCoche());
     }
+
+    public function test_un_consentement_recueilli_mais_decoche_par_l_ancien_ecran_se_recoche(): void
+    {
+        $this->postJson($this->url('/sans-signature'), ['method' => 'emergency', 'responsibility' => true], $this->enTetes($this->jeton))->assertOk();
+        // L'état laissé par l'ancien écran : recueilli, mais le point décoché
+        $this->intervention->checklist()->where('code', 'consent')->update(['est_coche' => false]);
+
+        $this->putJson('/api/v1/bloc/interventions/'.$this->intervention->id.'/checklist/consent', ['est_coche' => true], $this->enTetes($this->jeton))->assertOk();
+        $this->assertTrue($this->consentCoche());
+    }
 }
