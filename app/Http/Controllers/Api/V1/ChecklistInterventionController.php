@@ -84,11 +84,6 @@ class ChecklistInterventionController extends Controller
 
     private function reponse(Intervention $intervention): InterventionResource
     {
-        return new InterventionResource($intervention->load([
-            'patient.client',
-            'chirurgien' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
-            'checklist',
-            'transitions',
-        ]));
+        return new InterventionResource($intervention->load(InterventionController::relations()));
     }
 }

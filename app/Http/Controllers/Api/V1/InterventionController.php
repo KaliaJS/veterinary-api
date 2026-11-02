@@ -40,7 +40,7 @@ class InterventionController extends Controller
                 $requete->whereBetween('prevu_le', [$jour->utc(), $jour->addDay()->utc()]);
             })
             ->when($request->string('statut')->isNotEmpty(), fn ($requete) => $requete->where('statut', $request->string('statut')))
-            ->with($this->relations())
+            ->with(self::relations())
             ->orderBy('prevu_le')
             ->paginate($this->parPage($request));
 
@@ -68,14 +68,14 @@ class InterventionController extends Controller
             return $intervention;
         });
 
-        return new InterventionResource($intervention->load($this->relations()));
+        return new InterventionResource($intervention->load(self::relations()));
     }
 
     public function show(Intervention $intervention): InterventionResource
     {
         $this->authorize('view', $intervention);
 
-        return new InterventionResource($intervention->load($this->relations()));
+        return new InterventionResource($intervention->load(self::relations()));
     }
 
     public function update(ModifierInterventionRequest $request, Intervention $intervention): InterventionResource
@@ -100,17 +100,19 @@ class InterventionController extends Controller
             $this->projection->aligner($intervention, $request->user());
         });
 
-        return new InterventionResource($intervention->load($this->relations()));
+        return new InterventionResource($intervention->load(self::relations()));
     }
 
     /** @return array<int|string, mixed> */
-    private function relations(): array
+    public static function relations(): array
     {
         return [
             'patient.client',
             'chirurgien' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
             'checklist',
             'transitions',
+            'latestConsentRequest',
+            'consentCollector',
         ];
     }
 }

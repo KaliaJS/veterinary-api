@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\V1\Auth\CodeEmailController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyConnexionController;
 use App\Http\Controllers\Api\V1\Auth\PasskeyController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
+use App\Http\Controllers\Api\V1\BlocOccupancyController;
 use App\Http\Controllers\Api\V1\BoutiquePaiementController;
 use App\Http\Controllers\Api\V1\CarnetSanteController;
 use App\Http\Controllers\Api\V1\ChecklistInterventionController;
@@ -36,6 +37,8 @@ use App\Http\Controllers\Api\V1\CompteRenduController;
 use App\Http\Controllers\Api\V1\CompteRenduImagerieController;
 use App\Http\Controllers\Api\V1\ConfirmationRadioController;
 use App\Http\Controllers\Api\V1\ConsentementInterventionController;
+use App\Http\Controllers\Api\V1\ConsentRequestController;
+use App\Http\Controllers\Api\V1\ConsentWithoutSignatureController;
 use App\Http\Controllers\Api\V1\ConstanteSejourController;
 use App\Http\Controllers\Api\V1\ContactController;
 use App\Http\Controllers\Api\V1\CycleAnalyseController;
@@ -65,6 +68,7 @@ use App\Http\Controllers\Api\V1\Espace\DemandeProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\DemandePubliqueController;
 use App\Http\Controllers\Api\V1\Espace\DocumentProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\MessageProprietaireController;
+use App\Http\Controllers\Api\V1\Espace\OwnerConsentController;
 use App\Http\Controllers\Api\V1\Espace\PlaneteController;
 use App\Http\Controllers\Api\V1\Espace\ReglagesProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\RendezVousProprietaireController;
@@ -114,6 +118,7 @@ use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PhotoCliniqueController;
 use App\Http\Controllers\Api\V1\PhotoEmployeController;
 use App\Http\Controllers\Api\V1\PhotoPatientController;
+use App\Http\Controllers\Api\V1\PlanningOccupancyController;
 use App\Http\Controllers\Api\V1\Plateforme\FonctionEssaiPlateformeController;
 use App\Http\Controllers\Api\V1\Plateforme\InvitationAccesPlateformeController;
 use App\Http\Controllers\Api\V1\Plateforme\OrganisationPlateformeController;
@@ -123,6 +128,7 @@ use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
 use App\Http\Controllers\Api\V1\ProduitController;
 use App\Http\Controllers\Api\V1\ProfilVeterinaireController;
+use App\Http\Controllers\Api\V1\PublicConsentController;
 use App\Http\Controllers\Api\V1\RadioController;
 use App\Http\Controllers\Api\V1\RadioDossierController;
 use App\Http\Controllers\Api\V1\RappelsController;
@@ -342,6 +348,9 @@ Route::prefix('v1')->group(function (): void {
         Route::get('photos/{fichier}', [PhotoEmployeController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('employe.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
         Route::get('photos-animaux/{fichier}', [PhotoPatientController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('patient.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
         Route::get('photos-cliniques/{fichier}', [PhotoCliniqueController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+(?:-\\d+)?\\.[a-z]+')->name('clinique.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
+        // Consentement à signer par le lien reçu (SMS, e-mail ; 02.11.2026)
+        Route::get('consentements/{token}', [PublicConsentController::class, 'show'])->where('token', '[A-Za-z0-9]{48}')->middleware('throttle:30,1,consent-show');
+        Route::post('consentements/{token}/signer', [PublicConsentController::class, 'sign'])->where('token', '[A-Za-z0-9]{48}')->middleware('throttle:10,1,consent-sign');
         // Appel vidéo du client par le lien de son e-mail (WebRTC, 28.10.2026) ;
         // la mise en relation échange quelques dizaines de messages par appel
         Route::prefix('visio/{jeton}')->where(['jeton' => '[A-Za-z0-9]{48}'])->group(function (): void {
@@ -396,6 +405,8 @@ Route::prefix('v1')->group(function (): void {
             });
         });
         Route::get('accueil', AccueilController::class);
+        Route::get('consentements', [OwnerConsentController::class, 'index']);
+        Route::post('consentements/{consentRequest}/signer', [OwnerConsentController::class, 'sign'])->whereNumber('consentRequest')->middleware('throttle:10,1,consent-sign');
         Route::get('animaux', [AnimalController::class, 'index']);
         Route::post('animaux', [AnimalController::class, 'store']);
         Route::post('animaux/reclamer', [AnimalController::class, 'reclamer'])->middleware('throttle:espace-reclamer');
@@ -529,6 +540,8 @@ Route::prefix('v1')->group(function (): void {
         Route::get('planning/disponibilites', DisponibiliteController::class);
         // Calendrier de la clinique pour placer ou proposer : une semaine, sans la limite d'un mois
         Route::get('planning/semaine', SemainePlanningController::class);
+        // Remplissage jour par jour (matin, midi, après-midi) pour la bande des jours
+        Route::get('planning/occupation', PlanningOccupancyController::class);
 
         Route::post('rendez-vous/prochain-creneau', ProchainCreneauController::class);
         Route::post('rendez-vous/{rendezVous}/statut', [RendezVousStatutController::class, 'changer']);
@@ -989,6 +1002,7 @@ Route::prefix('v1')->group(function (): void {
         // l'incision, consentement coché par sa seule signature.
         Route::middleware(['can:bloc', 'service:chirurgie'])->prefix('bloc')->group(function (): void {
             Route::get('ressources', RessourcesBlocController::class);
+            Route::get('occupation', BlocOccupancyController::class);
             Route::get('interventions', [InterventionController::class, 'index']);
             Route::post('interventions', [InterventionController::class, 'store']);
             Route::get('interventions/{intervention}', [InterventionController::class, 'show']);
@@ -999,6 +1013,9 @@ Route::prefix('v1')->group(function (): void {
             Route::put('interventions/{intervention}/checklist/{code}', [ChecklistInterventionController::class, 'cocher']);
             Route::delete('interventions/{intervention}/checklist/{code}', [ChecklistInterventionController::class, 'retirer']);
             Route::post('interventions/{intervention}/consentement', ConsentementInterventionController::class);
+            // Envoyé pour signature (SMS, e-mail, espace) ou recueilli sans signature (02.11.2026)
+            Route::post('interventions/{intervention}/consentement/envoi', ConsentRequestController::class)->middleware('throttle:10,1,consent-send');
+            Route::post('interventions/{intervention}/consentement/sans-signature', ConsentWithoutSignatureController::class);
         });
 
         // Domaine téléconsultation — rattaché au domaine planning (la

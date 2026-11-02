@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ConsentMethod;
 use App\Enums\StatutIntervention;
 use App\Models\Concerns\AppartientAUneClinique;
 use Database\Factories\InterventionFactory;
@@ -9,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Intervention du bloc opératoire — PAR CLINIQUE, dossier métier
@@ -53,6 +55,7 @@ class Intervention extends Model
         'duree_minutes', 'statut', 'protocole_anesthesique',
         'note_operatoire', 'incision_a', 'consentement_signe_le',
         'consentement_document_id', 'consentement_recueilli_par_id', 'cree_par_id',
+        'consent_method', 'consent_details',
     ];
 
     protected function casts(): array
@@ -64,6 +67,8 @@ class Intervention extends Model
             'protocole_anesthesique' => 'array',
             'incision_a' => 'datetime',
             'consentement_signe_le' => 'datetime',
+            'consent_method' => ConsentMethod::class,
+            'consent_details' => 'array',
         ];
     }
 
@@ -96,6 +101,32 @@ class Intervention extends Model
     public function rendezVous(): BelongsTo
     {
         return $this->belongsTo(RendezVous::class, 'rendez_vous_id');
+    }
+
+    /** @return HasMany<ConsentRequest, $this> */
+    public function consentRequests(): HasMany
+    {
+        return $this->hasMany(ConsentRequest::class);
+    }
+
+    /**
+     * Le dernier envoi pour signature (ouvert ou non).
+     *
+     * @return HasOne<ConsentRequest, $this>
+     */
+    public function latestConsentRequest(): HasOne
+    {
+        return $this->hasOne(ConsentRequest::class)->latestOfMany();
+    }
+
+    /**
+     * Qui a recueilli le consentement, ou en a pris la responsabilité.
+     *
+     * @return BelongsTo<Employe, $this>
+     */
+    public function consentCollector(): BelongsTo
+    {
+        return $this->belongsTo(Employe::class, 'consentement_recueilli_par_id')->withoutGlobalScope('clinique');
     }
 
     /** Consentement éclairé archivé au dossier du patient.

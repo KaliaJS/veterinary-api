@@ -79,12 +79,7 @@ class CycleInterventionController extends Controller
             return $this->creationFacture->depuisRendezVous($rendezVous, $request->user());
         });
 
-        $resource = new InterventionResource($intervention->load([
-            'patient.client',
-            'chirurgien' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
-            'checklist',
-            'transitions',
-        ]));
+        $resource = new InterventionResource($intervention->load(InterventionController::relations()));
 
         if ($facture !== null && Gate::allows('facturation')) {
             $resource->additional(['facture' => new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']))]);
