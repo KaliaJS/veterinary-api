@@ -288,4 +288,13 @@ class ConsentTest extends TestCase
         $this->assertFalse($this->consentCoche());
         $this->assertNull($this->intervention->fresh()->consentement_signe_le);
     }
+
+    public function test_un_consentement_recueilli_ne_se_decoche_pas(): void
+    {
+        $this->postJson($this->url('/sans-signature'), ['method' => 'emergency', 'responsibility' => true], $this->enTetes($this->jeton))->assertOk();
+
+        $this->putJson('/api/v1/bloc/interventions/'.$this->intervention->id.'/checklist/consent', ['est_coche' => false], $this->enTetes($this->jeton))
+            ->assertUnprocessable()->assertJsonValidationErrors('est_coche');
+        $this->assertTrue($this->consentCoche());
+    }
 }

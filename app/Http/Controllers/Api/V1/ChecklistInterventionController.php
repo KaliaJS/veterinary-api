@@ -48,6 +48,12 @@ class ChecklistInterventionController extends Controller
                 'est_coche' => 'Le consentement ne se coche que par sa signature.',
             ]);
         }
+        // Recueilli, il ne se décoche pas : rien ne pourrait le recocher, l'intervention resterait bloquée (02.11.2026)
+        if ($point->code === 'consent' && ! $estCoche && $intervention->consentement_signe_le !== null) {
+            throw ValidationException::withMessages([
+                'est_coche' => 'Le consentement est recueilli : il ne se décoche pas.',
+            ]);
+        }
 
         $point->update(['est_coche' => $estCoche]);
 
