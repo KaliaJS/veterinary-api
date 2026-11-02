@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\DomainePermission;
+use App\Enums\PushType;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
 use App\Http\Controllers\Controller;
@@ -13,6 +15,7 @@ use App\Models\Patient;
 use App\Models\UrgenceAttente;
 use App\Services\CalculateurCreneaux;
 use App\Services\MutationRendezVous;
+use App\Services\Notifications\Push;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -49,10 +52,23 @@ class UrgenceAttenteController extends Controller
             $donnees = [...$donnees, ...Patient::findOrFail($donnees['patient_id'])->denormalisation()];
         }
 
-        return new UrgenceAttenteResource(UrgenceAttente::create([
+        $urgence = UrgenceAttente::create([
             ...$donnees,
             'arrivee_le' => now(),
-        ]));
+        ]);
+
+        // L'équipe du planning le sait sur son téléphone, sauf qui vient de l'écrire (02.11.2026)
+        $niveau = [3 => 'Vital', 2 => 'Urgent', 1 => 'À voir'][(int) $urgence->triage] ?? 'Urgence';
+        Push::to(
+            Push::staffOf($urgence->clinique_id, DomainePermission::Planning),
+            PushType::Emergency,
+            'Nouvelle urgence : '.$niveau,
+            trim(($urgence->patient_name ?: 'Animal').($urgence->reason ? ', '.$urgence->reason : '')),
+            '/clinique/planning',
+            except: $request->user()?->id,
+        );
+
+        return new UrgenceAttenteResource($urgence);
     }
 
     public function placer(

@@ -14,6 +14,7 @@ use App\Models\DemandeRendezVous;
 use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\User;
+use App\Services\Notifications\Push;
 use App\Services\Paiements\AcomptesRendezVous;
 use Carbon\CarbonImmutable;
 use Illuminate\Mail\Mailable;
@@ -108,6 +109,8 @@ class TraitementDemande
         });
 
         $this->ecrire($demande, new DemandeRendezVousAcceptee($demande->load('clinique'), $rendezVous));
+        // Sur son téléphone aussi, sauf s'il vient de le choisir lui-même (02.11.2026)
+        Push::appointment($rendezVous, 'confirmé', except: $auteur?->id);
 
         return $rendezVous;
     }

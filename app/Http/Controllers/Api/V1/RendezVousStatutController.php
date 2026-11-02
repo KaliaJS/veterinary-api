@@ -12,6 +12,7 @@ use App\Http\Resources\V1\RendezVousResource;
 use App\Models\RendezVous;
 use App\Services\CreationFacture;
 use App\Services\MutationRendezVous;
+use App\Services\Notifications\Push;
 use App\Services\Paiements\AcomptesRendezVous;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -115,6 +116,7 @@ class RendezVousStatutController extends Controller
                 entreesSupplementaires: $motif === '' ? [] : ['motifAnnulation' => [null, $motif]],
             );
         });
+        Push::appointment($rendezVous, 'annulé', except: $request->user()?->id);
 
         return new RendezVousResource($rendezVous);
     }

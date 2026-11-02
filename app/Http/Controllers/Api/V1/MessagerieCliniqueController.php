@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\PushType;
 use App\Events\MessagesChangent;
 use App\Http\Controllers\Controller;
 use App\Mail\ReponseClinique;
@@ -10,6 +11,7 @@ use App\Models\Client;
 use App\Models\MessageClientele;
 use App\Models\PreferencesProprietaire;
 use App\Services\Messages\InternalMessaging;
+use App\Services\Notifications\Push;
 use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -134,6 +136,7 @@ class MessagerieCliniqueController extends Controller
         ]);
         TempsReel::diffuser(fn () => MessagesChangent::dispatch('utilisateur.'.$userId, $userId));
         TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$contexte->cliniqueId(), $userId));
+        Push::to([$userId], PushType::ClinicMessage, $contexte->clinique()->nom, mb_strimwidth($texte, 0, 120, '…'), '/espace/messages');
         // Par e-mail aussi, s'il ne l'a pas coupé (« Réponses de la clinique »)
         $proprietaire = $fiche->user;
         if ($proprietaire !== null && PreferencesProprietaire::query()->where('user_id', $userId)->value('reponses_clinique') !== false) {

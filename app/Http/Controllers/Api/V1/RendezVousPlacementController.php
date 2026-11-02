@@ -10,6 +10,7 @@ use App\Models\LignePlanning;
 use App\Models\RendezVous;
 use App\Services\CalculateurCreneaux;
 use App\Services\MutationRendezVous;
+use App\Services\Notifications\Push;
 use Carbon\CarbonImmutable;
 use Illuminate\Validation\ValidationException;
 
@@ -54,7 +55,11 @@ class RendezVousPlacementController extends Controller
 
         // Le front n'audite qu'un `startsAt` (+ `laneId`) par
         // déplacement — le `endsAt` suit la durée, muet.
+        $avant = $rendezVous->starts_at->copy();
         $this->mutation->appliquer($rendezVous, $attributs, $request->user(), ['ends_at']);
+        if (! $rendezVous->starts_at->equalTo($avant)) {
+            Push::appointment($rendezVous, 'déplacé', except: $request->user()?->id);
+        }
 
         return new RendezVousResource($rendezVous);
     }

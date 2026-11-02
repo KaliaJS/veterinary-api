@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\PushType;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\InterventionResource;
 use App\Mail\ConsentRequested;
@@ -10,6 +11,7 @@ use App\Models\ConsentRequest;
 use App\Models\Intervention;
 use App\Notifications\ConsentRequestSms;
 use App\Services\Messages\QuotaSms;
+use App\Services\Notifications\Push;
 use App\Support\Telephone;
 use App\Support\TexteSms;
 use Illuminate\Http\Request;
@@ -123,6 +125,11 @@ class ConsentRequestController extends Controller
                 ->whereNull('signed_at')->whereNull('cancelled_at')
                 ->update(['cancelled_at' => now()]);
         });
+
+        // L'avis dans son espace : une notification sur son téléphone (02.11.2026)
+        if (in_array('space', $sent, true)) {
+            Push::to([$client->user_id], PushType::ConsentRequest, $clinic->nom, 'Consentement à signer pour '.$intervention->patient->nom, '/espace/documents');
+        }
 
         return (new InterventionResource($intervention->fresh()->load(InterventionController::relations())))
             ->additional(['failures' => $failures]);

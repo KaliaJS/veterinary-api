@@ -3,10 +3,12 @@
 namespace App\Services\Bloc;
 
 use App\Enums\ConsentMethod;
+use App\Enums\PushType;
 use App\Events\InterventionUpdated;
 use App\Models\ConsentRequest;
 use App\Models\Employe;
 use App\Models\Intervention;
+use App\Services\Notifications\Push;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -69,6 +71,12 @@ class ConsentRecorder
 
         $intervention->refresh();
         InterventionUpdated::dispatch($intervention);
+
+        // Signé à distance : le chirurgien et qui a envoyé le lien le savent sur leur téléphone (02.11.2026)
+        if ($method === ConsentMethod::Remote) {
+            $employes = Employe::withoutGlobalScopes()->whereIn('id', array_filter([$intervention->chirurgien_id, $request?->sent_by_employee_id]))->pluck('user_id');
+            Push::to($employes, PushType::ConsentSigned, 'Consentement signé', trim($signer).' a signé pour '.$intervention->patient->nom.' : '.$intervention->procedure, '/clinique/bloc');
+        }
     }
 
     /**

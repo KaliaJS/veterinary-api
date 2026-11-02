@@ -99,6 +99,7 @@ use App\Http\Controllers\Api\V1\MessagerieCliniqueController;
 use App\Http\Controllers\Api\V1\MouvementStockController;
 use App\Http\Controllers\Api\V1\MouvementStupefiantController;
 use App\Http\Controllers\Api\V1\MoyenPaiementController;
+use App\Http\Controllers\Api\V1\NotificationSettingsController;
 use App\Http\Controllers\Api\V1\OrdonnanceController;
 use App\Http\Controllers\Api\V1\OrganisationCliniqueController;
 use App\Http\Controllers\Api\V1\OrganisationController;
@@ -219,6 +220,10 @@ Route::prefix('v1')->group(function (): void {
         Route::post('montre', [SessionController::class, 'montre'])->middleware('throttle:10,1');
         // La montre (ou l'iPhone) donne son jeton d'Apple pour être réveillée (28.10.2026)
         Route::post('appareil', [AppareilNotificationController::class, 'enregistrer'])->middleware('throttle:20,1');
+        // Notifications du téléphone : oubli d'un appareil à la déconnexion, réglages de chacun (02.11.2026)
+        Route::delete('appareil', [NotificationSettingsController::class, 'forgetDevice'])->middleware('throttle:20,1');
+        Route::get('notifications', [NotificationSettingsController::class, 'show']);
+        Route::put('notifications', [NotificationSettingsController::class, 'update'])->middleware('throttle:30,1');
         Route::post('clinique', ChangementCliniqueController::class);
         Route::post('deconnexion', [SessionController::class, 'deconnexion']);
         // Profil vétérinaire du compte : GLN (cherché dans MedReg) et spécialités

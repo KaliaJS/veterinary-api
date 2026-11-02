@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Api\V1;
 use App\Auth\ContexteClinique;
 use App\Enums\CanalDevis;
 use App\Enums\PieceNumerotee;
+use App\Enums\PushType;
 use App\Enums\StatutDevis;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\DevisResource;
 use App\Mail\DevisEnvoye;
 use App\Mail\RelanceDevis;
 use App\Models\Devis;
+use App\Services\Notifications\Push;
 use App\Services\Numeroteur;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -70,6 +72,11 @@ class CycleDevisController extends Controller
                 report($e);
                 $email = 'echec';
             }
+        }
+
+        // Sur son téléphone aussi, s'il a l'app (02.11.2026)
+        if ($proprietaireALEspaceClient) {
+            Push::to([$client->user_id], PushType::Quote, $devis->clinique->nom, 'Devis reçu pour '.$devis->patient->nom, '/espace/documents?devis='.$devis->id);
         }
 
         return (new DevisResource($devis->load(['lignes', 'patient.client', 'clinique.societe'])))->additional(['meta' => ['email' => $email]]);

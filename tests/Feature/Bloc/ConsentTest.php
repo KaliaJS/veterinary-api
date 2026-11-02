@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Enums\ConsentMethod;
 use App\Enums\StatutIntervention;
 use App\Events\InterventionUpdated;
+use App\Jobs\SendPush;
 use App\Mail\ConsentRequested;
 use App\Models\Client;
 use App\Models\Clinique;
@@ -14,10 +15,12 @@ use App\Models\Employe;
 use App\Models\Intervention;
 use App\Models\Patient;
 use App\Models\Salle;
+use App\Models\User;
 use App\Services\Bloc\ConsentRecorder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -306,5 +309,18 @@ class ConsentTest extends TestCase
 
         $this->putJson('/api/v1/bloc/interventions/'.$this->intervention->id.'/checklist/consent', ['est_coche' => true], $this->enTetes($this->jeton))->assertOk();
         $this->assertTrue($this->consentCoche());
+    }
+
+    public function test_l_avis_dans_l_espace_et_la_signature_a_distance_partent_sur_les_telephones(): void
+    {
+        Queue::fake([SendPush::class]);
+        $proprietaire = User::factory()->create();
+        $this->client->update(['user_id' => $proprietaire->id]);
+
+        $this->envoyer(['space', 'email'])->assertOk();
+        Queue::assertPushed(SendPush::class, fn ($j): bool => $j->userId === $proprietaire->id && $j->type === 'consent_request' && $j->body === 'Consentement à signer pour Bagheera');
+
+        $this->postJson('/api/v1/public/consentements/'.$this->jetonEnvoye().'/signer', ['signataire' => 'Marc Fournier', 'signature' => self::SIGNATURE])->assertOk();
+        Queue::assertPushed(SendPush::class, fn ($j): bool => $j->userId === $this->veterinaire->user_id && $j->type === 'consent_signed' && str_contains($j->body, 'Marc Fournier a signé pour Bagheera'));
     }
 }

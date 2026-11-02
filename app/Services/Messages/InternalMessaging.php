@@ -5,11 +5,13 @@ namespace App\Services\Messages;
 use App\Auth\CalculateurPermissions;
 use App\Auth\ContexteClinique;
 use App\Enums\DomainePermission;
+use App\Enums\PushType;
 use App\Events\MessagesChangent;
 use App\Models\ClinicMessage;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\StaffMessage;
+use App\Services\Notifications\Push;
 use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -84,6 +86,7 @@ class InternalMessaging
             foreach ([$me->user_id, $colleague->user_id] as $userId) {
                 TempsReel::diffuser(fn () => MessagesChangent::dispatch('utilisateur.'.$userId));
             }
+            Push::to([$colleague->user_id], PushType::TeamMessage, $me->nom, mb_strimwidth($body, 0, 120, '…'), '/clinique/messages');
 
             return $this->staffMessage($message->load('sender'), $me);
         }
@@ -102,6 +105,8 @@ class InternalMessaging
         foreach ([$mine->id, $other->id] as $cliniqueId) {
             TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$cliniqueId));
         }
+        // Toute l'équipe de l'autre clinique qui lit les Messages (droit patients, comme pour y écrire)
+        Push::to(Push::staffOf($other->id, DomainePermission::Patients), PushType::TeamMessage, $mine->nom, mb_strimwidth($body, 0, 120, '…'), '/clinique/messages');
 
         return $this->clinicMessage($message->load('author'), $mine, $other);
     }
