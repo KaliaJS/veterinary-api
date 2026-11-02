@@ -180,8 +180,10 @@ class AnalyseTest extends TestCase
         ], $this->jeton())->assertOk();
 
         $saisir(10.0)->assertJsonPath('data.resultats.0.drapeau', 'H')->assertJsonPath('data.resultats.0.niveau', 'limite');
-        $saisir(10.31)->assertJsonPath('data.resultats.0.niveau', 'limite');
-        $saisir(10.32)->assertJsonPath('data.resultats.0.niveau', 'hors');
+        $saisir(10.3)->assertJsonPath('data.resultats.0.niveau', 'limite');
+        // Pile à 10 % de l'écart : rouge (décision de Jim, 02.11.2026)
+        $saisir(10.31)->assertJsonPath('data.resultats.0.niveau', 'hors');
+        $saisir(1.79)->assertJsonPath('data.resultats.0.drapeau', 'L')->assertJsonPath('data.resultats.0.niveau', 'hors');
         $saisir(2.0)->assertJsonPath('data.resultats.0.drapeau', 'L')->assertJsonPath('data.resultats.0.niveau', 'limite');
         $saisir(1.5)->assertJsonPath('data.resultats.0.niveau', 'hors');
         $saisir(5.0)->assertJsonPath('data.resultats.0.niveau', null);

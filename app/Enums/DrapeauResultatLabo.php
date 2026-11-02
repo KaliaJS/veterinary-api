@@ -23,7 +23,8 @@ enum DrapeauResultatLabo: string
 
     /**
      * Le niveau d'un résultat hors bornes (décision de Jim, 01.11.2026) : « limite » s'il dépasse la borne de moins de
-     * 10 % de l'écart entre les bornes (orange à l'écran), « hors » au-delà (rouge) ; null dans les bornes.
+     * 10 % de l'écart entre les bornes (orange à l'écran), « hors » à partir de 10 % (rouge ; pile à 10 %, rouge :
+     * décision de Jim, 02.11.2026) ; null dans les bornes.
      */
     public static function niveau(?float $valeur, ?float $borneBasse, ?float $borneHaute): ?string
     {
@@ -35,6 +36,6 @@ enum DrapeauResultatLabo: string
             return null;
         }
 
-        return round($depassement, 9) <= round(0.1 * ($borneHaute - $borneBasse), 9) ? 'limite' : 'hors';
+        return round($depassement, 9) < round(0.1 * ($borneHaute - $borneBasse), 9) ? 'limite' : 'hors';
     }
 }
