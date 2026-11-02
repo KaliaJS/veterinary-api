@@ -23,6 +23,8 @@ class ClicheDicomResource extends JsonResource
             'metadonnees' => $this->metadonnees,
             // L'original envoyé, gardé tel quel (28.10.2026)
             'a_fichier' => $this->taille_octets !== null,
+            // Un aperçu léger existe (02.11.2026)
+            'has_preview' => $this->preview_path !== null,
             'taille_octets' => $this->taille_octets,
             'syntaxe_transfert' => $this->syntaxe_transfert,
             'modalite_dicom' => $this->modalite_dicom,

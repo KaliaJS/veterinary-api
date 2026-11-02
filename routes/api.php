@@ -131,6 +131,7 @@ use App\Http\Controllers\Api\V1\ProfilVeterinaireController;
 use App\Http\Controllers\Api\V1\PublicConsentController;
 use App\Http\Controllers\Api\V1\RadioController;
 use App\Http\Controllers\Api\V1\RadioDossierController;
+use App\Http\Controllers\Api\V1\RadioPreviewController;
 use App\Http\Controllers\Api\V1\RappelsController;
 use App\Http\Controllers\Api\V1\ReferentielImagerieController;
 use App\Http\Controllers\Api\V1\RegistreStupefiantController;
@@ -661,6 +662,9 @@ Route::prefix('v1')->group(function (): void {
         Route::prefix('patients/{patient}/imagerie/{examen}')->whereNumber(['examen', 'cliche', 'annotation', 'confirmation'])->group(function (): void {
             Route::get('cliches', [RadioDossierController::class, 'index']);
             Route::get('cliches/{cliche}/fichier', [RadioDossierController::class, 'fichier']);
+            // L'aperçu léger de la radio, fait par l'app (02.11.2026)
+            Route::get('cliches/{cliche}/apercu', [RadioPreviewController::class, 'show']);
+            Route::post('cliches/{cliche}/apercu', [RadioPreviewController::class, 'store'])->middleware('throttle:60,1,radio-preview');
             Route::patch('cliches/{cliche}', [RadioDossierController::class, 'reperes']);
             Route::get('cliches/{cliche}/annotations', [AnnotationRadioController::class, 'index']);
             Route::post('cliches/{cliche}/annotations', [AnnotationRadioController::class, 'store'])->middleware('throttle:240,1,annotations');

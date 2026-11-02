@@ -26,6 +26,7 @@ class ClicheDicom extends Model
         'taille_octets', 'empreinte_sha256', 'syntaxe_transfert', 'modalite_dicom',
         'lignes', 'colonnes', 'images', 'espece', 'race', 'poids_kg',
         'region', 'incidence', 'reperes_dicom', 'reperes_valides_par', 'reperes_valides_le', 'envoye_par',
+        'preview_path', 'preview_bytes',
     ];
 
     protected function casts(): array
