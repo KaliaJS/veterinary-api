@@ -371,4 +371,59 @@ class PushNotificationsTest extends TestCase
         Queue::assertPushed(SendPush::class, $this->poussePour($nouveau->id, 'Nala confirmé'));
         Queue::assertNotPushed(SendPush::class, $this->poussePour($nouveau->id, 'déplacé'));
     }
+
+    // ————— Les mêmes comptes que « Mes rendez-vous » (deuxième vérification du 02.11.2026) —————
+
+    public function test_rattacher_l_animal_d_un_nouveau_client_ne_lui_annonce_pas_une_annulation(): void
+    {
+        Queue::fake([SendPush::class]);
+        $this->travelTo(CarbonImmutable::now('Europe/Zurich')->setTime(9, 0));
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id]);
+        $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+        ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        $proprietaire = User::factory()->create();
+        $demande = DemandeRendezVous::factory()->create(['clinique_id' => $clinique->id, 'user_id' => $proprietaire->id, 'patient_name' => 'Nala', 'duree_minutes' => 30]);
+        $id = $this->postJson("/api/v1/demandes/{$demande->id}/placer", ['ligne_planning_id' => $ligne->id, 'starts_at' => now()->addDay()->setTime(16, 0)->toISOString()], $this->enTetes($jeton))->assertCreated()->json('data.id');
+
+        // L'accueil crée sa fiche (sans compte lié) et rattache l'animal au rendez-vous
+        $fiche = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'user_id' => null]);
+        $nala = Patient::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'client_id' => $fiche->id, 'nom' => 'Nala']);
+        Queue::fake([SendPush::class]);
+        $this->putJson("/api/v1/rendez-vous/{$id}", ['patient_id' => $nala->id], $this->enTetes($jeton))->assertOk();
+        Queue::assertNotPushed(SendPush::class);
+
+        // Il voit toujours ce rendez-vous dans son espace : un déplacement le prévient encore
+        $this->postJson("/api/v1/rendez-vous/{$id}/deplacer", ['starts_at' => now()->addDay()->setTime(15, 0)->toISOString()], $this->enTetes($jeton))->assertOk();
+        Queue::assertPushed(SendPush::class, $this->poussePour($proprietaire->id, 'déplacé'));
+    }
+
+    public function test_l_animal_rattache_au_compte_par_la_puce_previent_son_proprietaire(): void
+    {
+        Queue::fake([SendPush::class]);
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        $proprietaire = User::factory()->create();
+        $fiche = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'user_id' => null]);
+        $patient = Patient::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'client_id' => $fiche->id, 'proprietaire_id' => $proprietaire->id, 'nom' => 'Pacha']);
+        $rdv = RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $clinique->id, 'starts_at' => now()->addDays(2)->setTime(9, 0), 'ends_at' => now()->addDays(2)->setTime(9, 20)]);
+
+        $this->postJson("/api/v1/rendez-vous/{$rdv->id}/annuler", [], $this->enTetes($jeton))->assertOk();
+
+        Queue::assertPushed(SendPush::class, $this->poussePour($proprietaire->id, 'Pacha annulé'));
+    }
+
+    public function test_changer_l_animal_d_un_rendez_vous_annule_ne_previent_personne(): void
+    {
+        Queue::fake([SendPush::class]);
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        [, $felix] = $this->animalDUnProprietaire($clinique, 'Félix');
+        [, $nala] = $this->animalDUnProprietaire($clinique, 'Nala');
+        $rdv = RendezVous::factory()->pourPatient($felix)->create(['clinique_id' => $clinique->id, 'status' => 'annule', 'starts_at' => now()->addDays(2)->setTime(9, 0), 'ends_at' => now()->addDays(2)->setTime(9, 20)]);
+
+        $this->putJson("/api/v1/rendez-vous/{$rdv->id}", ['patient_id' => $nala->id], $this->enTetes($jeton));
+
+        Queue::assertNotPushed(SendPush::class);
+    }
 }

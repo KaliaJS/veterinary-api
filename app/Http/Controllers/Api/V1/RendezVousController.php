@@ -123,20 +123,27 @@ class RendezVousController extends Controller
         $champsNonAudites = $duree === $dureeActuelle ? ['ends_at'] : [];
 
         $avant = $rendezVous->starts_at->copy();
-        $previousOwner = Push::ownerOf($rendezVous);
+        $previousOwners = Push::ownersOf($rendezVous);
         $before = clone $rendezVous;
         $this->mutation->appliquer($rendezVous, $attributs, $request->user(), $champsNonAudites);
-        // L'heure changée depuis la fiche : le propriétaire le sait aussi ; un
-        // autre animal : l'ancien propriétaire perd son rendez-vous (annoncé
-        // tel qu'il l'avait, `$before`), le nouveau le reçoit (02.11.2026)
-        $owner = Push::ownerOf($rendezVous);
-        if ($owner !== $previousOwner) {
-            if ($previousOwner !== null) {
-                Push::appointment($before, 'annulé', except: $request->user()?->id, userId: $previousOwner);
+        // Les propriétaires le savent aussi (02.11.2026) : qui le perd (un
+        // autre animal) l'apprend annulé, tel qu'il l'avait (`$before`) ; qui
+        // le reçoit, confirmé ; qui le garde, déplacé si l'heure change. Un
+        // rendez-vous déjà annulé ne s'annonce plus.
+        if ($before->status !== StatutRendezVous::Annule) {
+            $owners = Push::ownersOf($rendezVous);
+            $lost = array_values(array_diff($previousOwners, $owners));
+            $gained = array_values(array_diff($owners, $previousOwners));
+            $kept = array_values(array_intersect($owners, $previousOwners));
+            if ($lost !== []) {
+                Push::appointment($before, 'annulé', except: $request->user()?->id, userIds: $lost);
             }
-            Push::appointment($rendezVous, 'confirmé', except: $request->user()?->id);
-        } elseif (! $rendezVous->starts_at->equalTo($avant)) {
-            Push::appointment($rendezVous, 'déplacé', except: $request->user()?->id);
+            if ($gained !== []) {
+                Push::appointment($rendezVous, 'confirmé', except: $request->user()?->id, userIds: $gained);
+            }
+            if ($kept !== [] && ! $rendezVous->starts_at->equalTo($avant)) {
+                Push::appointment($rendezVous, 'déplacé', except: $request->user()?->id, userIds: $kept);
+            }
         }
 
         return new RendezVousResource($rendezVous);
