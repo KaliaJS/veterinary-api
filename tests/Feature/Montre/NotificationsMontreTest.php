@@ -244,11 +244,12 @@ class NotificationsMontreTest extends TestCase
         $this->postJson('/api/v1/auth/appareil', ['jeton' => str_repeat('cd', 32), 'environnement' => 'sandbox', 'plateforme' => 'ios'], $this->enTetes($this->jeton))->assertNoContent();
         $this->postJson('/api/v1/auth/appareil', ['jeton' => str_repeat('ef', 32), 'environnement' => 'sandbox', 'plateforme' => 'watchos'], $this->enTetes($autre))->assertNoContent();
 
+        // L'iPhone déconnecté : son inscription part avec sa session (02.11.2026) ; la montre garde la sienne
         $this->postJson('/api/v1/auth/deconnexion', [], $this->enTetes($this->jeton))->assertNoContent();
-        $this->assertSame(3, AppareilNotification::query()->count());
+        $this->assertEqualsCanonicalizing([str_repeat('ab', 32), str_repeat('ef', 32)], AppareilNotification::query()->pluck('jeton')->all());
 
         $this->postJson('/api/v1/auth/deconnexion', [], $this->enTetes($montre))->assertNoContent();
-        $this->assertEqualsCanonicalizing([str_repeat('cd', 32), str_repeat('ef', 32)], AppareilNotification::query()->pluck('jeton')->all());
+        $this->assertEqualsCanonicalizing([str_repeat('ef', 32)], AppareilNotification::query()->pluck('jeton')->all());
         $this->assertSame($collegue->id, AppareilNotification::query()->where('plateforme', 'watchos')->value('user_id'));
     }
 
