@@ -44,8 +44,9 @@ class DayOccupancy
                 if (! isset($jours[$cle])) {
                     continue;
                 }
-                $de = max(0, (int) $jour->diffInMinutes($debut, false));
-                $a = min(1440, (int) $jour->diffInMinutes($fin, false));
+                // En heure murale de la clinique (14 h 30 reste 14 h 30 les jours de changement d'heure)
+                $de = $debut->isSameDay($jour) ? $debut->hour * 60 + $debut->minute : 0;
+                $a = $fin->isSameDay($jour) ? $fin->hour * 60 + $fin->minute : 1440;
                 foreach (self::MOMENTS as $i => [$ouvre, $ferme]) {
                     if ($de < $ferme && $a > $ouvre) {
                         $jours[$cle][$i] = true;

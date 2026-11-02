@@ -36,6 +36,10 @@ class ConsentWithoutSignatureController extends Controller
             'responsibility.accepted' => 'Confirmez que vous en prenez la responsabilité.',
         ]);
 
+        if ($intervention->estFinie()) {
+            throw ValidationException::withMessages(['consentement' => 'L’intervention est terminée.']);
+        }
+
         $employee = $contexte->employe();
         if ($employee === null) {
             throw ValidationException::withMessages(['responsibility' => 'Seul un membre de l’équipe connecté peut en prendre la responsabilité.']);

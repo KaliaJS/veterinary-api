@@ -105,4 +105,15 @@ class DayOccupancyTest extends TestCase
             ->assertOk()
             ->assertExactJson(['data' => ['2026-11-02' => [false, true, false]]]);
     }
+
+    public function test_les_jours_de_changement_d_heure_gardent_l_heure_murale(): void
+    {
+        $this->intervention('2026-03-29 14:30', 30); // passage à l'heure d'été : l'après-midi
+        $this->intervention('2026-10-25 13:00', 30); // passage à l'heure d'hiver : midi
+
+        $this->getJson('/api/v1/bloc/occupation?du=2026-03-29&au=2026-03-29', $this->enTetes($this->jeton))
+            ->assertOk()->assertExactJson(['data' => ['2026-03-29' => [false, false, true]]]);
+        $this->getJson('/api/v1/bloc/occupation?du=2026-10-25&au=2026-10-25', $this->enTetes($this->jeton))
+            ->assertOk()->assertExactJson(['data' => ['2026-10-25' => [false, true, false]]]);
+    }
 }

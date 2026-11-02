@@ -35,6 +35,11 @@ class ConsentRecorder
                 // Relue sous verrou : deux signatures en même temps n'en gardent qu'une
                 $fresh = Intervention::withoutGlobalScopes()->lockForUpdate()->findOrFail($intervention->id);
                 $this->assertNotYet($fresh);
+                // Le lien relu sous le même verrou : remplacé ou expiré entre-temps, il ne signe plus rien
+                if ($request !== null) {
+                    $request = ConsentRequest::withoutGlobalScopes()->lockForUpdate()->findOrFail($request->id);
+                    abort_unless($request->isOpen(), 410, 'Ce lien a été remplacé par un plus récent, ou n’est plus valable.');
+                }
 
                 $document = $intervention->patient->documents()->create([
                     'nom' => 'Consentement éclairé : '.$intervention->procedure,

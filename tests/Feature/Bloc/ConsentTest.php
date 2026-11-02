@@ -4,6 +4,7 @@ namespace Tests\Feature\Bloc;
 
 use App\Auth\ContexteClinique;
 use App\Enums\ConsentMethod;
+use App\Enums\StatutIntervention;
 use App\Events\InterventionUpdated;
 use App\Mail\ConsentRequested;
 use App\Models\Client;
@@ -13,11 +14,13 @@ use App\Models\Employe;
 use App\Models\Intervention;
 use App\Models\Patient;
 use App\Models\Salle;
+use App\Services\Bloc\ConsentRecorder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Concerns\FauxTwilio;
 use Tests\TestCase;
@@ -240,5 +243,49 @@ class ConsentTest extends TestCase
             ->assertJsonPath('data.patient.contact.mobile', '+41791234567')
             ->assertJsonPath('data.patient.contact.email', 'm.fournier@example.ch')
             ->assertJsonPath('data.patient.contact.has_space', false);
+    }
+
+    public function test_un_envoi_en_partie_rate_garde_seulement_ce_qui_est_parti(): void
+    {
+        $this->fauxTwilio(500, ['message' => 'panne']);
+        $this->envoyer(['email', 'sms'])->assertOk()
+            ->assertJsonPath('data.consent_request.channels', ['email'])
+            ->assertJsonPath('failures', ['Le SMS n’est pas parti.']);
+    }
+
+    public function test_si_rien_ne_part_l_ancien_lien_reste_valable(): void
+    {
+        $this->envoyer(['email'])->assertOk();
+        $ancien = $this->jetonEnvoye();
+        $this->fauxTwilio(500, ['message' => 'panne']);
+
+        $this->envoyer(['sms'])->assertUnprocessable()->assertJsonValidationErrors('channels');
+        $this->getJson('/api/v1/public/consentements/'.$ancien)->assertOk()->assertJsonPath('data.status', 'open');
+        $this->assertSame(1, ConsentRequest::withoutGlobalScopes()->count());
+    }
+
+    public function test_une_intervention_terminee_ne_recoit_plus_de_consentement(): void
+    {
+        $this->intervention->forceFill(['statut' => StatutIntervention::Fini])->save();
+        $this->envoyer(['email'])->assertUnprocessable();
+        $this->postJson($this->url('/sans-signature'), ['method' => 'emergency', 'responsibility' => true], $this->enTetes($this->jeton))->assertUnprocessable();
+    }
+
+    public function test_un_lien_remplace_pendant_la_signature_ne_signe_rien(): void
+    {
+        $this->envoyer(['email'])->assertOk();
+        $jeton = $this->jetonEnvoye();
+        $demande = ConsentRequest::byToken($jeton);
+        // La clinique renvoie un lien entre la lecture et la signature
+        ConsentRequest::withoutGlobalScopes()->whereKey($demande->id)->update(['cancelled_at' => now()]);
+
+        try {
+            app(ConsentRecorder::class)->sign($demande->intervention, 'Marc Fournier', (string) base64_decode(substr(self::SIGNATURE, 22)), ConsentMethod::Remote, null, $demande);
+            $this->fail('La signature aurait dû être refusée.');
+        } catch (HttpException $e) {
+            $this->assertSame(410, $e->getStatusCode());
+        }
+        $this->assertFalse($this->consentCoche());
+        $this->assertNull($this->intervention->fresh()->consentement_signe_le);
     }
 }
