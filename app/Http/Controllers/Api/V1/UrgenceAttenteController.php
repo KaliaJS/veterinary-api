@@ -123,6 +123,11 @@ class UrgenceAttenteController extends Controller
 
             return $rendezVous;
         });
+        // Le propriétaire l'apprend sur son téléphone (décision de Jim, 02.11.2026)
+        // un autre jour seulement : casée aujourd'hui, l'animal est déjà là
+        if (! $estAujourdhui) {
+            Push::appointment($rendezVous, 'confirmé', except: $request->user()?->id);
+        }
 
         return new RendezVousResource($rendezVous);
     }

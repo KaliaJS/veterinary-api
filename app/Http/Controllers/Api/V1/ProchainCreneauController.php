@@ -8,6 +8,7 @@ use App\Http\Resources\V1\RendezVousResource;
 use App\Models\RendezVous;
 use App\Services\CalculateurCreneaux;
 use App\Services\MutationRendezVous;
+use App\Services\Notifications\Push;
 use Carbon\CarbonImmutable;
 use Illuminate\Validation\ValidationException;
 
@@ -43,6 +44,10 @@ class ProchainCreneauController extends Controller
             'duree_minutes' => $duree,
         ]);
 
-        return new RendezVousResource($mutation->creer($attributs, $request->user()));
+        $rendezVous = $mutation->creer($attributs, $request->user());
+        // Le propriétaire l'apprend sur son téléphone (décision de Jim, 02.11.2026)
+        Push::appointment($rendezVous, 'confirmé', except: $request->user()?->id);
+
+        return new RendezVousResource($rendezVous);
     }
 }

@@ -14,6 +14,7 @@ use App\Models\ListeAttente;
 use App\Models\Patient;
 use App\Services\CalculateurCreneaux;
 use App\Services\MutationRendezVous;
+use App\Services\Notifications\Push;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -107,6 +108,8 @@ class ListeAttenteController extends Controller
 
             return $rendezVous;
         });
+        // Le propriétaire l'apprend sur son téléphone (décision de Jim, 02.11.2026)
+        Push::appointment($rendezVous, 'confirmé', except: $request->user()?->id);
 
         return new RendezVousResource($rendezVous);
     }

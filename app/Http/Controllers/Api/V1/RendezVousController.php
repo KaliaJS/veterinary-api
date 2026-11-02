@@ -68,7 +68,11 @@ class RendezVousController extends Controller
             ]);
         }
 
-        return new RendezVousResource($this->mutation->creer($attributs, $request->user()));
+        $rendezVous = $this->mutation->creer($attributs, $request->user());
+        // Le propriétaire l'apprend sur son téléphone (décision de Jim, 02.11.2026)
+        Push::appointment($rendezVous, 'confirmé', except: $request->user()?->id);
+
+        return new RendezVousResource($rendezVous);
     }
 
     public function show(RendezVous $rendezVous): RendezVousResource

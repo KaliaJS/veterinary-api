@@ -14,9 +14,11 @@ use App\Models\HoraireOuverture;
 use App\Models\Intervention;
 use App\Models\JetonApi;
 use App\Models\LignePlanning;
+use App\Models\ListeAttente;
 use App\Models\NotificationSetting;
 use App\Models\Patient;
 use App\Models\RendezVous;
+use App\Models\UrgenceAttente;
 use App\Models\User;
 use App\Services\Notifications\CanalApns;
 use Carbon\CarbonImmutable;
@@ -425,5 +427,41 @@ class PushNotificationsTest extends TestCase
         $this->putJson("/api/v1/rendez-vous/{$rdv->id}", ['patient_id' => $nala->id], $this->enTetes($jeton));
 
         Queue::assertNotPushed(SendPush::class);
+    }
+
+    // ————— Un rendez-vous créé par la clinique (décision de Jim, 02.11.2026) —————
+
+    public function test_un_rendez_vous_cree_par_la_clinique_previent_le_proprietaire_confirme(): void
+    {
+        Queue::fake([SendPush::class]);
+        $this->travelTo(CarbonImmutable::now('Europe/Zurich')->setTime(9, 0));
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id]);
+        $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+        ['user' => $auteur, 'jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        [$proprietaire, $patient] = $this->animalDUnProprietaire($clinique, 'Félix');
+        $demain = fn (int $h) => aujourdhui()->addDay()->setTime($h, 0)->toISOString();
+        $compte = fn () => Queue::pushed(SendPush::class, $this->poussePour($proprietaire->id, 'Félix confirmé'))->count();
+
+        // Au planning
+        $this->postJson('/api/v1/rendez-vous', ['ligne_planning_id' => $ligne->id, 'starts_at' => $demain(10), 'duree_minutes' => 20, 'patient_id' => $patient->id, 'reason' => 'Contrôle'], $this->enTetes($jeton))->assertCreated();
+        $this->assertSame(1, $compte());
+
+        // Depuis la liste d'attente
+        $inscription = ListeAttente::factory()->create(['clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'patient_name' => 'Félix', 'duree_minutes' => 20]);
+        $this->postJson("/api/v1/liste-attente/{$inscription->id}/placer", ['ligne_planning_id' => $ligne->id, 'starts_at' => $demain(11)], $this->enTetes($jeton))->assertCreated();
+        $this->assertSame(2, $compte());
+
+        // Une urgence placée un autre jour
+        $urgence = UrgenceAttente::factory()->create(['clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'patient_name' => 'Félix', 'duree_minutes' => 30]);
+        $this->postJson("/api/v1/urgences/{$urgence->id}/placer", ['ligne_planning_id' => $ligne->id, 'starts_at' => $demain(14)], $this->enTetes($jeton))->assertCreated();
+        $this->assertSame(3, $compte());
+
+        // Le prochain créneau libre
+        $this->postJson('/api/v1/rendez-vous/prochain-creneau', ['patient_id' => $patient->id, 'reason' => 'Suivi', 'date' => aujourdhui()->addDay()->toDateString()], $this->enTetes($jeton))->assertCreated();
+        $this->assertSame(4, $compte());
+
+        // Jamais à l'auteur, rien pour un créneau sans animal
+        Queue::assertNotPushed(SendPush::class, fn (SendPush $j): bool => $j->userId === $auteur->id);
     }
 }
