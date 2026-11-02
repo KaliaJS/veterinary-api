@@ -280,6 +280,8 @@ class AcomptesRendezVous
             self::exigerDroitDeRembourser($demande);
         }
         $rendezVous = RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id);
+        // Déjà annulé par un autre chemin : le propriétaire l'a appris alors
+        $wasCancelled = $rendezVous?->status === StatutRendezVous::Annule;
 
         DB::transaction(function () use ($demande, $decision, $auteur, $rendezVous): void {
             if ($decision->annule() && $rendezVous && $rendezVous->status !== StatutRendezVous::Annule) {
@@ -298,7 +300,7 @@ class AcomptesRendezVous
             $this->drapeauAcompte($demande);
         });
 
-        if ($decision->annule() && $rendezVous !== null) {
+        if ($decision->annule() && $rendezVous !== null && ! $wasCancelled) {
             Push::appointment($rendezVous->refresh(), 'annulé à votre demande', except: $auteur->id, isTermine: true);
         }
 

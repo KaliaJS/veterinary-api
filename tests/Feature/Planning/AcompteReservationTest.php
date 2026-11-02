@@ -4,6 +4,7 @@ namespace Tests\Feature\Planning;
 
 use App\Enums\DomainePermission;
 use App\Enums\StatutRendezVous;
+use App\Jobs\SendPush;
 use App\Mail\AcompteConteste;
 use App\Mail\AnnulationRendezVousDecidee;
 use App\Mail\DemandeRendezVousAcceptee;
@@ -24,6 +25,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
 use Tests\Concerns\DeposeSansCompte;
@@ -1076,6 +1078,33 @@ class AcompteReservationTest extends TestCase
         $this->postJson("/api/v1/demandes/{$enAttente->id}/refuser", ['motif' => 'agenda'], $entetes)->assertOk();
         $this->assertSame('refusee', $enAttente->refresh()->statut->value);
         $this->assertCount(1, array_keys($this->stripe->remboursements, $enAttente->acompte_intention_id, true));
+    }
+
+    /** Notifications du téléphone (vérification du 02.11.2026) : la décision prévient le propriétaire, même sans fiche à la clinique, une seule fois. */
+    public function test_la_decision_d_annulation_previent_le_proprietaire_sans_fiche_une_seule_fois(): void
+    {
+        Queue::fake([SendPush::class]);
+        ['user' => $proprietaire, 'jeton' => $jetonProprietaire] = $this->proprietaireAvecJeton();
+        ['jeton' => $jetonClinique] = $this->administrateurAvecJeton($this->clinique);
+        $this->clinique->update(['acompte_centimes' => 3000]);
+        $pourMoi = fn (string $mot) => fn (SendPush $j): bool => $j->userId === $proprietaire->id && str_contains($j->body, $mot);
+
+        $demande = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi);
+        $this->assertNull(RendezVous::withoutGlobalScopes()->find($demande->rendez_vous_id)->client_id);
+        Queue::assertPushed(SendPush::class, $pourMoi('confirmé'));
+
+        $this->postJson("/api/v1/espace/rendez-vous/{$demande->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        $this->postJson("/api/v1/demandes/{$demande->id}/annulation", ['decision' => 'complet'], $this->enTetes($jetonClinique))->assertOk();
+        Queue::assertPushed(SendPush::class, $pourMoi('annulé à votre demande'));
+
+        // Déjà annulé par la clinique avant la décision : pas de seconde annonce
+        $autre = $this->reserverAvecAcompte($jetonProprietaire, $this->mardi->addWeek());
+        $this->postJson("/api/v1/espace/rendez-vous/{$autre->rendez_vous_id}/demander-annulation", [], $this->enTetes($jetonProprietaire))->assertOk();
+        // (annulé par un autre chemin, la demande d'annulation restée en attente)
+        RendezVous::withoutGlobalScopes()->whereKey($autre->rendez_vous_id)->update(['status' => StatutRendezVous::Annule]);
+        Queue::fake([SendPush::class]);
+        $this->postJson("/api/v1/demandes/{$autre->id}/annulation", ['decision' => 'complet'], $this->enTetes($jetonClinique))->assertOk();
+        Queue::assertNotPushed(SendPush::class);
     }
 
     private function reserverAvecAcompte(string $jetonProprietaire, CarbonImmutable $debut): DemandeRendezVous

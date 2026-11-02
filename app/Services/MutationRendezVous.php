@@ -10,6 +10,7 @@ use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\Salle;
 use App\Models\User;
+use App\Services\Notifications\Push;
 use App\Services\Paiements\AcomptesRendezVous;
 use BackedEnum;
 use Carbon\CarbonImmutable;
@@ -217,6 +218,8 @@ class MutationRendezVous
 
             if (! $unRendezVous->estTampon()) {
                 $annules++;
+                // Le propriétaire l'apprend sur son téléphone (02.11.2026)
+                Push::appointment($unRendezVous, 'annulé', except: $auteur?->id);
             }
         }
 

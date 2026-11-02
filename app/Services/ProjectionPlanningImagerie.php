@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\StatutRendezVous;
 use App\Models\ExamenImagerie;
 use App\Models\User;
+use App\Services\Notifications\Push;
 
 /**
  * Même patron que le bloc (ProjectionPlanningBloc) : l'examen
@@ -41,7 +42,12 @@ class ProjectionPlanningImagerie
         // `endsAt` qui suit le début ; un pur changement de durée, si.
         $champsNonAudites = $rendezVous->starts_at->ne($attributs['starts_at']) ? ['ends_at'] : [];
 
+        $isMoved = $rendezVous->starts_at->ne($attributs['starts_at']);
         $this->mutation->appliquer($rendezVous, $attributs, $auteur, $champsNonAudites);
+        // Une nouvelle heure : le propriétaire l'apprend sur son téléphone (02.11.2026)
+        if ($isMoved) {
+            Push::appointment($rendezVous, 'déplacé', except: $auteur?->id);
+        }
     }
 
     /** Reflète un statut sur le RDV lié (clôture à la signature du CR). */

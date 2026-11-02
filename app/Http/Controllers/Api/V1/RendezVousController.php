@@ -123,9 +123,19 @@ class RendezVousController extends Controller
         $champsNonAudites = $duree === $dureeActuelle ? ['ends_at'] : [];
 
         $avant = $rendezVous->starts_at->copy();
+        $previousOwner = Push::ownerOf($rendezVous);
+        $before = clone $rendezVous;
         $this->mutation->appliquer($rendezVous, $attributs, $request->user(), $champsNonAudites);
-        // L'heure changée depuis la fiche : le propriétaire le sait aussi (02.11.2026)
-        if (! $rendezVous->starts_at->equalTo($avant)) {
+        // L'heure changée depuis la fiche : le propriétaire le sait aussi ; un
+        // autre animal : l'ancien propriétaire perd son rendez-vous (annoncé
+        // tel qu'il l'avait, `$before`), le nouveau le reçoit (02.11.2026)
+        $owner = Push::ownerOf($rendezVous);
+        if ($owner !== $previousOwner) {
+            if ($previousOwner !== null) {
+                Push::appointment($before, 'annulé', except: $request->user()?->id, userId: $previousOwner);
+            }
+            Push::appointment($rendezVous, 'confirmé', except: $request->user()?->id);
+        } elseif (! $rendezVous->starts_at->equalTo($avant)) {
             Push::appointment($rendezVous, 'déplacé', except: $request->user()?->id);
         }
 

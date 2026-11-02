@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Facturation;
 
+use App\Jobs\SendPush;
 use App\Mail\DevisEnvoye;
 use App\Mail\RelanceDevis;
 use App\Models\Client;
@@ -13,6 +14,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -162,6 +164,23 @@ class DevisTest extends TestCase
             ->assertJsonPath('data.statut', 'envoye')
             ->assertJsonPath('data.canal', 'portail')
             ->assertJsonPath('data.valide_jusquau', aujourdhui()->addDays(30)->toDateString());
+    }
+
+    /** Notification du téléphone (02.11.2026) : un devis envoyé sur l'espace client prévient le propriétaire ; un devis papier, personne. */
+    public function test_un_devis_envoye_sur_l_espace_client_previent_le_proprietaire(): void
+    {
+        Queue::fake([SendPush::class]);
+        $papier = $this->devis();
+        $this->postJson("/api/v1/facturation/devis/{$papier->id}/envoyer", [], $this->enTetes($this->jeton))->assertOk();
+        Queue::assertNotPushed(SendPush::class);
+
+        $compte = User::factory()->create();
+        $this->patient->client->update(['user_id' => $compte->id]);
+        $devis = $this->devis();
+        $this->postJson("/api/v1/facturation/devis/{$devis->id}/envoyer", [], $this->enTetes($this->jeton))->assertOk();
+
+        Queue::assertPushed(SendPush::class, fn (SendPush $j): bool => $j->userId === $compte->id && $j->type === 'quote'
+            && $j->body === 'Devis reçu pour '.$this->patient->nom && $j->url === '/espace/documents?devis='.$devis->id);
     }
 
     /** Relance d'un devis envoyé : sur l'espace client, un e-mail part (une fois par jour au plus) ; un devis papier se relance par téléphone. */

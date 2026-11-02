@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\StatutRendezVous;
 use App\Models\Intervention;
 use App\Models\User;
+use App\Services\Notifications\Push;
 
 /**
  * Tranche la divergence « RDV du planning vs modèle métier parallèle »
@@ -43,7 +44,12 @@ class ProjectionPlanningBloc
         // (redimensionnement), si.
         $champsNonAudites = $rendezVous->starts_at->ne($attributs['starts_at']) ? ['ends_at'] : [];
 
+        $isMoved = $rendezVous->starts_at->ne($attributs['starts_at']);
         $this->mutation->appliquer($rendezVous, $attributs, $auteur, $champsNonAudites);
+        // Une nouvelle heure : le propriétaire l'apprend sur son téléphone (02.11.2026)
+        if ($isMoved) {
+            Push::appointment($rendezVous, 'déplacé', except: $auteur?->id);
+        }
     }
 
     /** Reflète un statut du cycle opératoire sur le RDV lié. */

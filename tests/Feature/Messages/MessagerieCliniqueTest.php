@@ -3,6 +3,7 @@
 namespace Tests\Feature\Messages;
 
 use App\Events\MessagesChangent;
+use App\Jobs\SendPush;
 use App\Mail\ReponseClinique;
 use App\Models\Client;
 use App\Models\Clinique;
@@ -15,6 +16,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -86,6 +88,19 @@ class MessagerieCliniqueTest extends TestCase
             ->assertJsonPath('data.messages.1.texte', 'Passez cet après-midi, nous la regardons.');
         // En temps réel : son canal est prévenu
         Event::assertDispatched(MessagesChangent::class, fn (MessagesChangent $e): bool => $e->broadcastOn()[0]->name === 'private-utilisateur.'.$this->proprietaire->id);
+    }
+
+    /** Notification du téléphone (02.11.2026) : la réponse de la clinique arrive sur le téléphone du propriétaire, à lui seul. */
+    public function test_un_message_de_la_clinique_previent_le_telephone_du_proprietaire(): void
+    {
+        $this->ecrireCommeProprietaire('Félix tousse depuis hier.');
+        Queue::fake([SendPush::class]);
+
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Passez cet après-midi, nous la regardons.'], $this->enTetes($this->accueil))->assertCreated();
+
+        Queue::assertPushed(SendPush::class, 1);
+        Queue::assertPushed(SendPush::class, fn (SendPush $j): bool => $j->userId === $this->proprietaire->id && $j->type === 'clinic_message'
+            && $j->title === 'Deux Rives' && $j->body === 'Passez cet après-midi, nous la regardons.' && $j->url === '/espace/messages');
     }
 
     public function test_un_message_du_proprietaire_previent_la_clinique_en_temps_reel_sans_son_contenu(): void

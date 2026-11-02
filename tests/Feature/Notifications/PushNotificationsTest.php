@@ -4,10 +4,16 @@ namespace Tests\Feature\Notifications;
 
 use App\Enums\PushType;
 use App\Jobs\SendPush;
+use App\Models\Absence;
 use App\Models\AppareilNotification;
 use App\Models\Client;
 use App\Models\Clinique;
+use App\Models\DemandeRendezVous;
+use App\Models\ExamenImagerie;
+use App\Models\HoraireOuverture;
+use App\Models\Intervention;
 use App\Models\JetonApi;
+use App\Models\LignePlanning;
 use App\Models\NotificationSetting;
 use App\Models\Patient;
 use App\Models\RendezVous;
@@ -251,5 +257,118 @@ class PushNotificationsTest extends TestCase
 
         Queue::assertPushed(SendPush::class, fn (SendPush $j): bool => $j->userId === $marc->user_id);
         Queue::assertNotPushed(SendPush::class, fn (SendPush $j): bool => $j->userId === $anne->user_id);
+    }
+
+    // ————— Tous les chemins d'un rendez-vous (vérification du 02.11.2026) —————
+
+    /** Un propriétaire avec un compte et une fiche à la clinique, et son animal */
+    private function animalDUnProprietaire(Clinique $clinique, string $nom = 'Félix'): array
+    {
+        $proprietaire = User::factory()->create();
+        $client = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'user_id' => $proprietaire->id]);
+
+        return [$proprietaire, Patient::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'client_id' => $client->id, 'nom' => $nom])];
+    }
+
+    private function poussePour(int $userId, string $mot): \Closure
+    {
+        return fn (SendPush $j): bool => $j->userId === $userId && $j->type === 'appointment' && str_contains($j->body, $mot);
+    }
+
+    public function test_un_rendez_vous_pris_en_ligne_sans_fiche_previent_son_proprietaire_confirme_deplace_annule(): void
+    {
+        Queue::fake([SendPush::class]);
+        $this->travelTo(CarbonImmutable::now('Europe/Zurich')->setTime(9, 0));
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id]);
+        $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+        ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        $proprietaire = User::factory()->create();
+        $demande = DemandeRendezVous::factory()->create(['clinique_id' => $clinique->id, 'user_id' => $proprietaire->id, 'patient_name' => 'Nala', 'duree_minutes' => 30]);
+
+        $id = $this->postJson("/api/v1/demandes/{$demande->id}/placer", ['ligne_planning_id' => $ligne->id, 'starts_at' => now()->addDay()->setTime(16, 0)->toISOString()], $this->enTetes($jeton))
+            ->assertCreated()->json('data.id');
+        $this->assertNull(RendezVous::withoutGlobalScopes()->findOrFail($id)->client_id);
+        Queue::assertPushed(SendPush::class, $this->poussePour($proprietaire->id, 'Nala confirmé'));
+
+        $this->postJson("/api/v1/rendez-vous/{$id}/deplacer", ['starts_at' => now()->addDay()->setTime(15, 0)->toISOString()], $this->enTetes($jeton))->assertOk();
+        Queue::assertPushed(SendPush::class, $this->poussePour($proprietaire->id, 'déplacé'));
+
+        $this->postJson("/api/v1/rendez-vous/{$id}/annuler", [], $this->enTetes($jeton))->assertOk();
+        Queue::assertPushed(SendPush::class, $this->poussePour($proprietaire->id, 'annulé'));
+    }
+
+    public function test_une_demande_placee_ou_un_rendez_vous_glisse_au_planning_previent_le_proprietaire_qui_a_une_fiche(): void
+    {
+        Queue::fake([SendPush::class]);
+        $this->travelTo(CarbonImmutable::now('Europe/Zurich')->setTime(9, 0));
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id]);
+        $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+        ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        [$proprietaire, $patient] = $this->animalDUnProprietaire($clinique);
+        $demande = DemandeRendezVous::factory()->create(['clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'client_id' => $patient->client_id, 'patient_name' => 'Félix', 'duree_minutes' => 30]);
+
+        $id = $this->postJson("/api/v1/demandes/{$demande->id}/placer", ['ligne_planning_id' => $ligne->id, 'starts_at' => now()->addDay()->setTime(16, 0)->toISOString()], $this->enTetes($jeton))
+            ->assertCreated()->json('data.id');
+        Queue::assertPushed(SendPush::class, $this->poussePour($proprietaire->id, 'Félix confirmé'));
+
+        $this->postJson("/api/v1/rendez-vous/{$id}/deplacer", ['starts_at' => now()->addDay()->setTime(15, 0)->toISOString()], $this->enTetes($jeton))->assertOk();
+        Queue::assertPushed(SendPush::class, $this->poussePour($proprietaire->id, 'déplacé'));
+    }
+
+    public function test_une_absence_validee_previent_les_proprietaires_des_rendez_vous_annules(): void
+    {
+        Queue::fake([SendPush::class]);
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
+        ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        [$proprietaire, $patient] = $this->animalDUnProprietaire($clinique);
+        RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $clinique->id, 'ligne_planning_id' => $ligne->id, 'starts_at' => aujourdhui()->addDay()->setTime(9, 0), 'ends_at' => aujourdhui()->addDay()->setTime(9, 30)]);
+        $absence = Absence::factory()->enAttente()->create(['employe_id' => $ligne->employe_id, 'debut_le' => aujourdhui()->addDay(), 'fin_le' => aujourdhui()->addDays(2)]);
+
+        $this->postJson("/api/v1/absences/{$absence->id}/valider", [], $this->enTetes($jeton))->assertOk()->assertJsonPath('meta.rendez_vous_annules', 1);
+
+        Queue::assertPushed(SendPush::class, $this->poussePour($proprietaire->id, 'annulé'));
+    }
+
+    public function test_une_intervention_ou_un_examen_deplace_previent_le_proprietaire_de_son_rendez_vous(): void
+    {
+        Queue::fake([SendPush::class]);
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        ['jeton' => $jeton] = $this->administrateurAvecJeton($clinique);
+        [$proprietaire, $patient] = $this->animalDUnProprietaire($clinique);
+        $quand = now()->addDays(3)->setTime(9, 0);
+        $rdvBloc = RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $clinique->id, 'type' => 'chir', 'starts_at' => $quand, 'ends_at' => $quand->copy()->addHour()]);
+        $intervention = Intervention::factory()->create(['clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'rendez_vous_id' => $rdvBloc->id, 'prevu_le' => $quand, 'duree_minutes' => 60]);
+        $rdvImagerie = RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $clinique->id, 'starts_at' => $quand->copy()->addHours(3), 'ends_at' => $quand->copy()->addHours(3)->addMinutes(30)]);
+        $examen = ExamenImagerie::factory()->create(['clinique_id' => $clinique->id, 'patient_id' => $patient->id, 'rendez_vous_id' => $rdvImagerie->id, 'realise_le' => $quand->copy()->addHours(3), 'duree_minutes' => 30]);
+
+        // La durée seule ne déplace rien
+        $this->patchJson("/api/v1/bloc/interventions/{$intervention->id}", ['duree_minutes' => 90], $this->enTetes($jeton))->assertOk();
+        Queue::assertNotPushed(SendPush::class);
+
+        $this->patchJson("/api/v1/bloc/interventions/{$intervention->id}", ['prevu_le' => $quand->copy()->addDay()->toIso8601String()], $this->enTetes($jeton))->assertOk();
+        Queue::assertPushed(SendPush::class, 1);
+        Queue::assertPushed(SendPush::class, $this->poussePour($proprietaire->id, 'déplacé'));
+
+        $this->patchJson("/api/v1/imagerie/examens/{$examen->id}", ['realise_le' => $quand->copy()->addDays(2)->toIso8601String()], $this->enTetes($jeton))->assertOk();
+        Queue::assertPushed(SendPush::class, 2);
+    }
+
+    public function test_changer_l_animal_d_un_rendez_vous_previent_l_ancien_et_le_nouveau_proprietaire(): void
+    {
+        Queue::fake([SendPush::class]);
+        $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
+        ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        [$ancien, $felix] = $this->animalDUnProprietaire($clinique, 'Félix');
+        [$nouveau, $nala] = $this->animalDUnProprietaire($clinique, 'Nala');
+        $rdv = RendezVous::factory()->pourPatient($felix)->create(['clinique_id' => $clinique->id, 'starts_at' => now()->addDays(2)->setTime(9, 0), 'ends_at' => now()->addDays(2)->setTime(9, 20)]);
+
+        $this->putJson("/api/v1/rendez-vous/{$rdv->id}", ['patient_id' => $nala->id, 'starts_at' => now()->addDays(3)->setTime(10, 0)->toIso8601String()], $this->enTetes($jeton))->assertOk();
+
+        Queue::assertPushed(SendPush::class, $this->poussePour($ancien->id, 'Félix annulé'));
+        Queue::assertPushed(SendPush::class, $this->poussePour($nouveau->id, 'Nala confirmé'));
+        Queue::assertNotPushed(SendPush::class, $this->poussePour($nouveau->id, 'déplacé'));
     }
 }
