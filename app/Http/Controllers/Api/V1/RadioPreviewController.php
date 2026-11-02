@@ -56,7 +56,10 @@ class RadioPreviewController extends Controller
             if ($fresh->preview_path !== null) {
                 return;
             }
-            Storage::disk('prive')->putFileAs('radios/apercus', $file, $radio->id.'.jpg');
+            // L'écriture ratée (disque, S3) ne laisse pas un aperçu introuvable : rien n'est noté
+            if (Storage::disk('prive')->putFileAs('radios/apercus', $file, $radio->id.'.jpg') === false) {
+                throw ValidationException::withMessages(['image' => 'L’aperçu n’a pas pu être enregistré.']);
+            }
             $fresh->forceFill(['preview_path' => $path, 'preview_bytes' => $file->getSize()])->save();
         });
 
