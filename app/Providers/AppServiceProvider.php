@@ -19,8 +19,8 @@ use App\Services\Diagnostic\SuggesteurClaude;
 use App\Services\Domaines\FournisseurCloudflare;
 use App\Services\Domaines\FournisseurDomaines;
 use App\Services\Domaines\FournisseurManuel;
-use App\Services\Notifications\ApnsPushok;
 use App\Services\Notifications\CanalApns;
+use App\Services\Notifications\DirectApns;
 use App\Services\Transcription\Redacteur;
 use App\Services\Transcription\RedacteurClaude;
 use App\Services\Transcription\Transcripteur;
@@ -64,7 +64,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         // Notifications d'Apple pour la montre, remplacées par un double dans les essais
-        $this->app->bind(CanalApns::class, ApnsPushok::class);
+        $this->app->bind(CanalApns::class, DirectApns::class);
 
         // Les tâches en échec gardées sans les valeurs des messages SQL
         $this->app->extend('queue.failer', fn (FailedJobProviderInterface $fournisseur) => $fournisseur instanceof EchecsMasques ? $fournisseur : new EchecsMasques($fournisseur));

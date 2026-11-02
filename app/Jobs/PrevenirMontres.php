@@ -59,7 +59,7 @@ class PrevenirMontres implements ShouldBeUnique, ShouldQueue
         }
         $appareils = AppareilNotification::query()->whereIn('user_id', $this->concernes())->where('plateforme', 'watchos')->get()->groupBy('environnement');
         foreach ($appareils as $environnement => $liste) {
-            $morts = $apns->envoyer($liste->pluck('jeton')->values()->all(), (string) $environnement, self::SUJET_MONTRE, ['aps' => ['content-available' => 1], 'veterinary' => 'journee']);
+            $morts = $apns->envoyer($liste->pluck('jeton')->values()->all(), (string) $environnement, self::SUJET_MONTRE, ['aps' => ['content-available' => 1], 'veterinary' => 'journee'], visible: false);
             if ($morts !== []) {
                 AppareilNotification::query()->whereIn('jeton', $morts)->delete();
             }

@@ -47,7 +47,7 @@ class NotificationsMontreTest extends TestCase
         {
             public function __construct(private NotificationsMontreTest $test) {}
 
-            public function envoyer(array $jetons, string $environnement, string $sujet, array $contenu): array
+            public function envoyer(array $jetons, string $environnement, string $sujet, array $contenu, bool $visible = false): array
             {
                 $this->test->noter($jetons, $environnement, $sujet, $contenu);
 
