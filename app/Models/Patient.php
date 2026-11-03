@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Enums\AccesClinique;
+use App\Enums\AggressionTrigger;
+use App\Enums\Allergen;
 use App\Enums\Espece;
 use App\Enums\Sexe;
 use App\Enums\StatutRendezVous;
@@ -10,6 +12,7 @@ use App\Models\Concerns\AppartientAUneOrganisation;
 use App\Models\Concerns\AUnePhoto;
 use App\Services\Patients\OneAccountPerPet;
 use Database\Factories\PatientFactory;
+use Illuminate\Database\Eloquent\Casts\AsEnumCollection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -32,6 +35,7 @@ class Patient extends Model
         'est_sterilise' => false,
         'est_agressif' => false,
         'a_allergies' => false,
+        'needs_muzzle' => false,
         'rappels_coupes' => false,
     ];
 
@@ -39,6 +43,7 @@ class Patient extends Model
         'organisation_id', 'client_id', 'proprietaire_id', 'acces_clinique', 'nom', 'espece', 'race', 'sexe',
         'ne_le', 'decede_le', 'est_sterilise', 'puce', 'assurance', 'photo_chemin', 'dette', 'est_agressif',
         'a_allergies', 'traitement_en_cours', 'rappels_coupes',
+        'aggression_triggers', 'needs_muzzle', 'allergens', 'allergy_note',
         'amicus_declare_le', 'client_depuis',
     ];
 
@@ -48,6 +53,15 @@ class Patient extends Model
         static::saving(function (Patient $patient): void {
             if ($patient->isDirty(['client_id', 'proprietaire_id'])) {
                 OneAccountPerPet::assertPatient($patient);
+            }
+            // Une alerte retirée emporte ses précisions (02.11.2026)
+            if (! $patient->est_agressif) {
+                $patient->aggression_triggers = null;
+                $patient->needs_muzzle = false;
+            }
+            if (! $patient->a_allergies) {
+                $patient->allergens = null;
+                $patient->allergy_note = null;
             }
         });
     }
@@ -64,6 +78,9 @@ class Patient extends Model
             'dette' => 'decimal:2',
             'est_agressif' => 'boolean',
             'a_allergies' => 'boolean',
+            'aggression_triggers' => AsEnumCollection::of(AggressionTrigger::class),
+            'needs_muzzle' => 'boolean',
+            'allergens' => AsEnumCollection::of(Allergen::class),
             'rappels_coupes' => 'boolean',
             'amicus_declare_le' => 'datetime',
             'client_depuis' => 'integer',

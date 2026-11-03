@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\V1\Patients;
 
+use App\Enums\AggressionTrigger;
+use App\Enums\Allergen;
 use App\Enums\Espece;
 use App\Enums\Sexe;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
@@ -30,6 +32,13 @@ class ModifierPatientRequest extends FormRequest
             'assurance' => ['sometimes', 'nullable', 'string', 'max:120'],
             'est_agressif' => ['sometimes', 'boolean'],
             'a_allergies' => ['sometimes', 'boolean'],
+            // Les précisions des alertes (02.11.2026)
+            'aggression_triggers' => ['sometimes', 'nullable', 'array'],
+            'aggression_triggers.*' => ['distinct', Rule::enum(AggressionTrigger::class)],
+            'needs_muzzle' => ['sometimes', 'boolean'],
+            'allergens' => ['sometimes', 'nullable', 'array'],
+            'allergens.*' => ['distinct', Rule::enum(Allergen::class)],
+            'allergy_note' => ['sometimes', 'nullable', 'string', 'max:255'],
             'traitement_en_cours' => ['sometimes', 'nullable', 'string'],
             'rappels_coupes' => ['sometimes', 'boolean'],
             'client_depuis' => ['sometimes', 'integer', 'min:1990', 'max:'.aujourdhui()->year],

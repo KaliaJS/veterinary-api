@@ -41,6 +41,7 @@ class RendezVousController extends Controller
         // le bilan d'impact d'une absence lit `meta.total`.
         $rendezVous = RendezVous::query()
             ->avecDerives()
+            ->with('patient')
             ->when($request->date('du'), fn ($requete, $du) => $requete->where('ends_at', '>', $du))
             ->when($request->date('au'), fn ($requete, $au) => $requete->where('starts_at', '<', $au))
             ->when($request->integer('ligne_planning_id'), fn ($requete, $ligne) => $requete->where('ligne_planning_id', $ligne))

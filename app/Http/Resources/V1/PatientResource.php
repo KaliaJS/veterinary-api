@@ -41,6 +41,11 @@ class PatientResource extends JsonResource
             'alertes' => $this->alertes(),
             'est_agressif' => $this->est_agressif,
             'a_allergies' => $this->a_allergies,
+            // Les précisions des alertes (02.11.2026)
+            'aggression_triggers' => ($this->aggression_triggers ?? collect())->map->value->values(),
+            'needs_muzzle' => (bool) $this->needs_muzzle,
+            'allergens' => ($this->allergens ?? collect())->map->value->values(),
+            'allergy_note' => $this->allergy_note,
             'traitement_en_cours' => $this->traitement_en_cours,
             'rappels_coupes' => $this->rappels_coupes,
             'amicus_declare_le' => $this->amicus_declare_le,

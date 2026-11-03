@@ -39,6 +39,16 @@ class RendezVousResource extends JsonResource
             'no_shows_client' => (int) ($this->no_shows_client ?? $this->noShowsDuClient()),
             // Origine (28.10.2026) : venu d'une demande en ligne, sinon pris par la clinique
             'origine' => (bool) ($this->demande_en_ligne_exists ?? $this->demandeEnLigne()->exists()) ? 'en_ligne' : 'clinique',
+            // Alertes de l'animal et leurs précisions, pour la carte du
+            // planning (03.11.2026) : seulement quand la liste les charge
+            'patient_alerts' => $this->whenLoaded('patient', fn () => $this->patient === null ? null : [
+                'est_agressif' => (bool) $this->patient->est_agressif,
+                'aggression_triggers' => ($this->patient->aggression_triggers ?? collect())->map->value->values(),
+                'needs_muzzle' => (bool) $this->patient->needs_muzzle,
+                'a_allergies' => (bool) $this->patient->a_allergies,
+                'allergens' => ($this->patient->allergens ?? collect())->map->value->values(),
+                'allergy_note' => $this->patient->allergy_note,
+            ]),
         ];
     }
 }
