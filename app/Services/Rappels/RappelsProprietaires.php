@@ -24,6 +24,7 @@ use App\Models\SiteWeb;
 use App\Models\User;
 use App\Models\Vaccination;
 use App\Notifications\RappelSms;
+use App\Services\Clients\OwnerPreferences;
 use App\Services\EtatVaccinal;
 use App\Services\Messages\QuotaSms;
 use App\Support\DocumentHeader;
@@ -198,6 +199,8 @@ class RappelsProprietaires
             $patient->decede_le !== null => 'Animal décédé : aucun rappel ne part.',
             // Déjà renouvelé : « à faire avant le… » serait faux (vérification du 01.11.2026)
             $vaccination->echeance_le !== null && $this->estRenouvele($vaccination) => 'Ce vaccin a déjà été renouvelé : aucun rappel à envoyer.',
+            // Les rappels coupés (par lui dans son espace, ou par la clinique sur la fiche) le restent, même pour un envoi à la main (03.11.2026)
+            $client !== null && $this->estCoupe($client, 'vaccin') => 'Rappels de vaccins coupés pour ce propriétaire.',
             $parEmail || $mobile !== null => null,
             $client === null => 'Pas d’adresse e-mail pour ce propriétaire.',
             default => $this->raisonSansCanal($clinique, $client),
@@ -345,8 +348,9 @@ class RappelsProprietaires
                     'bloque' => match (true) {
                         $d->patient->decede_le !== null => 'Animal décédé',
                         (bool) $d->patient->rappels_coupes => 'Rappels coupés pour '.$d->patient->nom,
+                        $client !== null && $this->estCoupe($client, 'devis') => 'Rappels de devis coupés',
                         $client === null || blank($adresse) => 'Pas d’adresse e-mail',
-                        ! $this->accepteLesRappels($client) => 'Refusés par le propriétaire',
+                        ! $this->accepteLesRappels($client) => 'E-mails de rappel coupés',
                         default => null,
                     },
                     'devis_id' => $d->id,
@@ -493,11 +497,29 @@ class RappelsProprietaires
             return;
         }
         // Les choix des espaces (e-mail, SMS) en une requête
-        $preferences = PreferencesProprietaire::query()->whereIn('user_id', $users->all())->get(['user_id', 'rappels_email', 'rappels_sms', 'rappels_choisis_le'])->keyBy('user_id');
+        $preferences = PreferencesProprietaire::query()->whereIn('user_id', $users->all())->get(['user_id', 'rappels_email', 'rappels_sms', 'rappels_choisis_le', 'muted_reminders'])->keyBy('user_id');
         foreach ($users as $id) {
             $this->refusEspace[$id] = ($preferences[$id]->rappels_email ?? null) !== false;
+            $this->coupesEspace[$id] = array_values(array_intersect(OwnerPreferences::KINDS, (array) ($preferences[$id]->muted_reminders ?? [])));
             $this->smsEspace[$id] = self::choixSms($preferences[$id] ?? null);
         }
+    }
+
+    /** @var array<int, list<string>> types de rappels coupés dans l'espace, par compte */
+    private array $coupesEspace = [];
+
+    /** Ce type de rappel est-il coupé pour ce propriétaire (son espace avec un compte, sinon la fiche) ? 03.11.2026 */
+    private function estCoupe(Client $client, string $objet): bool
+    {
+        $kind = OwnerPreferences::kindOf($objet);
+        if ($kind === null) {
+            return false;
+        }
+        $coupes = $client->user_id !== null
+            ? ($this->coupesEspace[$client->user_id] ??= OwnerPreferences::mutedFor($client))
+            : OwnerPreferences::mutedFor($client);
+
+        return in_array($kind, $coupes, true);
     }
 
     /** Le propriétaire n'a refusé les rappels ni par le lien de l'e-mail, ni dans son espace. */
@@ -859,7 +881,8 @@ class RappelsProprietaires
         $ouverte = $clinique !== null && ($this->organisationsOuvertes[$clinique->id] ??= (bool) $clinique->societe?->organisation?->estOuverte());
         // Comme tout rappel (vérification du 01.11.2026) : ni animal décédé, ni rappels coupés, ni propriétaire qui les refuse
         if (! $ouverte || $patient === null || $client === null || blank($adresse)
-            || $patient->decede_le !== null || $patient->rappels_coupes || ! $this->accepteLesRappels($client)) {
+            || $patient->decede_le !== null || $patient->rappels_coupes || ! $this->accepteLesRappels($client)
+            || $this->estCoupe($client, 'devis')) {
             return false;
         }
         // Une relance à la main aujourd'hui : pas une seconde automatique (même clé que CycleDevisController)
@@ -971,6 +994,10 @@ class RappelsProprietaires
         if (! $ouverte || $patient === null || $client === null || $patient->rappels_coupes || $patient->decede_le !== null) {
             return false;
         }
+        // Ce type de rappel coupé par le propriétaire (ou la clinique, sans compte), 03.11.2026
+        if ($this->estCoupe($client, $objet)) {
+            return false;
+        }
 
         $echeance = $vaccination !== null ? $vaccination->echeance_le->toDateString() : $this->momentLocal($rendezVous, $clinique);
         // Déjà rappelé à la main pour cette échéance : l'automatique ne repart pas
@@ -1065,6 +1092,9 @@ class RappelsProprietaires
         $client = self::destinataire($patient, $rendezVous);
         $ouverte = $this->organisationsOuvertes[$clinique->id] ??= (bool) $clinique->societe?->organisation?->estOuverte();
         if (! $ouverte || $patient === null || $client === null || $patient->rappels_coupes || $patient->decede_le !== null) {
+            return false;
+        }
+        if ($this->estCoupe($client, 'noshow')) {
             return false;
         }
         // Un rendez-vous déjà repris pour l'animal (par téléphone, au guichet) : pas de relance
@@ -1222,6 +1252,7 @@ class RappelsProprietaires
             'bloque' => match (true) {
                 $patient->decede_le !== null => 'Animal décédé',
                 (bool) $patient->rappels_coupes => 'Rappels coupés pour '.$patient->nom,
+                $client !== null && $this->estCoupe($client, $objet) => 'Rappels de '.OwnerPreferences::LABELS[OwnerPreferences::kindOf($objet)].' coupés',
                 // Un SMS peut partir : le rappel n'est pas bloqué (sauf échéance passée)
                 $client !== null && $this->mobilePourSms($clinique, $client) !== null => $prochain->greaterThan($dernier) ? 'Échéance passée avant le prochain envoi' : null,
                 // Respecter son choix (décision de Jim) : SMS seulement, la clinique n'en envoie pas
@@ -1229,7 +1260,7 @@ class RappelsProprietaires
                 // SMS seulement, la clinique en envoie, mais la fiche n'a pas de mobile (comme le carnet)
                 $client !== null && $this->veutLesSms($client) && ! $this->accepteLesRappels($client) => 'Pas de numéro de mobile',
                 $client === null || blank($client->email) => 'Pas d’adresse e-mail',
-                ! $this->accepteLesRappels($client) => 'Refusés par le propriétaire',
+                ! $this->accepteLesRappels($client) => 'E-mails de rappel coupés',
                 // Saisi trop tard (après 20 h pour une échéance du jour) : il ne partira plus
                 $prochain->greaterThan($dernier) => 'Échéance passée avant le prochain envoi',
                 default => null,

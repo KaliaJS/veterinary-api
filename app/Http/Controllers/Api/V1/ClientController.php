@@ -10,9 +10,13 @@ use App\Http\Requests\V1\Clients\ModifierClientRequest;
 use App\Http\Resources\V1\ClientResource;
 use App\Models\Client;
 use App\Models\RendezVous;
+use App\Services\Clients\OwnerSpaceInvitations;
+use App\Support\Telephone;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Propriétaires — niveau ORGANISATION : la liste est la même depuis
@@ -40,6 +44,10 @@ class ClientController extends Controller
                     ->orWhereRaw('lower(coalesce(localite, \'\')) like ?', [$q])
                     ->orWhereHas('patients', fn (Builder $patient) => $patient->whereRaw('lower(nom) like ?', [$q])));
             })
+            // Le client d'un numéro, quelle que soit son écriture (« 079 123 45 67 »,
+            // « +41 79 123 45 67 », « 0041791234567 ») : un mobile déjà connu (03.11.2026)
+            ->when($request->string('tel')->isNotEmpty(), fn (Builder $requete) => $requete
+                ->where('phone_e164', Telephone::international($request->string('tel')->toString()) ?? '-'))
             ->when(
                 $request->string('tri')->toString() === 'localite',
                 fn (Builder $requete) => $requete->orderBy('localite')->orderBy('nom'),
@@ -61,7 +69,27 @@ class ClientController extends Controller
     {
         $this->authorize('create', Client::class);
 
-        return new ClientResource(Client::create($request->validated()));
+        $data = $request->validated();
+        $invite = (bool) ($data['invite_to_space'] ?? false);
+        unset($data['invite_to_space']);
+
+        // Inviter dans son espace (décision de Jim, 03.11.2026, refait après
+        // vérification) : rien n'est rattaché et aucun compte n'est regardé ;
+        // l'invitation attend sur la fiche, le mail part après l'enregistrement
+        $clinic = app(ContexteClinique::class)->clinique();
+        if ($invite && $clinic === null) {
+            throw ValidationException::withMessages(['invite_to_space' => 'Une invitation part au nom d’une clinique : ouvrez la session d’une clinique.']);
+        }
+        $client = DB::transaction(function () use ($data, $invite, $clinic): Client {
+            $client = Client::create($data);
+            if ($invite && $client->email !== null) {
+                OwnerSpaceInvitations::invite($client, $client->email, $clinic);
+            }
+
+            return $client;
+        });
+
+        return new ClientResource($client->refresh());
     }
 
     public function show(Client $client): ClientResource
@@ -77,9 +105,30 @@ class ClientController extends Controller
     {
         $this->authorize('update', $client);
 
-        $client->update($request->validated());
+        $donnees = $request->validated();
 
-        return new ClientResource($client);
+        // La ligne verrouillée le temps d'écrire et de relire : deux
+        // enregistrements qui se croisent prennent chacun leur version, et
+        // chaque réponse sert la fiche telle qu'elle l'a écrite (03.11.2026)
+        return DB::transaction(function () use ($client, $donnees): ClientResource {
+            $locked = Client::query()->whereKey($client->id)->lockForUpdate()->firstOrFail();
+            // Avec un compte, ses choix dans son espace font foi (décision de Jim,
+            // 03.11.2026) ; lu sous le verrou, un compte rattaché à l'instant compte
+            if ($locked->user_id !== null) {
+                foreach (['rappels_sms', 'rappels_email', 'muted_reminders', 'language', 'accepts_news'] as $champ) {
+                    if (array_key_exists($champ, $donnees)) {
+                        throw ValidationException::withMessages([$champ => 'Réglé par le propriétaire dans son espace.']);
+                    }
+                }
+            }
+            if (array_key_exists('photo_consent', $donnees)) {
+                $donnees['photo_consent_at'] = $donnees['photo_consent'] ? ($locked->photo_consent_at ?? now()) : null;
+                unset($donnees['photo_consent']);
+            }
+            $locked->update($donnees);
+
+            return new ClientResource($this->avecAgregats($locked->newQuery())->with('patients')->findOrFail($locked->id));
+        });
     }
 
     /**

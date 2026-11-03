@@ -14,7 +14,7 @@ class PreferencesProprietaire extends Model
 
     protected $fillable = [
         'user_id', 'rappels_email', 'rappels_sms', 'reponses_clinique',
-        'nouveautes_boutique', 'statistiques_anonymes', 'langue', 'notifications_lues',
+        'nouveautes_boutique', 'statistiques_anonymes', 'langue', 'notifications_lues', 'muted_reminders',
     ];
 
     protected $attributes = [
@@ -35,6 +35,7 @@ class PreferencesProprietaire extends Model
             'nouveautes_boutique' => 'boolean',
             'statistiques_anonymes' => 'boolean',
             'notifications_lues' => 'array',
+            'muted_reminders' => 'array',
         ];
     }
 

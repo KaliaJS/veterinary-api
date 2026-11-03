@@ -681,7 +681,7 @@ class RappelsEmailTest extends TestCase
         $bloques = fn (): array => collect($this->getJson('/api/v1/rappels', $this->enTetes($this->jeton))->assertOk()->json('data.a_venir'))
             ->mapWithKeys(fn (array $ligne): array => [$ligne['patient']['nom'] => $ligne['bloque']])->all();
 
-        $this->assertSame(['Animal Espace' => 'Refusés par le propriétaire', 'Animal Lien' => 'Refusés par le propriétaire', 'Animal Accepte' => null], array_intersect_key($bloques(), array_flip(['Animal Espace', 'Animal Lien', 'Animal Accepte'])));
+        $this->assertSame(['Animal Espace' => 'E-mails de rappel coupés', 'Animal Lien' => 'E-mails de rappel coupés', 'Animal Accepte' => null], array_intersect_key($bloques(), array_flip(['Animal Espace', 'Animal Lien', 'Animal Accepte'])));
         // La clinique ne coupe plus l'e-mail (décision de Jim, 28.10.2026)
         $this->reglages(['email' => false]);
         $this->assertNull($bloques()['Animal Accepte']);

@@ -7,11 +7,9 @@ use App\Http\Requests\V1\Clients\CreerCompteClientRequest;
 use App\Http\Resources\V1\ClientResource;
 use App\Models\Client;
 use App\Models\User;
-use App\Services\Patients\OneAccountPerPet;
+use App\Services\Clients\OwnerAccount;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -40,37 +38,7 @@ class CompteClientController extends Controller
             ]);
         }
 
-        // Un compte existe déjà à cette adresse : la fiche s'y rattache
-        // (24.10.2026). La réponse est la même qu'à la création : la clinique
-        // ne peut pas tester quelles adresses ont un compte. Le titulaire y
-        // retrouve cette clinique, comme les autres.
-        // Le même travail dans les deux cas (24.10.2026, décidé avec Jim) :
-        // hacher un mot de passe prend un quart de seconde ; fait aussi quand
-        // le compte existe, le temps de réponse ne dit plus si l'adresse en a un
-        $email = mb_strtolower(trim($email));
-        // Un animal, un seul compte (02.11.2026) : vérifié avant de créer quoi
-        // que ce soit, la fiche verrouillée (une acceptation de réclamation en
-        // même temps attend)
-        $motDePasse = Hash::make(Str::password(40));
-        DB::transaction(function () use ($client, $email, $motDePasse): void {
-            Client::withoutGlobalScopes()->whereKey($client->id)->lockForUpdate()->first();
-            $existant = User::query()->where('email', $email)->value('id');
-            if (($pet = OneAccountPerPet::petOfAnotherAccount($client->id, $existant === null ? null : (int) $existant)) !== null) {
-                throw ValidationException::withMessages([
-                    'client' => $pet->nom.' est déjà dans l’espace d’un autre compte (réclamé par sa puce). Un animal n’appartient qu’à un seul compte.',
-                ]);
-            }
-            $user = User::query()->where('email', $email)->first() ?? User::create([
-                'name' => trim($client->prenom.' '.$client->nom),
-                'email' => $email,
-                'password' => $motDePasse,
-            ]);
-
-            // Les coordonnées gardées sur le compte remplissent ce que la fiche n'a pas (28.10.2026)
-            $client->update(['user_id' => $user->id, ...collect(['tel', 'rue', 'npa', 'localite'])
-                ->filter(fn (string $champ): bool => blank($client->{$champ}) && filled($user->{$champ}))
-                ->mapWithKeys(fn (string $champ): array => [$champ => $user->{$champ}])->all()]);
-        });
+        OwnerAccount::open($client, $email);
 
         return new ClientResource($client);
     }

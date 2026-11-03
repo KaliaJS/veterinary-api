@@ -14,8 +14,10 @@ use App\Models\Clinique;
 use App\Models\Devis;
 use App\Models\DevisLigne;
 use App\Models\Patient;
+use App\Models\PreferencesProprietaire;
 use App\Models\RappelEnvoye;
 use App\Models\RendezVous;
+use App\Models\User;
 use App\Models\Vaccination;
 use App\Services\EtatVaccinal;
 use App\Services\Rappels\RappelsProprietaires;
@@ -99,6 +101,50 @@ class RappelsVerificationTest extends TestCase
         return $devis;
     }
 
+    /** Fenêtre propriétaire (03.11.2026) : un type de rappel coupé sur la fiche (client sans compte) ne part pas, et « À venir » le dit */
+    public function test_un_type_de_rappel_coupe_sur_la_fiche_ne_part_pas(): void
+    {
+        $this->vaccin('2026-11-09');
+        $this->rendezVous('2026-11-03 14:00');
+        $this->client->forceFill(['muted_reminders' => ['vaccines']])->save();
+
+        $this->assertSame('Rappels de vaccins coupés', $this->aVenir()->firstWhere('objet', 'vaccin')['bloque']);
+        $this->envoyer();
+
+        Mail::assertNotSent(RappelVaccin::class);
+        Mail::assertSent(RappelRendezVous::class);
+    }
+
+    /** Ses choix font foi même quand la clinique envoie un rappel de vaccin à la main (03.11.2026) */
+    public function test_un_rappel_de_vaccin_envoye_a_la_main_respecte_les_vaccins_coupes(): void
+    {
+        $vaccination = $this->vaccin('2026-11-09');
+        $this->client->forceFill(['muted_reminders' => ['vaccines']])->save();
+
+        $resultat = app(RappelsProprietaires::class)->rappelerMaintenant($this->clinique, $vaccination, null);
+
+        $this->assertSame('refuse', $resultat['statut']);
+        $this->assertSame('Rappels de vaccins coupés pour ce propriétaire.', $resultat['raison']);
+        Mail::assertNotSent(RappelVaccin::class);
+    }
+
+    /** Décision de Jim (03.11.2026) : avec un compte, les choix de son espace font foi */
+    public function test_avec_un_compte_les_types_de_rappels_de_son_espace_font_foi(): void
+    {
+        $lea = User::factory()->create(['email' => 'lea.martin@example.ch']);
+        $this->client->update(['user_id' => $lea->id]);
+        PreferencesProprietaire::pour($lea)->update(['muted_reminders' => ['appointments']]);
+        // La fiche, elle, ne coupe rien : c'est l'espace qui décide
+        $this->client->forceFill(['muted_reminders' => ['vaccines']])->save();
+        $this->vaccin('2026-11-09');
+        $this->rendezVous('2026-11-03 14:00');
+
+        $this->envoyer();
+
+        Mail::assertSent(RappelVaccin::class);
+        Mail::assertNotSent(RappelRendezVous::class);
+    }
+
     /** Un rendez-vous pris par l'ancien propriétaire reste à lui : le rappel lui va, pas au nouveau (décision de Jim, 03.11.2026) */
     public function test_le_rappel_d_un_rendez_vous_va_a_celui_qui_l_a_pris(): void
     {
@@ -143,7 +189,7 @@ class RappelsVerificationTest extends TestCase
 
         $this->patient->update(['rappels_coupes' => false]);
         $this->client->forceFill(['rappels_email' => false])->save();
-        $this->assertSame('Refusés par le propriétaire', $this->aVenir()->firstWhere('objet', 'devis')['bloque']);
+        $this->assertSame('E-mails de rappel coupés', $this->aVenir()->firstWhere('objet', 'devis')['bloque']);
         $this->envoyer();
         Mail::assertNotSent(RelanceDevis::class);
 

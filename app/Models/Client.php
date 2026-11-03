@@ -6,6 +6,7 @@ use App\Enums\Civilite;
 use App\Enums\StatutRendezVous;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use App\Services\Patients\OneAccountPerPet;
+use App\Support\Telephone;
 use Database\Factories\ClientFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -21,6 +22,8 @@ class Client extends Model
     protected $fillable = [
         'organisation_id', 'user_id', 'civilite', 'prenom', 'nom',
         'tel', 'email', 'rue', 'npa', 'localite', 'rappels_sms',
+        // Fenêtre propriétaire (03.11.2026)
+        'rappels_email', 'emergency_contact', 'emergency_phone', 'note', 'muted_reminders', 'language', 'accepts_news', 'photo_consent_at',
     ];
 
     /** Un animal, un seul compte (02.11.2026) : la fiche ne prend pas un compte autre que celui de ses animaux */
@@ -30,6 +33,21 @@ class Client extends Model
             if ($client->isDirty('user_id')) {
                 OneAccountPerPet::assertClient($client);
             }
+            // Une invitation dans l'espace ne survit ni à un autre e-mail, ni à
+            // un compte rattaché ou retiré, par n'importe quel chemin (03.11.2026)
+            $emailChanged = $client->isDirty('email')
+                && mb_strtolower(trim((string) $client->email)) !== mb_strtolower(trim((string) $client->getOriginal('email')));
+            if ($client->exists && ($emailChanged || $client->isDirty('user_id')) && ! $client->isDirty('space_invitation_token_hash')) {
+                $client->forgetSpaceInvitation();
+            }
+            // Le même numéro, quelle que soit son écriture (03.11.2026)
+            if ($client->isDirty('tel') || ($client->tel !== null && $client->phone_e164 === null)) {
+                $client->phone_e164 = Telephone::international($client->tel);
+            }
+        });
+        // Chaque enregistrement qui change la fiche augmente sa version (03.11.2026)
+        static::updating(function (Client $client): void {
+            $client->version = (int) $client->getOriginal('version') + 1;
         });
     }
 
@@ -39,6 +57,10 @@ class Client extends Model
             'civilite' => Civilite::class,
             'rappels_email' => 'boolean',
             'rappels_sms' => 'boolean',
+            'muted_reminders' => 'array',
+            'accepts_news' => 'boolean',
+            'photo_consent_at' => 'datetime',
+            'space_invitation_sent_at' => 'datetime',
         ];
     }
 
@@ -86,6 +108,38 @@ class Client extends Model
     protected function nomAffiche(): Attribute
     {
         return Attribute::get(fn (): string => trim(($this->civilite->value ?? '').' '.$this->nom));
+    }
+
+    /**
+     * La fiche de l'organisation qui a déjà ce mobile (un fixe se partage en
+     * famille, un mobile non). Le scope organisation borne la recherche.
+     */
+    public static function withMobile(?string $number, ?int $except = null): ?self
+    {
+        if (Telephone::mobile($number) === null) {
+            return null;
+        }
+
+        return self::query()
+            ->where('phone_e164', Telephone::international($number))
+            ->when($except !== null, fn ($query) => $query->whereKeyNot($except))
+            ->orderBy('id')
+            ->first();
+    }
+
+    /** L'invitation en attente effacée : son lien ne vaut plus rien. */
+    public function forgetSpaceInvitation(): void
+    {
+        $this->space_invitation_email = null;
+        $this->space_invitation_sent_at = null;
+        $this->space_invitation_token_hash = null;
+        $this->space_invitation_clinic_id = null;
+    }
+
+    /** « Mme Claire Borel » : civilité, prénom et nom. */
+    public function fullName(): string
+    {
+        return trim(implode(' ', array_filter([$this->civilite?->value, $this->prenom === '—' ? null : $this->prenom, $this->nom])));
     }
 
     /** Compteur no-show dérivé des RDV (badge « NO-SHOW ×N »). */

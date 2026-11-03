@@ -26,6 +26,8 @@ use App\Http\Controllers\Api\V1\CarnetSanteController;
 use App\Http\Controllers\Api\V1\ChecklistInterventionController;
 use App\Http\Controllers\Api\V1\ClicheDicomController;
 use App\Http\Controllers\Api\V1\ClientController;
+use App\Http\Controllers\Api\V1\ClientHistoryController;
+use App\Http\Controllers\Api\V1\ClientSpaceInvitationController;
 use App\Http\Controllers\Api\V1\ClotureCaisseController;
 use App\Http\Controllers\Api\V1\CommandeBoutiqueController;
 use App\Http\Controllers\Api\V1\CommandeFournisseurController;
@@ -69,6 +71,7 @@ use App\Http\Controllers\Api\V1\Espace\DemandePubliqueController;
 use App\Http\Controllers\Api\V1\Espace\DocumentProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\MessageProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\OwnerConsentController;
+use App\Http\Controllers\Api\V1\Espace\OwnerInvitationController;
 use App\Http\Controllers\Api\V1\Espace\PlaneteController;
 use App\Http\Controllers\Api\V1\Espace\ReglagesProprietaireController;
 use App\Http\Controllers\Api\V1\Espace\RendezVousProprietaireController;
@@ -94,6 +97,7 @@ use App\Http\Controllers\Api\V1\JournalFacturesController;
 use App\Http\Controllers\Api\V1\LicenciementEmployeController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
+use App\Http\Controllers\Api\V1\LocalityController;
 use App\Http\Controllers\Api\V1\LotController;
 use App\Http\Controllers\Api\V1\MessagerieCliniqueController;
 use App\Http\Controllers\Api\V1\MouvementStockController;
@@ -411,6 +415,8 @@ Route::prefix('v1')->group(function (): void {
             });
         });
         Route::get('accueil', AccueilController::class);
+        // Le lien « Votre espace Veterinary » : la fiche rejoint l'espace, adresse invitée prouvée (03.11.2026)
+        Route::post('invitations-fiche/accepter', [OwnerInvitationController::class, 'accept'])->middleware('throttle:30,1,invitation-fiche');
         Route::get('consentements', [OwnerConsentController::class, 'index']);
         Route::post('consentements/{consentRequest}/signer', [OwnerConsentController::class, 'sign'])->whereNumber('consentRequest')->middleware('throttle:10,1,consent-sign');
         Route::get('animaux', [AnimalController::class, 'index']);
@@ -590,7 +596,14 @@ Route::prefix('v1')->group(function (): void {
         // de NIVEAU ORGANISATION (partagés entre les cliniques du
         // jeton) ; jamais de suppression de fiche. Les enfants du
         // dossier se résolvent toujours via le patient.
+        // Le NPA remplit la localité : répertoire officiel de swisstopo, hors ligne (03.11.2026)
+        Route::get('localites', LocalityController::class)->middleware('can:patients');
         Route::apiResource('clients', ClientController::class)->except('destroy');
+        // L'historique d'un propriétaire sur un fil (fenêtre propriétaire, 03.11.2026)
+        Route::get('clients/{client}/historique', ClientHistoryController::class);
+        // L'invitation dans l'espace : la renvoyer (nouveau lien) ou l'annuler (03.11.2026)
+        Route::post('clients/{client}/invitation', [ClientSpaceInvitationController::class, 'store'])->middleware(['can:patients', 'throttle:30,1,invitation-espace']);
+        Route::delete('clients/{client}/invitation', [ClientSpaceInvitationController::class, 'destroy'])->middleware('can:patients');
         Route::post('clients/{client}/compte', [CompteClientController::class, 'creer']);
         Route::delete('clients/{client}/compte', [CompteClientController::class, 'supprimer']);
 

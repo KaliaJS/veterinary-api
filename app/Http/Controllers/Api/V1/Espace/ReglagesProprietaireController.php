@@ -13,6 +13,7 @@ use App\Models\Patient;
 use App\Models\PreferencesProprietaire;
 use App\Models\RendezVous;
 use App\Services\AccueilProprietaire;
+use App\Services\Clients\OwnerPreferences;
 use App\Services\Rappels\RappelsProprietaires;
 use App\Support\Telephone;
 use Illuminate\Http\JsonResponse;
@@ -197,6 +198,7 @@ class ReglagesProprietaireController extends Controller
             'nouveautes_boutique' => $p->nouveautes_boutique,
             'statistiques_anonymes' => $p->statistiques_anonymes,
             'langue' => $p->langue,
+            'muted_reminders' => array_values(array_intersect(OwnerPreferences::KINDS, (array) ($p->muted_reminders ?? []))),
         ];
     }
 }

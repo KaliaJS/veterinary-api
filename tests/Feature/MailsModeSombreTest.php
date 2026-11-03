@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Mail\DemandeRendezVousEnvoyee;
+use App\Mail\OwnerSpaceInvitation;
+use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
@@ -28,6 +30,8 @@ class MailsModeSombreTest extends TestCase
         return [
             'code de connexion' => (string) $code->toMail(new User(['email' => 'a@b.ch']))->render(),
             'gabarit Markdown' => (new DemandeRendezVousEnvoyee(DemandeRendezVous::factory()->create()))->render(),
+            // Invitation dans son espace, à la création de sa fiche (03.11.2026)
+            'invitation dans l’espace' => (new OwnerSpaceInvitation(Clinique::factory()->create(), str_repeat('a', 48)))->render(),
         ];
     }
 
