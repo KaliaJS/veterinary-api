@@ -110,6 +110,8 @@ class StocksPermissionsTest extends TestCase
             ['getJson', '/api/v1/stocks/commandes', []],
             ['postJson', '/api/v1/stocks/commandes', ['fournisseur' => 'Refusé', 'lignes' => [['produit_id' => $produit, 'quantite' => 1]]]],
             ['postJson', '/api/v1/stocks/commandes/generer', []],
+            ['getJson', '/api/v1/stocks/commandes/mois', []],
+            ['getJson', '/api/v1/stocks/commandes/stock-bas', []],
             ['postJson', "/api/v1/stocks/commandes/{$this->commande->id}/envoyer", []],
             ['postJson', "/api/v1/stocks/commandes/{$this->commande->id}/receptionner", []],
             ['deleteJson', "/api/v1/stocks/commandes/{$this->commande->id}", []],

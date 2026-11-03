@@ -927,6 +927,9 @@ Route::prefix('v1')->group(function (): void {
             Route::get('commandes', [CommandeFournisseurController::class, 'index']);
             Route::post('commandes', [CommandeFournisseurController::class, 'store']);
             Route::post('commandes/generer', [CommandeFournisseurController::class, 'generer']);
+            // L'onglet « courrier » (03.11.2026) : titres de mois des reçues, aperçu du stock bas
+            Route::get('commandes/mois', [CommandeFournisseurController::class, 'months']);
+            Route::get('commandes/stock-bas', [CommandeFournisseurController::class, 'lowStock']);
             // Commandes de la clinique du jeton seulement (on commande depuis
             // la clinique, 28.10.2026) ; une autre clinique répond 404.
             Route::post('commandes/{commande}/envoyer', [CommandeFournisseurController::class, 'envoyer'])->whereNumber('commande');
