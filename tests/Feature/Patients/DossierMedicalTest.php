@@ -221,6 +221,20 @@ class DossierMedicalTest extends TestCase
             ->assertJsonPath('data.dents.108', 'fracture');
     }
 
+    /** Demande des vétérinaires (04.11.2026) : tumeur et extraction au schéma dentaire */
+    public function test_tumeur_et_extraction_s_enregistrent_au_releve_dentaire(): void
+    {
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->putJson("/api/v1/patients/{$this->patient->id}/dents", [
+            'dents' => ['108' => 'tumeur', '204' => 'extraction', '304' => 'absente'],
+        ], $entetes)
+            ->assertOk()
+            ->assertJsonPath('data.dents.108', 'tumeur')
+            ->assertJsonPath('data.dents.204', 'extraction')
+            ->assertJsonPath('data.dents.304', 'absente');
+    }
+
     public function test_un_numero_de_dent_ou_un_etat_invalide_est_refuse(): void
     {
         $entetes = $this->enTetes($this->jeton);

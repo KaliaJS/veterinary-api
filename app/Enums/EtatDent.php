@@ -12,5 +12,9 @@ enum EtatDent: string
     case Gingivite = 'gingivite';
     case Parodontite = 'parodontite';
     case Fracture = 'fracture';
+    // Demande des vétérinaires (04.11.2026) ; extraction : extraite ou à
+    // extraire, absente : manquait déjà
+    case Tumeur = 'tumeur';
+    case Extraction = 'extraction';
     case Absente = 'absente';
 }
