@@ -22,6 +22,9 @@ class SejourConstanteResource extends JsonResource
             'temperature' => $this->temperature,
             'fc' => $this->fc,
             'fr' => $this->fr,
+            // Qui l'a relevé, et s'il a été noté après coup (03.11.2026)
+            'by' => $this->by_name,
+            'is_late_note' => $this->late_noted_at !== null,
         ];
     }
 }

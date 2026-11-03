@@ -12,6 +12,7 @@ use App\Http\Resources\V1\FactureResource;
 use App\Models\Facture;
 use App\Models\Patient;
 use App\Models\Produit;
+use App\Models\Sejour;
 use App\Services\CreationFacture;
 use App\Services\GestionnaireStock;
 use Illuminate\Database\Eloquent\Builder;
@@ -130,6 +131,12 @@ class FactureController extends Controller
     public function destroy(Request $request, Facture $facture, GestionnaireStock $stock): Response
     {
         $this->authorize('delete', $facture);
+
+        // La facture d'une sortie d'hospitalisation : le séjour resterait sorti sans
+        // facture (décision de Jim, 03.11.2026) ; elle se corrige par un avoir
+        if (Sejour::withoutGlobalScopes()->where('facture_id', $facture->id)->exists()) {
+            throw ValidationException::withMessages(['facture' => 'Cette facture vient de la sortie d’un séjour : elle ne se supprime pas, ses lignes se corrigent en caisse.']);
+        }
 
         // Un paiement Stripe attend le client : il serait encaissé sans facture
         if ($facture->aUnPaiementEnCours()) {

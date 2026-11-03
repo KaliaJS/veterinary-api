@@ -107,6 +107,10 @@ return [
         'budget_usd' => is_numeric(env('ANTHROPIC_BUDGET_USD')) ? (float) env('ANTHROPIC_BUDGET_USD') : null,
         'cout_redaction_usd' => (float) env('ANTHROPIC_COUT_REDACTION_USD', 0.15),
         'cout_suggestion_usd' => (float) env('ANTHROPIC_COUT_SUGGESTION_USD', 0.30),
+        // Rapport de la journée d'un animal hospitalisé (03.11.2026) : coût estimé
+        // par rédaction, et rédactions au plus par feuille
+        'cout_rapport_usd' => (float) env('ANTHROPIC_COUT_RAPPORT_USD', 0.05),
+        'rapports_max' => (int) env('ANTHROPIC_RAPPORTS_MAX', 5),
     ],
 
     // Captcha des formulaires publics (demande de rendez-vous sans compte)

@@ -27,12 +27,20 @@ class Stock extends Model
         static::deleted(fn (Stock $stock) => TempsReel::alertes((int) $stock->clinique_id));
     }
 
-    protected $fillable = ['produit_id', 'clinique_id', 'quantite'];
+    protected $fillable = ['produit_id', 'clinique_id', 'quantite', 'opened_rest', 'opening_number', 'opened_at', 'last_opening_number', 'last_count_id', 'last_counted_at'];
 
     protected function casts(): array
     {
         return [
             'quantite' => 'integer',
+            // Doses restant dans l'unité entamée (03.11.2026)
+            'opened_rest' => 'float',
+            'opening_number' => 'integer',
+            'opened_at' => 'datetime',
+            // Sous le verrou de la ligne (neuvième vérification)
+            'last_opening_number' => 'integer',
+            'last_count_id' => 'integer',
+            'last_counted_at' => 'datetime',
         ];
     }
 

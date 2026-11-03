@@ -3,7 +3,9 @@
 namespace App\Models;
 
 use App\Enums\StatutSejour;
+use App\Events\StayUpdated;
 use App\Models\Concerns\AppartientAUneClinique;
+use App\Support\TempsReel;
 use Database\Factories\SejourFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -30,7 +32,7 @@ class Sejour extends Model
     ];
 
     protected $fillable = [
-        'clinique_id', 'patient_id', 'box', 'motif', 'statut',
+        'clinique_id', 'patient_id', 'client_id', 'admitted_by_name', 'box', 'motif', 'statut',
         'veterinaire_id', 'admis_le', 'sortie_prevue', 'sorti_le',
         'perfusion', 'note', 'facture_id', 'cree_par_id',
     ];
@@ -49,6 +51,16 @@ class Sejour extends Model
     public function clinique(): BelongsTo
     {
         return $this->belongsTo(Clinique::class);
+    }
+
+    /**
+     * Le propriétaire qui a confié l'animal, figé à l'admission (03.11.2026).
+     *
+     * @return BelongsTo<Client, $this>
+     */
+    public function client(): BelongsTo
+    {
+        return $this->belongsTo(Client::class);
     }
 
     /** @return BelongsTo<Patient, $this> */
@@ -89,10 +101,50 @@ class Sejour extends Model
         return $this->hasMany(SejourConstante::class)->orderBy('jour')->orderBy('mesure_a')->orderBy('id');
     }
 
+    /**
+     * Traitements prescrits pendant le séjour (03.11.2026).
+     *
+     * @return HasMany<StayTreatment, $this>
+     */
+    public function treatments(): HasMany
+    {
+        return $this->hasMany(StayTreatment::class)->orderBy('starts_at')->orderBy('id');
+    }
+
+    /** @return HasMany<StaySheet, $this> */
+    public function sheets(): HasMany
+    {
+        return $this->hasMany(StaySheet::class)->orderBy('day');
+    }
+
+    /** @return HasMany<StayPainScore, $this> */
+    public function painScores(): HasMany
+    {
+        return $this->hasMany(StayPainScore::class)->orderBy('day')->orderBy('minute')->orderBy('id');
+    }
+
+    /** @return HasMany<StayObservation, $this> */
+    public function observations(): HasMany
+    {
+        return $this->hasMany(StayObservation::class)->orderBy('day')->orderBy('minute')->orderBy('id');
+    }
+
     /** @param Builder<self> $requete */
     public function scopeEnCours(Builder $requete): void
     {
         $requete->whereNull('sorti_le');
+    }
+
+    /**
+     * Les autres postes de la clinique relisent ce séjour (Reverb,
+     * 03.11.2026), après la transaction et jamais au prix du geste.
+     */
+    public static function announce(int $id, int $cliniqueId): void
+    {
+        // Aux autres postes seulement (X-Socket-ID) : celui qui fait le geste a déjà relu
+        TempsReel::diffuser(function () use ($id, $cliniqueId): void {
+            broadcast(new StayUpdated($id, $cliniqueId))->toOthers();
+        });
     }
 
     public function estSorti(): bool

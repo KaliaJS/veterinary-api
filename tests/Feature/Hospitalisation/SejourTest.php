@@ -15,6 +15,7 @@ use App\Models\Produit;
 use App\Models\Role;
 use App\Models\Sejour;
 use App\Models\Stock;
+use App\Services\Hospitalisation\StaySheets;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -227,7 +228,7 @@ class SejourTest extends TestCase
         $sejour = $this->sejour();
         $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
 
-        $soin = $sejour->soins()->create(['jour' => aujourdhui()->toDateString(), 'prevu_a' => 600, 'acte' => 'Antibiotique', 'produit_id' => $produit->id]);
+        $soin = $sejour->soins()->create(['jour' => app(StaySheets::class)->todayIn('Europe/Zurich'), 'prevu_a' => 600, 'acte' => 'Antibiotique', 'produit_id' => $produit->id]);
 
         $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins/{$soin->id}/faire", [], $this->enTetes($this->jeton))
             ->assertOk()
@@ -243,7 +244,7 @@ class SejourTest extends TestCase
         $sejour = $this->sejour();
         $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'est_stupefiant' => true]);
         Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 5]);
-        $soin = $sejour->soins()->create(['jour' => aujourdhui()->toDateString(), 'prevu_a' => 600, 'acte' => 'Méthadone 0,2 mg/kg IV', 'produit_id' => $produit->id]);
+        $soin = $sejour->soins()->create(['jour' => app(StaySheets::class)->todayIn('Europe/Zurich'), 'prevu_a' => 600, 'acte' => 'Méthadone 0,2 mg/kg IV', 'produit_id' => $produit->id]);
 
         $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins/{$soin->id}/faire", [], $this->enTetes($this->jeton))
             ->assertOk()
@@ -271,8 +272,10 @@ class SejourTest extends TestCase
     {
         $sejour = $this->sejour();
 
+        // Un relevé de maintenant : une heure à venir est refusée (deuxième vérification, 03.11.2026)
+        $maintenant = CarbonImmutable::now('Europe/Zurich');
         $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/constantes", [
-            'mesure_a' => 480,
+            'mesure_a' => $maintenant->hour * 60 + $maintenant->minute,
             'temperature' => 38.4,
             'fc' => 88,
             'fr' => 24,
@@ -417,7 +420,8 @@ class SejourTest extends TestCase
 
         $this->patchJson("/api/v1/hospitalisation/sejours/{$sejour->id}", ['note' => 'x'], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['sejour' => 'Un séjour sorti ne se modifie plus.']);
         $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/sortie", [], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['sejour' => 'Ce séjour est déjà sorti.']);
-        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins", ['prevu_a' => 600, 'acte' => 'x'], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['sejour' => 'Un séjour sorti ne se modifie plus.']);
+        // Après la sortie, seul un soin oublié pendant le séjour se note (décision de Jim) : rien après
+        $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins", ['sheet_day' => app(StaySheets::class)->todayIn('Europe/Zurich'), 'prevu_a' => 359, 'acte' => 'x'], $entetes)->assertUnprocessable()->assertJsonValidationErrors(['sejour' => 'Un séjour sorti ne se modifie plus.']);
     }
 
     public function test_aucune_route_de_suppression_de_sejour(): void

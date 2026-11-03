@@ -8,8 +8,8 @@ use Carbon\CarbonImmutable;
 /**
  * Le budget mensuel de la plateforme chez Anthropic (23.10.2026) : la
  * dépense est estimée par appel (rédactions de comptes rendus,
- * suggestions diagnostiques), le mois en cours. Au-delà, ces appels
- * attendent le mois suivant ; le plafond de la Console d'Anthropic reste
+ * suggestions diagnostiques, rapports de la journée d'hospitalisation),
+ * le mois en cours. Au-delà, ces appels attendent le mois suivant ; le plafond de la Console d'Anthropic reste
  * la dernière barrière.
  */
 final class BudgetAnthropic
@@ -31,8 +31,13 @@ final class BudgetAnthropic
         $suggestions = SuggestionDiagnostique::withoutGlobalScopes()->where('created_at', '>=', $debut)->count()
             + CompteurMensuel::valeur('anthropic:essais:suggestion');
 
+        // Rapports de la journée d'hospitalisation (03.11.2026)
+        // Une rédaction compte une fois, même quand elle réessaie
+        $rapports = CompteurMensuel::valeur('anthropic:rapports');
+
         return $redactions * (float) config('services.anthropic.cout_redaction_usd')
-            + $suggestions * (float) config('services.anthropic.cout_suggestion_usd');
+            + $suggestions * (float) config('services.anthropic.cout_suggestion_usd')
+            + $rapports * (float) config('services.anthropic.cout_rapport_usd', 0.05);
     }
 
     /**

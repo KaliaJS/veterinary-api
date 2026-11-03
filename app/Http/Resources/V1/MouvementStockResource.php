@@ -19,6 +19,10 @@ class MouvementStockResource extends JsonResource
             'produit_id' => $this->produit_id,
             'clinique_id' => $this->clinique_id,
             'quantite' => $this->quantite,
+            // Médicaments à la dose (03.11.2026) : la dose sortie ou rendue, signée
+            'dose' => $this->dose,
+            // L'unité figée au mouvement (sixième vérification), sinon celle de l'article
+            'dose_unit' => $this->dose !== null ? ($this->dose_unit ?? $this->produit?->dose_unit) : null,
             'libelle' => $this->libelle,
             'motif' => $this->motif,
             'source_type' => $this->source_type,

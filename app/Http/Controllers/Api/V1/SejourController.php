@@ -10,6 +10,7 @@ use App\Http\Resources\V1\SejourResource;
 use App\Models\Clinique;
 use App\Models\Patient;
 use App\Models\Sejour;
+use App\Services\Hospitalisation\StaySheets;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -36,6 +37,9 @@ class SejourController extends Controller
             ->orderBy('box')
             ->orderByDesc('admis_le')
             ->paginate($this->parPage($request));
+
+        // La feuille du jour s'ouvre d'elle-même avec les traitements en cours (03.11.2026)
+        $sejours->getCollection()->each(fn (Sejour $sejour) => app(StaySheets::class)->open($sejour));
 
         return SejourResource::collection($sejours);
     }
@@ -65,6 +69,9 @@ class SejourController extends Controller
                 'admis_le' => now(),
                 'sortie_prevue' => $donnees['sortie_prevue'] ?? 'À définir',
                 'cree_par_id' => $request->user()?->id,
+                // Le propriétaire qui confie l'animal et qui l'admet, figés (03.11.2026)
+                'client_id' => Patient::withoutGlobalScopes()->whereKey($donnees['patient_id'])->value('client_id'),
+                'admitted_by_name' => app(StaySheets::class)->authorName($request->user()),
             ]);
 
             $jour = aujourdhui()->toDateString();
@@ -74,6 +81,7 @@ class SejourController extends Controller
 
             return $sejour;
         });
+        Sejour::announce($sejour->id, $sejour->clinique_id);
 
         return new SejourResource($sejour->load($this->relations()));
     }
@@ -81,6 +89,7 @@ class SejourController extends Controller
     public function show(Sejour $sejour): SejourResource
     {
         $this->authorize('view', $sejour);
+        app(StaySheets::class)->open($sejour);
 
         return new SejourResource($sejour->load($this->relations()));
     }
@@ -106,6 +115,7 @@ class SejourController extends Controller
             }
             $sejour->update($donnees);
         });
+        Sejour::announce($sejour->id, $sejour->clinique_id);
 
         return new SejourResource($sejour->load($this->relations()));
     }
@@ -134,9 +144,11 @@ class SejourController extends Controller
     {
         return [
             'patient.client',
+            'client',
             'veterinaire' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
             'soins.produit',
             'constantes',
+            'treatments.product',
         ];
     }
 }

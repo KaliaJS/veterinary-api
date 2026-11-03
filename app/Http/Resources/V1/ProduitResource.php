@@ -29,6 +29,9 @@ class ProduitResource extends JsonResource
             'prix' => (float) $this->prix,
             'cout' => (float) $this->cout,
             'unite' => $this->unite,
+            // Ce que contient une unité (médicaments à la dose, 03.11.2026)
+            'dose_unit' => $this->dose_unit,
+            'content_per_unit' => $this->content_per_unit,
             'seuil_alerte' => $this->seuil_alerte,
             'est_boutique' => $this->est_boutique,
             'est_sur_ordonnance' => $this->est_sur_ordonnance,
@@ -54,6 +57,10 @@ class ProduitResource extends JsonResource
                     ->map(fn (Stock $stock): array => [
                         'clinique_id' => $stock->clinique_id,
                         'quantite' => $stock->quantite,
+                        // Le reste de l'unité entamée
+                        'opened_rest' => $stock->opened_rest,
+                        // Quand cette unité a été ouverte (cinquième vérification)
+                        'opened_at' => $stock->opened_at?->toIso8601String(),
                     ])
                     ->values(),
             ),

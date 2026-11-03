@@ -16,7 +16,7 @@ class SejourConstante extends Model
     /** @use HasFactory<SejourConstanteFactory> */
     use HasFactory;
 
-    protected $fillable = ['sejour_id', 'jour', 'mesure_a', 'temperature', 'fc', 'fr'];
+    protected $fillable = ['sejour_id', 'jour', 'mesure_a', 'temperature', 'fc', 'fr', 'by_id', 'by_name', 'late_noted_at'];
 
     protected function casts(): array
     {
@@ -26,6 +26,7 @@ class SejourConstante extends Model
             'temperature' => 'decimal:1',
             'fc' => 'integer',
             'fr' => 'integer',
+            'late_noted_at' => 'datetime',
         ];
     }
 

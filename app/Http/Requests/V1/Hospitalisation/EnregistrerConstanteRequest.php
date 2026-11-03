@@ -16,6 +16,8 @@ class EnregistrerConstanteRequest extends FormRequest
         return [
             // Jour local de la clinique, aujourd'hui par défaut
             'jour' => ['sometimes', 'date_format:Y-m-d'],
+            // Un relevé oublié, sur sa feuille (06:00 à 06:00), noté après coup
+            'sheet_day' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'mesure_a' => ['required', 'integer', 'between:0,1439'],
             'temperature' => ['required', 'numeric', 'decimal:0,1', 'between:25,45'],
             'fc' => ['required', 'integer', 'between:1,400'],

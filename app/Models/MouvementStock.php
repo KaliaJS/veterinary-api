@@ -26,13 +26,21 @@ class MouvementStock extends Model
 
     protected $fillable = [
         'produit_id', 'clinique_id', 'user_id', 'quantite', 'libelle',
-        'motif', 'source_type', 'source_id', 'created_at',
+        'motif', 'source_type', 'source_id', 'created_at', 'dose',
+        // Sixième vérification : de quoi rendre une sortie à l'identique
+        'dose_unit', 'opening_number', 'previous_opening_number', 'previous_opened_at', 'from_opened', 'reversed_at',
     ];
 
     protected function casts(): array
     {
         return [
             'quantite' => 'integer',
+            'dose' => 'float',
+            'opening_number' => 'integer',
+            'previous_opening_number' => 'integer',
+            'previous_opened_at' => 'datetime',
+            'from_opened' => 'float',
+            'reversed_at' => 'datetime',
             'motif' => MotifAjustementStock::class,
             'created_at' => 'datetime',
         ];

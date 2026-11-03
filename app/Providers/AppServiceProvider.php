@@ -19,6 +19,8 @@ use App\Services\Diagnostic\SuggesteurClaude;
 use App\Services\Domaines\FournisseurCloudflare;
 use App\Services\Domaines\FournisseurDomaines;
 use App\Services\Domaines\FournisseurManuel;
+use App\Services\Hospitalisation\DailyReportWriter;
+use App\Services\Hospitalisation\DailyReportWriterClaude;
 use App\Services\Notifications\CanalApns;
 use App\Services\Notifications\DirectApns;
 use App\Services\Transcription\Redacteur;
@@ -96,6 +98,7 @@ class AppServiceProvider extends ServiceProvider
         // interface (doubles dans les tests)
         $this->app->bind(Transcripteur::class, TranscripteurDeepgram::class);
         $this->app->bind(Redacteur::class, RedacteurClaude::class);
+        $this->app->bind(DailyReportWriter::class, DailyReportWriterClaude::class);
         $this->app->bind(Suggesteur::class, SuggesteurClaude::class);
 
         // Domaines personnalisés des sites : fournisseur choisi par configuration

@@ -52,6 +52,8 @@ class Produit extends Model
         'unite', 'seuil_alerte', 'est_boutique', 'est_sur_ordonnance',
         'est_stupefiant', 'tableau_stupefiant', 'peremption_le', 'fournisseur', 'ean',
         'promo_pct', 'est_vedette', 'atc_code', 'atc_code_is_manual',
+        // Médicaments à la dose (03.11.2026) : ce que contient une unité de stock
+        'dose_unit', 'content_per_unit',
     ];
 
     protected function casts(): array
@@ -68,6 +70,7 @@ class Produit extends Model
             'peremption_le' => 'date',
             'promo_pct' => 'integer',
             'est_vedette' => 'boolean',
+            'content_per_unit' => 'float',
         ];
     }
 

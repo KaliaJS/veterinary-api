@@ -6,6 +6,8 @@ use App\Enums\DomainePermission;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\FactureResource;
 use App\Http\Resources\V1\SejourResource;
+use App\Models\Facture;
+use App\Models\FactureLigne;
 use App\Models\Sejour;
 use App\Services\FactureSejour;
 use Illuminate\Http\JsonResponse;
@@ -31,6 +33,23 @@ class SortieSejourController extends Controller
     public function apercu(Sejour $sejour): JsonResponse
     {
         $this->authorize('view', $sejour);
+        // Séjour sorti : la facture émise, lue telle quelle (numéro, lignes, total), jamais un
+        // aperçu recalculé (neuvième vérification)
+        if ($sejour->facture_id !== null && ($facture = Facture::query()->withoutGlobalScopes()->with('lignes')->find($sejour->facture_id)) !== null) {
+            $isBilling = Gate::allows(DomainePermission::Facturation->value);
+
+            return response()->json(['data' => [
+                'numero' => $facture->numero,
+                'jours' => $sejour->joursFactures(),
+                'lignes' => $facture->lignes->map(fn (FactureLigne $ligne): array => [
+                    'libelle' => $ligne->libelle,
+                    'quantite' => $ligne->quantite,
+                    'type' => $ligne->type,
+                    ...($isBilling ? ['prix_chf' => (float) $ligne->prix_chf, 'total_chf' => round($ligne->quantite * (float) $ligne->prix_chf, 2)] : []),
+                ])->values()->all(),
+                'total_chf' => $isBilling ? $facture->totalTtc() : null,
+            ]]);
+        }
 
         $lignes = $this->factureSejour->lignes($sejour);
         if (! Gate::allows(DomainePermission::Facturation->value)) {
@@ -61,6 +80,7 @@ class SortieSejourController extends Controller
         }
 
         $facture = $this->factureSejour->sortir($sejour, $request->user());
+        Sejour::announce($sejour->id, $sejour->clinique_id);
 
         $resource = new SejourResource($sejour->load([
             'patient.client',

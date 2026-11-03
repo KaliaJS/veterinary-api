@@ -47,6 +47,7 @@ use App\Http\Controllers\Api\V1\CycleAnalyseController;
 use App\Http\Controllers\Api\V1\CycleDevisController;
 use App\Http\Controllers\Api\V1\CycleInterventionController;
 use App\Http\Controllers\Api\V1\CycleOrdonnanceController;
+use App\Http\Controllers\Api\V1\DailyReportController;
 use App\Http\Controllers\Api\V1\DecompteAssuranceController;
 use App\Http\Controllers\Api\V1\DemandeRattachementController;
 use App\Http\Controllers\Api\V1\DemandeRendezVousController;
@@ -104,6 +105,7 @@ use App\Http\Controllers\Api\V1\MouvementStockController;
 use App\Http\Controllers\Api\V1\MouvementStupefiantController;
 use App\Http\Controllers\Api\V1\MoyenPaiementController;
 use App\Http\Controllers\Api\V1\NotificationSettingsController;
+use App\Http\Controllers\Api\V1\OpenedUnitController;
 use App\Http\Controllers\Api\V1\OrdonnanceController;
 use App\Http\Controllers\Api\V1\OrganisationCliniqueController;
 use App\Http\Controllers\Api\V1\OrganisationController;
@@ -132,6 +134,7 @@ use App\Http\Controllers\Api\V1\Plateforme\VeterinairePlateformeController;
 use App\Http\Controllers\Api\V1\PremiersPasController;
 use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
+use App\Http\Controllers\Api\V1\ProductContentController;
 use App\Http\Controllers\Api\V1\ProduitController;
 use App\Http\Controllers\Api\V1\ProfilVeterinaireController;
 use App\Http\Controllers\Api\V1\PublicConsentController;
@@ -162,6 +165,9 @@ use App\Http\Controllers\Api\V1\SoinSejourController;
 use App\Http\Controllers\Api\V1\SortieSejourController;
 use App\Http\Controllers\Api\V1\StatistiquesBoutiqueController;
 use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
+use App\Http\Controllers\Api\V1\StayNoteController;
+use App\Http\Controllers\Api\V1\StayRoundController;
+use App\Http\Controllers\Api\V1\StayTreatmentController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubstanceStupefiantController;
 use App\Http\Controllers\Api\V1\SuggestionDiagnostiqueController;
@@ -921,6 +927,12 @@ Route::prefix('v1')->group(function (): void {
             Route::get('produits/{produit}', [ProduitController::class, 'show']);
             // Le code ATC d'un article existant (mise en garde des allergies, 03.11.2026)
             Route::patch('produits/{produit}/atc', [ProduitController::class, 'updateAtc']);
+            // Ce que contient une unité (médicaments à la dose, 03.11.2026)
+            Route::patch('produits/{produit}/contenance', [ProductContentController::class, 'update']);
+            // Jeter l'unité entamée (périmée, souillée), même sans unité fermée
+            Route::post('produits/{produit}/entame/jeter', [OpenedUnitController::class, 'discard']);
+            // L'inventaire du flacon entamé
+            Route::patch('produits/{produit}/entame', [OpenedUnitController::class, 'count']);
             Route::post('produits/{produit}/ajuster', AjustementStockController::class);
             Route::get('produits/{produit}/mouvements', [MouvementStockController::class, 'index']);
 
@@ -985,6 +997,28 @@ Route::prefix('v1')->group(function (): void {
 
             Route::get('sejours/{sejour}/facture', [SortieSejourController::class, 'apercu']);
             Route::post('sejours/{sejour}/sortie', [SortieSejourController::class, 'sortir']);
+
+            // La ronde, sur tout le séjour (03.11.2026) : la feuille de chaque
+            // jour (06:00 à 06:00), les médicaments et qui les a donnés, la
+            // douleur, les observations, le séjour jour par jour, le rapport
+            // de la journée rédigé par l'IA
+            Route::get('ronde', [StayRoundController::class, 'index']);
+            Route::get('ronde/compteurs', [StayRoundController::class, 'counters']);
+            Route::get('produits', [StayTreatmentController::class, 'products']);
+            Route::get('sejours/{sejour}/jours', [StayRoundController::class, 'days']);
+            Route::post('sejours/{sejour}/soins/{soin}/omettre', [SoinSejourController::class, 'skip']);
+            Route::post('sejours/{sejour}/soins/{soin}/annuler', [SoinSejourController::class, 'cancel']);
+            // Une prise prévue (pas encore en base), donnée en avance dans sa fenêtre de 2 heures
+            Route::post('sejours/{sejour}/traitements/{traitement}/prises', [SoinSejourController::class, 'giveTreatmentDose'])->whereNumber('traitement');
+            Route::post('sejours/{sejour}/traitements', [StayTreatmentController::class, 'store']);
+            Route::post('sejours/{sejour}/traitements/{traitement}/arreter', [StayTreatmentController::class, 'stop'])->whereNumber('traitement');
+            Route::post('sejours/{sejour}/douleurs', [StayNoteController::class, 'pain']);
+            Route::post('sejours/{sejour}/observations', [StayNoteController::class, 'observation']);
+            Route::get('sejours/{sejour}/feuilles/{jour}', [DailyReportController::class, 'show'])->where('jour', '\d{4}-\d{2}-\d{2}');
+            Route::post('sejours/{sejour}/feuilles/{jour}/rapport', [DailyReportController::class, 'draft'])->where('jour', '\d{4}-\d{2}-\d{2}');
+            Route::patch('sejours/{sejour}/feuilles/{jour}/rapport', [DailyReportController::class, 'update'])->where('jour', '\d{4}-\d{2}-\d{2}');
+            Route::post('sejours/{sejour}/feuilles/{jour}/rapport/signer', [DailyReportController::class, 'sign'])->where('jour', '\d{4}-\d{2}-\d{2}');
+            Route::post('sejours/{sejour}/feuilles/{jour}/rapport/envoyer', [DailyReportController::class, 'send'])->where('jour', '\d{4}-\d{2}-\d{2}');
         });
 
         // Domaine laboratoire — rattaché au domaine patients (dossier

@@ -20,6 +20,9 @@ class PlanifierSoinRequest extends FormRequest
         return [
             // Jour local de la clinique, aujourd'hui par défaut
             'jour' => ['sometimes', 'date_format:Y-m-d'],
+            // Ou le jour de la feuille (03.11.2026) : 02:00 sur la feuille du
+            // mardi tombe le mercredi au calendrier, l'API le place
+            'sheet_day' => ['sometimes', 'date_format:Y-m-d'],
             'prevu_a' => ['required', 'integer', 'between:0,1439'],
             'acte' => ['required', 'string', 'max:255'],
             'produit_id' => ['sometimes', 'nullable', $this->existeDansLOrganisation('produits')],
