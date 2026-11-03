@@ -23,6 +23,7 @@ use App\Models\MessageClientele;
 use App\Models\Ordonnance;
 use App\Models\Passkey;
 use App\Models\Patient;
+use App\Models\Pesee;
 use App\Models\Societe;
 use App\Models\User;
 use App\Notifications\CodeEmailNotification;
@@ -281,6 +282,35 @@ class SuppressionCompteTest extends TestCase
         $this->assertFalse(Patient::withoutGlobalScopes()->whereKey($seul->id)->exists());
         Storage::disk('prive')->assertMissing('patients/rex.jpg');
         Storage::disk('prive')->assertMissing('documents/rex.pdf');
+    }
+
+    /** Étape 0 de la fusion des dossiers (02.11.2026) : un animal qu'une clinique suit n'est plus effacé avec le compte */
+    public function test_supprimer_un_compte_n_efface_plus_un_animal_qu_une_clinique_suit(): void
+    {
+        ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton();
+        $clinique = Clinique::factory()->create();
+        Storage::disk('prive')->put('documents/felix.pdf', 'pdf');
+        // Pesé à la clinique, et facturé par elle
+        $pese = Patient::factory()->create(['client_id' => null, 'organisation_id' => null, 'proprietaire_id' => $user->id]);
+        Pesee::factory()->create(['patient_id' => $pese->id, 'source_organisation_id' => $clinique->societe->organisation_id]);
+        Document::factory()->create(['patient_id' => $pese->id, 'chemin' => 'documents/felix.pdf']);
+        $facture = Patient::factory()->create(['client_id' => null, 'organisation_id' => null, 'proprietaire_id' => $user->id]);
+        Facture::factory()->create(['clinique_id' => $clinique->id, 'patient_id' => $facture->id]);
+        // Seulement le sien : il part
+        $seul = Patient::factory()->create(['client_id' => null, 'organisation_id' => null, 'proprietaire_id' => $user->id]);
+        Pesee::factory()->create(['patient_id' => $seul->id, 'source_organisation_id' => null]);
+        $this->demander($jeton, $user);
+
+        $this->travel(31)->days();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+
+        $this->assertFalse(User::query()->whereKey($user->id)->exists());
+        $this->assertTrue(Patient::withoutGlobalScopes()->whereKey($pese->id)->exists());
+        $this->assertTrue(Patient::withoutGlobalScopes()->whereKey($facture->id)->exists());
+        // Gardé avec ses documents ; plus de compte
+        Storage::disk('prive')->assertExists('documents/felix.pdf');
+        $this->assertNull(Patient::withoutGlobalScopes()->find($pese->id)->proprietaire_id);
+        $this->assertFalse(Patient::withoutGlobalScopes()->whereKey($seul->id)->exists());
     }
 
     public function test_plus_en_cours_est_resilie_a_la_demande_sans_remboursement(): void

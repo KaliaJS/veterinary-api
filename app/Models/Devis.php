@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\CanalDevis;
 use App\Enums\StatutDevis;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Support\DocumentHeader;
 use Database\Factories\DevisFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -56,7 +57,26 @@ class Devis extends Model
             'relance_le' => 'datetime',
             'signe_le' => 'datetime',
             'refuse_le' => 'datetime',
+            'recipient' => 'array',
+            'issuer' => 'array',
         ];
+    }
+
+    /**
+     * L'en-tête se fige quand le devis quitte le brouillon (envoyé, ou
+     * accepté d'emblée) : le client et la clinique de ce jour (02.11.2026).
+     * Un brouillon suit encore la fiche.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Devis $devis): void {
+            if ($devis->statut === StatutDevis::Brouillon || $devis->issuer !== null) {
+                return;
+            }
+            $patient = $devis->patient_id === null ? null : Patient::withoutGlobalScopes()->find($devis->patient_id);
+            $devis->issuer = DocumentHeader::issuer(Clinique::withoutGlobalScopes()->with('societe')->find($devis->clinique_id));
+            $devis->recipient = DocumentHeader::recipient($patient?->client_id === null ? null : Client::withoutGlobalScopes()->find($patient->client_id));
+        });
     }
 
     /** @return BelongsTo<Organisation, $this> */

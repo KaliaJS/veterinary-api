@@ -7,6 +7,7 @@ use App\Enums\MoyenPaiement;
 use App\Enums\StatutFacture;
 use App\Enums\StatutPaiement;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Support\DocumentHeader;
 use Database\Factories\FactureFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -45,6 +46,11 @@ class Facture extends Model
             if (! isset($facture->getAttributes()['taux_tva'])) {
                 $facture->taux_tva = Clinique::query()->with('societe')->find($facture->clinique_id)?->societe?->tauxTva() ?? self::TAUX_TVA * 100;
             }
+            // L'en-tête se fige à l'émission : le client et la clinique de ce jour (02.11.2026)
+            if (! isset($facture->getAttributes()['issuer'])) {
+                $facture->issuer = DocumentHeader::issuer(Clinique::withoutGlobalScopes()->with('societe')->find($facture->clinique_id));
+                $facture->recipient = DocumentHeader::recipient($facture->client_id === null ? null : Client::withoutGlobalScopes()->find($facture->client_id));
+            }
         });
     }
 
@@ -67,6 +73,8 @@ class Facture extends Model
             'stock_sorti' => 'boolean',
             'acompte' => 'decimal:2',
             'taux_tva' => 'float',
+            'recipient' => 'array',
+            'issuer' => 'array',
         ];
     }
 

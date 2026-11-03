@@ -5,6 +5,7 @@ namespace App\Http\Resources\V1;
 use App\Models\Facture;
 use App\Models\FactureLigne;
 use App\Models\FacturePrescription;
+use App\Support\DocumentHeader;
 use App\Support\QrFacture;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -81,7 +82,9 @@ class FactureResource extends JsonResource
             ),
             'assureur' => $this->whenLoaded('decompte', fn (): ?string => $this->decompte?->assureur),
             'decompte' => new DecompteAssuranceResource($this->whenLoaded('decompte')),
-            'en_tete' => $this->whenLoaded('clinique', fn (): array => $this->clinique->enTeteDocument()),
+            // L'en-tête et le destinataire figés à l'émission (02.11.2026)
+            'en_tete' => $this->whenLoaded('clinique', fn (): ?array => DocumentHeader::forPrint($this->issuer, $this->clinique)),
+            'recipient' => $this->recipient,
             // La section paiement de la QR-facture suisse, tant qu'il reste à payer (01.11.2026)
             'qr_facture' => $this->when(
                 $this->relationLoaded('clinique') && $this->relationLoaded('client') && $this->relationLoaded('lignes'),

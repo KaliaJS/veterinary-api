@@ -37,9 +37,10 @@ class QrFactureTest extends TestCase
         ['jeton' => $this->jeton] = $this->administrateurAvecJeton($this->clinique);
     }
 
-    private function facture(array $attributs = []): Facture
+    /** @param  array<string, mixed>  $adresse  l'adresse du client, figée à l'émission (02.11.2026) */
+    private function facture(array $attributs = [], array $adresse = []): Facture
     {
-        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'prenom' => 'Paul', 'nom' => 'Meunier', 'rue' => 'Rue des Pâquis 8', 'npa' => '1201', 'localite' => 'Genève']);
+        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'prenom' => 'Paul', 'nom' => 'Meunier', 'rue' => 'Rue des Pâquis 8', 'npa' => '1201', 'localite' => 'Genève', ...$adresse]);
         $patient = Patient::factory()->for($client)->create(['organisation_id' => $this->clinique->societe->organisation_id]);
         $facture = Facture::factory()->create(['clinique_id' => $this->clinique->id, 'client_id' => $client->id, 'patient_id' => $patient->id, 'numero' => 'FC-2026-0341', ...$attributs]);
         FactureLigne::factory()->create(['facture_id' => $facture->id, 'quantite' => 1, 'prix_chf' => 338.20]);
@@ -122,8 +123,7 @@ class QrFactureTest extends TestCase
     public function test_un_client_sans_npa_ou_localite_n_est_pas_debiteur_et_une_clinique_sans_adresse_n_a_pas_de_section_paiement(): void
     {
         $this->clinique->societe->update(['iban' => 'CH9300762011623852957']);
-        $facture = $this->facture();
-        $facture->client->update(['npa' => null, 'localite' => null, 'rue' => null]);
+        $facture = $this->facture(adresse: ['npa' => null, 'localite' => null, 'rue' => null]);
         $qr = $this->getJson("/api/v1/facturation/factures/{$facture->id}", $this->enTetes($this->jeton))->json('data.qr_facture');
         $this->assertNotNull($qr);
         $this->assertNull($qr['debiteur']);
@@ -135,8 +135,7 @@ class QrFactureTest extends TestCase
     public function test_une_adresse_du_liechtenstein_porte_le_pays_li(): void
     {
         $this->clinique->societe->update(['iban' => 'CH9300762011623852957']);
-        $facture = $this->facture();
-        $facture->client->update(['npa' => '9490', 'localite' => 'Vaduz']);
+        $facture = $this->facture(adresse: ['npa' => '9490', 'localite' => 'Vaduz']);
         $qr = $this->getJson("/api/v1/facturation/factures/{$facture->id}", $this->enTetes($this->jeton))->json('data.qr_facture');
         $this->assertSame('LI', $qr['debiteur']['pays']);
         $this->assertSame('CH', $qr['creancier']['pays']);

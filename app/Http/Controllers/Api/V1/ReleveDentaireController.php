@@ -32,12 +32,16 @@ class ReleveDentaireController extends Controller
         $dents = $request->validated('dents');
 
         DB::transaction(function () use ($patient, $dents): void {
+            // Une dent dont l'état ne change pas garde la clinique qui l'a relevée (provenance, 02.11.2026)
+            $avant = $patient->relevesDentaires()->get()->keyBy('dent');
             $patient->relevesDentaires()->delete();
 
             foreach ($dents as $dent => $etat) {
+                $ancien = $avant->get((int) $dent);
                 $patient->relevesDentaires()->create([
                     'dent' => (int) $dent,
                     'etat' => EtatDent::from($etat),
+                    ...($ancien !== null && $ancien->etat === EtatDent::from($etat) ? ['source_organisation_id' => $ancien->source_organisation_id] : []),
                 ]);
             }
         });

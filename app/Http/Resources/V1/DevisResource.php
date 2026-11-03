@@ -5,6 +5,7 @@ namespace App\Http\Resources\V1;
 use App\Models\Devis;
 use App\Models\DevisLigne;
 use App\Models\Facture;
+use App\Support\DocumentHeader;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -68,7 +69,9 @@ class DevisResource extends JsonResource
             ),
             'patient' => new PatientResource($this->whenLoaded('patient')),
             // En-tête de la clinique qui l'établit (PDF)
-            'en_tete' => $this->whenLoaded('clinique', fn (): array => $this->clinique->enTeteDocument()),
+            'en_tete' => $this->whenLoaded('clinique', fn (): ?array => DocumentHeader::forPrint($this->issuer, $this->clinique)),
+            // Le client figé à l'envoi (02.11.2026) ; un brouillon suit la fiche
+            'recipient' => $this->recipient ?? ($this->relationLoaded('patient') && $this->patient?->relationLoaded('client') ? DocumentHeader::recipient($this->patient->client) : null),
         ];
     }
 }

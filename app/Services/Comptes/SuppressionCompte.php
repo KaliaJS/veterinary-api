@@ -22,6 +22,7 @@ use App\Paiements\PasserelleAbonnement;
 use App\Paiements\PasserelleIdentite;
 use App\Paiements\PasserellePaiement;
 use App\Services\Abonnements\AbonnementSaas;
+use App\Services\Patients\ClinicFollow;
 use App\Services\Videos\PlusPool;
 use App\Services\Videos\SellerlessVideos;
 use App\Services\Videos\VideoPurchases;
@@ -78,6 +79,7 @@ class SuppressionCompte
         private VideoPurchases $achatsVideos,
         private PlusPool $cagnotte,
         private SellerlessVideos $videosSansVendeur,
+        private ClinicFollow $suivi,
     ) {}
 
     /** Un code neuf, cinq essais neufs ; aucun e-mail pour l'adresse de revue. Rend vrai si un e-mail est parti. */
@@ -260,9 +262,16 @@ class SuppressionCompte
             }
 
             // Les animaux qu'il gérait seul, sans clinique ; ceux d'une
-            // clinique restent à la clinique (proprietaire_id vidé par la base)
+            // clinique restent à la clinique (proprietaire_id vidé par la base).
+            // Un animal qu'une clinique suit (rendez-vous, facture, acte) reste
+            // aussi, avec son histoire, sans compte (02.11.2026)
             $seuls = Patient::withoutGlobalScopes()->where('proprietaire_id', $user->id)->whereNull('organisation_id')->get();
             foreach ($seuls as $animal) {
+                if ($this->suivi->isFollowed($animal)) {
+                    Patient::withoutGlobalScopes()->whereKey($animal->id)->update(['proprietaire_id' => null]);
+
+                    continue;
+                }
                 $fichiers[] = $animal->photo_chemin;
                 array_push($fichiers, ...Document::withoutGlobalScopes()->where('patient_id', $animal->id)->pluck('chemin')->all());
                 $animal->delete();

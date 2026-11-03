@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ResultatFluoresceine;
+use App\Models\Concerns\RecordsSourceOrganisation;
 use Database\Factories\ReleveOphtalmologiqueFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ReleveOphtalmologique extends Model
 {
     /** @use HasFactory<ReleveOphtalmologiqueFactory> */
-    use HasFactory;
+    use HasFactory, RecordsSourceOrganisation;
 
     protected $table = 'releves_ophtalmologiques';
 

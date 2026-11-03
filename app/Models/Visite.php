@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RecordsSourceOrganisation;
 use Database\Factories\VisiteFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Visite extends Model
 {
     /** @use HasFactory<VisiteFactory> */
-    use HasFactory;
+    use HasFactory, RecordsSourceOrganisation;
 
     protected $fillable = ['patient_id', 'visite_le', 'motif', 'employe_id', 'note'];
 

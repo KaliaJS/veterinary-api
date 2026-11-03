@@ -178,7 +178,22 @@ class RendezVousProprietaireController extends Controller
     private function miens(Builder $requete, ContexteProprietaire $contexte): void
     {
         $requete->whereIn('client_id', $contexte->clientIds())
-            ->orWhereIn('patient_id', $contexte->patientIds())
+            ->orWhere(fn ($q) => self::deSesAnimaux($q, $contexte->patientIds()))
             ->orWhereIn('id', DemandeProprietaireController::miennes($contexte)->whereNotNull('rendez_vous_id')->select('rendez_vous_id'));
+    }
+
+    /**
+     * Les rendez-vous de ses animaux, sauf ceux pris pour un propriétaire
+     * précédent (une autre fiche que celle de l'animal aujourd'hui) : le
+     * nouveau ne voit rien de l'ancien (décision de Jim, 02.11.2026).
+     *
+     * @param  Builder<RendezVous>  $requete
+     * @param  list<int>  $patientIds
+     */
+    public static function deSesAnimaux(Builder $requete, array $patientIds): void
+    {
+        $requete->whereIn('patient_id', $patientIds)
+            ->where(fn ($q) => $q->whereNull('client_id')
+                ->orWhereRaw('rendez_vous.client_id = (select patients.client_id from patients where patients.id = rendez_vous.patient_id)'));
     }
 }

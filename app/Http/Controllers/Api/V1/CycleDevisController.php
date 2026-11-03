@@ -14,6 +14,7 @@ use App\Mail\RelanceDevis;
 use App\Models\Devis;
 use App\Services\Notifications\Push;
 use App\Services\Numeroteur;
+use App\Support\DocumentHeader;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -93,6 +94,10 @@ class CycleDevisController extends Controller
 
         if ($devis->statut !== StatutDevis::Envoye || $devis->estExpire()) {
             throw ValidationException::withMessages(['statut' => 'Seul un devis envoyé, encore valable, se relance.']);
+        }
+        // Fait pour l'ancien propriétaire de l'animal : il ne se relance plus (03.11.2026)
+        if (DocumentHeader::isForFormerOwner($devis->recipient, $devis->patient?->client_id)) {
+            throw ValidationException::withMessages(['relance' => 'Ce devis a été fait pour l’ancien propriétaire de l’animal : il ne se relance plus.']);
         }
         $client = $devis->patient?->client()->with('user')->first();
         $adresse = $devis->canal === CanalDevis::Portail ? ($client?->user?->email ?: $client?->email) : null;

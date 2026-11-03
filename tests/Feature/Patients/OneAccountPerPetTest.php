@@ -91,20 +91,27 @@ class OneAccountPerPetTest extends TestCase
         $this->postJson("/api/v1/clients/{$felix->client_id}/compte", ['email' => $marc->email], $this->enTetes($jeton))->assertOk();
     }
 
-    public function test_changer_la_fiche_d_un_animal_est_refuse_si_le_compte_de_la_nouvelle_fiche_n_est_pas_le_sien(): void
+    /**
+     * Décision de Jim du 03.11.2026 (remplace le refus du 02.11.2026) :
+     * passer l'animal à une fiche qui a un autre compte est permis ; il
+     * quitte le compte de la puce et n'a toujours qu'un seul compte.
+     */
+    public function test_changer_la_fiche_d_un_animal_reclame_le_donne_au_compte_de_la_nouvelle_fiche(): void
     {
         $clinique = Clinique::factory()->create();
         $felix = $this->felix($clinique);
         $marc = User::factory()->create();
         $felix->forceFill(['proprietaire_id' => $marc->id])->save();
-        $autreFiche = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'user_id' => User::factory()->create()->id]);
+        $rochat = User::factory()->create();
+        $autreFiche = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'user_id' => $rochat->id]);
         $ficheSansCompte = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id]);
         ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
 
-        $this->putJson("/api/v1/patients/{$felix->id}", ['client_id' => $autreFiche->id], $this->enTetes($jeton))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['client_id' => 'Félix est déjà dans l’espace d’un autre compte que celui de cette fiche. Un animal n’appartient qu’à un seul compte.']);
-        // Une fiche sans compte : permis (le compte de la puce reste le seul)
+        $this->putJson("/api/v1/patients/{$felix->id}", ['client_id' => $autreFiche->id], $this->enTetes($jeton))->assertOk();
+        $this->assertNull($felix->refresh()->proprietaire_id);
+        $this->assertSame($autreFiche->id, $felix->client_id);
+        $this->assertSame(0, DB::table('patients')->whereNotNull('proprietaire_id')->count());
+        // Une fiche sans compte : permis ; l'animal change de propriétaire et quitte le compte de la puce (03.11.2026)
         $this->putJson("/api/v1/patients/{$felix->id}", ['client_id' => $ficheSansCompte->id], $this->enTetes($jeton))->assertOk();
     }
 

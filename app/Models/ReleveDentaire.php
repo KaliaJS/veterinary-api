@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\EtatDent;
+use App\Models\Concerns\RecordsSourceOrganisation;
 use Database\Factories\ReleveDentaireFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,11 +12,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ReleveDentaire extends Model
 {
     /** @use HasFactory<ReleveDentaireFactory> */
-    use HasFactory;
+    use HasFactory, RecordsSourceOrganisation;
 
     protected $table = 'releves_dentaires';
 
-    protected $fillable = ['patient_id', 'dent', 'etat'];
+    protected $fillable = ['patient_id', 'dent', 'etat', 'source_organisation_id'];
 
     protected function casts(): array
     {

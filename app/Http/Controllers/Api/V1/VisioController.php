@@ -7,6 +7,8 @@ use App\Http\Controllers\Api\V1\Concerns\MeneLAppel;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Tele\SignalVisioRequest;
 use App\Mail\LienVisio;
+use App\Models\Client;
+use App\Models\RendezVous;
 use App\Models\SessionTeleconsultation;
 use App\Services\Tele\ServeursIce;
 use App\Services\Tele\SignalisationVisio;
@@ -32,7 +34,12 @@ class VisioController extends Controller
         $this->assurerMeneLAppel($session);
 
         $lien = $session->lienClient();
-        $email = $session->patient?->client?->email;
+        // L'appel d'un rendez-vous pris par l'ancien propriétaire reste à lui (03.11.2026)
+        $rendezVous = $session->rendez_vous_id ? RendezVous::withoutGlobalScopes()->find($session->rendez_vous_id) : null;
+        $client = $rendezVous?->client_id !== null && $rendezVous->client_id !== $session->patient?->client_id
+            ? Client::withoutGlobalScopes()->find($rendezVous->client_id)
+            : $session->patient?->client;
+        $email = $client?->email;
         if ($email) {
             Mail::to($email)->send(new LienVisio($session->load('patient'), app(ContexteClinique::class)->clinique(), $lien));
             $session->forceFill(['lien_envoye_le' => now()])->save();

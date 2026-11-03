@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\StatutOrdonnance;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Support\DocumentHeader;
 use Database\Factories\OrdonnanceFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -40,6 +41,12 @@ class Ordonnance extends Model
             $ordonnance->code_verification ??= self::nouveauCodeVerification((string) $ordonnance->numero);
             // Le code QR porte un jeton long et secret : il ne se devine pas
             $ordonnance->jeton_verification ??= Str::random(32);
+            // L'en-tête se fige à l'émission : le propriétaire et la clinique de ce jour (02.11.2026)
+            if (! isset($ordonnance->getAttributes()['issuer'])) {
+                $patient = Patient::withoutGlobalScopes()->find($ordonnance->patient_id);
+                $ordonnance->issuer = DocumentHeader::issuer(Clinique::withoutGlobalScopes()->with('societe')->find($ordonnance->clinique_id));
+                $ordonnance->recipient = DocumentHeader::recipient($patient?->client_id === null ? null : Client::withoutGlobalScopes()->find($patient->client_id));
+            }
         });
     }
 
@@ -64,6 +71,8 @@ class Ordonnance extends Model
             'signee_le' => 'date',
             'renouvellements' => 'integer',
             'statut' => StatutOrdonnance::class,
+            'recipient' => 'array',
+            'issuer' => 'array',
         ];
     }
 
@@ -141,7 +150,8 @@ class Ordonnance extends Model
     public function document(bool $avecDetenteur = true): array
     {
         $patient = $this->patient;
-        $client = $avecDetenteur ? $patient?->client : null;
+        // Le détenteur figé à l'émission (02.11.2026) ; une ordonnance d'avant lit la fiche
+        $detenteur = $avecDetenteur ? ($this->recipient ?? DocumentHeader::recipient($patient?->client)) : null;
         $utilisateur = $this->employe?->user;
         $pesee = $patient?->dernierePesee;
 
@@ -149,8 +159,8 @@ class Ordonnance extends Model
             'numero' => $this->numero,
             'signee_le' => $this->signee_le->toDateString(),
             'statut' => $this->statut->value,
-            'lieu' => $this->clinique?->ville,
-            'en_tete' => $this->clinique?->enTeteDocument(),
+            'lieu' => $this->issuer['lieu'] ?? $this->clinique?->ville,
+            'en_tete' => DocumentHeader::forPrint($this->issuer, $this->clinique),
             'prescripteur' => [
                 'nom' => $this->employe?->nom,
                 'titre' => $this->employe?->role_libelle,
@@ -164,9 +174,9 @@ class Ordonnance extends Model
                 'poids_kg' => $pesee ? (float) $pesee->poids_kg : null,
                 'puce' => $patient->puce,
             ],
-            'detenteur' => $client === null ? null : [
-                'nom' => $client->nom_affiche,
-                'adresse' => implode(', ', array_filter([$client->rue, trim(($client->npa ?? '').' '.($client->localite ?? ''))])),
+            'detenteur' => $detenteur === null ? null : [
+                'nom' => $detenteur['nom_affiche'],
+                'adresse' => DocumentHeader::addressLine($detenteur),
             ],
             'renouvellements' => $this->renouvellements,
             'note' => $this->note,

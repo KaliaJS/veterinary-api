@@ -5,6 +5,7 @@ namespace App\Services\Bloc;
 use App\Enums\ConsentMethod;
 use App\Enums\PushType;
 use App\Events\InterventionUpdated;
+use App\Models\Clinique;
 use App\Models\ConsentRequest;
 use App\Models\Employe;
 use App\Models\Intervention;
@@ -50,6 +51,10 @@ class ConsentRecorder
                     'taille_octets' => strlen($png),
                     'signataire' => trim($signer),
                     'etabli_le' => now($intervention->clinique?->fuseau_horaire ?: 'Europe/Zurich')->toDateString(),
+                    // Signé par le lien, hors de toute clinique : le document est celui de la clinique de l'intervention
+                    // Destiné au propriétaire d'aujourd'hui : son successeur ne le verra pas
+                    'client_id' => $intervention->patient->client_id,
+                    'source_organisation_id' => Clinique::withoutGlobalScopes()->with('societe')->find($intervention->clinique_id)?->societe?->organisation_id,
                 ]);
 
                 $fresh->update([

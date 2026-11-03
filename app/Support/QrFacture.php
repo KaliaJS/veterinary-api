@@ -111,7 +111,8 @@ class QrFacture
         }
         $iban = self::normaliserIban($societe->iban);
         $estQr = self::estQrIban($iban);
-        $client = $facture->client;
+        // Le débiteur figé à l'émission (02.11.2026) ; une facture d'avant lit la fiche
+        $client = $facture->recipient ?? DocumentHeader::recipient($facture->client);
 
         return [
             'iban' => $iban,
@@ -123,12 +124,12 @@ class QrFacture
                 'pays' => self::pays($clinique->npa),
             ],
             // Un client sans NPA ou sans localité : pas de débiteur, la section paiement garde le cadre vide à remplir
-            'debiteur' => $client === null || blank($client->nom) || blank($client->npa) || blank($client->localite) ? null : [
-                'nom' => trim(($client->prenom ?? '').' '.$client->nom),
-                'rue' => $client->rue,
-                'npa' => $client->npa,
-                'localite' => $client->localite,
-                'pays' => self::pays($client->npa),
+            'debiteur' => $client === null || blank($client['nom']) || blank($client['npa']) || blank($client['localite']) ? null : [
+                'nom' => $client['nom'],
+                'rue' => $client['rue'],
+                'npa' => $client['npa'],
+                'localite' => $client['localite'],
+                'pays' => self::pays($client['npa']),
             ],
             'montant' => $reste,
             'devise' => 'CHF',

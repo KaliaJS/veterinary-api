@@ -8,6 +8,7 @@ use App\Mail\LienVisio;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Patient;
+use App\Models\RendezVous;
 use App\Models\Role;
 use App\Models\SessionTeleconsultation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -78,6 +79,20 @@ class VisioWebRtcTest extends TestCase
 
         $this->assertMatchesRegularExpression('#/visio/[A-Za-z0-9]{48}$#', $url);
         Mail::assertSent(LienVisio::class, fn (LienVisio $mail) => $mail->hasTo('lea.martin@example.ch') && str_contains($mail->render(), $url) && str_contains($mail->render(), 'Deux Rives'));
+    }
+
+    /** L'appel d'un rendez-vous pris par l'ancien propriétaire reste à lui (décision de Jim, 03.11.2026) */
+    public function test_le_lien_d_un_rendez_vous_de_l_ancien_proprietaire_lui_va(): void
+    {
+        Mail::fake();
+        $patient = $this->session->patient;
+        $rdv = RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        $this->session->forceFill(['rendez_vous_id' => $rdv->id])->save();
+        $nouveau = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Rochat', 'email' => 'marc.rochat@example.ch']);
+        $patient->update(['client_id' => $nouveau->id]);
+
+        $this->postJson("/api/v1/tele/sessions/{$this->session->id}/lien", [], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.envoye_a', 'lea.martin@example.ch');
+        Mail::assertNotSent(LienVisio::class, fn (LienVisio $mail) => $mail->hasTo('marc.rochat@example.ch'));
     }
 
     public function test_le_client_ouvre_sa_session_par_le_lien_sans_compte(): void

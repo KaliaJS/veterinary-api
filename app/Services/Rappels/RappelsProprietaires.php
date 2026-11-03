@@ -26,6 +26,7 @@ use App\Models\Vaccination;
 use App\Notifications\RappelSms;
 use App\Services\EtatVaccinal;
 use App\Services\Messages\QuotaSms;
+use App\Support\DocumentHeader;
 use App\Support\Telephone;
 use App\Support\TexteSms;
 use Carbon\CarbonImmutable;
@@ -850,6 +851,10 @@ class RappelsProprietaires
         $clinique = $this->clinique($devis->clinique_id);
         $patient = $devis->patient;
         $client = $patient?->client;
+        // Fait pour un propriétaire précédent : jamais relancé chez le nouveau (02.11.2026)
+        if (DocumentHeader::isForFormerOwner($devis->recipient, $patient?->client_id)) {
+            return false;
+        }
         $adresse = $client?->user?->email ?: $client?->email;
         $ouverte = $clinique !== null && ($this->organisationsOuvertes[$clinique->id] ??= (bool) $clinique->societe?->organisation?->estOuverte());
         // Comme tout rappel (vérification du 01.11.2026) : ni animal décédé, ni rappels coupés, ni propriétaire qui les refuse
@@ -959,7 +964,7 @@ class RappelsProprietaires
 
     private function envoyerAutomatique(Clinique $clinique, ?Patient $patient, string $objet, ?Vaccination $vaccination, ?RendezVous $rendezVous): bool
     {
-        $client = $patient?->client;
+        $client = self::destinataire($patient, $rendezVous);
         $reglages = self::reglages($clinique);
         // Une organisation fermée (abonnement terminé, vérification refusée) n'envoie plus
         $ouverte = $this->organisationsOuvertes[$clinique->id] ??= (bool) $clinique->societe?->organisation?->estOuverte();
@@ -1057,7 +1062,7 @@ class RappelsProprietaires
     private function envoyerRelance(Clinique $clinique, RendezVous $rendezVous): bool
     {
         $patient = $rendezVous->patient;
-        $client = $patient?->client;
+        $client = self::destinataire($patient, $rendezVous);
         $ouverte = $this->organisationsOuvertes[$clinique->id] ??= (bool) $clinique->societe?->organisation?->estOuverte();
         if (! $ouverte || $patient === null || $client === null || $patient->rappels_coupes || $patient->decede_le !== null) {
             return false;
@@ -1230,5 +1235,19 @@ class RappelsProprietaires
                 default => null,
             },
         ];
+    }
+
+    /**
+     * À qui écrire : pour un rendez-vous, la fiche qui l'a pris (l'animal a
+     * pu changer de propriétaire depuis, décision de Jim du 03.11.2026) ;
+     * sinon la fiche de l'animal.
+     */
+    private static function destinataire(?Patient $patient, ?RendezVous $rendezVous): ?Client
+    {
+        if ($rendezVous?->client_id !== null && $rendezVous->client_id !== $patient?->client_id) {
+            return Client::withoutGlobalScopes()->find($rendezVous->client_id);
+        }
+
+        return $patient?->client;
     }
 }

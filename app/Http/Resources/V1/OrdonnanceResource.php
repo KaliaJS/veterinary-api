@@ -4,6 +4,7 @@ namespace App\Http\Resources\V1;
 
 use App\Models\Ordonnance;
 use App\Models\OrdonnanceLigne;
+use App\Support\DocumentHeader;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -37,7 +38,7 @@ class OrdonnanceResource extends JsonResource
                 ->sortBy('created_at')
                 ->first()?->created_at?->toIso8601String()),
             // En-tête de la clinique qui l'a établie (imprimée depuis une clinique sœur), 24.10.2026
-            'en_tete' => $this->whenLoaded('clinique', fn (): array => $this->clinique->enTeteDocument()),
+            'en_tete' => $this->whenLoaded('clinique', fn (): ?array => DocumentHeader::forPrint($this->issuer, $this->clinique)),
             'lignes' => $this->whenLoaded(
                 'lignes',
                 fn () => $this->lignes->map(fn (OrdonnanceLigne $ligne): array => [

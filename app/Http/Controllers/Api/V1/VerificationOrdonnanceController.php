@@ -6,6 +6,7 @@ use App\Enums\StatutOrdonnance;
 use App\Http\Controllers\Controller;
 use App\Models\Ordonnance;
 use App\Models\OrdonnanceLigne;
+use App\Support\DocumentHeader;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -70,7 +71,7 @@ class VerificationOrdonnanceController extends Controller
     {
         $utilisateur = $ordonnance->employe?->user;
         $renouvellement = Ordonnance::withoutGlobalScopes()->where('ordonnance_precedente_id', $ordonnance->id)->first(['numero', 'signee_le']);
-        $enTete = $ordonnance->clinique?->enTeteDocument() ?? [];
+        $enTete = DocumentHeader::forPrint($ordonnance->issuer, $ordonnance->clinique) ?? [];
 
         return response()->json(['data' => [
             'numero' => $ordonnance->numero,

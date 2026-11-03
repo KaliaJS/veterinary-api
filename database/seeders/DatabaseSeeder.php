@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Employe;
 use App\Models\User;
+use App\Support\BackfillRecordSources;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -48,5 +49,9 @@ class DatabaseSeeder extends Seeder
         // Démonstration : les personnes (fictives) des équipes acceptent de
         // paraître sur les sites publics (accord nLPD, 23.10.2026)
         Employe::withoutGlobalScopes()->update(['accord_site_le' => now()]);
+
+        // Les actes de la démo, créés sans clinique en cours : ceux des
+        // animaux de clinique prennent l'organisation du dossier (provenance)
+        app(BackfillRecordSources::class)->run();
     }
 }

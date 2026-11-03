@@ -99,6 +99,34 @@ class RappelsVerificationTest extends TestCase
         return $devis;
     }
 
+    /** Un rendez-vous pris par l'ancien propriétaire reste à lui : le rappel lui va, pas au nouveau (décision de Jim, 03.11.2026) */
+    public function test_le_rappel_d_un_rendez_vous_va_a_celui_qui_l_a_pris(): void
+    {
+        $this->rendezVous('2026-11-03 14:00');
+        $nouveau = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'prenom' => 'Marc', 'nom' => 'Rochat', 'email' => 'marc.rochat@example.ch']);
+        $this->patient->update(['client_id' => $nouveau->id]);
+
+        $this->envoyer();
+
+        Mail::assertSent(RappelRendezVous::class, fn (RappelRendezVous $m) => $m->hasTo('lea.martin@example.ch'));
+        Mail::assertNotSent(RappelRendezVous::class, fn (RappelRendezVous $m) => $m->hasTo('marc.rochat@example.ch'));
+    }
+
+    /** Un devis fait pour l'ancien propriétaire n'est jamais relancé chez le nouveau (décision de Jim, 02.11.2026) */
+    public function test_la_relance_d_un_devis_de_l_ancien_proprietaire_ne_part_pas_chez_le_nouveau(): void
+    {
+        $ancien = $this->devis();
+        $nouveau = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'prenom' => 'Marc', 'nom' => 'Rochat', 'email' => 'marc.rochat@example.ch']);
+        $this->patient->update(['client_id' => $nouveau->id]);
+        $sien = $this->devis();
+
+        $this->envoyer();
+
+        Mail::assertSent(RelanceDevis::class, 1);
+        Mail::assertSent(RelanceDevis::class, fn (RelanceDevis $m) => $m->hasTo('marc.rochat@example.ch') && $m->devis->is($sien));
+        $this->assertNull($ancien->refresh()->relance_le);
+    }
+
     /** MOYEN 1 : un animal décédé, des rappels coupés, un propriétaire qui les refuse : pas de relance, et « Bloqué » dit pourquoi */
     public function test_la_relance_d_un_devis_suit_les_regles_de_tout_rappel(): void
     {

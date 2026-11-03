@@ -13,6 +13,7 @@ use App\Models\Facture;
 use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\Vaccination;
+use App\Support\DocumentHeader;
 use App\Support\QrFacture;
 use Illuminate\Support\Collection;
 
@@ -41,7 +42,7 @@ class DocumentsProprietaire
             ->concat($this->factures($clientIds))
             ->concat($this->devis($patientIds, $clientIds))
             ->concat($this->carnets($patientIds))
-            ->concat($this->documents($patientIds))
+            ->concat($this->documents($patientIds, $clientIds))
             ->sortByDesc(fn (array $d) => (($d['a_signer'] ?? false) ? '9999' : '').($d['date'] ?? '').sprintf('%09d', $d['id']))
             ->values()
             ->all();
@@ -62,6 +63,9 @@ class DocumentsProprietaire
             ->whereIn('patient_id', $patientIds)
             ->orderByDesc('signee_le')
             ->get()
+            // Faite pour un propriétaire précédent : elle ne regarde pas le nouveau (décision de Jim, 02.11.2026)
+            ->reject(fn (Ordonnance $o): bool => DocumentHeader::isForFormerOwner($o->recipient, $o->patient?->client_id, $clientIds))
+            ->values()
             ->map(function (Ordonnance $o) use ($clientIds): array {
                 $enAttente = $o->demandesRenouvellement->whereNull('traitee_le')->isNotEmpty();
                 $produits = $o->lignes->map(fn ($l) => $l->produit?->nom)->filter()->implode(', ');
@@ -79,7 +83,8 @@ class DocumentsProprietaire
                     'renouvellement_en_attente' => $enAttente,
                     // L'ordonnance telle qu'elle s'imprime (A5, 01.11.2026) ; le détenteur seulement
                     // à lui-même, jamais à qui gère l'animal (réclamé par puce) au nom d'une autre fiche
-                    'pdf' => $o->document(in_array((int) $o->patient->client_id, $clientIds, true)),
+                    // Le détenteur figé, et seulement à la fiche à qui l'ordonnance était adressée (02.11.2026)
+                    'pdf' => $o->document(DocumentHeader::isAddressedTo($o->recipient, $clientIds, $o->patient->client_id)),
                 ];
             });
     }
@@ -118,7 +123,8 @@ class DocumentsProprietaire
                         'patient' => $f->patient_name,
                         'proprietaire' => $f->owner_name,
                         'clinique' => $f->clinique->nom,
-                        'en_tete' => $f->clinique->enTeteDocument(),
+                        'en_tete' => DocumentHeader::forPrint($f->issuer, $f->clinique),
+                        'recipient' => $f->recipient,
                         'emise_le' => $f->emise_le->toIso8601String(),
                         'statut' => $f->statut->value,
                         'payee_le' => $f->payee_le?->toIso8601String(),
@@ -155,6 +161,9 @@ class DocumentsProprietaire
             ->whereIn('statut', [StatutDevis::Envoye, StatutDevis::Accepte, StatutDevis::Refuse])
             ->orderByDesc('emis_le')
             ->get()
+            // Fait pour un propriétaire précédent : il ne regarde pas le nouveau (décision de Jim, 02.11.2026)
+            ->reject(fn (Devis $d): bool => DocumentHeader::isForFormerOwner($d->recipient, $d->patient?->client_id, $clientIds))
+            ->values()
             ->map(function (Devis $d) use ($clientIds): array {
                 $effectif = $d->statutEffectif();
                 // Seul le client de la fiche répond (pas celui qui gère un animal réclamé par puce), comme à la signature
@@ -179,15 +188,16 @@ class DocumentsProprietaire
                     'a_signer' => $aSigner,
                     'pdf' => [
                         'numero' => $d->numero,
-                        'en_tete' => $d->clinique->enTeteDocument(),
+                        'en_tete' => DocumentHeader::forPrint($d->issuer, $d->clinique),
                         'patient' => $d->patient->nom,
                         'espece' => $d->patient->espece,
                         'statut' => $effectif,
                         // Le propriétaire, comme sur le devis de la clinique (31.10.2026) ; seulement à lui-même,
                         // jamais à qui gère l'animal (réclamé par puce) au nom d'une autre fiche
-                        'proprietaire' => $estSaFiche && $d->patient->client !== null ? [
-                            'nom' => $d->patient->client->nom_affiche,
-                            'adresse' => implode(', ', array_filter([$d->patient->client->rue, trim(($d->patient->client->npa ?? '').' '.($d->patient->client->localite ?? ''))])),
+                        // Figé à l'envoi, et seulement à la fiche à qui il était adressé (02.11.2026)
+                        'proprietaire' => DocumentHeader::isAddressedTo($d->recipient, $clientIds, $d->patient->client_id) && ($recipient = $d->recipient ?? DocumentHeader::recipient($d->patient->client)) !== null ? [
+                            'nom' => $recipient['nom_affiche'],
+                            'adresse' => DocumentHeader::addressLine($recipient),
                         ] : null,
                         'envoye_le' => $d->envoye_le?->toIso8601String(),
                         'refuse_le' => $d->refuse_le?->toIso8601String(),
@@ -265,7 +275,8 @@ class DocumentsProprietaire
     /** Où sont rangés les PDF ajoutés au dossier : le propriétaire les télécharge s'ils sont partagés */
     public const string DOSSIER_PDF = 'documents/';
 
-    private function documents(array $patientIds): Collection
+    /** @param  list<int>  $clientIds */
+    private function documents(array $patientIds, array $clientIds = []): Collection
     {
         if ($patientIds === []) {
             return collect();
@@ -278,6 +289,9 @@ class DocumentsProprietaire
             ->where('visible_proprietaire', true)
             ->orderByDesc('etabli_le')
             ->get()
+            // Destiné à un propriétaire précédent (un consentement qu'il a signé) : pas au nouveau (02.11.2026)
+            ->reject(fn (Document $d): bool => $d->client_id !== null && $d->client_id !== $d->patient?->client_id && ! in_array($d->client_id, $clientIds, true))
+            ->values()
             ->map(fn (Document $d): array => [
                 'type' => mb_strtoupper($d->type ?: 'DOCUMENT'),
                 'id' => $d->id,

@@ -8,6 +8,7 @@ use App\Enums\StatutCommandeBoutique;
 use App\Enums\StatutDevis;
 use App\Enums\StatutOrdonnance;
 use App\Enums\StatutRendezVous;
+use App\Http\Controllers\Api\V1\Espace\RendezVousProprietaireController;
 use App\Models\Clinique;
 use App\Models\CommandeBoutique;
 use App\Models\Devis;
@@ -16,6 +17,7 @@ use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\Vaccination;
+use App\Support\DocumentHeader;
 use Illuminate\Support\Collection;
 
 /**
@@ -38,7 +40,7 @@ class AccueilProprietaire
 
         $prochain = $this->prochainRendezVous($clientIds, $patientIds);
         $rappels = $this->rappels($patientIds);
-        $devisASigner = $this->devisASigner($patientIds);
+        $devisASigner = $this->devisASigner($patientIds, $clientIds);
         $commandes = $this->commandes($clientIds);
         $commandesPretes = $commandes->where('statut', StatutCommandeBoutique::Prete);
         $derniereCommande = $commandes->first();
@@ -59,7 +61,7 @@ class AccueilProprietaire
                 ->get()
                 ->map(fn (Patient $patient): array => $this->animal($patient))
                 ->all(),
-            'ordonnance' => $this->ordonnance($patientIds),
+            'ordonnance' => $this->ordonnance($patientIds, $clientIds),
             'derniere_commande' => $derniereCommande ? $this->commande($derniereCommande) : null,
             'urgence' => $this->urgence($contexte, $prochain),
         ];
@@ -77,7 +79,7 @@ class AccueilProprietaire
 
         return RendezVous::withoutGlobalScopes()
             ->with(['clinique', 'lignePlanning', 'patient'])
-            ->where(fn ($q) => $q->whereIn('client_id', $clientIds)->orWhereIn('patient_id', $patientIds))
+            ->where(fn ($q) => $q->whereIn('client_id', $clientIds)->orWhere(fn ($q) => RendezVousProprietaireController::deSesAnimaux($q, $patientIds)))
             ->whereIn('status', [StatutRendezVous::Prevu, StatutRendezVous::Salle, StatutRendezVous::Cours])
             ->where('ends_at', '>=', now())
             ->orderBy('starts_at')
@@ -145,7 +147,8 @@ class AccueilProprietaire
      * @param  list<int>  $patientIds
      * @return Collection<int, Devis>
      */
-    private function devisASigner(array $patientIds): Collection
+    /** @param  list<int>  $clientIds */
+    private function devisASigner(array $patientIds, array $clientIds = []): Collection
     {
         if ($patientIds === []) {
             return new Collection;
@@ -159,7 +162,10 @@ class AccueilProprietaire
             ->whereNull('signe_le')
             ->where(fn ($q) => $q->whereNull('valide_jusquau')->orWhereDate('valide_jusquau', '>=', aujourdhui()))
             ->orderBy('emis_le')
-            ->get();
+            ->get()
+            // Fait pour un propriétaire précédent : pas à signer par le nouveau (02.11.2026)
+            ->reject(fn (Devis $d): bool => DocumentHeader::isForFormerOwner($d->recipient, $d->patient?->client_id, $clientIds))
+            ->values();
     }
 
     /**
@@ -242,7 +248,8 @@ class AccueilProprietaire
      * @param  list<int>  $patientIds
      * @return array<string, mixed>|null
      */
-    private function ordonnance(array $patientIds): ?array
+    /** @param  list<int>  $clientIds */
+    private function ordonnance(array $patientIds, array $clientIds = []): ?array
     {
         if ($patientIds === []) {
             return null;
@@ -254,7 +261,9 @@ class AccueilProprietaire
             ->where('statut', StatutOrdonnance::Active)
             ->orderByDesc('signee_le')
             ->orderByDesc('id')
-            ->first();
+            ->get()
+            // Faite pour un propriétaire précédent : pas la sienne (02.11.2026)
+            ->first(fn (Ordonnance $o): bool => ! DocumentHeader::isForFormerOwner($o->recipient, $o->patient?->client_id, $clientIds));
 
         if (! $ordonnance) {
             return null;

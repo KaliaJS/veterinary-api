@@ -16,6 +16,7 @@ use App\Models\DemandeRattachement;
 use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Rules\NumeroPuce;
+use App\Support\DocumentHeader;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
@@ -53,11 +54,14 @@ class AnimalController extends Controller
             ->with(['organisation', 'courbePoids', 'vaccinations.produit.schema', 'vaccinations.produit.valences', 'visites.employe'])
             ->findOrFail($animalId);
 
+        // Pas celle faite pour un propriétaire précédent (02.11.2026)
         $ordonnanceActiveId = Ordonnance::withoutGlobalScopes()
             ->where('patient_id', $animal->id)
             ->where('statut', StatutOrdonnance::Active)
             ->orderByDesc('signee_le')
-            ->value('id');
+            ->get(['id', 'recipient'])
+            ->first(fn (Ordonnance $o): bool => ! DocumentHeader::isForFormerOwner($o->recipient, $animal->client_id, $contexte->clientIds()))
+            ?->id;
 
         return (new AnimalProprietaireResource($animal))->avecOrdonnanceActive($ordonnanceActiveId);
     }
@@ -85,7 +89,8 @@ class AnimalController extends Controller
             ]);
 
             if (isset($donnees['poids_kg'])) {
-                $animal->pesees()->create(['poids_kg' => $donnees['poids_kg'], 'pesee_le' => aujourdhui()]);
+                // Faite par le propriétaire : aucune organisation, même ouvert depuis un compte d'équipe
+                $animal->pesees()->create(['poids_kg' => $donnees['poids_kg'], 'pesee_le' => aujourdhui(), 'source_organisation_id' => null]);
             }
 
             return $animal;

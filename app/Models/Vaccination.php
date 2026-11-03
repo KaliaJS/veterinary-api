@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RecordsSourceOrganisation;
 use App\Services\EtatVaccinal;
 use Database\Factories\VaccinationFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Vaccination extends Model
 {
     /** @use HasFactory<VaccinationFactory> */
-    use HasFactory;
+    use HasFactory, RecordsSourceOrganisation;
 
     protected $fillable = [
         'patient_id', 'produit_id', 'nom', 'valences', 'marque', 'lot', 'gtin', 'peremption_le', 'voie',

@@ -77,6 +77,10 @@ class Push
         $patientIds = array_values(array_filter($patientIds));
         if ($patientIds !== []) {
             foreach (Patient::withoutGlobalScopes()->whereIn('id', $patientIds)->get(['proprietaire_id', 'client_id']) as $patient) {
+                // L'animal a changé de propriétaire depuis : le rendez-vous reste à qui l'a pris (03.11.2026)
+                if ($rendezVous->client_id !== null && $patient->client_id !== $rendezVous->client_id) {
+                    continue;
+                }
                 $userIds[] = $patient->proprietaire_id;
                 $clientIds[] = $patient->client_id;
             }

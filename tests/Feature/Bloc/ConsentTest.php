@@ -11,6 +11,7 @@ use App\Mail\ConsentRequested;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\ConsentRequest;
+use App\Models\Document;
 use App\Models\Employe;
 use App\Models\Intervention;
 use App\Models\Patient;
@@ -128,6 +129,10 @@ class ConsentTest extends TestCase
         $this->assertNotNull($this->intervention->consentement_document_id);
         $this->assertNull($this->intervention->consentement_recueilli_par_id);
         $this->assertTrue($this->consentCoche());
+        // Signé par le lien, hors de toute clinique : le document reste celui de la clinique (provenance, 02.11.2026)
+        $this->assertSame($this->clinique->societe->organisation_id, Document::withoutGlobalScopes()->find($this->intervention->consentement_document_id)->source_organisation_id);
+        // Destiné au propriétaire d'aujourd'hui : un propriétaire suivant ne le verra pas
+        $this->assertSame($this->intervention->patient->client_id, Document::withoutGlobalScopes()->find($this->intervention->consentement_document_id)->client_id);
         $this->assertNotNull(ConsentRequest::withoutGlobalScopes()->first()->signed_ip);
         Event::assertDispatched(InterventionUpdated::class);
 

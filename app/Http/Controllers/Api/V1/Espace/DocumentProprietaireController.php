@@ -13,6 +13,7 @@ use App\Models\Devis;
 use App\Models\Document;
 use App\Models\Ordonnance;
 use App\Services\DocumentsProprietaire;
+use App\Support\DocumentHeader;
 use App\Support\TempsReel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -122,6 +123,8 @@ class DocumentProprietaireController extends Controller
             ->whereHas('patient', fn ($patient) => $patient->withoutGlobalScopes()->whereIn('client_id', $contexte->clientIds()))
             ->where('canal', CanalDevis::Portail)
             ->findOrFail($devisId);
+        // Fait pour un propriétaire précédent : pas le sien (02.11.2026)
+        abort_if(DocumentHeader::isForFormerOwner($devis->recipient, $devis->patient?->client_id, $contexte->clientIds()), 404);
 
         if ($devis->estExpire()) {
             throw ValidationException::withMessages(['statut' => 'Ce devis est expiré : demandez-en un nouveau à la clinique.']);
@@ -137,9 +140,11 @@ class DocumentProprietaireController extends Controller
     public function demanderRenouvellement(Request $request, ContexteProprietaire $contexte, int $ordonnanceId): JsonResponse
     {
         $ordonnance = Ordonnance::withoutGlobalScopes()
-            ->with('demandesRenouvellement')
+            ->with(['demandesRenouvellement', 'patient'])
             ->whereIn('patient_id', $contexte->patientIds())
             ->findOrFail($ordonnanceId);
+        // Faite pour un propriétaire précédent : pas la sienne (02.11.2026)
+        abort_if(DocumentHeader::isForFormerOwner($ordonnance->recipient, $ordonnance->patient?->client_id, $contexte->clientIds()), 404);
 
         if ($ordonnance->statut !== StatutOrdonnance::Active) {
             throw ValidationException::withMessages(['statut' => 'Cette ordonnance n’est plus en cours.']);

@@ -56,7 +56,8 @@ class DemandeProprietaireController extends Controller
 
     /**
      * Les demandes du compte : déposées par lui, ou pour ses fiches et
-     * ses animaux (un report demandé depuis un rendez-vous).
+     * ses animaux (un report demandé depuis un rendez-vous). Jamais celles
+     * d'un propriétaire précédent de l'animal (décision de Jim, 02.11.2026).
      *
      * @return Builder<DemandeRendezVous>
      */
@@ -65,6 +66,10 @@ class DemandeProprietaireController extends Controller
         return DemandeRendezVous::withoutGlobalScopes()->where(fn ($requete) => $requete
             ->where('user_id', $contexte->user()->id)
             ->orWhereIn('client_id', $contexte->clientIds())
-            ->orWhereIn('patient_id', $contexte->patientIds()));
+            // Pour ses animaux, sauf celles d'un propriétaire précédent (une autre fiche, un autre compte) : 02.11.2026
+            ->orWhere(fn ($q) => $q->whereIn('patient_id', $contexte->patientIds())
+                ->where(fn ($q) => $q->whereNull('client_id')
+                    ->orWhereRaw('demandes_rendez_vous.client_id = (select patients.client_id from patients where patients.id = demandes_rendez_vous.patient_id)'))
+                ->where(fn ($q) => $q->whereNull('user_id')->orWhere('user_id', $contexte->user()->id))));
     }
 }

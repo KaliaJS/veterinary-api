@@ -27,10 +27,11 @@ class ReponseDevisProprietaireTest extends TestCase
     use RefreshDatabase;
 
     /** @return array{jeton: string, devis: Devis} */
-    private function devisEnvoye(): array
+    /** @param  array<string, mixed>  $adresse  l'adresse de la fiche, figée à l'envoi (02.11.2026) */
+    private function devisEnvoye(array $adresse = []): array
     {
         ['user' => $user, 'jeton' => $jeton] = $this->proprietaireAvecJeton(['name' => 'lea.martin']);
-        $fiche = Client::factory()->create(['user_id' => $user->id, 'prenom' => 'Léa', 'nom' => 'Martin']);
+        $fiche = Client::factory()->create(['user_id' => $user->id, 'prenom' => 'Léa', 'nom' => 'Martin', ...$adresse]);
         $patient = Patient::factory()->create(['client_id' => $fiche->id]);
         $devis = Devis::factory()->create(['patient_id' => $patient->id, 'organisation_id' => $fiche->organisation_id, 'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail, 'signe_le' => null]);
 
@@ -89,8 +90,7 @@ class ReponseDevisProprietaireTest extends TestCase
 
     public function test_la_liste_des_documents_porte_ce_que_montre_le_devis(): void
     {
-        ['jeton' => $jeton, 'devis' => $devis] = $this->devisEnvoye();
-        $devis->patient->client->update(['rue' => 'Rue des Pâquis 8', 'npa' => '1201', 'localite' => 'Genève']);
+        ['jeton' => $jeton, 'devis' => $devis] = $this->devisEnvoye(['rue' => 'Rue des Pâquis 8', 'npa' => '1201', 'localite' => 'Genève']);
         $devis->lignes()->create(['libelle' => 'Détartrage', 'quantite' => 2, 'prix_chf' => 90, 'type' => 'acte']);
 
         $item = collect($this->getJson('/api/v1/espace/documents', $this->enTetes($jeton))->assertOk()->json('data'))->firstWhere('type', 'DEVIS');
