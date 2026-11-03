@@ -14,6 +14,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property-read float|string|null $solde_du Agrégat de la liste et de la fiche : le reste à payer de ses factures dues (ClientController, 03.11.2026)
+ */
 class Client extends Model
 {
     /** @use HasFactory<ClientFactory> */

@@ -10,6 +10,7 @@ use App\Enums\Sexe;
 use App\Enums\StatutRendezVous;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use App\Models\Concerns\AUnePhoto;
+use App\Services\Facturation\PatientDebts;
 use App\Services\Patients\OneAccountPerPet;
 use Database\Factories\PatientFactory;
 use Illuminate\Database\Eloquent\Casts\AsEnumCollection;
@@ -18,6 +19,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\DB;
 
 class Patient extends Model
 {
@@ -62,6 +64,15 @@ class Patient extends Model
             if (! $patient->a_allergies) {
                 $patient->allergens = null;
                 $patient->allergy_note = null;
+            }
+        });
+        // Un nouveau propriétaire ne porte pas les dettes de l'ancien (03.11.2026)
+        static::saved(function (Patient $patient): void {
+            if ($patient->wasChanged('client_id')) {
+                PatientDebts::refresh([$patient->id]);
+                // La réponse sert déjà la dette recalculée
+                $patient->dette = DB::table('patients')->where('id', $patient->id)->value('dette');
+                $patient->syncOriginalAttribute('dette');
             }
         });
     }

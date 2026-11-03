@@ -5,6 +5,8 @@ namespace Tests\Feature\Patients;
 use App\Enums\StatutRendezVous;
 use App\Models\Client;
 use App\Models\Clinique;
+use App\Models\Facture;
+use App\Models\FactureLigne;
 use App\Models\LignePlanning;
 use App\Models\Patient;
 use App\Models\RendezVous;
@@ -46,8 +48,13 @@ class ClientTest extends TestCase
 
     public function test_la_liste_porte_les_agregats_derives_du_foyer(): void
     {
-        Patient::factory()->for($this->client)->create(['dette' => 120, 'client_depuis' => 2019]);
-        Patient::factory()->for($this->client)->create(['dette' => 30.5, 'client_depuis' => 2022]);
+        $premier = Patient::factory()->for($this->client)->create(['client_depuis' => 2019]);
+        Patient::factory()->for($this->client)->create(['client_depuis' => 2022]);
+        // Le solde dû vient des factures dues (03.11.2026), plus d'une dette saisie sur l'animal
+        foreach ([[$premier->id, 120], [null, 30.5]] as [$patientId, $prix]) {
+            $facture = Facture::factory()->create(['clinique_id' => $this->clinique->id, 'client_id' => $this->client->id, 'patient_id' => $patientId]);
+            FactureLigne::factory()->create(['facture_id' => $facture->id, 'quantite' => 1, 'prix_chf' => $prix]);
+        }
 
         $ligne = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id]);
         RendezVous::factory()->count(2)->create([

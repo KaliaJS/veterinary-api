@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Employe;
 use App\Models\User;
+use App\Services\Facturation\PatientDebts;
 use App\Support\BackfillRecordSources;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -53,5 +54,9 @@ class DatabaseSeeder extends Seeder
         // Les actes de la démo, créés sans clinique en cours : ceux des
         // animaux de clinique prennent l'organisation du dossier (provenance)
         app(BackfillRecordSources::class)->run();
+
+        // Le seed passe sans hooks de modèle : la dette des animaux se calcule
+        // une fois à la fin, depuis les factures dues (03.11.2026)
+        PatientDebts::refreshAll();
     }
 }

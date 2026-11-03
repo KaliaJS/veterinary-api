@@ -11,6 +11,7 @@ use App\Http\Resources\V1\ClientResource;
 use App\Models\Client;
 use App\Models\RendezVous;
 use App\Services\Clients\OwnerSpaceInvitations;
+use App\Services\Facturation\PatientDebts;
 use App\Support\Telephone;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -21,7 +22,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * Propriétaires — niveau ORGANISATION : la liste est la même depuis
  * toutes les cliniques du jeton (scope global organisation). Jamais de
- * suppression. Les agrégats de l'écran (solde dû = somme des dettes,
+ * suppression. Les agrégats de l'écran (solde dû = reste à payer de ses factures dues,
  * no-shows dérivés des RDV, client depuis = min des fiches) sont
  * calculés en requête, pas stockés.
  */
@@ -141,7 +142,8 @@ class ClientController extends Controller
     {
         return $requete
             ->withCount('patients')
-            ->withSum('patients', 'dette')
+            // Le solde dû : le reste à payer de ses factures dues, factures sans animal comprises (03.11.2026)
+            ->selectRaw(PatientDebts::ownerBalanceSql().' as solde_du')
             ->withMin('patients', 'client_depuis')
             ->withCount(['rendezVous as no_shows_count' => fn (Builder $rendezVous) => $rendezVous
                 ->withoutGlobalScope('clinique')

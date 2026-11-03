@@ -11,7 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * Les champs agrégés (nombre d'animaux, solde dû = somme des dettes,
+ * Les champs agrégés (nombre d'animaux, solde dû = reste à payer de ses factures dues,
  * no-shows, client depuis = min des fiches) ne sortent que lorsque le
  * contrôleur les a chargés — jamais recalculés ici.
  *
@@ -47,7 +47,7 @@ class ClientResource extends JsonResource
                     ->values()
                     ->all(),
             ),
-            'solde_du' => $this->whenHas('patients_sum_dette', fn () => (float) ($this->patients_sum_dette ?? 0)),
+            'solde_du' => $this->whenHas('solde_du', fn () => round((float) $this->solde_du, 2)),
             'no_shows' => $this->whenHas('no_shows_count'),
             'client_depuis' => $this->whenHas('patients_min_client_depuis'),
             'patients' => PatientResource::collection($this->whenLoaded('patients')),

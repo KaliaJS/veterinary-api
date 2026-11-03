@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\TypeLigneFacture;
+use App\Services\Facturation\PatientDebts;
 use Database\Factories\FactureLigneFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -18,6 +19,16 @@ class FactureLigne extends Model
     use HasFactory;
 
     protected $fillable = ['facture_id', 'libelle', 'quantite', 'prix_chf', 'type', 'produit_id'];
+
+    /** Une ligne ajoutée, changée ou retirée : la dette de l'animal suit (03.11.2026) */
+    protected static function booted(): void
+    {
+        $refresh = function (FactureLigne $ligne): void {
+            PatientDebts::refresh([Facture::withoutGlobalScopes()->whereKey($ligne->facture_id)->value('patient_id')]);
+        };
+        static::saved($refresh);
+        static::deleted($refresh);
+    }
 
     protected function casts(): array
     {

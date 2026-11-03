@@ -56,7 +56,8 @@ class PatientFactory extends Factory
             'ne_le' => fake()->dateTimeBetween("-{$ageMax} years", '-1 year'),
             'est_sterilise' => fake()->boolean(62),
             'puce' => $this->numeroPuce(),
-            'dette' => fake()->boolean(9) ? fake()->numberBetween(2, 19) * 10 : 0,
+            // La dette vient des factures dues (03.11.2026), jamais tirée au hasard
+            'dette' => 0,
             'est_agressif' => fake()->boolean(11),
             'a_allergies' => fake()->boolean(12),
             'traitement_en_cours' => fake()->boolean(40) ? fake()->randomElement(self::TRAITEMENTS) : null,

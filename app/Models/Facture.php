@@ -7,6 +7,7 @@ use App\Enums\MoyenPaiement;
 use App\Enums\StatutFacture;
 use App\Enums\StatutPaiement;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Services\Facturation\PatientDebts;
 use App\Support\DocumentHeader;
 use Database\Factories\FactureFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -52,6 +53,13 @@ class Facture extends Model
                 $facture->recipient = DocumentHeader::recipient($facture->client_id === null ? null : Client::withoutGlobalScopes()->find($facture->client_id));
             }
         });
+        // Émise, payée, annulée, passée à un autre animal : la dette de l'animal suit (03.11.2026)
+        static::saved(function (Facture $facture): void {
+            if ($facture->wasRecentlyCreated || $facture->wasChanged(['statut', 'acompte', 'patient_id'])) {
+                PatientDebts::refresh([$facture->patient_id, $facture->getOriginal('patient_id')]);
+            }
+        });
+        static::deleted(fn (Facture $facture) => PatientDebts::refresh([$facture->patient_id]));
     }
 
     /** Miroir des défauts de la base. */
