@@ -70,9 +70,7 @@ class VaccinationController extends Controller
         abort_unless($vaccination->patient_id === $patient->id, 404);
         $this->signataireSeul($vaccination);
 
-        $donnees = $request->validated();
-        $produit = $this->produit($donnees) ?? ($donnees['produit_id'] ?? null ? null : $vaccination->produit);
-        $vaccination->fill($this->attributs($donnees, $produit));
+        $vaccination->fill($this->attributsCorrection($request->validated(), $vaccination));
         $vaccination->save();
 
         return new VaccinationResource($vaccination->refresh()->load(['produit', 'employe' => fn ($requete) => $requete->withoutGlobalScope('clinique')]));
@@ -127,6 +125,46 @@ class VaccinationController extends Controller
     }
 
     /**
+     * Correction (03.11.2026) : une clé envoyée à null efface, une clé
+     * absente ne change rien. `produit_id` envoyé à null sans code-barres :
+     * saisie libre, le produit part. Un vaccin changé sans code-barres
+     * envoyé perd l'ancien code-barres (il était celui de l'autre flacon).
+     *
+     * @param  array<string, mixed>  $donnees
+     * @return array<string, mixed>
+     */
+    private function attributsCorrection(array $donnees, Vaccination $vaccination): array
+    {
+        $attributs = [];
+        if (array_key_exists('produit_id', $donnees) || ! empty($donnees['gtin'])) {
+            $produit = $this->produit($donnees);
+            $attributs['produit_id'] = $produit?->id;
+            $attributs['valences'] = $produit?->valences->pluck('code')->all() ?: ($donnees['valences'] ?? null) ?: null;
+            $nomValences = $produit?->valences->pluck('nom_court')->implode(' · ') ?: null;
+            $attributs['nom'] = $donnees['nom'] ?? $nomValences ?? $produit->nom_court ?? $vaccination->nom;
+            $attributs['marque'] = $donnees['marque'] ?? $produit?->nom_court;
+            if ($produit?->id !== $vaccination->produit_id && ! array_key_exists('gtin', $donnees)) {
+                $attributs['gtin'] = null;
+            }
+        } else {
+            foreach (['nom', 'marque', 'valences'] as $cle) {
+                if (array_key_exists($cle, $donnees)) {
+                    $attributs[$cle] = $donnees[$cle];
+                }
+            }
+        }
+        foreach (['lot', 'gtin', 'peremption_le', 'voie', 'site_injection', 'remarque', 'reaction', 'injectee_le', 'echeance_le'] as $cle) {
+            if (array_key_exists($cle, $donnees)) {
+                $attributs[$cle] = $donnees[$cle];
+            }
+        }
+
+        return $attributs;
+    }
+
+    /**
+     * Création : ce qui manque prend la valeur du produit ou reste vide.
+     *
      * @param  array<string, mixed>  $donnees
      * @return array<string, mixed>
      */

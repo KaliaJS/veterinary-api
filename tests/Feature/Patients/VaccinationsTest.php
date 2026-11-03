@@ -196,6 +196,75 @@ class VaccinationsTest extends TestCase
         $this->assertNull($vaccination->employe_id);
     }
 
+    /** En correction, une clé envoyée vide efface ; une clé absente ne change rien (03.11.2026). */
+    public function test_une_correction_efface_ce_qui_est_envoye_vide_et_garde_le_reste(): void
+    {
+        $patient = $this->patient();
+        $id = $this->postJson("/api/v1/patients/{$patient->id}/vaccinations", [
+            'produit_id' => $this->rage->id, 'lot' => 'A1', 'peremption_le' => '2027-06-30', 'voie' => 'intramusculaire',
+            'site_injection' => 'Épaule gauche', 'remarque' => 'Voyage', 'reaction' => 'Œdème', 'echeance_le' => aujourdhui()->addYear()->toDateString(),
+        ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
+
+        $this->putJson("/api/v1/patients/{$patient->id}/vaccinations/{$id}", [
+            'produit_id' => $this->rage->id, 'reaction' => null, 'remarque' => null, 'site_injection' => null, 'voie' => null, 'peremption_le' => null,
+        ], $this->enTetes($this->jeton))->assertOk();
+
+        $vaccination = $patient->vaccinations()->sole();
+        foreach (['reaction', 'remarque', 'site_injection', 'voie', 'peremption_le'] as $champ) {
+            $this->assertNull($vaccination->{$champ}, "{$champ} envoyé vide s'efface");
+        }
+        $this->assertSame('A1', $vaccination->lot, 'le lot absent reste');
+        $this->assertSame(aujourdhui()->addYear()->toDateString(), $vaccination->echeance_le->toDateString(), 'l’échéance absente reste');
+        $this->assertSame($this->rage->id, $vaccination->produit_id);
+
+        $this->putJson("/api/v1/patients/{$patient->id}/vaccinations/{$id}", ['produit_id' => $this->rage->id, 'lot' => null, 'echeance_le' => null], $this->enTetes($this->jeton))->assertOk();
+        $vaccination->refresh();
+        $this->assertNull($vaccination->lot);
+        $this->assertNull($vaccination->echeance_le);
+    }
+
+    /** Passer à « Autre vaccin » retire le produit du catalogue (03.11.2026). */
+    public function test_une_correction_en_saisie_libre_retire_le_produit(): void
+    {
+        $patient = $this->patient();
+        $id = $this->postJson("/api/v1/patients/{$patient->id}/vaccinations", ['gtin' => '8713184095282', 'lot' => 'B2'], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
+
+        $this->putJson("/api/v1/patients/{$patient->id}/vaccinations/{$id}", ['produit_id' => null, 'nom' => 'Leishmaniose', 'marque' => 'CaniLeish'], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.produit_id', null)
+            ->assertJsonPath('data.nom', 'Leishmaniose')
+            ->assertJsonPath('data.marque', 'CaniLeish');
+
+        $vaccination = $patient->vaccinations()->sole();
+        $this->assertNull($vaccination->produit_id);
+        $this->assertNull($vaccination->gtin, 'le code-barres de l’ancien produit part avec lui');
+        $this->assertSame('B2', $vaccination->lot);
+    }
+
+    /** Un vaccin changé sans code-barres envoyé efface l'ancien code-barres ; inchangé, il reste (03.11.2026). */
+    public function test_un_vaccin_change_sans_code_barres_efface_l_ancien(): void
+    {
+        $patient = $this->patient();
+        $id = $this->postJson("/api/v1/patients/{$patient->id}/vaccinations", ['gtin' => '8713184095282'], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
+
+        $this->putJson("/api/v1/patients/{$patient->id}/vaccinations/{$id}", ['produit_id' => $this->dhppi->id, 'lot' => 'C3'], $this->enTetes($this->jeton))->assertOk();
+        $this->assertSame('8713184095282', $patient->vaccinations()->sole()->gtin, 'même vaccin : le code-barres reste');
+
+        $this->putJson("/api/v1/patients/{$patient->id}/vaccinations/{$id}", ['produit_id' => $this->rage->id], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.produit_id', $this->rage->id)
+            ->assertJsonPath('data.gtin', null);
+    }
+
+    public function test_une_injection_avant_2000_est_refusee(): void
+    {
+        $patient = $this->patient();
+        $this->postJson("/api/v1/patients/{$patient->id}/vaccinations", ['produit_id' => $this->rage->id, 'injectee_le' => '0202-05-01'], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['injectee_le' => 'La date d’injection ne peut pas être antérieure au 1er janvier 2000.']);
+        $this->postJson("/api/v1/patients/{$patient->id}/vaccinations", ['produit_id' => $this->rage->id, 'injectee_le' => '2000-01-01'], $this->enTetes($this->jeton))->assertCreated();
+    }
+
     public function test_le_catalogue_se_filtre_par_espece_et_recherche(): void
     {
         $this->getJson('/api/v1/vaccins?espece=CT', $this->enTetes($this->jeton))->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.nom', 'Nobivac Rabies');

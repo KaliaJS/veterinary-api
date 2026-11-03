@@ -20,7 +20,10 @@ class EnregistrerVaccinationRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $this->mergeIfMissing(['injectee_le' => aujourdhui()->toDateString()]);
+        // À la création seulement : en correction, une date absente ne change rien
+        if ($this->isMethod('post')) {
+            $this->mergeIfMissing(['injectee_le' => aujourdhui()->toDateString()]);
+        }
         if ($this->filled('gtin')) {
             $this->merge(['gtin' => preg_replace('/\D/', '', (string) $this->input('gtin'))]);
         }
@@ -42,8 +45,17 @@ class EnregistrerVaccinationRequest extends FormRequest
             'site_injection' => ['nullable', 'string', 'max:60'],
             'remarque' => ['nullable', 'string', 'max:2000'],
             'reaction' => ['nullable', 'string', 'max:2000'],
-            'injectee_le' => ['sometimes', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
+            'injectee_le' => ['sometimes', 'date', 'after_or_equal:2000-01-01', 'before_or_equal:'.aujourdhui()->toDateString()],
             'echeance_le' => ['nullable', 'date', 'after:injectee_le'],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            // Une année tapée à moitié (0202) passe pour une date : refusée en clair (03.11.2026)
+            'injectee_le.after_or_equal' => 'La date d’injection ne peut pas être antérieure au 1er janvier 2000.',
         ];
     }
 }
