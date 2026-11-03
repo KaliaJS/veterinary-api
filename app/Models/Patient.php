@@ -47,6 +47,8 @@ class Patient extends Model
         'a_allergies', 'traitement_en_cours', 'rappels_coupes',
         'aggression_triggers', 'needs_muzzle', 'allergens', 'allergy_note',
         'amicus_declare_le', 'client_depuis',
+        // Le poids de forme saisi par le vétérinaire (03.11.2026)
+        'healthy_weight_min_kg', 'healthy_weight_max_kg',
     ];
 
     /** Un animal, un seul compte (02.11.2026) : sa fiche et sa puce ne disent jamais deux comptes */
@@ -95,6 +97,8 @@ class Patient extends Model
             'rappels_coupes' => 'boolean',
             'amicus_declare_le' => 'datetime',
             'client_depuis' => 'integer',
+            'healthy_weight_min_kg' => 'decimal:2',
+            'healthy_weight_max_kg' => 'decimal:2',
         ];
     }
 

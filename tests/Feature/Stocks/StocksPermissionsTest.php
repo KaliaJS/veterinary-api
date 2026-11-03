@@ -104,6 +104,7 @@ class StocksPermissionsTest extends TestCase
             ['getJson', '/api/v1/stocks/produits', []],
             ['postJson', '/api/v1/stocks/produits', ['nom' => 'Refusé', 'categorie' => 'mat', 'prix' => 10]],
             ['getJson', "/api/v1/stocks/produits/{$produit}", []],
+            ['patchJson', "/api/v1/stocks/produits/{$produit}/atc", ['atc_code' => 'QM01AC06']],
             ['postJson', "/api/v1/stocks/produits/{$produit}/ajuster", ['quantite' => 1, 'motif' => 'recep']],
             ['getJson', "/api/v1/stocks/produits/{$produit}/mouvements", []],
             ['getJson', '/api/v1/stocks/commandes', []],

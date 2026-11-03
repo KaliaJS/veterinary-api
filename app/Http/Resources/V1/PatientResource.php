@@ -47,6 +47,11 @@ class PatientResource extends JsonResource
             'allergens' => ($this->allergens ?? collect())->map->value->values(),
             'allergy_note' => $this->allergy_note,
             'traitement_en_cours' => $this->traitement_en_cours,
+            // Le poids de forme saisi par le vétérinaire (03.11.2026) : sans saisie, pas de bande
+            'healthy_weight_min_kg' => $this->healthy_weight_min_kg !== null ? (float) $this->healthy_weight_min_kg : null,
+            'healthy_weight_max_kg' => $this->healthy_weight_max_kg !== null ? (float) $this->healthy_weight_max_kg : null,
+            // Où il en est, d'après sa dernière pesée : above, within, below ; null sans bande ou sans pesée
+            'healthy_weight_position' => $this->whenLoaded('courbePoids', fn (): ?string => $this->healthyWeightPosition()),
             'rappels_coupes' => $this->rappels_coupes,
             'amicus_declare_le' => $this->amicus_declare_le,
             'client_depuis' => $this->client_depuis,
@@ -103,5 +108,20 @@ class PatientResource extends JsonResource
             $this->a_allergies ? 'allergies' : null,
             $this->aSoldeDu() ? 'solde' : null,
         ]));
+    }
+
+    /** La dernière pesée face au poids de forme saisi (03.11.2026) */
+    private function healthyWeightPosition(): ?string
+    {
+        $last = $this->courbePoids->first()?->poids_kg;
+        if ($last === null || $this->healthy_weight_min_kg === null || $this->healthy_weight_max_kg === null) {
+            return null;
+        }
+
+        return match (true) {
+            (float) $last > (float) $this->healthy_weight_max_kg => 'above',
+            (float) $last < (float) $this->healthy_weight_min_kg => 'below',
+            default => 'within',
+        };
     }
 }

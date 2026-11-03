@@ -40,6 +40,9 @@ class ModifierPatientRequest extends FormRequest
             'allergens.*' => ['distinct', Rule::enum(Allergen::class)],
             'allergy_note' => ['sometimes', 'nullable', 'string', 'max:255'],
             'traitement_en_cours' => ['sometimes', 'nullable', 'string'],
+            // Le poids de forme (03.11.2026) : les deux bornes ensemble, le haut au-dessus du bas
+            'healthy_weight_min_kg' => ['present_with:healthy_weight_max_kg', 'nullable', 'numeric', 'min:0.01', 'max:200'],
+            'healthy_weight_max_kg' => ['present_with:healthy_weight_min_kg', 'nullable', 'numeric', 'min:0.01', 'max:200', 'gte:healthy_weight_min_kg'],
             'rappels_coupes' => ['sometimes', 'boolean'],
             'client_depuis' => ['sometimes', 'integer', 'min:1990', 'max:'.aujourdhui()->year],
         ];

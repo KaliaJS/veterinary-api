@@ -44,6 +44,8 @@ class FactureController extends Controller
             ->withExists(['paiements as paye_par_stripe' => fn (Builder $requete) => $requete->whereIn('statut', Facture::preuvesDeTerminal())])
             ->when($request->enum('statut', StatutFacture::class), fn (Builder $requete, StatutFacture $statut) => $requete->where('statut', $statut))
             ->when($request->integer('patient_id'), fn (Builder $requete, int $patient) => $requete->where('patient_id', $patient))
+            // Les factures d'un propriétaire (« Encaisser » depuis le dossier d'un patient, 03.11.2026)
+            ->when($request->integer('client_id'), fn (Builder $requete, int $client) => $requete->where('client_id', $client))
             ->when($request->integer('clinique_id'), fn (Builder $requete, int $clinique) => $requete->where('clinique_id', $clinique))
             // Jours du calendrier de la clinique (24.10.2026), pas de minuit UTC
             ->when($request->date('du'), fn (Builder $requete, $du) => $requete->where('emise_le', '>=', minuitLocal($du)))

@@ -37,6 +37,9 @@ class ProduitResource extends JsonResource
             'peremption' => $this->peremptionAffichee(),
             'fournisseur' => $this->fournisseur,
             'ean' => $this->ean,
+            'atc_code' => $this->atc_code,
+            // Les principes actifs du catalogue, par le code-barres (allergies, 03.11.2026)
+            'substances' => $this->resource->catalogueSubstances(),
             'promo_pct' => $this->promo_pct,
             'est_vedette' => $this->est_vedette,
             // Produit Vetpoint relié (27.10.2026) ; null : aucun

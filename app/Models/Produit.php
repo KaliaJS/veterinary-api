@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\CategorieProduit;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Services\Catalogue\AtcFromCatalogue;
 use App\Support\TempsReel;
 use Database\Factories\ProduitFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -50,13 +51,14 @@ class Produit extends Model
         'organisation_id', 'nom', 'categorie', 'reference', 'prix', 'cout',
         'unite', 'seuil_alerte', 'est_boutique', 'est_sur_ordonnance',
         'est_stupefiant', 'tableau_stupefiant', 'peremption_le', 'fournisseur', 'ean',
-        'promo_pct', 'est_vedette',
+        'promo_pct', 'est_vedette', 'atc_code', 'atc_code_is_manual',
     ];
 
     protected function casts(): array
     {
         return [
             'categorie' => CategorieProduit::class,
+            'atc_code_is_manual' => 'boolean',
             'prix' => 'decimal:2',
             'cout' => 'decimal:2',
             'seuil_alerte' => 'integer',
@@ -179,5 +181,39 @@ class Produit extends Model
     public function prixEffectif(): float
     {
         return round((float) $this->prix * (1 - $this->promo_pct / 100), 2);
+    }
+
+    /** Les principes actifs lus d'avance (withCatalogueSubstances), ou null */
+    private ?array $catalogueSubstancesCache = null;
+
+    /**
+     * Les principes actifs du catalogue Swissmedic par le code-barres de
+     * l'article (03.11.2026), tels quels (meloxicamum…) ; sans code-barres
+     * connu du catalogue, aucun.
+     *
+     * @return list<string>
+     */
+    public function catalogueSubstances(): array
+    {
+        if ($this->catalogueSubstancesCache === null) {
+            $gtin = AtcFromCatalogue::clean($this->ean);
+            $this->catalogueSubstancesCache = $gtin === '' ? [] : (AtcFromCatalogue::substancesForGtins([$gtin])[$gtin] ?? []);
+        }
+
+        return $this->catalogueSubstancesCache;
+    }
+
+    /**
+     * Lit d'avance, en une requête, les principes actifs d'une liste d'articles.
+     *
+     * @param  iterable<Produit|null>  $products
+     */
+    public static function withCatalogueSubstances(iterable $products): void
+    {
+        $list = collect($products)->filter();
+        $byGtin = AtcFromCatalogue::substancesForGtins($list->map(fn (Produit $product): string => AtcFromCatalogue::clean($product->ean)));
+        foreach ($list as $product) {
+            $product->catalogueSubstancesCache = $byGtin[AtcFromCatalogue::clean($product->ean)] ?? [];
+        }
     }
 }

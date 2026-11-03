@@ -2,6 +2,7 @@
 
 namespace App\Services\Catalogue;
 
+use App\Mail\CatalogueImportAlert;
 use App\Mail\NouveauxProduitsCatalogue;
 use App\Models\CatalogueImport;
 use App\Models\ProduitEmballage;
@@ -32,6 +33,16 @@ final class ImportSwissmedic
 {
     private const FICHIERS = ['OGD-Praeparate.XML', 'OGD-Packungen.XML', 'OGD-Sequenzen.XML', 'OGD-Adressen.XML',
         'OGD-Applikationsarten pro Sequenz.XML', 'OGD-ATC-Codes.XML', 'OGD-Export-Datum.XML'];
+
+    /** Les principes actifs et leur nom latin (03.11.2026) : facultatifs, leur absence n'arrête pas l'import */
+    private const SUBSTANCE_FILES = ['OGD-Deklarationen.XML', 'OGD-Stoff-Synonyme.XML'];
+
+    /**
+     * Avertissements de ce passage (fichiers des substances absents, illisibles, ou vides)
+     *
+     * @var list<string>
+     */
+    private array $warnings = [];
 
     /** Importe depuis l URL configurée (ou un fichier local) ; retourne le journal. */
     public function importer(?string $fichierLocal = null, bool $forcer = false): CatalogueImport
@@ -64,15 +75,22 @@ final class ImportSwissmedic
 
                 return $this->clore($journal, $debut);
             }
+            $this->warnings = [];
             $chemins = LecteurXml::extraire($archive, $dossier.'/xml', self::FICHIERS, config('catalogue.swissmedic.taille_max_entree'));
+            $chemins += $this->extractSubstanceFiles($archive, $dossier.'/xml');
             $journal->export_le = $this->dateExport($chemins['OGD-Export-Datum.XML']);
             $resultat = DB::transaction(fn (): array => $this->integrer($chemins, $journal->export_le));
             $journal->fill($resultat)->statut = CatalogueImport::REUSSI;
+            $journal->message = $this->warningMessage();
             $this->clore($journal, $debut);
             $this->notifier($resultat['nouveaux_vaccins']);
+            if ($journal->message !== null) {
+                $this->alert($journal);
+            }
         } catch (Throwable $erreur) {
             $journal->message = mb_substr(MasquageSql::message($erreur->getMessage()), 0, 2000);
             $this->clore($journal, $debut);
+            $this->alert($journal);
             throw $erreur;
         } finally {
             // Rien n est conservé sur le disque : ni les XML extraits ni l archive téléchargée
@@ -151,6 +169,8 @@ final class ImportSwissmedic
             }
         }
 
+        $substances = $this->readSubstances($chemins);
+
         $ajoutes = 0;
         $modifies = 0;
         $nouveauxVaccins = [];
@@ -163,6 +183,10 @@ final class ImportSwissmedic
             $numero = $ligne['ZULASSUNGSNUMMER'];
             $vus[$numero] = true;
             $attributs = $this->attributs($ligne, $titulaires, $voies[$numero] ?? [], $exportLe);
+            // Fichiers des substances absents ou suspects : celles déjà connues restent
+            if ($substances !== null) {
+                $attributs['substances'] = $substances[self::normalizeNumber($numero)] ?? null;
+            }
             $produit = $parNumero->get($numero);
             if ($produit === null) {
                 $produit = ProduitVeterinaire::create($attributs);
@@ -198,6 +222,150 @@ final class ImportSwissmedic
         $this->poserEmballages($chemins['OGD-Packungen.XML'], $parNumero, $retraitsSequences);
 
         return ['ajoutes' => $ajoutes, 'modifies' => $modifies, 'retires' => $retires, 'nouveaux_vaccins' => $nouveauxVaccins];
+    }
+
+    /** Les avertissements du passage, en une phrase pour le journal ; null s'il n'y en a pas */
+    private function warningMessage(): ?string
+    {
+        return $this->warnings === [] ? null : mb_substr('Avertissement : '.implode(' ', $this->warnings), 0, 2000);
+    }
+
+    /** Un numéro d'autorisation sans ses zéros en tête (« 052802 » et « 52802 ») */
+    public static function normalizeNumber(string $number): string
+    {
+        $trimmed = ltrim(trim($number), '0');
+
+        return $trimmed === '' ? '0' : $trimmed;
+    }
+
+    /**
+     * Les deux fichiers des substances, s'ils sont dans l'archive ; sinon un
+     * avertissement, et l'import continue.
+     *
+     * @return array<string, string>
+     */
+    private function extractSubstanceFiles(string $archive, string $folder): array
+    {
+        $paths = [];
+        foreach (self::SUBSTANCE_FILES as $file) {
+            try {
+                $paths += LecteurXml::extraire($archive, $folder, [$file], config('catalogue.swissmedic.taille_max_entree'));
+            } catch (Throwable $error) {
+                $this->warnings[] = "{$file} absent ou illisible : les principes actifs déjà connus sont gardés.";
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
+     * Les principes actifs par produit vétérinaire, ou null quand il ne faut
+     * pas y toucher : fichier absent, illisible, ou plus aucun principe actif
+     * alors que le catalogue en avait (garde-fou).
+     *
+     * @param  array<string, string>  $paths
+     * @return array<string, list<string>>|null
+     */
+    private function readSubstances(array $paths): ?array
+    {
+        if (! isset($paths['OGD-Deklarationen.XML'], $paths['OGD-Stoff-Synonyme.XML'])) {
+            return null;
+        }
+        try {
+            $veterinary = [];
+            foreach (LecteurXml::elements($paths['OGD-Praeparate.XML'], 'PRAEPARAT') as $line) {
+                if (($line['VERWENDUNG'] ?? '') === 'TAM' && ($line['ZULASSUNGSNUMMER'] ?? '') !== '') {
+                    $veterinary[self::normalizeNumber($line['ZULASSUNGSNUMMER'])] = true;
+                }
+            }
+            $byProduct = $this->substances($paths['OGD-Deklarationen.XML'], $paths['OGD-Stoff-Synonyme.XML'], $veterinary);
+        } catch (Throwable $error) {
+            $this->warnings[] = 'Les fichiers des principes actifs sont illisibles : ceux déjà connus sont gardés.';
+
+            return null;
+        }
+        if ($byProduct === [] && ProduitVeterinaire::query()->whereNotNull('substances')->exists()) {
+            $this->warnings[] = 'Aucun produit vétérinaire n’a reçu de principe actif alors que le catalogue en avait : ceux déjà connus sont gardés.';
+
+            return null;
+        }
+
+        return $byProduct;
+    }
+
+    /**
+     * Les principes actifs (catégorie WIRKS de la déclaration) de chaque
+     * produit vétérinaire, toutes séquences confondues, dans l'ordre de la
+     * déclaration et sans doublon, nommés par leur premier synonyme latin
+     * (LN, rang comparé en nombre). Un principe sans nom latin est laissé de
+     * côté : rien n'est deviné. Seuls les produits vétérinaires sont gardés
+     * en mémoire.
+     *
+     * @param  array<string, true>  $veterinary  numéros normalisés des produits vétérinaires
+     * @return array<string, list<string>> numéro normalisé → noms
+     */
+    private function substances(string $declarations, string $synonyms, array $veterinary): array
+    {
+        $lines = [];
+        $wanted = [];
+        foreach (LecteurXml::elements($declarations, 'DEKLARATION') as $line) {
+            $number = self::normalizeNumber($line['ZULASSUNGSNUMMER'] ?? '');
+            $id = $line['STOFF_ID'] ?? '';
+            if (($line['STOFFKATEGORIE'] ?? '') !== 'WIRKS' || $id === '' || ! isset($veterinary[$number])) {
+                continue;
+            }
+            $lines[$number][] = [(int) ($line['SEQUENZNUMMER'] ?? 0), (int) ($line['SORTIERUNG_ZEILENNUMMER'] ?? 0), $id];
+            $wanted[$id] = true;
+        }
+        $names = [];
+        foreach (LecteurXml::elements($synonyms, 'SYNONYME') as $synonym) {
+            $id = $synonym['STOFF_ID'] ?? '';
+            $name = $synonym['STOFFSYNONYM'] ?? '';
+            $rank = (int) ($synonym['LAUFENDE_NR'] ?? PHP_INT_MAX);
+            if (! isset($wanted[$id]) || $name === '' || ($synonym['SYNONYM_CODE'] ?? '') !== 'LN') {
+                continue;
+            }
+            if (! isset($names[$id]) || $rank < $names[$id][0]) {
+                $names[$id] = [$rank, mb_substr($name, 0, 255)];
+            }
+        }
+        $byProduct = [];
+        foreach ($lines as $number => $list) {
+            usort($list, fn (array $a, array $b): int => [$a[0], $a[1]] <=> [$b[0], $b[1]]);
+            $found = array_values(array_unique(array_filter(array_map(fn (array $l): ?string => $names[$l[2]][1] ?? null, $list))));
+            if ($found !== []) {
+                $byProduct[(string) $number] = $found;
+            }
+        }
+
+        return $byProduct;
+    }
+
+    /**
+     * Une alerte par e-mail (échec, ou avertissement), une seule par jour et
+     * par source, à l'adresse du catalogue ou à celle des alertes de la
+     * plateforme ; un e-mail qui ne part pas n'arrête rien.
+     */
+    private function alert(CatalogueImport $journal): void
+    {
+        $to = config('catalogue.notification_email') ?: config('plateforme.alerte_email');
+        if (! $to || ! $journal->exists) {
+            return;
+        }
+        $alreadySent = CatalogueImport::query()
+            ->where('source', $journal->source)
+            ->whereNotNull('alert_sent_at')
+            ->where('alert_sent_at', '>=', now()->startOfDay())
+            ->exists();
+        if ($alreadySent) {
+            return;
+        }
+        try {
+            Mail::to($to)->send(new CatalogueImportAlert($journal));
+            $journal->forceFill(['alert_sent_at' => now()])->save();
+        } catch (Throwable $error) {
+            report($error);
+        }
     }
 
     /**

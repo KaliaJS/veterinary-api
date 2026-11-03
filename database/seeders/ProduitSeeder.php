@@ -52,6 +52,27 @@ class ProduitSeeder extends Seeder
         ['Chardon-Marie hépatoprotecteur · 60 cp', 'phyto', 'PHY-0722', 31, 15.4, 'boîte', 3, true, false, '09.2027', 'PhytoVet Lab', 4, 2],
     ];
 
+    /**
+     * Codes ATCvet des médicaments de démo (index ATCvet de l'OMS), au niveau
+     * dont on est sûr : la famille suffit à la mise en garde des allergies
+     * (dossier patient, 03.11.2026).
+     */
+    public const array ATC = [
+        'MED-0114' => 'QM01AC06', // méloxicam, AINS
+        'MED-0087' => 'QJ01CA04', // amoxicilline, pénicilline
+        'MED-0201' => 'QD11AH90', // oclacitinib
+        'MED-0009' => 'QI07AI', // vaccin du chien, viral vivant et bactérien inactivé
+        'MED-0166' => 'QA10A', // insulines
+        'APA-0521' => 'QP53AX65', // fipronil
+        'APA-0522' => 'QP53AX65',
+        'APA-0540' => 'QP53BE', // isoxazolines
+        'APA-0555' => 'QP52A', // anthelminthiques
+        'MED-0910' => 'QN07BC02', // méthadone
+        'MED-0911' => 'QN01AX03', // kétamine, anesthésique
+        'MED-0912' => 'QN02AE01', // buprénorphine
+        'MED-0913' => 'QN05BA01', // diazépam
+    ];
+
     public function run(): void
     {
         $organisation = Organisation::where('nom', 'Deux Rives Vétérinaires')->firstOrFail();
@@ -72,6 +93,7 @@ class ProduitSeeder extends Seeder
                 'est_sur_ordonnance' => $ordonnance,
                 'peremption_le' => $this->peremptionLe($exp),
                 'fournisseur' => $fournisseur,
+                'atc_code' => self::ATC[$reference] ?? null,
             ]);
 
             foreach ([[$deuxRives, $stockC1], [$leLac, $stockC2]] as [$clinique, $quantite]) {

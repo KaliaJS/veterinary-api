@@ -15,6 +15,7 @@ use App\Services\Catalogue\ImportSwissmedic;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use PDOException;
 use Tests\TestCase;
@@ -32,6 +33,22 @@ use ZipArchive;
 class ImportCatalogueTest extends TestCase
 {
     use RefreshDatabase;
+
+    /** Les archives du test, dans un dossier à lui, effacé à la fin (plus rien ne reste dans le dossier temporaire du système) */
+    private string $tmp;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->tmp = sys_get_temp_dir().'/catalogue-test-'.bin2hex(random_bytes(6));
+        File::ensureDirectoryExists($this->tmp);
+    }
+
+    protected function tearDown(): void
+    {
+        File::deleteDirectory($this->tmp);
+        parent::tearDown();
+    }
 
     public function test_l_import_swissmedic_cree_les_vaccins_avec_valences_schema_et_emballages(): void
     {
@@ -127,7 +144,7 @@ class ImportCatalogueTest extends TestCase
 
     public function test_une_archive_avec_une_entree_inattendue_est_refusee(): void
     {
-        $chemin = tempnam(sys_get_temp_dir(), 'ogd').'.zip';
+        $chemin = $this->tmp.'/ogd-suspecte.zip';
         $zip = new ZipArchive;
         $zip->open($chemin, ZipArchive::CREATE);
         $zip->addFromString('OGD-Praeparate.XML', '<x/>');
@@ -224,6 +241,16 @@ class ImportCatalogueTest extends TestCase
         $this->assertFileDoesNotExist(storage_path('app/catalogue/refdata/Refdata.Articles.zip'));
     }
 
+    /** Les principes actifs de chaque produit, en nom latin, dans l'ordre de la déclaration ; ni excipients ni doublons */
+    public function test_l_import_garde_les_principes_actifs(): void
+    {
+        app(ImportSwissmedic::class)->importer($this->archiveSwissmedic());
+
+        $dhppi = ProduitVeterinaire::query()->where('numero_autorisation', '1631')->firstOrFail();
+        $this->assertSame(['virus morbilli canis vivum', 'parvovirus canis vivum'], $dhppi->substances);
+        $this->assertNull(ProduitVeterinaire::query()->where('numero_autorisation', '1337')->firstOrFail()->substances);
+    }
+
     private function archiveSwissmedic(bool $sansRage = false): string
     {
         $ns = 'xmlns:n0="http://ccsap.bit.admin.ch/SWISSMEDIC/LIMS_HMIT_KHZ"';
@@ -240,6 +267,21 @@ class ImportCatalogueTest extends TestCase
             'OGD-Adressen.XML' => "<?xml version=\"1.0\" encoding=\"utf-8\"?><n0:SMC_Adressen {$ns}><ADRESSEN><PARTNER_NR>1006206</PARTNER_NR><FIRMENNAME>MSD Animal Health GmbH</FIRMENNAME></ADRESSEN></n0:SMC_Adressen>",
             'OGD-Applikationsarten pro Sequenz.XML' => "<?xml version=\"1.0\" encoding=\"utf-8\"?><n0:SMC_Applikationsart {$ns}><APPLIKATIONSART><ZULASSUNGSNUMMER>1631</ZULASSUNGSNUMMER><SEQUENZNUMMER>1</SEQUENZNUMMER><APPLIKATIONSART_CODE>SUBC</APPLIKATIONSART_CODE></APPLIKATIONSART></n0:SMC_Applikationsart>",
             'OGD-ATC-Codes.XML' => "<?xml version=\"1.0\" encoding=\"utf-8\"?><n0:SMC_Atc {$ns}><ATC><ATC_CODE>QI07AD04</ATC_CODE><ATC_INDIKATIONS_BESCHREIBUNG>CANINE DISTEMPER VIRUS + CANINE ADENOVIRUS + CANINE PARVOVIRUS + CANINE PARAINFLUENZA VIRUS</ATC_INDIKATIONS_BESCHREIBUNG></ATC><ATC><ATC_CODE>QI07AA02</ATC_CODE><ATC_INDIKATIONS_BESCHREIBUNG>RABIES VIRUS</ATC_INDIKATIONS_BESCHREIBUNG></ATC></n0:SMC_Atc>",
+            // Les principes actifs (WIRKS) de chaque produit, et leur nom latin (03.11.2026)
+            'OGD-Deklarationen.XML' => "<?xml version=\"1.0\" encoding=\"utf-8\"?><n0:SMC_Deklaration {$ns}>"
+                .'<DEKLARATION><ZULASSUNGSNUMMER>1631</ZULASSUNGSNUMMER><SEQUENZNUMMER>1</SEQUENZNUMMER><SORTIERUNG_ZEILENNUMMER>2</SORTIERUNG_ZEILENNUMMER><STOFF_ID>S2</STOFF_ID><STOFFKATEGORIE>WIRKS</STOFFKATEGORIE></DEKLARATION>'
+                .'<DEKLARATION><ZULASSUNGSNUMMER>1631</ZULASSUNGSNUMMER><SEQUENZNUMMER>1</SEQUENZNUMMER><SORTIERUNG_ZEILENNUMMER>1</SORTIERUNG_ZEILENNUMMER><STOFF_ID>S1</STOFF_ID><STOFFKATEGORIE>WIRKS</STOFFKATEGORIE></DEKLARATION>'
+                .'<DEKLARATION><ZULASSUNGSNUMMER>1631</ZULASSUNGSNUMMER><SEQUENZNUMMER>1</SEQUENZNUMMER><SORTIERUNG_ZEILENNUMMER>3</SORTIERUNG_ZEILENNUMMER><STOFF_ID>S3</STOFF_ID><STOFFKATEGORIE>HNIDK</STOFFKATEGORIE></DEKLARATION>'
+                .'<DEKLARATION><ZULASSUNGSNUMMER>1631</ZULASSUNGSNUMMER><SEQUENZNUMMER>2</SEQUENZNUMMER><SORTIERUNG_ZEILENNUMMER>1</SORTIERUNG_ZEILENNUMMER><STOFF_ID>S1</STOFF_ID><STOFFKATEGORIE>WIRKS</STOFFKATEGORIE></DEKLARATION>'
+                .'<DEKLARATION><ZULASSUNGSNUMMER>50000</ZULASSUNGSNUMMER><SEQUENZNUMMER>1</SEQUENZNUMMER><SORTIERUNG_ZEILENNUMMER>1</SORTIERUNG_ZEILENNUMMER><STOFF_ID>S4</STOFF_ID><STOFFKATEGORIE>WIRKS</STOFFKATEGORIE></DEKLARATION>'
+                .'</n0:SMC_Deklaration>',
+            'OGD-Stoff-Synonyme.XML' => "<?xml version=\"1.0\" encoding=\"utf-8\"?><n0:SMC_Synonyme {$ns}>"
+                .'<SYNONYME><STOFF_ID>S1</STOFF_ID><SYNONYM_CODE>LN</SYNONYM_CODE><LAUFENDE_NR>002</LAUFENDE_NR><STOFFSYNONYM>virus vivum</STOFFSYNONYM></SYNONYME>'
+                .'<SYNONYME><STOFF_ID>S1</STOFF_ID><SYNONYM_CODE>LN</SYNONYM_CODE><LAUFENDE_NR>001</LAUFENDE_NR><STOFFSYNONYM>virus morbilli canis vivum</STOFFSYNONYM></SYNONYME>'
+                .'<SYNONYME><STOFF_ID>S2</STOFF_ID><SYNONYM_CODE>LN</SYNONYM_CODE><LAUFENDE_NR>001</LAUFENDE_NR><STOFFSYNONYM>parvovirus canis vivum</STOFFSYNONYM></SYNONYME>'
+                .'<SYNONYME><STOFF_ID>S3</STOFF_ID><SYNONYM_CODE>LN</SYNONYM_CODE><LAUFENDE_NR>001</LAUFENDE_NR><STOFFSYNONYM>saccharum</STOFFSYNONYM></SYNONYME>'
+                .'<SYNONYME><STOFF_ID>S4</STOFF_ID><SYNONYM_CODE>LN</SYNONYM_CODE><LAUFENDE_NR>001</LAUFENDE_NR><STOFFSYNONYM>paracetamolum</STOFFSYNONYM></SYNONYME>'
+                .'</n0:SMC_Synonyme>',
             'OGD-Export-Datum.XML' => "<?xml version=\"1.0\" encoding=\"utf-8\"?><n0:SMC_Datum {$ns}><DATUM><EXPORT_DATUM>2026-09-30</EXPORT_DATUM></DATUM></n0:SMC_Datum>",
         ];
 
@@ -261,7 +303,7 @@ class ImportCatalogueTest extends TestCase
     /** @param  array<string, string>  $fichiers */
     private function archive(string $prefixe, array $fichiers): string
     {
-        $chemin = tempnam(sys_get_temp_dir(), $prefixe).'.zip';
+        $chemin = $this->tmp.'/'.$prefixe.'-'.bin2hex(random_bytes(4)).'.zip';
         $zip = new ZipArchive;
         $zip->open($chemin, ZipArchive::CREATE | ZipArchive::OVERWRITE);
         foreach ($fichiers as $nom => $contenu) {

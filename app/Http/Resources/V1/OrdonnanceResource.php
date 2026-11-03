@@ -48,6 +48,10 @@ class OrdonnanceResource extends JsonResource
                     'quantite' => $ligne->quantite,
                     'posologie' => $ligne->posologie,
                     'duree' => $ligne->duree,
+                    // La famille du médicament, pour la mise en garde des allergies (03.11.2026)
+                    'atc_code' => $ligne->relationLoaded('produit') ? $ligne->produit?->atc_code : null,
+                    // Les principes actifs du catalogue (allergies, 03.11.2026)
+                    'substances' => $ligne->relationLoaded('produit') && $ligne->produit ? $ligne->produit->catalogueSubstances() : [],
                 ])->values(),
             ),
             'patient' => new PatientResource($this->whenLoaded('patient')),

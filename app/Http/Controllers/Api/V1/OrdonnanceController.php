@@ -56,6 +56,8 @@ class OrdonnanceController extends Controller
             ->latest('signee_le')
             ->latest('id')
             ->paginate($this->parPage($request));
+        // Les principes actifs des médicaments de la page, en une requête (allergies, 03.11.2026)
+        Produit::withCatalogueSubstances($ordonnances->getCollection()->flatMap(fn (Ordonnance $o) => $o->lignes->pluck('produit')));
 
         return OrdonnanceResource::collection($ordonnances);
     }

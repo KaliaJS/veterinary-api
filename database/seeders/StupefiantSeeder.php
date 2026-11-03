@@ -58,6 +58,7 @@ class StupefiantSeeder extends Seeder
                 'est_stupefiant' => true,
                 'tableau_stupefiant' => $tableau,
                 'fournisseur' => 'Vetopharm SA',
+                'atc_code' => ProduitSeeder::ATC[$reference],
             ]);
 
             // L'ouverture du registre : un inventaire, le stock compté

@@ -33,7 +33,7 @@ class ProduitVeterinaire extends Model
     protected $fillable = [
         'numero_autorisation', 'nom', 'nom_court', 'forme', 'atc_code', 'categorie', 'titulaire', 'statut',
         'premiere_autorisation_le', 'expire_le', 'indication', 'liberation_lot', 'categorie_remise',
-        'especes', 'voies', 'source_le', 'retire_le',
+        'especes', 'voies', 'source_le', 'retire_le', 'substances',
     ];
 
     protected function casts(): array
@@ -44,6 +44,7 @@ class ProduitVeterinaire extends Model
             'liberation_lot' => 'boolean',
             'especes' => 'array',
             'voies' => 'array',
+            'substances' => 'array',
             'source_le' => 'date',
             'retire_le' => 'date',
         ];

@@ -7,9 +7,11 @@ use App\Enums\CategorieProduit;
 use App\Enums\MotifAjustementStock;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Stocks\EnregistrerProduitRequest;
+use App\Http\Requests\V1\Stocks\UpdateAtcCodeRequest;
 use App\Http\Resources\V1\ProduitResource;
 use App\Models\Lot;
 use App\Models\Produit;
+use App\Services\Catalogue\AtcFromCatalogue;
 use App\Services\GestionnaireStock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -41,6 +43,8 @@ class ProduitController extends Controller
             })
             ->orderBy('nom')
             ->paginate($this->parPage($request, 100));
+        // Les principes actifs de la page, en une requête
+        Produit::withCatalogueSubstances($produits->getCollection());
 
         return ProduitResource::collection($produits);
     }
@@ -66,6 +70,10 @@ class ProduitController extends Controller
                 'peremption_le' => $request->peremptionValidee(),
                 'fournisseur' => $donnees['fournisseur'] ?? null,
                 'ean' => $donnees['ean'] ?? null,
+                // Saisi, ou repris du catalogue Swissmedic quand le code-barres y est connu (03.11.2026)
+                // Un champ laissé vide compte comme absent : le catalogue le remplit
+                'atc_code' => filled($donnees['atc_code'] ?? null) ? $donnees['atc_code'] : AtcFromCatalogue::forGtin($donnees['ean'] ?? null),
+                'atc_code_is_manual' => filled($donnees['atc_code'] ?? null),
             ]);
 
             $quantiteInitiale = (int) ($donnees['quantite_initiale'] ?? 0);
@@ -102,6 +110,16 @@ class ProduitController extends Controller
         return new ProduitResource(
             $produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint']),
         );
+    }
+
+    /** Le code ATC d'un article existant (03.11.2026) : la famille du médicament, pour la mise en garde des allergies */
+    public function updateAtc(UpdateAtcCodeRequest $request, Produit $produit): ProduitResource
+    {
+        $this->authorize('update', $produit);
+        // Saisi à la main, même vide : la reprise du catalogue n'y touche plus
+        $produit->update(['atc_code' => $request->validated('atc_code'), 'atc_code_is_manual' => true]);
+
+        return new ProduitResource($produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint']));
     }
 
     /** Référence interne « ART-0025 » — séquentielle dans l'organisation. */

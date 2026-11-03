@@ -17,10 +17,10 @@ class CatalogueImport extends Model
 
     public const ECHEC = 'echec';
 
-    protected $fillable = ['source', 'fichier_hash', 'fichier_etag', 'export_le', 'statut', 'ajoutes', 'modifies', 'retires', 'message', 'duree_ms'];
+    protected $fillable = ['source', 'fichier_hash', 'fichier_etag', 'export_le', 'statut', 'ajoutes', 'modifies', 'retires', 'message', 'duree_ms', 'alert_sent_at'];
 
     protected function casts(): array
     {
-        return ['export_le' => 'date'];
+        return ['export_le' => 'date', 'alert_sent_at' => 'datetime'];
     }
 }

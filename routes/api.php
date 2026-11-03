@@ -119,6 +119,7 @@ use App\Http\Controllers\Api\V1\PaiementCaisseController;
 use App\Http\Controllers\Api\V1\PanelLaboController;
 use App\Http\Controllers\Api\V1\PartieEnregistrementController;
 use App\Http\Controllers\Api\V1\PatientController;
+use App\Http\Controllers\Api\V1\PatientTimelineController;
 use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PhotoCliniqueController;
 use App\Http\Controllers\Api\V1\PhotoEmployeController;
@@ -657,6 +658,9 @@ Route::prefix('v1')->group(function (): void {
         Route::get('patients/{patient}/visites', [VisiteController::class, 'index']);
         Route::post('patients/{patient}/visites', [VisiteController::class, 'store']);
 
+        // Le dossier sur un fil (proposition B, 03.11.2026) : toute l'histoire, ce qui vient en tête
+        Route::get('patients/{patient}/fil', PatientTimelineController::class);
+
         Route::get('patients/{patient}/documents', [DocumentController::class, 'index']);
         Route::post('patients/{patient}/documents', [DocumentController::class, 'store']);
         Route::get('patients/{patient}/documents/{document}/fichier', [DocumentController::class, 'fichier'])->whereNumber('document');
@@ -915,6 +919,8 @@ Route::prefix('v1')->group(function (): void {
             Route::delete('produits/{produit}/vetpoint', [ProduitVetpointController::class, 'destroy']);
             Route::post('produits', [ProduitController::class, 'store']);
             Route::get('produits/{produit}', [ProduitController::class, 'show']);
+            // Le code ATC d'un article existant (mise en garde des allergies, 03.11.2026)
+            Route::patch('produits/{produit}/atc', [ProduitController::class, 'updateAtc']);
             Route::post('produits/{produit}/ajuster', AjustementStockController::class);
             Route::get('produits/{produit}/mouvements', [MouvementStockController::class, 'index']);
 

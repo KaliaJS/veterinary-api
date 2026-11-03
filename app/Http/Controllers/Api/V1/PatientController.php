@@ -230,6 +230,7 @@ class PatientController extends Controller
 
         $patient->update($donnees);
 
-        return new PatientResource($patient->load('client'));
+        // La bande du poids de forme se lit avec sa position, d'après la dernière pesée
+        return new PatientResource($patient->load(['client', 'courbePoids']));
     }
 }
