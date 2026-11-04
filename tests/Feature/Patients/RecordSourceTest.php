@@ -3,6 +3,7 @@
 namespace Tests\Feature\Patients;
 
 use App\Auth\ContexteClinique;
+use App\Enums\Espece;
 use App\Models\Clinique;
 use App\Models\Document;
 use App\Models\Patient;
@@ -83,12 +84,12 @@ class RecordSourceTest extends TestCase
     public function test_une_dent_inchangee_garde_la_clinique_qui_l_a_relevee(): void
     {
         $a = Clinique::factory()->create();
-        $patient = Patient::factory()->create(['organisation_id' => $a->societe->organisation_id]);
+        $patient = Patient::factory()->create(['organisation_id' => $a->societe->organisation_id, 'espece' => Espece::Chien]);
         $autre = Clinique::factory()->create()->societe->organisation_id;
-        ReleveDentaire::factory()->create(['patient_id' => $patient->id, 'dent' => 104, 'etat' => 'tartre', 'source_organisation_id' => $autre]);
+        ReleveDentaire::factory()->create(['patient_id' => $patient->id, 'dent' => 104, 'etats' => ['tartre'], 'source_organisation_id' => $autre]);
         ['jeton' => $jeton] = $this->employeAvecJeton($a);
 
-        $this->putJson("/api/v1/patients/{$patient->id}/dents", ['dents' => ['104' => 'tartre', '204' => 'fracture']], $this->enTetes($jeton))->assertOk();
+        $this->putJson("/api/v1/patients/{$patient->id}/dents", ['teeth' => ['104' => ['states' => ['tartre']], '204' => ['states' => ['fracture']]], 'overview' => ['gingivitis' => null, 'calculus' => null, 'occlusion' => null, 'local_block' => null]], $this->enTetes($jeton))->assertOk();
 
         $this->assertSame($autre, ReleveDentaire::query()->where('patient_id', $patient->id)->where('dent', 104)->value('source_organisation_id'));
         $this->assertSame($a->societe->organisation_id, ReleveDentaire::query()->where('patient_id', $patient->id)->where('dent', 204)->value('source_organisation_id'));

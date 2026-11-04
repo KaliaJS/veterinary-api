@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Patients;
 
+use App\Enums\Espece;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Employe;
@@ -23,6 +24,9 @@ class DossierMedicalTest extends TestCase
 {
     use EmetDesJetonsApi;
     use RefreshDatabase;
+
+    /** Le bilan de la bouche non relevé (schéma dentaire, 04.11.2026) */
+    private const BILAN_VIDE = ['gingivitis' => null, 'calculus' => null, 'occlusion' => null, 'local_block' => null];
 
     private Clinique $clinique;
 
@@ -201,14 +205,16 @@ class DossierMedicalTest extends TestCase
     public function test_l_odontogramme_se_remplace_d_un_bloc(): void
     {
         $entetes = $this->enTetes($this->jeton);
-        ReleveDentaire::factory()->for($this->patient)->create(['dent' => 104, 'etat' => 'tartre']);
+        $this->patient->update(['espece' => Espece::Chien]);
+        ReleveDentaire::factory()->for($this->patient)->create(['dent' => 104, 'etats' => ['tartre']]);
 
         $this->putJson("/api/v1/patients/{$this->patient->id}/dents", [
-            'dents' => ['108' => 'fracture', '204' => 'gingivite'],
+            'teeth' => ['108' => ['states' => ['fracture']], '204' => ['states' => ['gingivite']]],
+            'overview' => self::BILAN_VIDE,
         ], $entetes)
             ->assertOk()
-            ->assertJsonPath('data.dents.108', 'fracture')
-            ->assertJsonPath('data.dents.204', 'gingivite');
+            ->assertJsonPath('data.teeth.108.states', ['fracture'])
+            ->assertJsonPath('data.teeth.204.states', ['gingivite']);
 
         // La dent 104, absente de la map, redevient saine.
         $this->assertSame(
@@ -218,34 +224,37 @@ class DossierMedicalTest extends TestCase
 
         $this->getJson("/api/v1/patients/{$this->patient->id}/dents", $entetes)
             ->assertOk()
-            ->assertJsonPath('data.dents.108', 'fracture');
+            ->assertJsonPath('data.teeth.108.states', ['fracture']);
     }
 
     /** Demande des vétérinaires (04.11.2026) : tumeur et extraction au schéma dentaire */
     public function test_tumeur_et_extraction_s_enregistrent_au_releve_dentaire(): void
     {
         $entetes = $this->enTetes($this->jeton);
+        $this->patient->update(['espece' => Espece::Chien]);
 
         $this->putJson("/api/v1/patients/{$this->patient->id}/dents", [
-            'dents' => ['108' => 'tumeur', '204' => 'extraction', '304' => 'absente'],
+            'teeth' => ['108' => ['states' => ['tumeur']], '204' => ['states' => ['extraction']], '304' => ['states' => ['absente']]],
+            'overview' => self::BILAN_VIDE,
         ], $entetes)
             ->assertOk()
-            ->assertJsonPath('data.dents.108', 'tumeur')
-            ->assertJsonPath('data.dents.204', 'extraction')
-            ->assertJsonPath('data.dents.304', 'absente');
+            ->assertJsonPath('data.teeth.108.states', ['tumeur'])
+            ->assertJsonPath('data.teeth.204.states', ['extraction'])
+            ->assertJsonPath('data.teeth.304.states', ['absente']);
     }
 
     public function test_un_numero_de_dent_ou_un_etat_invalide_est_refuse(): void
     {
         $entetes = $this->enTetes($this->jeton);
+        $this->patient->update(['espece' => Espece::Chien]);
         $uri = "/api/v1/patients/{$this->patient->id}/dents";
 
-        $this->putJson($uri, ['dents' => ['999' => 'tartre']], $entetes)
+        $this->putJson($uri, ['teeth' => ['999' => ['states' => ['tartre']]], 'overview' => self::BILAN_VIDE], $entetes)
             ->assertUnprocessable()
-            ->assertJsonValidationErrors('dents');
+            ->assertJsonValidationErrors('teeth');
 
-        $this->putJson($uri, ['dents' => ['104' => 'carie']], $entetes)
+        $this->putJson($uri, ['teeth' => ['104' => ['states' => ['carie']]], 'overview' => self::BILAN_VIDE], $entetes)
             ->assertUnprocessable()
-            ->assertJsonValidationErrors('dents.104');
+            ->assertJsonValidationErrors('teeth.104.states.0');
     }
 }

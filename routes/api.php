@@ -169,6 +169,7 @@ use App\Http\Controllers\Api\V1\SiteWebController;
 use App\Http\Controllers\Api\V1\SocieteController;
 use App\Http\Controllers\Api\V1\SoinSejourController;
 use App\Http\Controllers\Api\V1\SortieSejourController;
+use App\Http\Controllers\Api\V1\StaffPreferenceController;
 use App\Http\Controllers\Api\V1\StatistiquesBoutiqueController;
 use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
 use App\Http\Controllers\Api\V1\StayNoteController;
@@ -532,6 +533,9 @@ Route::prefix('v1')->group(function (): void {
         Route::post('alertes/lues', [AlertesController::class, 'lues']);
         Route::get('alertes/reglages', [AlertesController::class, 'reglages']);
         Route::put('alertes/reglages', [AlertesController::class, 'modifierReglages']);
+        // Préférences de la personne dans cette clinique : outils favoris, masquer les autres (04.11.2026)
+        Route::get('preferences', [StaffPreferenceController::class, 'show']);
+        Route::patch('preferences', [StaffPreferenceController::class, 'update'])->middleware('throttle:60,1');
 
         // Le destroy n'existe que pour les salles de bloc (l'écran du
         // bloc gère sa liste) — gardes métier dans le contrôleur.
@@ -714,9 +718,13 @@ Route::prefix('v1')->group(function (): void {
             Route::delete('confirmations/{confirmation}', [ConfirmationRadioController::class, 'destroy']);
         });
 
-        // Odontogramme Triadan — map complète, remplacée d'un bloc.
+        // Odontogramme Triadan — map complète, remplacée d'un bloc (gardé
+        // pour la compatibilité) ; l'app envoie dent par dent et le bilan à
+        // part : chacun n'écrit que ce qu'il reçoit (04.11.2026).
         Route::get('patients/{patient}/dents', [ReleveDentaireController::class, 'afficher']);
         Route::put('patients/{patient}/dents', [ReleveDentaireController::class, 'remplacer']);
+        Route::patch('patients/{patient}/dents/bilan', [ReleveDentaireController::class, 'modifierBilan']);
+        Route::patch('patients/{patient}/dents/{dent}', [ReleveDentaireController::class, 'modifierDent'])->whereNumber('dent');
 
         // Compte rendu SOAP — un par rendez-vous, upsert au PUT. Comme
         // tout le dossier médical, il est de niveau organisation : le

@@ -86,12 +86,12 @@ class DataModelFoundationsTest extends TestCase
         $patient = Patient::factory()->create(['dette' => 120]);
         Pesee::factory()->count(3)->create(['patient_id' => $patient->id]);
         Vaccination::factory()->create(['patient_id' => $patient->id]);
-        ReleveDentaire::factory()->create(['patient_id' => $patient->id, 'dent' => 104, 'etat' => EtatDent::Fracture]);
+        ReleveDentaire::factory()->create(['patient_id' => $patient->id, 'dent' => 104, 'etats' => [EtatDent::Fracture->value]]);
 
         $this->assertSame($patient->organisation_id, $patient->client->organisation_id);
         $this->assertCount(3, $patient->pesees);
         $this->assertTrue($patient->vaccinations->first()->echeance_le->isAfter($patient->vaccinations->first()->injectee_le));
-        $this->assertSame(EtatDent::Fracture, $patient->relevesDentaires->first()->etat);
+        $this->assertSame([EtatDent::Fracture->value], $patient->relevesDentaires->first()->etats);
         $this->assertTrue($patient->aSoldeDu());
     }
 

@@ -53,6 +53,8 @@ class ProtectionRoutesTest extends TestCase
         'POST api/v1/alertes/lues' => 'Marque comme lues les alertes de la personne du jeton.',
         'GET api/v1/alertes/reglages' => 'Réglages d’e-mails de la personne du jeton.',
         'PUT api/v1/alertes/reglages' => 'Réglages d’e-mails de la personne du jeton.',
+        'GET api/v1/preferences' => 'Préférences de la personne du jeton (outils favoris), dans la clinique du jeton.',
+        'PATCH api/v1/preferences' => 'Préférences de la personne du jeton (outils favoris), dans la clinique du jeton.',
         'GET api/v1/vaccins' => 'Catalogue Swissmedic, données publiques de la plateforme.',
         'GET api/v1/vaccins/gtin/{gtin}' => 'Catalogue Swissmedic, données publiques de la plateforme.',
         'GET api/v1/rappels/reglages' => 'Réglages des rappels de la clinique (oui ou non, délai) : lus par toute l’équipe, modifiés avec le droit organisation.',

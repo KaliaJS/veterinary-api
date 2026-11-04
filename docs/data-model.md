@@ -773,11 +773,23 @@ Sous-collections (tables enfants) — toutes implémentées :
   DICOM stocké).
 - **Relevés ophtalmologiques** (`ophRecords`) : `{ d date, sOD, sOG
   (Schirmer OD/OG), pOD, pOG (PIO OD/OG), fluo pos|neg, notes }`.
-- **Relevé dentaire** (`tools.dentPatMaps`) : odontogramme Triadan —
-  map `{ n° de dent (Triadan) : état }` avec état ∈ `tartre`,
-  `gingivite`, `parodontite`, `fracture`, `absente` (absence de clé =
-  sain). Table `releves_dentaires` : `patient_id`, `dent` smallint,
-  `etat` enum, ou un relevé daté avec lignes si l'historique compte.
+- **Relevé dentaire** (`tools.dentPatMaps`, schéma dentaire modernisé du
+  04.11.2026) : odontogramme Triadan, `GET|PUT patients/{id}/dents` →
+  `{ teeth: { n° Triadan: { states: [...], note } }, overview }`. Une dent
+  porte plusieurs états parmi `tartre`, `gingivite`, `parodontite`,
+  `fracture`, `mobilite`, `resorption`, `tumeur`, `extraction`, `absente`
+  (enum `EtatDent`) et une note de 500 caractères au plus ; une dent saine
+  et sans note n'a pas de ligne. Table `releves_dentaires` : `patient_id`,
+  `dent` smallint, `etats` JSON, `note`. Les numéros sont ceux de la
+  formule de l'espèce (`App\Support\DentalFormula` : chien, chat, cheval,
+  lapin, furet ; les autres espèces n'ont pas de schéma). Le bilan de la
+  bouche, une ligne par patient (`dental_overviews`) : `gingivitis`
+  (none, mild, moderate, severe), `calculus` (none, minimal, mild,
+  moderate, heavy), `occlusion` (normal, MAL1 à MAL4 de l'AVDC),
+  `local_block` (texte, 200 caractères). Les anciens relevés (un `etat`
+  par dent) ont été convertis en liste d'un état par la migration
+  `2026_11_04_000400`. La vue choisie (A à D) est une préférence de la
+  personne (`staff_preferences.dental_chart_view`).
 - **Rappels coupés** (`remOff`) : booléen par patient — coupe les
   rappels automatiques pour ce patient (colonne
   `patients.rappels_coupes`).

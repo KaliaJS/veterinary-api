@@ -20,7 +20,8 @@ class ReleveDentaireFactory extends Factory
         return [
             'patient_id' => Patient::factory(),
             'dent' => $dent,
-            'etat' => fake()->randomElement(EtatDent::cases()),
+            // Un ou deux états à la fois (04.11.2026)
+            'etats' => array_values(array_unique(array_map(fn (EtatDent $etat) => $etat->value, fake()->randomElements(EtatDent::cases(), fake()->numberBetween(1, 2))))),
         ];
     }
 }

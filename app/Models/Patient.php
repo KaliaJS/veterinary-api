@@ -204,6 +204,13 @@ class Patient extends Model
         return $this->hasMany(ReleveDentaire::class);
     }
 
+    /** Le bilan de la bouche du schéma dentaire (04.11.2026)
+     * @return HasOne<DentalOverview, $this> */
+    public function dentalOverview(): HasOne
+    {
+        return $this->hasOne(DentalOverview::class);
+    }
+
     /** @return HasMany<RendezVous, $this> */
     public function rendezVous(): HasMany
     {

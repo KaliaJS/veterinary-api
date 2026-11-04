@@ -142,7 +142,7 @@ class PatientsPermissionsTest extends TestCase
             ['patchJson', "/api/v1/patients/{$patient}/releves-ophtalmologiques/{$this->releve->id}", []],
             ['deleteJson', "/api/v1/patients/{$patient}/releves-ophtalmologiques/{$this->releve->id}", []],
             ['getJson', "/api/v1/patients/{$patient}/dents", []],
-            ['putJson', "/api/v1/patients/{$patient}/dents", ['dents' => []]],
+            ['putJson', "/api/v1/patients/{$patient}/dents", ['teeth' => [], 'overview' => ['gingivitis' => null, 'calculus' => null, 'occlusion' => null, 'local_block' => null]]],
             ['getJson', "/api/v1/rendez-vous/{$this->rendezVous->id}/compte-rendu", []],
             ['putJson', "/api/v1/rendez-vous/{$this->rendezVous->id}/compte-rendu", ['s' => 'Refusé']],
         ];

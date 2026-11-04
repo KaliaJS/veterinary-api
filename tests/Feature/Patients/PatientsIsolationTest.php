@@ -116,7 +116,7 @@ class PatientsIsolationTest extends TestCase
             ['patchJson', "/api/v1/patients/{$patientB}/releves-ophtalmologiques/{$this->releveB->id}", []],
             ['deleteJson', "/api/v1/patients/{$patientB}/releves-ophtalmologiques/{$this->releveB->id}", []],
             ['getJson', "/api/v1/patients/{$patientB}/dents", []],
-            ['putJson', "/api/v1/patients/{$patientB}/dents", ['dents' => []]],
+            ['putJson', "/api/v1/patients/{$patientB}/dents", ['teeth' => [], 'overview' => ['gingivitis' => null, 'calculus' => null, 'occlusion' => null, 'local_block' => null]]],
         ];
 
         foreach ($appels as [$methode, $uri, $charge]) {

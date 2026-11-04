@@ -94,8 +94,10 @@ class PatientResource extends JsonResource
             'dents' => $this->whenLoaded(
                 'relevesDentaires',
                 fn () => $this->relevesDentaires
-                    ->mapWithKeys(fn (ReleveDentaire $releve) => [(string) $releve->dent => $releve->etat])
-                    ->toArray(),
+                    ->sortBy('dent')
+                    ->mapWithKeys(fn (ReleveDentaire $releve) => [(string) $releve->dent => $releve->pourSchema()])
+                    // Un objet : la ressource renumérote un tableau aux clés numériques
+                    ->pipe(fn ($dents) => (object) $dents->all()),
             ),
         ];
     }
