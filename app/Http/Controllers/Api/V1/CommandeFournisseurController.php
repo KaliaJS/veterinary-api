@@ -16,6 +16,7 @@ use App\Models\CommandeFournisseurLigne;
 use App\Models\Lot;
 use App\Models\Produit;
 use App\Services\GestionnaireStock;
+use App\Services\Purchasing\AutoOrdering;
 use App\Services\Numeroteur;
 use App\Services\RegistreStupefiants;
 use App\Services\Vetpoint\ClientVetpoint;
@@ -66,7 +67,7 @@ class CommandeFournisseurController extends Controller
         $terme = trim((string) $request->input('q', ''));
 
         $commandes = CommandeFournisseur::query()
-            ->with('lignes')
+            ->with(['lignes', 'supplier' => fn ($supplier) => $supplier->withoutGlobalScopes()])
             ->when($statuts !== [], fn ($requete) => $requete->whereIn('statut', $statuts))
             ->when($terme !== '', function ($requete) use ($terme): void {
                 // « % », « _ » et le caractère d'échappement se cherchent tels quels (vérification du 03.11.2026)
@@ -141,6 +142,10 @@ class CommandeFournisseurController extends Controller
                     'seuil' => (int) $produit->seuil_alerte,
                     'quantite_proposee' => self::quantiteProposee($produit, $cliniqueId),
                     'cout' => (float) $produit->cout,
+                    // À commander à la main : indisponible chez sa centrale, sans autre source (03.11.2026)
+                    'manual_order' => ($stock = $produit->stocks->firstWhere('clinique_id', $cliniqueId))?->manual_order_since !== null
+                        ? ['since' => $stock->manual_order_since->toIso8601String(), 'reason' => $stock->manual_order_reason]
+                        : null,
                 ])->values()->all(),
             ])
             ->values();
@@ -407,6 +412,12 @@ class CommandeFournisseurController extends Controller
                 ]);
             }
             CommandeVetpointController::exigerHorsEnvoiEnSuspens($verrouillee);
+            // Un panier automatique supprimé : ses articles écartés jusqu'à repasser au-dessus du seuil (04.11.2026)
+            if ($verrouillee->is_auto) {
+                foreach ($verrouillee->lignes()->pluck('produit_id') as $produitId) {
+                    AutoOrdering::exclude((int) $produitId, (int) $verrouillee->clinique_id, 'Panier automatique '.$verrouillee->numero.' supprimé', request()->user()?->id);
+                }
+            }
             $verrouillee->delete();
         });
 

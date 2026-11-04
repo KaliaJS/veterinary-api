@@ -214,11 +214,11 @@ class SupplierOrdersListTest extends TestCase
 
         $this->assertSame([
             ['fournisseur' => 'Interne', 'articles' => [
-                ['produit_id' => $seringues->id, 'nom' => 'Seringues 2 ml', 'reference' => 'MAT-0201', 'en_stock' => 2, 'seuil' => 3, 'quantite_proposee' => 4, 'cout' => 11.5],
+                ['produit_id' => $seringues->id, 'nom' => 'Seringues 2 ml', 'reference' => 'MAT-0201', 'en_stock' => 2, 'seuil' => 3, 'quantite_proposee' => 4, 'cout' => 11.5, 'manual_order' => null],
             ]],
             ['fournisseur' => 'Vetpoint', 'articles' => [
                 // max(2 × 4 − 1, 4) = 7
-                ['produit_id' => $croquettes->id, 'nom' => 'Croquettes rénales', 'reference' => 'ALI-0311', 'en_stock' => 1, 'seuil' => 4, 'quantite_proposee' => 7, 'cout' => 21.5],
+                ['produit_id' => $croquettes->id, 'nom' => 'Croquettes rénales', 'reference' => 'ALI-0311', 'en_stock' => 1, 'seuil' => 4, 'quantite_proposee' => 7, 'cout' => 21.5, 'manual_order' => null],
             ]],
         ], $groupes);
         $this->assertSame(1, CommandeFournisseur::query()->count());

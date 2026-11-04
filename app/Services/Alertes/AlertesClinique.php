@@ -2,17 +2,23 @@
 
 namespace App\Services\Alertes;
 
+use App\Enums\StatutCommandeFournisseur;
 use App\Enums\StatutPaiement;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeAlerte;
+use App\Mail\AutoBasketNotice;
 use App\Models\Clinique;
+use App\Models\CommandeFournisseur;
 use App\Models\DemandeRendezVous;
 use App\Models\Facture;
 use App\Models\Lot;
 use App\Models\Organisation;
 use App\Models\Paiement;
+use App\Models\ProductOrderSetting;
 use App\Models\Produit;
+use App\Models\Stock;
 use App\Services\Diagnostic\ConsommationDiagnostic;
+use App\Services\Purchasing\AutoOrdering;
 use App\Services\Transcription\ConsommationTranscription;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -237,6 +243,72 @@ class AlertesClinique
                 $this->compte($bientot->count(), 'lot périme', 'lots périment').' d’ici fin '.$fin,
                 $this->noms($bientot->map(fn (Lot $l) => $this->lot($l))),
             );
+        }
+
+        return [...$alertes, ...$this->ordering($clinique)];
+    }
+
+    /**
+     * La commande automatique (03.11.2026) : les articles à commander à la main
+     * (indisponibles chez leur centrale, sans autre source), les paniers qui
+     * partent demain, ceux qui attendent la clinique, ceux qui ne sont pas partis.
+     *
+     * @return list<Alerte>
+     */
+    public function ordering(Clinique $clinique): array
+    {
+        $alertes = [];
+        $aLaMain = Stock::withoutGlobalScopes()
+            ->with(['produit' => fn ($requete) => $requete->withoutGlobalScopes()])
+            ->where('clinique_id', $clinique->id)
+            ->whereNotNull('manual_order_since')
+            // Seulement là où la commande automatique est réglée (04.11.2026)
+            ->whereIn('produit_id', ProductOrderSetting::query()->where('clinique_id', $clinique->id)->where('is_auto_order', true)->select('produit_id'))
+            ->get()
+            ->filter(fn (Stock $stock): bool => $stock->produit !== null
+                && (int) $stock->quantite <= (int) $stock->produit->seuil_alerte
+                && ! AutoOrdering::isOnOpenOrder((int) $stock->produit_id, $clinique->id))
+            ->sortBy(fn (Stock $stock): string => (string) $stock->produit?->nom)
+            ->values();
+        if ($aLaMain->isNotEmpty()) {
+            $alertes[] = $this->alerte(
+                TypeAlerte::Stock,
+                'a-la-main:'.$this->empreinte($aLaMain->map(fn (Stock $s) => $s->produit_id.'-'.$s->manual_order_since?->getTimestamp())),
+                'warn',
+                $this->compte($aLaMain->count(), 'article à commander à la main', 'articles à commander à la main'),
+                $this->noms($aLaMain->map(function (Stock $s): string {
+                    $raison = (string) ($s->manual_order_reason ?: 'Sans source');
+
+                    return $s->produit->nom.' ('.mb_strtolower(mb_substr($raison, 0, 1)).mb_substr($raison, 1).')';
+                })),
+            );
+        }
+
+        $paniers = CommandeFournisseur::withoutGlobalScopes()
+            ->with(['supplier' => fn ($requete) => $requete->withoutGlobalScopes()])
+            ->where('clinique_id', $clinique->id)
+            ->where('is_auto', true)
+            ->where('statut', StatutCommandeFournisseur::Brouillon)
+            ->get();
+        $maintenant = CarbonImmutable::now();
+        $fuseau = $clinique->fuseau_horaire ?: 'Europe/Zurich';
+        foreach ($paniers as $panier) {
+            $nom = $panier->supplier->name ?? $panier->fournisseur;
+            if ($panier->auto_error !== null) {
+                $alertes[] = $this->alerte(TypeAlerte::Stock, 'panier-erreur:'.$panier->id.':'.md5($panier->auto_error), 'urgent', 'Le panier automatique de '.$nom.' n’est pas parti', $panier->auto_error);
+            } elseif ($panier->paused_at === null && $panier->deadline_at === null && (float) ($panier->supplier->minimum_order ?? 0) <= 0
+                && $panier->created_at !== null && $panier->created_at->lessThanOrEqualTo($maintenant->subDays(3))) {
+                // Ni minimum ni jour de commande (un fournisseur tout juste créé) : il ne partira jamais seul
+                $jours = (int) floor($panier->created_at->diffInDays($maintenant));
+                $alertes[] = $this->alerte(TypeAlerte::Stock, 'panier-immobile:'.$panier->id.':'.$jours, 'warn', 'Le panier automatique de '.$nom.' attend depuis '.$jours.' jours', 'Ce fournisseur n’a ni minimum ni jour de commande : le panier ne part pas seul. Envoyez-le depuis Stocks, Commandes, ou réglez le fournisseur dans Réglages, Fournisseurs.');
+            } elseif ($panier->isAwaitingDecision()) {
+                $alertes[] = $this->alerte(TypeAlerte::Stock, 'panier-decision:'.$panier->id.':'.$panier->decision_asked_for?->getTimestamp(), 'warn', 'Le panier automatique de '.$nom.' vous attend', 'Envoyez-le, ou attendez la date suivante, dans Stocks, Commandes.');
+            } elseif ($panier->paused_at === null && $panier->deadline_at !== null && $panier->eve_notice_for !== null
+                && $panier->deadline_at->equalTo($panier->eve_notice_for) && $maintenant->lessThan($panier->deadline_at)) {
+                // L'avis envoyé, au moins 12 heures avant : le départ dit au jour près
+                $quand = AutoBasketNotice::relative(CarbonImmutable::instance($panier->deadline_at), $maintenant, $fuseau);
+                $alertes[] = $this->alerte(TypeAlerte::Stock, 'panier-avis:'.$panier->id.':'.$panier->deadline_at->getTimestamp(), 'warn', 'Le panier automatique de '.$nom.' part '.$quand, 'Modifiez-le ou mettez-le en pause d’ici là, dans Stocks, Commandes.');
+            }
         }
 
         return $alertes;

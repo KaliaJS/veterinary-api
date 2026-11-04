@@ -2,8 +2,10 @@
 
 namespace App\Http\Requests\V1\Facturation;
 
+use App\Enums\VatContext;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 /**
  * Ajout d'une ligne pendant l'encaissement : un acte du catalogue
@@ -22,6 +24,8 @@ class AjouterLigneFactureRequest extends FormRequest
             'prestation_id' => ['required_without:produit_id', 'prohibits:produit_id', $this->existeDansLOrganisation('prestations')],
             'produit_id' => ['required_without:prestation_id', $this->existeDansLOrganisation('produits')],
             'posologie' => ['nullable', 'string', 'max:255'],
+            // Donné pendant le soin ou remis au propriétaire ; sans lui, proposé (TVA par ligne, 03.11.2026)
+            'vat_context' => ['sometimes', 'prohibits:prestation_id', Rule::in([VatContext::Care->value, VatContext::Sale->value])],
         ];
     }
 }

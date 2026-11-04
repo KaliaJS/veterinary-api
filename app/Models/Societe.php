@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\VatRate;
 use Database\Factories\SocieteFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -40,7 +41,7 @@ class Societe extends Model
     /** Taux de TVA de ses factures, en % : le taux normal, 0 hors assujettissement. */
     public function tauxTva(): float
     {
-        return $this->assujettie_tva === false ? 0.0 : Facture::TAUX_TVA * 100;
+        return $this->assujettie_tva === false ? 0.0 : VatRate::Normal->percent();
     }
 
     /** Le compte de paiement existe et peut encaisser (terminal, TWINT, acomptes). */

@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1;
 use App\Auth\ContexteClinique;
 use App\Enums\MoyenPaiement;
 use App\Enums\TypeLigneFacture;
+use App\Enums\VatContext;
+use App\Enums\VatRate;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Boutique\ApercuVenteComptoirRequest;
 use App\Http\Requests\V1\Boutique\VenteComptoirRequest;
@@ -18,6 +20,7 @@ use App\Models\Produit;
 use App\Models\Stock;
 use App\Services\CreationFacture;
 use App\Services\EncaissementFacture;
+use App\Services\Facturation\LineVat;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -73,8 +76,9 @@ class VenteComptoirController extends Controller
 
     /**
      * Le ticket avant l'encaissement (28.10.2026) : les mêmes lignes et le
-     * même calcul que la facture (TTC, TVA au taux de la société, HT), sur
-     * une facture jamais enregistrée. Rien n'est écrit, le stock ne bouge pas.
+     * même calcul que la facture (TTC, TVA par taux, HT), sur une facture
+     * jamais enregistrée. Chaque article à son taux de vente (03.11.2026).
+     * Rien n'est écrit, le stock ne bouge pas.
      */
     public function apercu(ApercuVenteComptoirRequest $request): JsonResponse
     {
@@ -82,8 +86,13 @@ class VenteComptoirController extends Controller
 
         $lignes = $this->lignes($request->validated('lignes'));
         $facture = new Facture(['clinique_id' => app(ContexteClinique::class)->cliniqueId()]);
-        $facture->taux_tva = Clinique::query()->with('societe')->find($facture->clinique_id)?->societe?->tauxTva() ?? Facture::TAUX_TVA * 100;
-        $facture->setRelation('lignes', collect($lignes)->map(fn (array $ligne): FactureLigne => new FactureLigne($ligne)));
+        $facture->taux_tva = Clinique::query()->with('societe')->find($facture->clinique_id)?->societe?->tauxTva() ?? VatRate::Normal->percent();
+        $facture->setRelation('lignes', collect($lignes)->map(function (array $ligne) use ($facture): FactureLigne {
+            $modele = new FactureLigne($ligne);
+            $modele->taux_tva = LineVat::forLine($modele, $facture);
+
+            return $modele;
+        }));
 
         return response()->json(['data' => [
             'lignes' => array_map(fn (array $ligne): array => [
@@ -95,7 +104,8 @@ class VenteComptoirController extends Controller
             'total_ttc' => $facture->totalTtc(),
             'montant_tva' => $facture->montantTva(),
             'total_ht' => $facture->totalHt(),
-            'taux_tva' => (float) $facture->taux_tva,
+            'taux_tva' => $facture->tauxUnique(),
+            'vat_breakdown' => $facture->vatBreakdown(),
         ]]);
     }
 
@@ -104,7 +114,7 @@ class VenteComptoirController extends Controller
      * stupéfiant, bornées au stock de la clinique du jeton.
      *
      * @param  list<array{produit_id: int|string, quantite: int|string}>  $panier
-     * @return list<array{libelle: string, quantite: int, prix_chf: float, type: TypeLigneFacture, produit_id: int}>
+     * @return list<array{libelle: string, quantite: int, prix_chf: float, type: TypeLigneFacture, produit_id: int, vat_context: VatContext}>
      *
      * @throws ValidationException
      */
@@ -140,6 +150,8 @@ class VenteComptoirController extends Controller
                 'prix_chf' => $produit->prixEffectif(),
                 'type' => TypeLigneFacture::Medicament,
                 'produit_id' => $produit->id,
+                // Vendu : le taux de vente de l'article (03.11.2026)
+                'vat_context' => VatContext::Sale,
             ];
         }
 

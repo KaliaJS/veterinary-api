@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Enums\DomainePermission;
 use App\Enums\ModePrescription;
 use App\Enums\TypeLigneFacture;
+use App\Enums\VatContext;
 use App\Http\Controllers\Api\V1\Concerns\GesteDeCaisse;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Facturation\AjouterLigneFactureRequest;
@@ -16,6 +17,7 @@ use App\Models\FactureLigne;
 use App\Models\Prestation;
 use App\Models\Produit;
 use App\Models\Stock;
+use App\Services\Facturation\LineVat;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -82,12 +84,18 @@ class FactureLigneController extends Controller
                 ]);
             }
 
+            // Remis au propriétaire (taux de vente) ou donné pendant le soin (taux du soin) ;
+            // proposé selon l'article quand l'écran n'en dit rien (03.11.2026)
+            $context = isset($donnees['vat_context']) ? VatContext::from($donnees['vat_context']) : LineVat::articleContext($produit, $facture->hasCare());
+            $this->assurerUnSoin($facture, $context);
+
             $facture->lignes()->create([
                 'libelle' => $produit->nom,
                 'quantite' => 1,
                 'prix_chf' => $produit->prix,
                 'type' => TypeLigneFacture::Medicament,
                 'produit_id' => $produit->id,
+                'vat_context' => $context,
             ]);
 
             $facture->prescriptions()->create([
@@ -102,11 +110,47 @@ class FactureLigneController extends Controller
 
     public function update(ModifierLigneFactureRequest $request, Facture $facture, int $ligne): FactureResource
     {
-        $ligne = $this->ligneModifiable($facture, $ligne);
+        if ($request->has('quantite')) {
+            $this->ligneModifiable($facture, $ligne)->update(['quantite' => $request->validated('quantite')]);
+        }
 
-        $ligne->update(['quantite' => $request->validated('quantite')]);
+        if ($request->has('vat_context')) {
+            $this->changerContexte($facture, $ligne, VatContext::from($request->validated('vat_context')));
+        }
 
         return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+    }
+
+    /**
+     * Un article donné pendant le soin ou remis au propriétaire (TVA par
+     * ligne, 03.11.2026) : le taux se recalcule au serveur. Le stock et la
+     * prescription n'en dépendent pas : se dit aussi stock déjà sorti.
+     */
+    private function changerContexte(Facture $facture, int $id, VatContext $context): void
+    {
+        $this->assurerHorsComptoir($facture, self::TICKET_FIGE);
+        $this->authorize('update', $facture);
+        $this->sansPaiementEnCours($facture);
+        $this->assurerCliniqueDEmission($facture);
+        $this->assurerFactureDue($facture);
+
+        $ligne = $facture->lignes()->findOrFail($id);
+        if (! $ligne->isArticle()) {
+            throw ValidationException::withMessages(['vat_context' => 'Seul un article se dit donné pendant le soin ou remis au propriétaire.']);
+        }
+        $this->assurerUnSoin($facture, $context);
+
+        $ligne->vat_context = $context;
+        $ligne->taux_tva = LineVat::forLine($ligne, $facture);
+        $ligne->save();
+    }
+
+    /** Un article n'est donné pendant un soin que sur une facture qui en contient un. */
+    private function assurerUnSoin(Facture $facture, VatContext $context): void
+    {
+        if ($context === VatContext::Care && ! $facture->hasCare()) {
+            throw ValidationException::withMessages(['vat_context' => 'Cette facture ne contient aucun soin : l’article est remis au propriétaire.']);
+        }
     }
 
     /**
@@ -134,6 +178,20 @@ class FactureLigneController extends Controller
             }
 
             $ligne->delete();
+
+            // Plus aucun soin : ce qui était donné pendant le soin est remis au propriétaire,
+            // au taux de vente recalculé (vérification du 04.11.2026)
+            $facture->unsetRelation('lignes');
+            if (! $facture->hasCare()) {
+                foreach ($facture->lignes()->where('vat_context', VatContext::Care)->get() as $article) {
+                    if (! $article->isArticle()) {
+                        continue;
+                    }
+                    $article->vat_context = VatContext::Sale;
+                    $article->taux_tva = LineVat::forLine($article, $facture);
+                    $article->save();
+                }
+            }
         });
 
         return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Boutique\ModifierVitrineRequest;
 use App\Http\Resources\V1\ProduitResource;
 use App\Models\Produit;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -25,6 +26,11 @@ class VitrineController extends Controller
         }
 
         $produit->update($request->validated());
+        // Sorti de la boutique : sa photo de vitrine part avec lui (04.11.2026)
+        if (! $produit->est_boutique && $produit->photo_chemin) {
+            Storage::disk('prive')->delete($produit->photo_chemin);
+            $produit->update(['photo_chemin' => null]);
+        }
 
         return new ProduitResource(
             $produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique')]),

@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
 use App\Enums\StatutFacture;
+use App\Enums\VatRate;
 use App\Http\Controllers\Controller;
 use App\Models\Facture;
 use App\Models\FactureLigne;
+use App\Support\VatBreakdown;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -46,7 +48,9 @@ class JournalFacturesController extends Controller
 
         return response()->json(['data' => [
             'mois' => $mois,
-            'taux_tva' => $contexte->clinique()?->societe?->tauxTva() ?? Facture::TAUX_TVA * 100,
+            'taux_tva' => $contexte->clinique()?->societe?->tauxTva() ?? VatRate::Normal->percent(),
+            // Les taux en vigueur, toujours tous : une colonne par taux dans l'export, même vide (03.11.2026)
+            'vat_rates' => collect(VatRate::cases())->map(fn (VatRate $rate): float => $rate->percent())->sort()->values()->all(),
             'emises' => $emises->map(fn (Facture $facture): array => $this->ligne($facture))->values(),
             'encaissements' => [
                 'factures' => $encaissees->map(fn (Facture $facture): array => $this->ligne($facture))->values(),
@@ -54,6 +58,8 @@ class JournalFacturesController extends Controller
                 'total_ttc' => round($encaissees->sum(fn (Facture $facture): float => $facture->totalTtc()), 2),
                 'montant_tva' => round($encaissees->sum(fn (Facture $facture): float => $facture->montantTva()), 2),
                 'total_ht' => round($encaissees->sum(fn (Facture $facture): float => $facture->totalHt()), 2),
+                // Le décompte TVA taux par taux, chaque facture avec ses arrondis (03.11.2026)
+                'vat_breakdown' => VatBreakdown::sum($encaissees->map(fn (Facture $facture): array => $facture->vatBreakdown())),
             ],
         ]]);
     }
@@ -70,6 +76,7 @@ class JournalFacturesController extends Controller
             'detail' => $facture->lignes->map(fn (FactureLigne $ligne): string => $ligne->libelle.' x'.$ligne->quantite)->implode(' | '),
             'total_ttc' => $facture->totalTtc(),
             'montant_tva' => $facture->montantTva(),
+            'vat_breakdown' => $facture->vatBreakdown(),
             'moyen_paiement' => $facture->moyen_paiement,
             'statut' => $facture->statut,
         ];

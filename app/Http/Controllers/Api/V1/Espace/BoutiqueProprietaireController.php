@@ -15,6 +15,7 @@ use App\Models\CommandeBoutique;
 use App\Models\Produit;
 use App\Models\Stock;
 use App\Services\Numeroteur;
+use App\Support\VatBreakdown;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -82,8 +83,9 @@ class BoutiqueProprietaireController extends Controller
 
     /**
      * Le panier chiffré par le serveur (24.10.2026) : par clinique, le
-     * total, la TVA au taux de sa société (rien si elle n'y est pas
-     * assujettie) et le hors taxes ; l'écran les affiche sans calcul. Les
+     * total, la TVA taux par taux, chaque article à son taux de vente (rien
+     * si sa société n'y est pas assujettie, 03.11.2026) et le hors taxes ;
+     * l'écran les affiche sans calcul. Les
      * prix sont ceux du moment (promotion comprise) ; le stock se contrôle
      * à la commande.
      */
@@ -109,13 +111,25 @@ class BoutiqueProprietaireController extends Controller
                     return null;
                 }
 
-                return ['produit_id' => (int) $ligne['produit_id'], 'quantite' => (int) $ligne['quantite'], 'total' => round((int) $ligne['quantite'] * $produit->prixEffectif(), 2)];
+                return [
+                    'produit_id' => (int) $ligne['produit_id'],
+                    'quantite' => (int) $ligne['quantite'],
+                    'total' => round((int) $ligne['quantite'] * $produit->prixEffectif(), 2),
+                    // Vendu : le taux de vente de l'article, 0 hors assujettissement
+                    'taux_tva' => $clinique->societe->tauxTva() > 0 ? $produit->vat_rate->percent() : 0.0,
+                ];
             })->filter()->values();
             $ttc = round((float) $lignes->sum('total'), 2);
-            $taux = $clinique->societe->tauxTva();
-            $tva = $taux > 0 ? round($ttc - $ttc / (1 + $taux / 100), 2) : 0.0;
+            $detail = VatBreakdown::of($lignes->map(fn (array $ligne): array => ['rate' => $ligne['taux_tva'], 'amount' => $ligne['total']]));
+            $tva = VatBreakdown::vat($detail);
+            $taux = $lignes->pluck('taux_tva')->unique();
 
-            return ['clinique_id' => $clinique->id, 'lignes' => $lignes->all(), 'total_ttc' => $ttc, 'montant_tva' => $tva, 'total_ht' => round($ttc - $tva, 2), 'taux_tva' => $taux];
+            return [
+                'clinique_id' => $clinique->id, 'lignes' => $lignes->all(), 'total_ttc' => $ttc, 'montant_tva' => $tva, 'total_ht' => round($ttc - $tva, 2),
+                // Un seul taux quand tous les articles l'ont, sinon null : la TVA se lit taux par taux
+                'taux_tva' => $taux->count() === 1 ? (float) $taux->first() : ($taux->isEmpty() ? $clinique->societe->tauxTva() : null),
+                'vat_breakdown' => $detail,
+            ];
         })->filter()->values();
 
         return response()->json(['data' => [
@@ -125,6 +139,7 @@ class BoutiqueProprietaireController extends Controller
             'total_ht' => round((float) $parClinique->sum('total_ht'), 2),
             // Un seul taux affiché quand toutes les cliniques ont le même
             'taux_tva' => $parClinique->pluck('taux_tva')->unique()->count() === 1 ? $parClinique->first()['taux_tva'] : null,
+            'vat_breakdown' => VatBreakdown::sum($parClinique->pluck('vat_breakdown')),
         ]]);
     }
 

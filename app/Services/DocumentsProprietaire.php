@@ -10,6 +10,7 @@ use App\Enums\StatutOrdonnance;
 use App\Models\Devis;
 use App\Models\Document;
 use App\Models\Facture;
+use App\Models\FactureLigne;
 use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\Vaccination;
@@ -136,8 +137,10 @@ class DocumentsProprietaire
                         'qr_facture' => QrFacture::pour($f),
                         'montant_tva' => round($f->montantTva(), 2),
                         'total_ht' => $f->totalHt(),
-                        'taux_tva' => (float) $f->taux_tva,
-                        'lignes' => $f->lignes->map(fn ($l): array => ['libelle' => $l->libelle, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf, 'total_chf' => round($l->quantite * (float) $l->prix_chf, 2)])->values()->all(),
+                        'taux_tva' => $f->tauxUnique(),
+                        // La TVA taux par taux, et le taux de chaque ligne (03.11.2026)
+                        'vat_breakdown' => $f->vatBreakdown(),
+                        'lignes' => $f->lignes->map(fn (FactureLigne $l): array => ['libelle' => $l->libelle, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf, 'total_chf' => round($l->quantite * (float) $l->prix_chf, 2), 'taux_tva' => $l->vatRate($f), 'vat_context' => $l->vat_context])->values()->all(),
                     ],
                 ];
             });
@@ -217,7 +220,8 @@ class DocumentsProprietaire
                         'montant_remise' => $d->montantRemise(),
                         'montant_acompte' => $d->montantAcompte(),
                         'total_avec_alea' => $d->totalAvecAlea(),
-                        'taux_tva' => $d->tauxTva(),
+                        'taux_tva' => $d->tauxUnique(),
+                        'vat_breakdown' => $d->vatBreakdown(),
                         'lignes' => $d->lignes->map(fn ($l): array => ['libelle' => $l->libelle, 'quantite' => $l->quantite, 'prix_chf' => (float) $l->prix_chf, 'total_chf' => round($l->quantite * (float) $l->prix_chf, 2), 'type' => $l->type])->values()->all(),
                     ],
                 ];

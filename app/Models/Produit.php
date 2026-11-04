@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use App\Enums\CategorieProduit;
+use App\Enums\VatRate;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Models\Concerns\AUnePhoto;
 use App\Services\Catalogue\AtcFromCatalogue;
 use App\Support\TempsReel;
 use Database\Factories\ProduitFactory;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -27,7 +30,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 class Produit extends Model
 {
     /** @use HasFactory<ProduitFactory> */
-    use AppartientAUneOrganisation, HasFactory;
+    use AppartientAUneOrganisation, AUnePhoto, HasFactory;
 
     /** Miroir des défauts de la base, connus dès la création (sans relire la ligne) */
     protected $attributes = [
@@ -39,6 +42,12 @@ class Produit extends Model
 
     protected static function booted(): void
     {
+        // Le taux de vente proposé selon la famille quand l'écran n'en dit rien (TVA par ligne, 03.11.2026)
+        static::creating(function (Produit $produit): void {
+            if (! isset($produit->getAttributes()['vat_rate'])) {
+                $produit->vat_rate = VatRate::forCategory($produit->categorie);
+            }
+        });
         // Alertes en temps réel (28.10.2026) : un seuil change pour toute l'organisation
         static::updated(function (Produit $produit): void {
             if ($produit->wasChanged('seuil_alerte')) {
@@ -54,12 +63,17 @@ class Produit extends Model
         'promo_pct', 'est_vedette', 'atc_code', 'atc_code_is_manual',
         // Médicaments à la dose (03.11.2026) : ce que contient une unité de stock
         'dose_unit', 'content_per_unit',
+        // Commande automatique et photo de la vitrine (nouvel article B, 03.11.2026)
+        'photo_chemin',
+        // Le taux de TVA à la vente (03.11.2026)
+        'vat_rate',
     ];
 
     protected function casts(): array
     {
         return [
             'categorie' => CategorieProduit::class,
+            'vat_rate' => VatRate::class,
             'atc_code_is_manual' => 'boolean',
             'prix' => 'decimal:2',
             'cout' => 'decimal:2',
@@ -88,6 +102,65 @@ class Produit extends Model
     public function vetpoint(): HasOne
     {
         return $this->hasOne(ProduitVetpoint::class);
+    }
+
+    /**
+     * Ses sources chez les fournisseurs, toutes cliniques (03.11.2026) ;
+     * `sourcesIn` pour celles d'une clinique, par préférence.
+     *
+     * @return HasMany<ProductSource, $this>
+     */
+    public function sources(): HasMany
+    {
+        return $this->hasMany(ProductSource::class);
+    }
+
+    /**
+     * Les sources de l'article dans une clinique, par préférence.
+     *
+     * @return Collection<int, ProductSource>
+     */
+    public function sourcesIn(int $cliniqueId): Collection
+    {
+        // Lues d'avance (liste du stock) : triées ici, sans requête
+        if ($this->relationLoaded('sources') && $this->sources->every(fn (ProductSource $source): bool => $source->relationLoaded('supplier'))) {
+            return $this->sources
+                ->filter(fn (ProductSource $source): bool => (int) $source->supplier?->clinique_id === $cliniqueId)
+                ->sortBy('rank')
+                ->values();
+        }
+
+        return $this->sources()
+            ->whereHas('supplier', fn ($supplier) => $supplier->withoutGlobalScopes()->where('clinique_id', $cliniqueId))
+            ->with(['supplier' => fn ($supplier) => $supplier->withoutGlobalScopes()])
+            ->orderBy('rank')
+            ->get();
+    }
+
+    /**
+     * La commande automatique par clinique (04.11.2026).
+     *
+     * @return HasMany<ProductOrderSetting, $this>
+     */
+    public function orderSettings(): HasMany
+    {
+        return $this->hasMany(ProductOrderSetting::class);
+    }
+
+    /** Le réglage de la commande automatique dans une clinique, s'il y en a un */
+    public function orderSettingIn(int $cliniqueId): ?ProductOrderSetting
+    {
+        $setting = $this->relationLoaded('orderSettings')
+            ? $this->orderSettings->firstWhere('clinique_id', $cliniqueId)
+            : $this->orderSettings()->where('clinique_id', $cliniqueId)->first();
+
+        return $setting instanceof ProductOrderSetting ? $setting : null;
+    }
+
+    /** URL publique de la photo de la vitrine (nom de fichier imprévisible), ou null */
+    public function photoUrl(): ?string
+    {
+        return $this->photo_chemin ? route('produit.photo', ['fichier' => basename($this->photo_chemin)]) : null;
     }
 
     /** @return HasMany<Stock, $this> */

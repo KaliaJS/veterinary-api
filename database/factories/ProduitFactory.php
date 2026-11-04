@@ -19,6 +19,7 @@ class ProduitFactory extends Factory
         'apara' => 'APA',
         'phyto' => 'PHY',
         'mat' => 'MAT',
+        'acc' => 'ACC',
     ];
 
     private const array NOMS = [
@@ -28,6 +29,7 @@ class ProduitFactory extends Factory
         'apara' => ['Pipettes spot-on chien M · ×4', 'Comprimés antipuces chien · 3 cp', 'Vermifuge large spectre · 2 cp'],
         'phyto' => ['Harpagophytum articulations · 90 gél.', 'Valériane & passiflore : calmant · 30 ml'],
         'mat' => ['Collerette T45', 'Seringues 5 ml · ×100', 'Compresses stériles · ×100'],
+        'acc' => ['Balle qui couine', 'Laisse en nylon 1,2 m', 'Gamelle inox 0,7 l'],
     ];
 
     public function definition(): array

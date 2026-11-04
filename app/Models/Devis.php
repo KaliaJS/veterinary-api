@@ -4,8 +4,11 @@ namespace App\Models;
 
 use App\Enums\CanalDevis;
 use App\Enums\StatutDevis;
+use App\Enums\VatContext;
 use App\Models\Concerns\AppartientAUneOrganisation;
+use App\Services\Facturation\LineVat;
 use App\Support\DocumentHeader;
+use App\Support\VatBreakdown;
 use Database\Factories\DevisFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -132,18 +135,65 @@ class Devis extends Model
         return round($this->sousTotal() * (1 - $this->remise_pct / 100), 2);
     }
 
-    /** TVA extraite du total TTC remisé, au taux des factures. */
-    public function montantTva(): float
+    /**
+     * La TVA par taux, comme sur la facture finale (03.11.2026) : le soin et
+     * ce qui y est donné au taux du soin, un médicament remis pour la maison
+     * à son taux de vente, la remise répartie au prorata des taux. Vide pour
+     * une société non assujettie.
+     *
+     * @return list<array{rate: float, excl_vat: float, vat: float, incl_vat: float}>
+     */
+    public function vatBreakdown(): array
     {
-        $total = $this->totalTtc();
+        if ($this->clinique?->societe?->assujettie_tva === false) {
+            return [];
+        }
+        $lignes = $this->relationLoaded('lignes') ? $this->lignes : $this->lignes()->get();
+        $soin = $this->tauxTva();
+        $produits = Produit::withoutGlobalScopes()->whereIn('id', $lignes->pluck('produit_id')->filter())->get()->keyBy('id');
 
-        return round($total - $total / (1 + $this->tauxTva() / 100), 2);
+        return VatBreakdown::of([
+            ...$lignes->map(fn (DevisLigne $ligne): array => [
+                'rate' => $ligne->vat_context === VatContext::Sale ? LineVat::saleRate($produits->get($ligne->produit_id)) : $soin,
+                'amount' => $ligne->quantite * (float) $ligne->prix_chf,
+            ])->all(),
+            ['rate' => null, 'amount' => -$this->montantRemise()],
+        ]);
     }
 
-    /** Taux de TVA, en % : celui de la société de la clinique qui l'établit. */
+    /** TVA extraite du total TTC remisé : la somme de celle de chaque taux. */
+    public function montantTva(): float
+    {
+        return VatBreakdown::vat($this->vatBreakdown());
+    }
+
+    /** Le taux de toutes ses lignes quand elles n'en ont qu'un, sinon null (la TVA se lit taux par taux). */
+    public function tauxUnique(): ?float
+    {
+        $taux = array_column($this->vatBreakdown(), 'rate');
+
+        return match (count($taux)) {
+            0 => $this->clinique?->societe?->assujettie_tva === false ? 0.0 : $this->tauxTva(),
+            1 => $taux[0],
+            default => null,
+        };
+    }
+
+    /**
+     * Taux de TVA, en % : un devis chiffre un soin, ses articles donnés
+     * pendant le soin ; il suit donc l'espèce de l'animal, comme les lignes
+     * de sa facture finale (03.11.2026). 0 si la société n'est pas assujettie.
+     */
     public function tauxTva(): float
     {
-        return $this->clinique?->societe?->tauxTva() ?? Facture::TAUX_TVA * 100;
+        if ($this->clinique?->societe?->assujettie_tva === false) {
+            return 0.0;
+        }
+        $patient = $this->relationLoaded('patient') && $this->patient !== null
+            ? $this->patient
+            : Patient::withoutGlobalScopes()->find($this->patient_id);
+
+        return LineVat::careRate($patient?->espece);
     }
 
     /** Total hors taxe du devis remisé. */

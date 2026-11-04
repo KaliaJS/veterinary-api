@@ -18,13 +18,17 @@ class CommandeFournisseurLigne extends Model
 
     protected $table = 'commande_fournisseur_lignes';
 
-    protected $fillable = ['commande_fournisseur_id', 'produit_id', 'quantite', 'cout'];
+    protected $fillable = ['commande_fournisseur_id', 'produit_id', 'quantite', 'cout', 'reason_stock', 'reason_threshold', 'reason_at', 'moved_from'];
 
     protected function casts(): array
     {
         return [
             'quantite' => 'integer',
             'cout' => 'decimal:2',
+            // Pourquoi il est dans le panier automatique (03.11.2026)
+            'reason_stock' => 'integer',
+            'reason_threshold' => 'integer',
+            'reason_at' => 'datetime',
         ];
     }
 

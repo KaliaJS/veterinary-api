@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Enums\MoyenPaiement;
 use App\Enums\StatutFacture;
 use App\Enums\TypeLigneFacture;
+use App\Enums\VatContext;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Facturation\EnregistrerFactureRequest;
 use App\Http\Resources\V1\FactureResource;
@@ -106,6 +107,9 @@ class FactureController extends Controller
                 'prix_chf' => $produit ? $produit->prix : $ligne['prix_chf'],
                 'type' => $produit ? TypeLigneFacture::Medicament : $ligne['type'],
                 'produit_id' => $produit?->id,
+                // Un article y est délivré comme au comptoir ; le reste est un soin.
+                // Le taux se calcule seul, jamais repris de la demande (03.11.2026)
+                'vat_context' => $produit ? VatContext::Sale : VatContext::Care,
             ];
         }, $donnees['lignes']);
 

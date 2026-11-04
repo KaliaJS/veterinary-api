@@ -40,6 +40,14 @@ Schedule::command('factures:purger-plus')->monthlyOn(1, '04:15')->timezone('Euro
 Schedule::command('comptes:effacer')->dailyAt(SuppressionCompte::HEURE_EFFACEMENT)->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 // Les comptes de paiement des vendeurs effacés : fermés quand plus rien n'y est en cours (31.10.2026)
 Schedule::command('videos:close-seller-accounts')->dailyAt('04:30')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
+// Paniers automatiques des fournisseurs (03.11.2026, revu le 04.11.2026), toutes les 5 minutes :
+// d'abord le balayage des articles automatiques sous leur seuil, puis chaque panier. Aucun départ
+// sans un avis aux gestionnaires du stock au moins 12 heures avant ; minimum atteint, le départ
+// se fixe à la prochaine heure de commande qui laisse ces 12 heures ; à la date butoir sous le
+// minimum, la règle du fournisseur (demander, envoyer quand même, attendre). Le panier part par
+// son canal (e-mail avec le bon en PDF ; centrale seulement si PURCHASING_AUTO_SEND_API le permet ;
+// à la main, la clinique est prévenue) ; l'envoi lui-même se fait sous verrou, jamais deux fois
+Schedule::command('orders:auto-send')->everyFiveMinutes()->withoutOverlapping(4)->onOneServer();
 // Point du matin sur le stock (seuils, péremptions), avant l'ouverture des cliniques
 Schedule::command('alertes:stock')->dailyAt('07:00')->timezone('Europe/Zurich')->withoutOverlapping(60)->onOneServer();
 

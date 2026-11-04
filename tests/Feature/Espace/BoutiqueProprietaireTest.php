@@ -89,7 +89,7 @@ class BoutiqueProprietaireTest extends TestCase
             ->assertJsonPath('data.0.lignes.0.quantite', 2);
     }
 
-    /** Le panier chiffré par le serveur : total, TVA au taux de chaque société (rien hors TVA), hors taxes (24.10.2026). */
+    /** Le panier chiffré par le serveur : total, TVA au taux de vente de chaque article (rien hors TVA), hors taxes (24.10.2026, taux par article le 03.11.2026). */
     public function test_le_panier_est_chiffre_par_le_serveur(): void
     {
         $assujettie = Clinique::factory()->create();
@@ -98,8 +98,8 @@ class BoutiqueProprietaireTest extends TestCase
         foreach ([$assujettie, $horsTva] as $clinique) {
             $clinique->update(['services' => array_values(array_unique([...($clinique->services ?? []), 'boutique']))]);
         }
-        $croquettes = Produit::factory()->create(['organisation_id' => $assujettie->societe->organisation_id, 'prix' => 50, 'promo_pct' => 10, 'est_boutique' => true]);
-        $collier = Produit::factory()->create(['organisation_id' => $horsTva->societe->organisation_id, 'prix' => 15, 'promo_pct' => 0, 'est_boutique' => true]);
+        $croquettes = Produit::factory()->create(['organisation_id' => $assujettie->societe->organisation_id, 'categorie' => 'ali', 'prix' => 50, 'promo_pct' => 10, 'est_boutique' => true]);
+        $collier = Produit::factory()->create(['organisation_id' => $horsTva->societe->organisation_id, 'categorie' => 'mat', 'prix' => 15, 'promo_pct' => 0, 'est_boutique' => true]);
         $panier = ['commandes' => [
             ['clinique_id' => $assujettie->id, 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 2]]],
             ['clinique_id' => $horsTva->id, 'lignes' => [['produit_id' => $collier->id, 'quantite' => 1]]],
@@ -108,18 +108,20 @@ class BoutiqueProprietaireTest extends TestCase
         // Hors connexion aussi : la vitrine est publique
         $this->postJson('/api/v1/public/boutique/apercu', $panier)
             ->assertOk()
-            // 2 × 45.00 = 90.00 TTC, dont 6.74 de TVA à 8.1 % ; chaque ligne a son total
+            // 2 × 45.00 = 90.00 TTC de croquettes, dont 2.28 de TVA au taux réduit ; chaque ligne a son total
             ->assertJsonPath('data.cliniques.0.lignes.0.produit_id', $croquettes->id)
             ->assertJsonPath('data.cliniques.0.lignes.0.total', 90)
             ->assertJsonPath('data.cliniques.1.lignes.0.total', 15)
             ->assertJsonPath('data.cliniques.0.total_ttc', 90)
-            ->assertJsonPath('data.cliniques.0.montant_tva', 6.74)
-            ->assertJsonPath('data.cliniques.0.total_ht', 83.26)
-            ->assertJsonPath('data.cliniques.0.taux_tva', 8.1)
+            ->assertJsonPath('data.cliniques.0.montant_tva', 2.28)
+            ->assertJsonPath('data.cliniques.0.total_ht', 87.72)
+            ->assertJsonPath('data.cliniques.0.taux_tva', 2.6)
+            ->assertJsonPath('data.cliniques.0.vat_breakdown', [['rate' => 2.6, 'excl_vat' => 87.72, 'vat' => 2.28, 'incl_vat' => 90]])
             ->assertJsonPath('data.cliniques.1.montant_tva', 0)
             ->assertJsonPath('data.cliniques.1.taux_tva', 0)
+            ->assertJsonPath('data.cliniques.1.vat_breakdown', [])
             ->assertJsonPath('data.total_ttc', 105)
-            ->assertJsonPath('data.montant_tva', 6.74)
+            ->assertJsonPath('data.montant_tva', 2.28)
             ->assertJsonPath('data.taux_tva', null);
 
         // Un article d'une autre organisation, ou retiré de la vitrine, ne compte

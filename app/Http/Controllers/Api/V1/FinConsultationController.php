@@ -9,6 +9,7 @@ use App\Enums\PieceNumerotee;
 use App\Enums\StatutOrdonnance;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeLigneFacture;
+use App\Enums\VatContext;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\RendezVous\FinConsultationRequest;
 use App\Http\Resources\V1\FactureResource;
@@ -22,6 +23,7 @@ use App\Models\Produit;
 use App\Models\ProduitVeterinaire;
 use App\Models\RendezVous;
 use App\Services\CreationFacture;
+use App\Services\Facturation\LineVat;
 use App\Services\GestionnaireStock;
 use App\Services\MutationRendezVous;
 use App\Services\Numeroteur;
@@ -101,6 +103,7 @@ class FinConsultationController extends Controller
                 ? Produit::findOrFail($donnees['vaccination']['produit_id'])
                 : null;
 
+            // Injecté pendant la consultation : il suit le taux du soin (TVA par ligne, 03.11.2026)
             if ($vaccinProduit !== null) {
                 $lignes[] = [
                     'libelle' => $vaccinProduit->nom,
@@ -108,6 +111,7 @@ class FinConsultationController extends Controller
                     'prix_chf' => (float) $vaccinProduit->prix,
                     'type' => TypeLigneFacture::Medicament,
                     'produit_id' => $vaccinProduit->id,
+                    'vat_context' => VatContext::Care,
                 ];
             }
 
@@ -116,8 +120,11 @@ class FinConsultationController extends Controller
                     'produit' => Produit::findOrFail($medicament['produit_id']),
                     'posologie' => trim((string) ($medicament['posologie'] ?? '')) ?: 'Selon notice',
                     'duree' => trim((string) ($medicament['duree'] ?? '')) ?: 'Selon besoin',
+                    'vat_context' => isset($medicament['vat_context']) ? VatContext::from($medicament['vat_context']) : null,
                 ]);
 
+            // Remis au propriétaire sur ordonnance (taux de vente de l'article), ou donné pendant
+            // la consultation (taux du soin) ; proposé selon l'article : à la dose, donné (03.11.2026)
             foreach ($medicaments as $medicament) {
                 $lignes[] = [
                     'libelle' => $medicament['produit']->nom,
@@ -125,6 +132,7 @@ class FinConsultationController extends Controller
                     'prix_chf' => (float) $medicament['produit']->prix,
                     'type' => TypeLigneFacture::Medicament,
                     'produit_id' => $medicament['produit']->id,
+                    'vat_context' => $medicament['vat_context'] ?? LineVat::articleContext($medicament['produit'], true),
                 ];
             }
 

@@ -6,6 +6,7 @@ use App\Auth\ContexteClinique;
 use App\Enums\PieceNumerotee;
 use App\Enums\StatutFacture;
 use App\Enums\TypeLigneFacture;
+use App\Enums\VatContext;
 use App\Models\Devis;
 use App\Models\Facture;
 use App\Models\Prestation;
@@ -27,7 +28,7 @@ class CreationFacture
 
     /**
      * @param  array<string, mixed>  $attributs
-     * @param  list<array{libelle: string, quantite: int, prix_chf: float, type: TypeLigneFacture|string, produit_id?: int|null}>  $lignes
+     * @param  list<array{libelle: string, quantite: int, prix_chf: float, type: TypeLigneFacture|string, produit_id?: int|null, vat_context?: VatContext|null, taux_tva?: float}>  $lignes
      */
     public function nouvelle(array $attributs, array $lignes, ?User $auteur): Facture
     {
@@ -47,7 +48,8 @@ class CreationFacture
             ]);
 
             foreach ($lignes as $ligne) {
-                $facture->lignes()->create($ligne);
+                // Le taux d'une déduction d'acompte vient d'ici (celui de l'acompte) ; tout autre taux se calcule à la naissance de la ligne
+                $facture->lignes()->make(array_diff_key($ligne, ['taux_tva' => true]))->forceFill(['taux_tva' => $ligne['taux_tva'] ?? null])->save();
             }
 
             return $facture;
@@ -95,19 +97,40 @@ class CreationFacture
         );
     }
 
-    /** Acompte d'un devis accepté — une ligne, montant du pourcentage. */
+    /**
+     * Acompte d'un devis accepté, montant du pourcentage. Il se répartit sur
+     * les taux du devis, au prorata de ses montants TTC par taux (remise
+     * déjà répartie) : une ligne par taux, chacune à son taux (vérification
+     * du 04.11.2026). Un devis sans TVA (société non assujettie) : une ligne.
+     */
     public function acompteDeDevis(Devis $devis, ?User $auteur): Facture
     {
-        $facture = $this->nouvelle(
-            [...$this->denormalisationDe($devis), 'stock_sorti' => true],
-            [[
-                'libelle' => "Acompte {$devis->acompte_pct} % : devis {$devis->numero}",
-                'quantite' => 1,
-                'prix_chf' => $devis->montantAcompte(),
-                'type' => TypeLigneFacture::Acte,
-            ]],
-            $auteur,
-        );
+        $libelle = "Acompte {$devis->acompte_pct} % : devis {$devis->numero}";
+        $montant = $devis->montantAcompte();
+        $parTaux = $devis->vatBreakdown();
+        $base = array_sum(array_column($parTaux, 'incl_vat'));
+
+        if (count($parTaux) === 0 || $base <= 0) {
+            $lignes = [['libelle' => $libelle, 'quantite' => 1, 'prix_chf' => $montant, 'type' => TypeLigneFacture::Acte]];
+        } else {
+            $lignes = [];
+            $reste = $montant;
+            foreach ($parTaux as $i => $taux) {
+                // Le dernier taux prend l'arrondi : la somme reste l'acompte
+                $part = $i === count($parTaux) - 1 ? round($reste, 2) : round($montant * $taux['incl_vat'] / $base, 2);
+                $reste -= $part;
+                $lignes[] = [
+                    'libelle' => count($parTaux) > 1 ? "{$libelle}, part à {$taux['rate']} %" : $libelle,
+                    'quantite' => 1,
+                    'prix_chf' => $part,
+                    'type' => TypeLigneFacture::Acte,
+                    'vat_context' => VatContext::Deposit,
+                    'taux_tva' => $taux['rate'],
+                ];
+            }
+        }
+
+        $facture = $this->nouvelle([...$this->denormalisationDe($devis), 'stock_sorti' => true], $lignes, $auteur);
 
         $devis->update(['acompte_facture_id' => $facture->id]);
 
@@ -117,6 +140,11 @@ class CreationFacture
     /**
      * Facture finale d'un devis accepté : lignes recopiées, remise et
      * acompte déjà facturé déduits en lignes négatives (parité front).
+     * Un devis chiffre un soin (bloc, intervention) : ses articles y sont
+     * donnés et suivent le taux du soin, sauf ceux remis pour la maison, au
+     * taux de vente ; la remise se répartit au prorata des taux, la
+     * déduction de l'acompte reprend le taux de l'acompte (TVA par ligne,
+     * 03.11.2026).
      */
     public function finaleDeDevis(Devis $devis, ?User $auteur): Facture
     {
@@ -127,6 +155,7 @@ class CreationFacture
                 'prix_chf' => (float) $ligne->prix_chf,
                 'type' => $ligne->type,
                 'produit_id' => $ligne->produit_id,
+                'vat_context' => $ligne->vat_context ?? VatContext::Care,
             ])
             ->all();
 
@@ -139,13 +168,21 @@ class CreationFacture
             ];
         }
 
+        // Chaque ligne de l'acompte déduite à son propre taux (celui de la facture pour une ligne d'avant)
         if ($devis->acompte_facture_id !== null) {
-            $lignes[] = [
-                'libelle' => "Acompte déjà facturé ({$devis->acompteFacture->numero})",
-                'quantite' => 1,
-                'prix_chf' => -$devis->montantAcompte(),
-                'type' => TypeLigneFacture::Acte,
-            ];
+            $acompte = $devis->acompteFacture;
+            $parts = $acompte->lignes()->orderBy('id')->get();
+            foreach ($parts as $part) {
+                $taux = $part->vatRate($acompte) ?? (float) $acompte->taux_tva;
+                $lignes[] = [
+                    'libelle' => "Acompte déjà facturé ({$acompte->numero})".($parts->count() > 1 ? ", part à {$taux} %" : ''),
+                    'quantite' => 1,
+                    'prix_chf' => -round($part->quantite * (float) $part->prix_chf, 2),
+                    'type' => TypeLigneFacture::Acte,
+                    'vat_context' => VatContext::Deposit,
+                    'taux_tva' => $taux,
+                ];
+            }
         }
 
         $facture = $this->nouvelle(

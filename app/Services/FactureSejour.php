@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\TypeLigneFacture;
+use App\Enums\VatContext;
 use App\Models\Client;
 use App\Models\Facture;
 use App\Models\Prestation;
@@ -30,7 +31,7 @@ class FactureSejour
      * Lignes dérivées de l'état du séjour — servies aussi en aperçu
      * avant la sortie.
      *
-     * @return list<array{libelle: string, quantite: int, prix_chf: float, type: TypeLigneFacture}>
+     * @return list<array{libelle: string, quantite: int, prix_chf: float, type: TypeLigneFacture, vat_context?: VatContext}>
      */
     public function lignes(Sejour $sejour): array
     {
@@ -82,7 +83,7 @@ class FactureSejour
      * n'est facturé. Pas de produit sur la ligne : chaque prise a déjà sorti
      * sa dose du stock, l'encaissement ne la ressort pas.
      *
-     * @return list<array{libelle: string, quantite: int, prix_chf: float, type: TypeLigneFacture}>
+     * @return list<array{libelle: string, quantite: int, prix_chf: float, type: TypeLigneFacture, vat_context?: VatContext}>
      */
     private function medicationLines(Sejour $sejour): array
     {
@@ -112,6 +113,8 @@ class FactureSejour
                 'quantite' => 1,
                 'prix_chf' => round($amount, 2),
                 'type' => TypeLigneFacture::Medicament,
+                // Donné pendant le séjour : le taux du soin (TVA par ligne, 03.11.2026)
+                'vat_context' => VatContext::Care,
             ];
         }
 

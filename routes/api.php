@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\V1\Auth\SessionController;
 use App\Http\Controllers\Api\V1\BlocOccupancyController;
 use App\Http\Controllers\Api\V1\BoutiquePaiementController;
 use App\Http\Controllers\Api\V1\CarnetSanteController;
+use App\Http\Controllers\Api\V1\CatalogueSearchController;
 use App\Http\Controllers\Api\V1\ChecklistInterventionController;
 use App\Http\Controllers\Api\V1\ClicheDicomController;
 use App\Http\Controllers\Api\V1\ClientController;
@@ -135,9 +136,14 @@ use App\Http\Controllers\Api\V1\PremiersPasController;
 use App\Http\Controllers\Api\V1\PrestationController;
 use App\Http\Controllers\Api\V1\ProchainCreneauController;
 use App\Http\Controllers\Api\V1\ProductContentController;
+use App\Http\Controllers\Api\V1\ProductPhotoController;
+use App\Http\Controllers\Api\V1\ProductVatRateController;
 use App\Http\Controllers\Api\V1\ProduitController;
 use App\Http\Controllers\Api\V1\ProfilVeterinaireController;
 use App\Http\Controllers\Api\V1\PublicConsentController;
+use App\Http\Controllers\Api\V1\Purchasing\AutoBasketController;
+use App\Http\Controllers\Api\V1\Purchasing\ProductSourcesController;
+use App\Http\Controllers\Api\V1\Purchasing\SupplierController;
 use App\Http\Controllers\Api\V1\RadioController;
 use App\Http\Controllers\Api\V1\RadioDossierController;
 use App\Http\Controllers\Api\V1\RadioPreviewController;
@@ -363,6 +369,8 @@ Route::prefix('v1')->group(function (): void {
         Route::get('domaines/{domaine}', [DomainePublicController::class, 'site'])->where('domaine', '[a-z0-9.-]+');
         Route::get('domaines-autorises', [DomainePublicController::class, 'autorise'])->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
         Route::get('photos/{fichier}', [PhotoEmployeController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('employe.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
+        // La photo de la vitrine d'un article (03.11.2026)
+        Route::get('photos-produits/{fichier}', [ProductPhotoController::class, 'show'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('produit.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
         Route::get('photos-animaux/{fichier}', [PhotoPatientController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+\\.[a-z]+')->name('patient.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
         Route::get('photos-cliniques/{fichier}', [PhotoCliniqueController::class, 'afficher'])->where('fichier', '[A-Za-z0-9]+(?:-\\d+)?\\.[a-z]+')->name('clinique.photo')->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
         // Consentement à signer par le lien reçu (SMS, e-mail ; 02.11.2026)
@@ -661,6 +669,8 @@ Route::prefix('v1')->group(function (): void {
         // Catalogue des vaccins autorisés en Suisse (Swissmedic, GTIN Refdata)
         Route::get('vaccins', [VaccinCatalogueController::class, 'index']);
         Route::get('vaccins/gtin/{gtin}', [VaccinCatalogueController::class, 'gtin']);
+        // Le catalogue Swissmedic entier, par code-barres ou par nom (nouvel article B, 03.11.2026)
+        Route::get('catalogue/produits', CatalogueSearchController::class)->middleware('can:stocks');
 
         Route::get('patients/{patient}/visites', [VisiteController::class, 'index']);
         Route::post('patients/{patient}/visites', [VisiteController::class, 'store']);
@@ -930,12 +940,25 @@ Route::prefix('v1')->group(function (): void {
             Route::patch('produits/{produit}/atc', [ProduitController::class, 'updateAtc']);
             // Ce que contient une unité (médicaments à la dose, 03.11.2026)
             Route::patch('produits/{produit}/contenance', [ProductContentController::class, 'update']);
+            // Le taux de TVA à la vente d'un article, et la proposition par famille (03.11.2026)
+            Route::get('vat-rates', [ProductVatRateController::class, 'index']);
+            Route::patch('produits/{produit}/vat-rate', [ProductVatRateController::class, 'update']);
             // Jeter l'unité entamée (périmée, souillée), même sans unité fermée
             Route::post('produits/{produit}/entame/jeter', [OpenedUnitController::class, 'discard']);
             // L'inventaire du flacon entamé
             Route::patch('produits/{produit}/entame', [OpenedUnitController::class, 'count']);
             Route::post('produits/{produit}/ajuster', AjustementStockController::class);
             Route::get('produits/{produit}/mouvements', [MouvementStockController::class, 'index']);
+            // Nouvel article B (03.11.2026) : commande automatique et sources ; photo de la vitrine
+            Route::put('produits/{produit}/sources', [ProductSourcesController::class, 'update']);
+            Route::post('produits/{produit}/photo', [ProductPhotoController::class, 'upload']);
+            Route::delete('produits/{produit}/photo', [ProductPhotoController::class, 'remove']);
+            // Les fournisseurs et centrales d'achat de la clinique (03.11.2026)
+            Route::get('fournisseurs', [SupplierController::class, 'index']);
+            Route::post('fournisseurs', [SupplierController::class, 'store']);
+            Route::patch('fournisseurs/{supplier}', [SupplierController::class, 'update'])->whereNumber('supplier');
+            Route::delete('fournisseurs/{supplier}', [SupplierController::class, 'destroy'])->whereNumber('supplier');
+            Route::get('centrales', [SupplierController::class, 'connectors']);
 
             Route::get('commandes', [CommandeFournisseurController::class, 'index']);
             Route::post('commandes', [CommandeFournisseurController::class, 'store']);
@@ -953,6 +976,12 @@ Route::prefix('v1')->group(function (): void {
             Route::get('commandes/{commande}/vetpoint', [CommandeVetpointController::class, 'detail'])->whereNumber('commande');
             Route::post('commandes/{commande}/vetpoint/abandonner', [CommandeVetpointController::class, 'abandonner'])->whereNumber('commande');
             Route::delete('commandes/{commande}', [CommandeFournisseurController::class, 'destroy'])->whereNumber('commande');
+            // Le panier automatique (03.11.2026) : pause, reprise, attendre la date suivante, envoyer maintenant
+            Route::post('commandes/{commande}/pause', [AutoBasketController::class, 'pause'])->whereNumber('commande');
+            Route::post('commandes/{commande}/reprendre', [AutoBasketController::class, 'resume'])->whereNumber('commande');
+            Route::post('commandes/{commande}/attendre', [AutoBasketController::class, 'wait'])->whereNumber('commande');
+            Route::post('commandes/{commande}/envoyer-maintenant', [AutoBasketController::class, 'sendNow'])->whereNumber('commande');
+            Route::get('commandes/{commande}/adresses', [AutoBasketController::class, 'addresses'])->whereNumber('commande');
             // Lignes d'un brouillon, avant envoi.
             Route::post('commandes/{commande}/lignes', [CommandeFournisseurLigneController::class, 'store'])->whereNumber('commande');
             Route::patch('commandes/{commande}/lignes/{ligne}', [CommandeFournisseurLigneController::class, 'update'])->whereNumber('commande')->whereNumber('ligne');

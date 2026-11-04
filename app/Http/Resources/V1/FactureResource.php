@@ -11,8 +11,9 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * Total TTC et TVA (8.1 %) sont dérivés des lignes — jamais stockés.
- * L'assureur affiché vient du décompte (0..1).
+ * Total TTC et TVA sont dérivés des lignes — jamais stockés. Chaque ligne
+ * a son taux, figé à l'émission ; la TVA se sert taux par taux
+ * (`vat_breakdown`, 03.11.2026). L'assureur affiché vient du décompte (0..1).
  *
  * @mixin Facture
  */
@@ -58,7 +59,12 @@ class FactureResource extends JsonResource
             'reste_a_payer' => $this->whenLoaded('lignes', fn (): float => $this->resteAPayer()),
             'montant_tva' => $this->whenLoaded('lignes', fn (): float => $this->montantTva()),
             'total_ht' => $this->whenLoaded('lignes', fn (): float => $this->totalHt()),
-            'taux_tva' => (float) $this->taux_tva,
+            // Le taux de toutes les lignes, ou null quand elles en ont plusieurs
+            'taux_tva' => $this->whenLoaded('lignes', fn (): ?float => $this->tauxUnique(), (float) $this->taux_tva),
+            // Hors taxe, TVA et TTC de chaque taux ; vide pour une société non assujettie (03.11.2026)
+            'vat_breakdown' => $this->whenLoaded('lignes', fn (): array => $this->vatBreakdown()),
+            // Elle contient un soin : un article peut s'y dire donné pendant le soin (caisse)
+            'has_care' => $this->whenLoaded('lignes', fn (): bool => $this->hasCare()),
             'lignes' => $this->whenLoaded(
                 'lignes',
                 fn () => $this->lignes->map(fn (FactureLigne $ligne): array => [
@@ -69,6 +75,9 @@ class FactureResource extends JsonResource
                     'total_chf' => round($ligne->quantite * (float) $ligne->prix_chf, 2),
                     'type' => $ligne->type,
                     'produit_id' => $ligne->produit_id,
+                    // Son taux, figé à l'émission (celui de la facture pour une ligne d'avant ; null : remise répartie), et pourquoi
+                    'taux_tva' => $ligne->vatRate($this->resource),
+                    'vat_context' => $ligne->vat_context,
                 ])->values(),
             ),
             'prescriptions' => $this->whenLoaded(

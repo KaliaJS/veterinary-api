@@ -3,6 +3,7 @@
 namespace App\Http\Requests\V1\Devis;
 
 use App\Enums\TypeLigneFacture;
+use App\Enums\VatContext;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -28,6 +29,8 @@ class ModifierDevisRequest extends FormRequest
             'lignes.*.prix_chf' => ['required', 'numeric', 'min:0', 'max:99999'],
             'lignes.*.type' => ['required', Rule::enum(TypeLigneFacture::class)],
             'lignes.*.produit_id' => ['nullable', $this->existeDansLOrganisation('produits')],
+            // Un médicament remis pour la maison suit le taux de vente ; le reste suit le soin (03.11.2026)
+            'lignes.*.vat_context' => ['sometimes', 'nullable', Rule::in([VatContext::Care->value, VatContext::Sale->value])],
             'remise_pct' => ['sometimes', 'integer', 'between:0,100'],
             'alea_pct' => ['sometimes', 'integer', 'between:0,100'],
             'validite_jours' => ['sometimes', 'integer', 'between:1,365'],

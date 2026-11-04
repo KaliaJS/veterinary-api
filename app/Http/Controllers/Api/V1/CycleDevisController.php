@@ -206,6 +206,7 @@ class CycleDevisController extends Controller
                     'prix_chf' => $ligne->prix_chf,
                     'type' => $ligne->type,
                     'produit_id' => $ligne->produit_id,
+                    'vat_context' => $ligne->vat_context,
                 ]);
             }
 

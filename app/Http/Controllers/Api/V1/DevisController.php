@@ -109,11 +109,14 @@ class DevisController extends Controller
             'remise_pct' => $donnees['remise_pct'] ?? 0,
             'alea_pct' => $donnees['alea_pct'] ?? 0,
             'acompte_pct' => $donnees['acompte_pct'] ?? 0,
+            'patient_id' => $donnees['patient_id'] ?? null,
         ]);
         $devis->setRelation('clinique', app(ContexteClinique::class)->clinique()?->loadMissing('societe'));
         $lignes = collect($donnees['lignes'])->map(fn (array $ligne): DevisLigne => new DevisLigne([
             'quantite' => $ligne['quantite'] ?? 1,
             'prix_chf' => $ligne['prix_chf'],
+            'produit_id' => $ligne['produit_id'] ?? null,
+            'vat_context' => $ligne['vat_context'] ?? null,
         ]));
         $devis->setRelation('lignes', new EloquentCollection($lignes->all()));
 
@@ -124,7 +127,8 @@ class DevisController extends Controller
             'total_ttc' => $devis->totalTtc(),
             'montant_tva' => $devis->montantTva(),
             'total_ht' => $devis->totalHt(),
-            'taux_tva' => $devis->tauxTva(),
+            'taux_tva' => $devis->tauxUnique(),
+            'vat_breakdown' => $devis->vatBreakdown(),
             'total_avec_alea' => $devis->totalAvecAlea(),
             'montant_acompte' => $devis->montantAcompte(),
         ]]);
@@ -188,6 +192,7 @@ class DevisController extends Controller
                 'prix_chf' => $ligne['prix_chf'],
                 'type' => $ligne['type'],
                 'produit_id' => $ligne['produit_id'] ?? null,
+                'vat_context' => $ligne['vat_context'] ?? null,
             ]);
         }
     }

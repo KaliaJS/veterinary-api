@@ -96,6 +96,23 @@ class ClientVetpoint
     }
 
     /**
+     * Un produit par son identifiant Vetpoint (GET /v1/product/{id}), pour sa
+     * disponibilité au moment d'envoyer un panier automatique (03.11.2026).
+     * Inconnu de Vetpoint (« Product not found ») : null.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function produit(string $identifiant): ?array
+    {
+        $reponse = $this->appeler(fn (PendingRequest $http): Response => $http->get('/v1/product/'.rawurlencode($identifiant)), introuvableVide: true);
+        if ($reponse === []) {
+            return null;
+        }
+
+        return is_array($reponse['product'] ?? null) ? $reponse['product'] : $reponse;
+    }
+
+    /**
      * Adresses de livraison du compte Vetpoint de la clinique (les seules
      * permises pour les médicaments).
      *

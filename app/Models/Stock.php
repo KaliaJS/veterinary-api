@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\AppartientAUneClinique;
+use App\Services\Purchasing\AutoOrdering;
 use App\Support\TempsReel;
 use Database\Factories\StockFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -24,10 +25,16 @@ class Stock extends Model
     {
         // Alertes en temps réel (28.10.2026) : le stock de la clinique a changé
         static::saved(fn (Stock $stock) => TempsReel::alertes((int) $stock->clinique_id));
+        // Commande automatique (03.11.2026) : toute sortie compte, une fois la transaction validée
+        static::saved(function (Stock $stock): void {
+            if ($stock->wasChanged('quantite') || $stock->wasRecentlyCreated) {
+                AutoOrdering::afterStockChange($stock, (int) $stock->getOriginal('quantite'));
+            }
+        });
         static::deleted(fn (Stock $stock) => TempsReel::alertes((int) $stock->clinique_id));
     }
 
-    protected $fillable = ['produit_id', 'clinique_id', 'quantite', 'opened_rest', 'opening_number', 'opened_at', 'last_opening_number', 'last_count_id', 'last_counted_at'];
+    protected $fillable = ['produit_id', 'clinique_id', 'quantite', 'opened_rest', 'opening_number', 'opened_at', 'last_opening_number', 'last_count_id', 'last_counted_at', 'manual_order_since', 'manual_order_reason'];
 
     protected function casts(): array
     {
@@ -41,6 +48,8 @@ class Stock extends Model
             'last_opening_number' => 'integer',
             'last_count_id' => 'integer',
             'last_counted_at' => 'datetime',
+            // À commander à la main : indisponible chez sa centrale, sans autre source (03.11.2026)
+            'manual_order_since' => 'datetime',
         ];
     }
 

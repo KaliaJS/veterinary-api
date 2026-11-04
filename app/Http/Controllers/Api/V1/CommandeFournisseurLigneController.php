@@ -11,6 +11,7 @@ use App\Http\Resources\V1\CommandeFournisseurResource;
 use App\Models\CommandeFournisseur;
 use App\Models\CommandeFournisseurLigne;
 use App\Models\Produit;
+use App\Services\Purchasing\AutoOrdering;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -52,7 +53,8 @@ class CommandeFournisseurLigneController extends Controller
     {
         $commande = DB::transaction(function () use ($request, $commande, $ligne): CommandeFournisseur {
             $commande = $this->brouillonModifiable($commande);
-            $this->ligneDe($commande, $ligne)->update(['quantite' => $request->validated('quantite')]);
+            // Une ligne réglée par une personne devient manuelle : la commande automatique n'y touche plus (04.11.2026)
+            $this->ligneDe($commande, $ligne)->update(['quantite' => $request->validated('quantite'), 'reason_at' => null, 'reason_stock' => null, 'reason_threshold' => null]);
 
             return $commande;
         });
@@ -64,7 +66,12 @@ class CommandeFournisseurLigneController extends Controller
     {
         $commande = DB::transaction(function () use ($commande, $ligne): CommandeFournisseur {
             $commande = $this->brouillonModifiable($commande);
-            $this->ligneDe($commande, $ligne)->delete();
+            $retiree = $this->ligneDe($commande, $ligne);
+            $retiree->delete();
+            // Retiré d'un panier automatique : écarté jusqu'à repasser au-dessus du seuil (04.11.2026)
+            if ($commande->is_auto) {
+                AutoOrdering::exclude((int) $retiree->produit_id, (int) $commande->clinique_id, 'Retiré du panier automatique '.$commande->numero, request()->user()?->id);
+            }
 
             return $commande;
         });

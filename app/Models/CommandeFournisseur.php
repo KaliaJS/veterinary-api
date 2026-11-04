@@ -30,6 +30,9 @@ class CommandeFournisseur extends Model
 
     protected $fillable = [
         'clinique_id', 'numero', 'fournisseur', 'statut', 'envoyee_le', 'receptionnee_le',
+        // Le panier automatique (03.11.2026)
+        'supplier_id', 'is_auto', 'deadline_at', 'paused_at', 'eve_notice_for', 'decision_asked_for',
+        'moved_out', 'auto_error', 'sent_to', 'supplier_removed_at',
     ];
 
     protected function casts(): array
@@ -40,6 +43,13 @@ class CommandeFournisseur extends Model
             'vetpoint_envoi_le' => 'datetime',
             'vetpoint_date_souhaitee' => 'date',
             'receptionnee_le' => 'datetime',
+            'is_auto' => 'boolean',
+            'deadline_at' => 'datetime',
+            'paused_at' => 'datetime',
+            'eve_notice_for' => 'datetime',
+            'decision_asked_for' => 'datetime',
+            'moved_out' => 'array',
+            'supplier_removed_at' => 'datetime',
         ];
     }
 
@@ -66,6 +76,18 @@ class CommandeFournisseur extends Model
             ->whereIn('clinique_id', Clinique::query()
                 ->select('cliniques.id')
                 ->whereRelation('societe', 'organisation_id', app(ContexteClinique::class)->organisationId()));
+    }
+
+    /** @return BelongsTo<Supplier, $this> */
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class);
+    }
+
+    /** Sous le minimum à sa date butoir, la clinique doit dire : envoyer, ou attendre */
+    public function isAwaitingDecision(): bool
+    {
+        return $this->is_auto && $this->decision_asked_for !== null && $this->statut === StatutCommandeFournisseur::Brouillon;
     }
 
     /** @return HasMany<CommandeFournisseurLigne, $this> */

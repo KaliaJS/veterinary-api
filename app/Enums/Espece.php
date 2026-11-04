@@ -19,6 +19,17 @@ enum Espece: string
     case Porc = 'PO';
     case Volaille = 'VO';
 
+    /**
+     * Animal de rente au sens de la TVA (Info TVA 21 de l'AFC, 03.11.2026) :
+     * ses soins sont au taux réduit. Le cheval l'est, ânes et mulets compris
+     * (rangés sous « Cheval ») ; chien, chat, NAC, oiseau et reptile sont
+     * des animaux de compagnie.
+     */
+    public function isLivestock(): bool
+    {
+        return in_array($this, [self::Cheval, self::Bovin, self::Ovin, self::Caprin, self::Porc, self::Volaille], true);
+    }
+
     /** Libellé affiché au propriétaire (table SPN du proto). */
     public function libelle(): string
     {

@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
 use App\Enums\CategorieProduit;
+use App\Enums\DomainePermission;
 use App\Enums\MotifAjustementStock;
+use App\Http\Controllers\Api\V1\Purchasing\ProductSourcesController;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Stocks\EnregistrerProduitRequest;
 use App\Http\Requests\V1\Stocks\UpdateAtcCodeRequest;
@@ -17,6 +19,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Catalogue d'organisation, quantités par clinique : la lecture expose
@@ -31,7 +34,7 @@ class ProduitController extends Controller
         $this->authorize('viewAny', Produit::class);
 
         $produits = Produit::query()
-            ->with(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint'])
+            ->with(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint', 'sources.supplier', 'orderSettings.excludedBy'])
             ->when($request->enum('categorie', CategorieProduit::class), fn (Builder $requete, CategorieProduit $categorie) => $requete->where('categorie', $categorie))
             ->when($request->filled('q'), function (Builder $requete) use ($request): void {
                 $terme = '%'.$request->string('q')->trim()->lower().'%';
@@ -54,27 +57,50 @@ class ProduitController extends Controller
         $this->authorize('create', Produit::class);
 
         $donnees = $request->validated();
+        // Ce qui est propre aux médicaments ne paraît que pour eux (nouvel article B, 03.11.2026)
+        $categorie = CategorieProduit::from($donnees['categorie']);
+        $isDrug = $categorie->isDrug();
+        $isMedication = $categorie === CategorieProduit::Medicament;
+        $isNarcotic = $request->isNarcotic();
+        if ($isNarcotic) {
+            Gate::authorize(DomainePermission::Stupefiants->value);
+        }
+        // Un stupéfiant ne s'affiche jamais en boutique (23.10.2026)
+        $isShop = (bool) ($donnees['est_boutique'] ?? false) && ! $isNarcotic;
+        $atc = $isDrug ? ($donnees['atc_code'] ?? null) : null;
+        $content = $isMedication ? ($donnees['content_per_unit'] ?? null) : null;
 
         // Article, stock initial et lot en un tout : jamais l'un sans l'autre
-        $produit = DB::transaction(function () use ($request, $donnees, $stock): Produit {
+        $produit = DB::transaction(function () use ($request, $donnees, $stock, $isDrug, $isNarcotic, $isShop, $atc, $content): Produit {
             $produit = Produit::create([
                 'nom' => $donnees['nom'],
                 'categorie' => $donnees['categorie'],
                 'reference' => $this->prochaineReference(),
                 'prix' => $donnees['prix'],
+                // Le taux de vente choisi, sinon celui de la famille (Produit::booted)
+                'vat_rate' => $donnees['vat_rate'] ?? null,
                 'cout' => $donnees['cout'] ?? 0,
                 'unite' => $donnees['unite'] ?? 'pièce',
                 'seuil_alerte' => $donnees['seuil_alerte'] ?? 0,
-                'est_boutique' => $donnees['est_boutique'] ?? false,
-                'est_sur_ordonnance' => $donnees['est_sur_ordonnance'] ?? false,
+                'est_boutique' => $isShop,
+                'est_sur_ordonnance' => $isDrug && ($donnees['est_sur_ordonnance'] ?? false),
+                'est_stupefiant' => $isNarcotic,
+                'tableau_stupefiant' => $isNarcotic ? $donnees['tableau_stupefiant'] : null,
+                'promo_pct' => $isShop ? (int) ($donnees['promo_pct'] ?? 0) : 0,
+                'est_vedette' => $isShop && ($donnees['est_vedette'] ?? false),
+                'content_per_unit' => $content,
+                'dose_unit' => $content !== null ? ($donnees['dose_unit'] ?? null) : null,
                 'peremption_le' => $request->peremptionValidee(),
                 'fournisseur' => $donnees['fournisseur'] ?? null,
                 'ean' => $donnees['ean'] ?? null,
                 // Saisi, ou repris du catalogue Swissmedic quand le code-barres y est connu (03.11.2026)
                 // Un champ laissé vide compte comme absent : le catalogue le remplit
-                'atc_code' => filled($donnees['atc_code'] ?? null) ? $donnees['atc_code'] : AtcFromCatalogue::forGtin($donnees['ean'] ?? null),
-                'atc_code_is_manual' => filled($donnees['atc_code'] ?? null),
+                // Hors médicaments et antiparasitaires : aucun (nouvel article B, 03.11.2026)
+                'atc_code' => ! $isDrug ? null : (filled($atc) ? $atc : AtcFromCatalogue::forGtin($donnees['ean'] ?? null)),
+                'atc_code_is_manual' => filled($atc),
             ]);
+            // Commander automatiquement sous le seuil, et ses sources dans la clinique ouverte
+            ProductSourcesController::save($produit, $donnees);
 
             $quantiteInitiale = (int) ($donnees['quantite_initiale'] ?? 0);
 
@@ -84,12 +110,16 @@ class ProduitController extends Controller
                 // Article périssable : le stock initial a son lot, à sa péremption
                 // (28.10.2026), dans la clinique qui le reçoit, qui peut être une
                 // clinique sœur : hors événements du trait, comme à la réception
-                if ($produit->peremption_le !== null) {
+                // Nouvel article B (03.11.2026) : la péremption est celle du lot du
+                // jour, plus celle de l'article ; le numéro du lot, s'il est donné
+                $peremption = $request->lotExpiry() ?? $produit->peremption_le;
+                // Un lot nommé sans péremption est gardé (matériel, accessoires, 04.11.2026)
+                if ($peremption !== null || filled($donnees['lot'] ?? null)) {
                     Lot::withoutEvents(fn (): Lot => Lot::create([
                         'produit_id' => $produit->id,
                         'clinique_id' => $request->cliniqueId() ?? app(ContexteClinique::class)->clinique()->id,
-                        'numero_lot' => 'LOT INI-'.substr($produit->reference, -2),
-                        'peremption_le' => $produit->peremption_le,
+                        'numero_lot' => filled($donnees['lot'] ?? null) ? trim($donnees['lot']) : 'LOT INI-'.substr($produit->reference, -2),
+                        'peremption_le' => $peremption,
                         'quantite' => $quantiteInitiale,
                     ]));
                 }
@@ -99,7 +129,7 @@ class ProduitController extends Controller
         });
 
         return new ProduitResource(
-            $produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint']),
+            $produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint', 'sources.supplier']),
         );
     }
 

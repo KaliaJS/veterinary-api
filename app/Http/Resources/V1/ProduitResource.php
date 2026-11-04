@@ -3,6 +3,8 @@
 namespace App\Http\Resources\V1;
 
 use App\Auth\ContexteClinique;
+use App\Models\ProductOrderSetting;
+use App\Models\ProductSource;
 use App\Models\Produit;
 use App\Models\Stock;
 use Illuminate\Http\Request;
@@ -18,6 +20,10 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class ProduitResource extends JsonResource
 {
+    private bool $isOrderSettingRead = false;
+
+    private ?ProductOrderSetting $orderSettingRead = null;
+
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
@@ -27,6 +33,9 @@ class ProduitResource extends JsonResource
             'categorie' => $this->categorie,
             'reference' => $this->reference,
             'prix' => (float) $this->prix,
+            // Le taux de TVA à la vente (reduced, normal) et son pourcentage (03.11.2026)
+            'vat_rate' => $this->vat_rate,
+            'vat_rate_percent' => $this->vat_rate->percent(),
             'cout' => (float) $this->cout,
             'unite' => $this->unite,
             // Ce que contient une unité (médicaments à la dose, 03.11.2026)
@@ -45,6 +54,24 @@ class ProduitResource extends JsonResource
             'substances' => $this->resource->catalogueSubstances(),
             'promo_pct' => $this->promo_pct,
             'est_vedette' => $this->est_vedette,
+            // La photo de la vitrine (nouvel article B, 03.11.2026)
+            'photo_url' => $this->resource->photoUrl(),
+            // Commander automatiquement sous le seuil, jusqu'où, l'écart décidé par la clinique, et ses
+            // sources : tout dans la clinique ouverte (par clinique depuis le 04.11.2026)
+            'is_auto_order' => (bool) $this->orderSetting()?->is_auto_order,
+            'reorder_up_to' => $this->orderSetting()?->reorder_up_to,
+            'auto_excluded' => $this->excluded(),
+            'sources' => app(ContexteClinique::class)->estDefini()
+                ? $this->resource->sourcesIn((int) app(ContexteClinique::class)->cliniqueId())->map(fn (ProductSource $source): array => [
+                    'id' => $source->id,
+                    'supplier_id' => $source->supplier_id,
+                    'supplier_name' => $source->supplier?->name,
+                    'channel' => $source->supplier?->channel,
+                    'rank' => $source->rank,
+                    'reference' => $source->reference,
+                    'cost' => $source->cost !== null ? (float) $source->cost : null,
+                ])->values()->all()
+                : [],
             // Produit Vetpoint relié (27.10.2026) ; null : aucun
             'vetpoint' => $this->whenLoaded('vetpoint', fn (): ?array => $this->vetpoint ? [
                 'id' => $this->vetpoint->vetpoint_id,
@@ -69,5 +96,36 @@ class ProduitResource extends JsonResource
             // Sous le seuil dans la clinique du jeton : ce que « Commander le stock bas » commandera
             'sous_seuil_clinique' => $this->whenLoaded('stocks', fn (): ?bool => app(ContexteClinique::class)->estDefini() ? $this->estSousLeSeuilDans((int) app(ContexteClinique::class)->cliniqueId()) : null),
         ];
+    }
+
+    /** Le réglage de la commande automatique dans la clinique ouverte, lu une fois */
+    private function orderSetting(): ?ProductOrderSetting
+    {
+        $contexte = app(ContexteClinique::class);
+        if (! $contexte->estDefini()) {
+            return null;
+        }
+
+        if (! $this->isOrderSettingRead) {
+            $this->orderSettingRead = $this->resource->orderSettingIn((int) $contexte->cliniqueId());
+            $this->isOrderSettingRead = true;
+        }
+
+        return $this->orderSettingRead;
+    }
+
+    /**
+     * L'écart décidé par la clinique : quand, pourquoi, par qui ; null sinon.
+     *
+     * @return array{at: string, reason: ?string, by: ?string}|null
+     */
+    private function excluded(): ?array
+    {
+        $setting = $this->orderSetting();
+        if ($setting === null || $setting->excluded_at === null) {
+            return null;
+        }
+
+        return ['at' => $setting->excluded_at->toIso8601String(), 'reason' => $setting->excluded_reason, 'by' => $setting->excludedBy?->name];
     }
 }

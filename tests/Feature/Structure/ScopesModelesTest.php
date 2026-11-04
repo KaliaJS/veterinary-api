@@ -11,6 +11,7 @@ use App\Models\InvitationEmploye;
 use App\Models\JetonApi;
 use App\Models\MessageClientele;
 use App\Models\OrganisationFacture;
+use App\Models\ProductOrderSetting;
 use App\Models\SequenceNumerotation;
 use App\Models\Societe;
 use App\Models\Video;
@@ -41,6 +42,7 @@ class ScopesModelesTest extends TestCase
         MessageClientele::class => 'Fil clinique et propriétaire, lu depuis l’espace propriétaire par user_id (filtre explicite).',
         OrganisationFacture::class => 'Facture de la plateforme, résolue par l’organisation du jeton (facturesAbonnement) ; les webhooks la retrouvent par son paiement.',
         SequenceNumerotation::class => 'Compteur interne du Numeroteur, sous verrou, jamais exposé.',
+        ProductOrderSetting::class => 'Commande automatique d’un article par clinique (04.11.2026) : toujours lue et écrite avec sa clinique explicite (la clinique ouverte, ou celle dont le stock bouge, une clinique sœur comprise), jamais résolue par une route.',
         Video::class => 'Vidéo de formation vendue sur toute la plateforme (31.10.2026), pas une donnée d’une clinique : les contrôleurs de vente la résolvent explicitement au compte du vendeur ou dans la clinique du jeton, le catalogue la filtre par son public et son état.',
         Societe::class => 'Structure au-dessus des scopes (organisation, sociétés, cliniques) : résolue explicitement depuis l’organisation du jeton, jamais par binding implicite.',
     ];

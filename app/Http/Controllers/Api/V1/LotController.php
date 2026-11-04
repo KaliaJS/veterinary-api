@@ -29,6 +29,8 @@ class LotController extends Controller
 
         $lots = Lot::query()
             ->when($request->integer('produit_id'), fn ($requete, $produit) => $requete->where('produit_id', $produit))
+            // Les lots sans péremption (matériel, accessoires) en dernier
+            ->orderByRaw('peremption_le is null')
             ->orderBy('peremption_le')
             ->orderBy('id')
             ->paginate($this->parPage($request, 100));

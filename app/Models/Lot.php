@@ -49,8 +49,9 @@ class Lot extends Model
     }
 
     /** Péremption rendue au format du front « MM.YYYY ». */
-    public function peremptionAffichee(): string
+    public function peremptionAffichee(): ?string
     {
-        return $this->peremption_le->format('m.Y');
+        // Un lot de matériel ou d'accessoires peut ne pas en avoir (04.11.2026)
+        return $this->peremption_le?->format('m.Y');
     }
 }

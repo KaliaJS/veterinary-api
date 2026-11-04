@@ -6,9 +6,13 @@ use App\Enums\Espece;
 use App\Enums\MoyenPaiement;
 use App\Enums\StatutFacture;
 use App\Enums\StatutPaiement;
+use App\Enums\TypeLigneFacture;
+use App\Enums\VatContext;
+use App\Enums\VatRate;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use App\Services\Facturation\PatientDebts;
 use App\Support\DocumentHeader;
+use App\Support\VatBreakdown;
 use Database\Factories\FactureFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -19,9 +23,9 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 /**
  * La facture suit le patient — NIVEAU ORGANISATION — et garde la
  * clinique d'émission : l'encaissement, les lignes et la clôture de
- * caisse s'y font. Le total est dérivé des lignes, la TVA extraite au
- * taux normal 8.1 % ; jamais de suppression hors fenêtre d'annulation
- * d'une création.
+ * caisse s'y font. Le total est dérivé des lignes, la TVA extraite taux
+ * par taux, chaque ligne au sien (03.11.2026) ; jamais de suppression
+ * hors fenêtre d'annulation d'une création.
  *
  * @property-read bool|null $paye_par_stripe  encaissée par Stripe (`withExists` de la liste des factures)
  */
@@ -30,9 +34,6 @@ class Facture extends Model
     /** @use HasFactory<FactureFactory> */
     use AppartientAUneOrganisation, HasFactory;
 
-    /** Taux normal suisse — le prix des lignes est TTC. */
-    public const float TAUX_TVA = 0.081;
-
     protected $fillable = [
         'organisation_id', 'clinique_id', 'numero', 'emise_le', 'patient_id',
         'client_id', 'patient_name', 'species', 'owner_name', 'ligne_planning_id',
@@ -40,12 +41,17 @@ class Facture extends Model
         'stock_sorti', 'cloture_caisse_id', 'cree_par_id', 'encaissee_par_id', 'acompte', 'taux_tva',
     ];
 
-    /** Le taux de TVA se fige à l'émission, selon la société de la clinique (23.10.2026). */
+    /**
+     * Le taux de TVA se fige à l'émission, selon la société de la clinique
+     * (23.10.2026) : le taux normal, 0 hors assujettissement. Depuis le
+     * 03.11.2026, chaque ligne a le sien ; celui de la facture dit si la
+     * société était assujettie, et reste le taux des lignes d'avant.
+     */
     protected static function booted(): void
     {
         static::creating(function (Facture $facture): void {
             if (! isset($facture->getAttributes()['taux_tva'])) {
-                $facture->taux_tva = Clinique::query()->with('societe')->find($facture->clinique_id)?->societe?->tauxTva() ?? self::TAUX_TVA * 100;
+                $facture->taux_tva = Clinique::query()->with('societe')->find($facture->clinique_id)?->societe?->tauxTva() ?? VatRate::Normal->percent();
             }
             // L'en-tête se fige à l'émission : le client et la clinique de ce jour (02.11.2026)
             if (! isset($facture->getAttributes()['issuer'])) {
@@ -183,11 +189,60 @@ class Facture extends Model
         return max(0.0, round($this->totalTtc() - (float) $this->acompte, 2));
     }
 
+    /**
+     * La TVA par taux : hors taxe, TVA et TTC de chaque taux de ses lignes
+     * (03.11.2026). Vide pour une société non assujettie.
+     *
+     * @return list<array{rate: float, excl_vat: float, vat: float, incl_vat: float}>
+     */
+    public function vatBreakdown(): array
+    {
+        $lignes = $this->relationLoaded('lignes') ? $this->lignes : $this->lignes()->get();
+
+        return VatBreakdown::of($lignes->map(fn (FactureLigne $ligne): array => [
+            'rate' => $ligne->vatRate($this),
+            'amount' => $ligne->quantite * (float) $ligne->prix_chf,
+            // Une part d'acompte garde la TVA arrondie de sa facture d'acompte (04.11.2026)
+            'separate' => $ligne->vat_context === VatContext::Deposit,
+        ]));
+    }
+
+    /**
+     * La facture contient un soin (un acte, même offert) : ses articles peuvent y
+     * être donnés pendant le soin, au taux du soin (vérification du 03.11.2026).
+     */
+    public function hasCare(): bool
+    {
+        $lignes = $this->relationLoaded('lignes') ? $this->lignes : $this->lignes()->get();
+
+        // Un acte, même offert (0 CHF) ; jamais une remise ni une part d'acompte (vérification du 04.11.2026)
+        return $lignes->contains(fn (FactureLigne $ligne): bool => $ligne->type === TypeLigneFacture::Acte
+            && (float) $ligne->prix_chf >= 0
+            && ! in_array($ligne->vat_context, [VatContext::Discount, VatContext::Deposit], true));
+    }
+
+    /** La TVA contenue dans le total : la somme de celle de chaque taux. */
     public function montantTva(): float
     {
-        $total = $this->totalTtc();
+        return VatBreakdown::vat($this->vatBreakdown());
+    }
 
-        return round($total - $total / (1 + $this->taux_tva / 100), 2);
+    /**
+     * Le taux de toutes ses lignes quand elles n'en ont qu'un, sinon null
+     * (plusieurs taux : la TVA se lit taux par taux). Sans ligne, celui de
+     * la facture.
+     */
+    public function tauxUnique(): ?float
+    {
+        $lignes = $this->relationLoaded('lignes') ? $this->lignes : $this->lignes()->get();
+        // Une remise n'a pas de taux : elle se répartit sur ceux des autres lignes
+        $taux = $lignes->map(fn (FactureLigne $ligne): ?float => $ligne->vatRate($this))->filter(fn (?float $t): bool => $t !== null)->unique()->values();
+
+        return match ($taux->count()) {
+            0 => (float) $this->taux_tva,
+            1 => (float) $taux->first(),
+            default => null,
+        };
     }
 
     /** Total hors taxe : le TTC moins la TVA qu'il contient. */

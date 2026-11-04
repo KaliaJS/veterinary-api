@@ -11,9 +11,9 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
  * `statut` est le statut stocké, `statut_effectif` la valeur affichée
- * (un envoyé hors validité sort `expire`) ; totaux et TVA (8.1 %,
- * extraite du TTC remisé comme sur la facture) dérivés des lignes et de
- * la remise.
+ * (un envoyé hors validité sort `expire`) ; totaux et TVA (au taux du
+ * soin, selon l'espèce de l'animal depuis le 03.11.2026, extraite du TTC
+ * remisé comme sur la facture) dérivés des lignes et de la remise.
  *
  * @mixin Devis
  */
@@ -54,7 +54,9 @@ class DevisResource extends JsonResource
             'montant_remise' => $this->whenLoaded('lignes', fn (): float => $this->montantRemise()),
             'montant_acompte' => $this->whenLoaded('lignes', fn (): float => $this->montantAcompte()),
             'total_avec_alea' => $this->whenLoaded('lignes', fn (): float => $this->totalAvecAlea()),
-            'taux_tva' => $this->tauxTva(),
+            // Le taux unique, ou null quand un médicament remis pour la maison en ajoute un (03.11.2026)
+            'taux_tva' => $this->whenLoaded('lignes', fn (): ?float => $this->tauxUnique(), $this->tauxTva()),
+            'vat_breakdown' => $this->whenLoaded('lignes', fn (): array => $this->vatBreakdown()),
             'lignes' => $this->whenLoaded(
                 'lignes',
                 fn () => $this->lignes->map(fn (DevisLigne $ligne): array => [
@@ -65,6 +67,7 @@ class DevisResource extends JsonResource
                     'total_chf' => round($ligne->quantite * (float) $ligne->prix_chf, 2),
                     'type' => $ligne->type,
                     'produit_id' => $ligne->produit_id,
+                    'vat_context' => $ligne->vat_context,
                 ])->values(),
             ),
             'patient' => new PatientResource($this->whenLoaded('patient')),

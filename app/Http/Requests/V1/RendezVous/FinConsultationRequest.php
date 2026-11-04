@@ -3,8 +3,10 @@
 namespace App\Http\Requests\V1\RendezVous;
 
 use App\Enums\CategorieProduit;
+use App\Enums\VatContext;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 /**
  * Fin de consultation (« Ma journée ») : actes cochés au catalogue,
@@ -39,6 +41,8 @@ class FinConsultationRequest extends FormRequest
             ],
             'medicaments.*.posologie' => ['nullable', 'string', 'max:255'],
             'medicaments.*.duree' => ['nullable', 'string', 'max:255'],
+            // Donné pendant la consultation ou remis au propriétaire ; sans lui, proposé selon l'article (TVA par ligne, 03.11.2026)
+            'medicaments.*.vat_context' => ['sometimes', Rule::in([VatContext::Care->value, VatContext::Sale->value])],
         ];
     }
 }
