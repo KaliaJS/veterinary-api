@@ -174,7 +174,8 @@ class PatientTimelineController extends Controller
     /** @return array<string, mixed> */
     private function appointmentLine(RendezVous $r, bool $isUpcoming): array
     {
-        $report = $r->compteRendu;
+        // Des lignes notées seules ne font pas un compte rendu rédigé (04.11.2026)
+        $report = $r->compteRendu?->estRedige() ? $r->compteRendu : null;
         $isSigned = $report !== null && $report->signe_le !== null;
         $status = match ($r->status) {
             StatutRendezVous::Noshow => 'Non venu',

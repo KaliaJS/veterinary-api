@@ -64,7 +64,7 @@ class CompteRenduController extends Controller
         $compteRendu = DB::transaction(function () use ($request, $rendezVous, $signataire): CompteRendu {
             $compteRendu = $this->ecrire($rendezVous, $request);
 
-            if (collect(['s', 'o', 'a', 'p'])->every(fn (string $k) => trim((string) $compteRendu->{$k}) === '')) {
+            if (collect(['s', 'o', 'a', 'p', 'tool_notes'])->every(fn (string $k) => trim((string) $compteRendu->{$k}) === '')) {
                 throw ValidationException::withMessages(['compte_rendu' => 'Un compte rendu vide ne se signe pas.']);
             }
 
@@ -93,6 +93,44 @@ class CompteRenduController extends Controller
         }
 
         $compteRendu->complements()->create(['texte' => $texte, 'signe_par_id' => $signataire->id]);
+
+        return new CompteRenduResource($this->charger($compteRendu));
+    }
+
+    /**
+     * Une ligne notée par un calculateur (vérification du 04.11.2026) :
+     * ajoutée à la suite des lignes déjà notées, sous verrou, jamais dans le
+     * texte SOAP que le brouillon d'un enregistrement réécrit. Signé, le
+     * compte rendu la reçoit en complément (droit de signer).
+     */
+    public function noterOutil(Request $request, string $rendezVous): CompteRenduResource
+    {
+        $this->authorize('create', CompteRendu::class);
+        $texte = trim((string) $request->validate(['texte' => ['required', 'string', 'max:2000']])['texte']);
+        if ($texte === '') {
+            throw ValidationException::withMessages(['texte' => 'La ligne est vide.']);
+        }
+        /** @var User $auteur */
+        $auteur = $request->user();
+        $rendezVous = $this->rendezVousDeLOrganisation($rendezVous);
+
+        $compteRendu = DB::transaction(function () use ($rendezVous, $texte, $auteur): CompteRendu {
+            // Deux premières lignes en même temps : l'index unique départage, l'autre ligne est reprise
+            $rendezVous->compteRendu()->firstOrCreate([], ['user_id' => $auteur->id]);
+            $compteRendu = $rendezVous->compteRendu()->lockForUpdate()->firstOrFail();
+
+            if ($compteRendu->estSigne()) {
+                Gate::authorize(DomainePermission::SignerComptesRendus->value);
+                $compteRendu->complements()->create(['texte' => $texte, 'signe_par_id' => $this->signataire()->id]);
+
+                return $compteRendu;
+            }
+
+            $avant = trim((string) $compteRendu->tool_notes);
+            $compteRendu->update(['tool_notes' => $avant === '' ? $texte : $avant."\n".$texte]);
+
+            return $compteRendu;
+        });
 
         return new CompteRenduResource($this->charger($compteRendu));
     }
@@ -127,8 +165,12 @@ class CompteRenduController extends Controller
         } else {
             $avant = $compteRendu->only(['s', 'o', 'a', 'p']);
             $compteRendu->fill($texte);
+            // Un compte rendu né d'une ligne notée n'a encore aucun texte : pas de version vide (04.11.2026)
+            $etaitVide = collect($avant)->every(fn ($v): bool => trim((string) $v) === '');
             if ($compteRendu->isDirty(['s', 'o', 'a', 'p'])) {
-                $compteRendu->versions()->create([...$avant, 'user_id' => $compteRendu->user_id, 'redigee_le' => $compteRendu->updated_at ?? now()]);
+                if (! $etaitVide) {
+                    $compteRendu->versions()->create([...$avant, 'user_id' => $compteRendu->user_id, 'redigee_le' => $compteRendu->updated_at ?? now()]);
+                }
                 $compteRendu->user_id = $auteur->id;
             }
             $compteRendu->save();

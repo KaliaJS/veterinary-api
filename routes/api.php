@@ -175,6 +175,7 @@ use App\Http\Controllers\Api\V1\StatistiquesCaisseController;
 use App\Http\Controllers\Api\V1\StayNoteController;
 use App\Http\Controllers\Api\V1\StayRoundController;
 use App\Http\Controllers\Api\V1\StayTreatmentController;
+use App\Http\Controllers\Api\V1\Stocks\StockWatchController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubstanceStupefiantController;
 use App\Http\Controllers\Api\V1\SuggestionDiagnostiqueController;
@@ -734,6 +735,8 @@ Route::prefix('v1')->group(function (): void {
         Route::put('rendez-vous/{rendezVous}/compte-rendu', [CompteRenduController::class, 'enregistrer']);
         Route::post('rendez-vous/{rendezVous}/compte-rendu/signer', [CompteRenduController::class, 'signer']);
         Route::post('rendez-vous/{rendezVous}/compte-rendu/complements', [CompteRenduController::class, 'completer']);
+        // Une ligne notée par un calculateur, à part du texte SOAP (04.11.2026)
+        Route::post('rendez-vous/{rendezVous}/compte-rendu/outils', [CompteRenduController::class, 'noterOutil'])->middleware('throttle:60,1');
         Route::get('rendez-vous/{rendezVous}/compte-rendu/historique', [CompteRenduController::class, 'historique']);
 
         // Transcription des consultations (19.10.2026) — l'audio arrive
@@ -940,6 +943,8 @@ Route::prefix('v1')->group(function (): void {
 
         Route::middleware('can:stocks')->prefix('stocks')->group(function (): void {
             Route::get('produits', [ProduitController::class, 'index']);
+            // « À surveiller » : la plus proche péremption de chaque article et le stock bas, avec leurs comptes (04.11.2026)
+            Route::get('surveillance', StockWatchController::class);
             Route::post('produits/{produit}/vetpoint', [ProduitVetpointController::class, 'store']);
             Route::delete('produits/{produit}/vetpoint', [ProduitVetpointController::class, 'destroy']);
             Route::post('produits', [ProduitController::class, 'store']);

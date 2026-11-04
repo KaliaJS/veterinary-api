@@ -8,11 +8,14 @@ use Database\Factories\LotFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * Lot de péremption détenu par une clinique (FEFO). Écarter un lot
  * (suppression tolérée) sort le stock avec un mouvement motivé
  * « Péremption » puis supprime la ligne.
+ *
+ * @property Carbon|null $peremption_le vide pour le matériel et les accessoires (migration 000213)
  */
 class Lot extends Model
 {

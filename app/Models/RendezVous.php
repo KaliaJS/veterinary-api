@@ -214,7 +214,8 @@ class RendezVous extends Model
     public function scopeAvecDerives(Builder $query): Builder
     {
         return $query
-            ->withExists('compteRendu')
+            // Un compte rendu rédigé : des lignes notées seules ne comptent pas (04.11.2026)
+            ->withExists(['compteRendu as compte_rendu_exists' => fn ($q) => $q->redige()])
             ->withExists('demandeEnLigne')
             ->addSelect(['no_shows_client' => RendezVous::query()
                 ->withoutGlobalScope('clinique')

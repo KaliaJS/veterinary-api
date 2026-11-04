@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Database\Factories\CompteRenduFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -24,7 +25,7 @@ class CompteRendu extends Model
 
     protected $table = 'comptes_rendus';
 
-    protected $fillable = ['rendez_vous_id', 's', 'o', 'a', 'p', 'user_id', 'signe_le', 'signe_par_id'];
+    protected $fillable = ['rendez_vous_id', 's', 'o', 'a', 'p', 'tool_notes', 'user_id', 'signe_le', 'signe_par_id'];
 
     protected function casts(): array
     {
@@ -35,7 +36,7 @@ class CompteRendu extends Model
     protected static function booted(): void
     {
         static::updating(function (CompteRendu $compteRendu): void {
-            if ($compteRendu->getOriginal('signe_le') !== null && $compteRendu->isDirty(['s', 'o', 'a', 'p', 'signe_le', 'signe_par_id'])) {
+            if ($compteRendu->getOriginal('signe_le') !== null && $compteRendu->isDirty(['s', 'o', 'a', 'p', 'tool_notes', 'signe_le', 'signe_par_id'])) {
                 throw new LogicException('Un compte rendu signé ne change plus : ajoutez un complément.');
             }
         });
@@ -44,6 +45,32 @@ class CompteRendu extends Model
     public function estSigne(): bool
     {
         return $this->signe_le !== null;
+    }
+
+    /** Rédigé : signé, ou un texte SOAP écrit ; des lignes notées seules n'en font pas un (04.11.2026) */
+    public function estRedige(): bool
+    {
+        return $this->estSigne() || collect(['s', 'o', 'a', 'p'])->contains(fn (string $k): bool => trim((string) $this->{$k}) !== '');
+    }
+
+    /**
+     * La même règle en requête.
+     *
+     * @param  Builder<CompteRendu>  $query
+     * @return Builder<CompteRendu>
+     */
+    public function scopeRedige(Builder $query): Builder
+    {
+        // Des blancs seuls (espaces, retours à la ligne, tabulations) ne comptent
+        // pas, comme dans estRedige ; REPLACE et TRIM, communs à MySQL et SQLite
+        $ecrit = "trim(replace(replace(replace(coalesce(%s, ''), ?, ''), ?, ''), ?, '')) <> ''";
+        $blancs = ["\n", "\r", "\t"];
+
+        return $query->where(fn (Builder $q) => $q->whereNotNull('signe_le')
+            ->orWhereRaw(sprintf($ecrit, 's'), $blancs)
+            ->orWhereRaw(sprintf($ecrit, 'o'), $blancs)
+            ->orWhereRaw(sprintf($ecrit, 'a'), $blancs)
+            ->orWhereRaw(sprintf($ecrit, 'p'), $blancs));
     }
 
     /** @return BelongsTo<Employe, $this> */

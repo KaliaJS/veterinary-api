@@ -35,7 +35,7 @@ class RendezVousResource extends JsonResource
             // Dérivés (scope avecDerives sur la liste ; recalculés pour
             // un modèle isolé) : compte rendu SOAP rédigé, no-shows du
             // client toutes cliniques — « NO-SHOW ×N » de la fiche.
-            'a_compte_rendu' => (bool) ($this->compte_rendu_exists ?? $this->compteRendu()->exists()),
+            'a_compte_rendu' => (bool) ($this->compte_rendu_exists ?? $this->compteRendu()->redige()->exists()),
             'no_shows_client' => (int) ($this->no_shows_client ?? $this->noShowsDuClient()),
             // Origine (28.10.2026) : venu d'une demande en ligne, sinon pris par la clinique
             'origine' => (bool) ($this->demande_en_ligne_exists ?? $this->demandeEnLigne()->exists()) ? 'en_ligne' : 'clinique',

@@ -22,6 +22,8 @@ class CompteRenduResource extends JsonResource
             'o' => $this->o,
             'a' => $this->a,
             'p' => $this->p,
+            // Lignes notées par les calculateurs (04.11.2026), à part du texte SOAP
+            'tool_notes' => $this->tool_notes,
             'user_id' => $this->user_id,
             'redige_le' => $this->updated_at,
             'signe_le' => $this->signe_le,
