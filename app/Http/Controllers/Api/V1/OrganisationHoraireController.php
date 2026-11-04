@@ -29,9 +29,9 @@ class OrganisationHoraireController extends Controller
     {
         $horaires = $this->horairesDe($this->cliniqueDeLOrganisation($clinique));
 
-        $horaires->update($request->validated());
+        [$ecrits, $applique] = $horaires->writeDays($request->days(), $request->writer(), $request->seq());
 
-        return new HoraireOuvertureResource($horaires);
+        return (new HoraireOuvertureResource($ecrits->setRelation('clinique', $horaires->clinique)))->applied($applique);
     }
 
     private function cliniqueDeLOrganisation(int $id): Clinique

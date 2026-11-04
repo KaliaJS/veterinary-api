@@ -29,6 +29,7 @@ use App\Rules\AdresseSansAccent;
 use App\Services\CalculateurCreneaux;
 use App\Services\Captcha\Turnstile;
 use App\Services\CodeDemandePublique;
+use App\Services\HorairesSiteWeb;
 use App\Services\Paiements\AcomptesRendezVous;
 use App\Services\Photos\PhotosCliniques;
 use App\Services\SemaineDisponible;
@@ -97,7 +98,7 @@ class CliniqueProprietaireController extends Controller
                 // Les vétérinaires de la clinique, leur compte (badge) et leurs spécialités
                 'employes' => fn ($employes) => $employes->withoutGlobalScope('clinique')->where('acces_suspendu', false),
                 'employes.user.specialites',
-                // L'heure d'ouverture fixe la grille des créneaux proposés
+                // Les plages de chaque jour : la grille des créneaux proposés, les horaires de la fiche
                 'horaireOuverture' => fn ($horaires) => $horaires->withoutGlobalScope('clinique'),
             ])
             ->orderBy('id')
@@ -128,6 +129,8 @@ class CliniqueProprietaireController extends Controller
             // pas ; demandée par son id, elle sert aux créneaux de son site
             'dans_annuaire' => $clinique->estDansLAnnuaire(),
             'creneaux' => $this->retenir($semaines[$clinique->id], $clinique),
+            // Ses plages de la semaine et « ouvert maintenant », dans son fuseau (04.11.2026)
+            'horaires' => app(HorairesSiteWeb::class)->pour($clinique, $clinique->horaireOuverture ?? new HoraireOuverture(HoraireOuverture::DEFAUTS)),
             ...$this->offre($clinique),
         ])->values()->all();
     }
@@ -462,8 +465,8 @@ class CliniqueProprietaireController extends Controller
      * chaque jour, puis on complète chronologiquement.
      *
      * Les heures proposées sont celles de la grille du calendrier (24.10.2026) :
-     * le pas de 20 minutes compté depuis l'ouverture, que la demande exige
-     * ensuite. Avant, au quart d'heure, « le plus vite possible » était
+     * le pas de 20 minutes compté depuis le début de chaque plage (04.11.2026),
+     * que la demande exige ensuite. Avant, au quart d'heure, « le plus vite possible » était
      * refusé.
      *
      * @param  list<Collection<int, array{ligne_planning_id: int, debut: CarbonImmutable, fin: CarbonImmutable}>>  $semaine
@@ -475,8 +478,8 @@ class CliniqueProprietaireController extends Controller
         $pas = self::DUREE_MINUTES * 60;
         $maintenant = now()->getTimestamp();
         $fuseau = $clinique->fuseau_horaire ?? 'Europe/Zurich';
-        $ouverture = CarbonImmutable::parse((string) (($clinique->horaireOuverture ?? new HoraireOuverture(HoraireOuverture::DEFAUTS))->ouverture));
-        $minuteOuverture = $ouverture->hour * 60 + $ouverture->minute;
+        $horaires = $clinique->horaireOuverture ?? new HoraireOuverture(HoraireOuverture::DEFAUTS);
+        $calculateur = app(CalculateurCreneaux::class);
         $parJour = [];
 
         foreach ($semaine as $trous) {
@@ -484,6 +487,12 @@ class CliniqueProprietaireController extends Controller
 
             foreach ($trous as $trou) {
                 $fin = $trou['fin']->getTimestamp();
+                // La grille de la plage du trou : un trou ne franchit jamais la
+                // coupure de midi, l'après-midi a sa grille depuis son début
+                $local = $trou['debut']->setTimezone($fuseau);
+                $minuteTrou = $local->hour * 60 + $local->minute;
+                $plages = $calculateur->bornesDuJour($horaires, $local->startOfDay())['plages'];
+                $minuteOuverture = collect($plages)->first(fn (array $p): bool => $p[0] <= $minuteTrou && $minuteTrou < $p[1])[0] ?? ($plages[0][0] ?? 0);
                 // La première heure de la grille strictement à venir dans ce trou
                 // (« 14:00 » à 14:00:20 donne 14:20 sur une grille de 8:00)
                 $depart = CarbonImmutable::createFromTimestamp(max($trou['debut']->getTimestamp(), $maintenant + 1), $fuseau);

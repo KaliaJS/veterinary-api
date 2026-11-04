@@ -26,7 +26,8 @@ use Illuminate\Support\Collection;
  *
  * Parité front (freeGaps / nextFree, stores/planning.js) : trous
  * ≥ 15 min entre rendez-vous, tampons non occupants, annulés exclus,
- * pause déjeuner comptée occupée sur toutes les lignes, et — pour
+ * coupure de midi (entre deux plages) comptée occupée sur toutes les
+ * lignes, et — pour
  * aujourd'hui — à partir de max(ouverture, maintenant). Les lignes sous
  * absence bloquante sont écartées (la création y est refusée).
  */
@@ -54,42 +55,29 @@ class CalculateurCreneaux
 
     /**
      * Bornes effectives d'un jour donné, en minutes locales depuis
-     * minuit — les zones fermées de la grille en découlent : avant
-     * l'ouverture, après la fermeture, la pause.
+     * minuit, d'après ses plages (horaires jour par jour, 04.11.2026) :
+     * l'ouverture de la première, la fermeture de la dernière, et entre
+     * deux plages la coupure de midi (`pause`), où aucun créneau ne tombe.
+     * Les zones fermées de la grille en découlent. Un jour fermé n'a ni
+     * plage ni bornes.
      *
-     * @return array{fermee: bool, ouverture: int, fermeture: int, pause: array{int, int}|null}
+     * @return array{fermee: bool, ouverture: int, fermeture: int, pause: array{int, int}|null, plages: list<array{int, int}>}
      */
     public function bornesDuJour(HoraireOuverture $horaires, CarbonImmutable $jour): array
     {
-        $ouverture = $this->enMinutes($horaires->ouverture);
-        $fermeture = $this->enMinutes($horaires->fermeture);
-        $fermee = false;
+        $plages = $horaires->rangesOn($jour);
 
-        if ($jour->isSunday()) {
-            $fermee = $horaires->dimanche_ferme;
-        } elseif ($jour->isSaturday()) {
-            $fermee = $horaires->samedi_ferme;
-
-            if ($horaires->fermeture_samedi !== null) {
-                $fermeture = $this->enMinutes($horaires->fermeture_samedi);
-            }
+        if ($plages === []) {
+            return ['fermee' => true, 'ouverture' => 0, 'fermeture' => 0, 'pause' => null, 'plages' => []];
         }
 
-        $fermee = $fermee || $fermeture <= $ouverture;
-
-        $pause = null;
-
-        if (! $fermee && $horaires->pause_active && $horaires->pause_debut !== null && $horaires->pause_fin !== null) {
-            $debut = $this->enMinutes($horaires->pause_debut);
-            $fin = $this->enMinutes($horaires->pause_fin);
-
-            // Parité front : la pause ne compte que si la fermeture la dépasse.
-            if ($fermeture > $fin) {
-                $pause = [$debut, $fin];
-            }
-        }
-
-        return ['fermee' => $fermee, 'ouverture' => $ouverture, 'fermeture' => $fermeture, 'pause' => $pause];
+        return [
+            'fermee' => false,
+            'ouverture' => $plages[0][0],
+            'fermeture' => $plages[count($plages) - 1][1],
+            'pause' => count($plages) > 1 ? [$plages[0][1], $plages[1][0]] : null,
+            'plages' => $plages,
+        ];
     }
 
     /**
@@ -379,8 +367,9 @@ class CalculateurCreneaux
                     : [$this->enMinutesLocales($debut, $minuitLocal, $fuseau), $this->enMinutesLocales($fin, $minuitLocal, $fuseau)];
             }
 
-            if ($bornes['pause'] !== null) {
-                $intervalles[] = $bornes['pause'];
+            // Entre deux plages, la clinique est fermée : la coupure compte occupée
+            for ($p = 1; $p < count($bornes['plages']); $p++) {
+                $intervalles[] = [$bornes['plages'][$p - 1][1], $bornes['plages'][$p][0]];
             }
 
             usort($intervalles, fn (array $a, array $b): int => $a[0] <=> $b[0]);
@@ -431,13 +420,5 @@ class CalculateurCreneaux
         }
 
         return $local->hour * 60 + $local->minute;
-    }
-
-    /** « 08:00 » ou « 08:00:00 » → minutes depuis minuit. */
-    private function enMinutes(string $heure): int
-    {
-        [$heures, $minutes] = explode(':', $heure);
-
-        return (int) $heures * 60 + (int) $minutes;
     }
 }

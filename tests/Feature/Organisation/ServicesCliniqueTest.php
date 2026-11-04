@@ -87,11 +87,12 @@ class ServicesCliniqueTest extends TestCase
         $this->getJson('/api/v1/bloc/interventions', $entetes)->assertForbidden();
         $this->getJson('/api/v1/auth/moi', $entetes)->assertJsonPath('data.clinique.services', ['hospitalisation', 'urgences']);
 
-        // Tout l'état d'un coup : ce qui n'est pas renvoyé est retiré
+        // La liste envoyée remplace la précédente ; le nombre de boxes reste
+        // pour le jour où l'hospitalisation revient (04.11.2026)
         $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/services", $this->reglage([['service' => 'chirurgie']], especes: []), $entetes)
             ->assertOk()
             ->assertJsonPath('data.services', [['service' => 'chirurgie', 'modalite' => null]])
-            ->assertJsonPath('data.nombre_boxes', 0)
+            ->assertJsonPath('data.nombre_boxes', 6)
             ->assertJsonPath('data.especes', []);
 
         $this->getJson('/api/v1/hospitalisation/sejours', $entetes)->assertForbidden();

@@ -7,6 +7,7 @@ use App\Models\Absence;
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
 use App\Models\DerogationPermission;
+use App\Models\HoraireOuverture;
 use App\Models\LignePlanning;
 use App\Models\ListeAttente;
 use App\Models\RendezVous;
@@ -142,7 +143,7 @@ class PlanningPermissionsTest extends TestCase
             ['patchJson', "/api/v1/lignes-planning/{$this->ligne->id}", []],
             ['getJson', '/api/v1/horaires', []],
             ['getJson', '/api/v1/planning/employes', []],
-            ['putJson', '/api/v1/horaires', ['ouverture' => '08:00', 'fermeture' => '19:30', 'pause_active' => false]],
+            ['putJson', '/api/v1/horaires', ['days' => HoraireOuverture::weekLike(['pause_active' => false])]],
             ['getJson', '/api/v1/planning/disponibilites?date='.aujourdhui()->toDateString(), []],
             ['getJson', '/api/v1/rendez-vous', []],
             ['postJson', '/api/v1/rendez-vous', ['ligne_planning_id' => $this->ligne->id, 'starts_at' => $demain, 'duree_minutes' => 20]],

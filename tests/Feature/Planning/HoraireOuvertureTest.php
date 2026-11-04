@@ -3,14 +3,16 @@
 namespace Tests\Feature\Planning;
 
 use App\Models\Clinique;
+use App\Models\HoraireOuverture;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
 /**
- * Horaires, pause et jours fermés : des réglages de clinique, jamais
- * des constantes — créés aux défauts à la première lecture, invariants
- * du data-model à la modification.
+ * Horaires, coupure de midi et jours fermés : des réglages de clinique,
+ * jamais des constantes — créés aux défauts à la première lecture,
+ * invariants vérifiés à la modification. Jour par jour depuis le
+ * 04.11.2026 (OpeningHoursPerDayTest pour les plages).
  */
 class HoraireOuvertureTest extends TestCase
 {
@@ -34,10 +36,10 @@ class HoraireOuvertureTest extends TestCase
     {
         $this->getJson('/api/v1/horaires', $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonPath('data.ouverture', '08:00')
-            ->assertJsonPath('data.fermeture', '19:30')
-            ->assertJsonPath('data.pause_debut', '12:30')
-            ->assertJsonPath('data.dimanche_ferme', true);
+            ->assertJsonPath('data.days.0.ranges.0.start', '08:00')
+            ->assertJsonPath('data.days.0.ranges.1.end', '19:30')
+            ->assertJsonPath('data.days.0.ranges.0.end', '12:30')
+            ->assertJsonPath('data.days.6.is_open', false);
 
         $this->assertDatabaseHas('horaires_ouverture', ['clinique_id' => $this->clinique->id]);
     }
@@ -45,62 +47,46 @@ class HoraireOuvertureTest extends TestCase
     public function test_la_modification_persiste_les_reglages(): void
     {
         $this->putJson('/api/v1/horaires', [
-            'ouverture' => '07:30',
-            'fermeture' => '18:00',
-            'fermeture_samedi' => '13:00',
-            'samedi_ferme' => false,
-            'dimanche_ferme' => false,
-            'pause_active' => false,
+            'days' => HoraireOuverture::weekLike(['ouverture' => '07:30', 'fermeture' => '18:00', 'fermeture_samedi' => '13:00', 'dimanche_ferme' => false, 'pause_active' => false]),
         ], $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonPath('data.ouverture', '07:30')
-            ->assertJsonPath('data.dimanche_ferme', false)
-            ->assertJsonPath('data.pause_active', false);
+            ->assertJsonPath('data.days.0.ranges', [['start' => '07:30', 'end' => '18:00']])
+            ->assertJsonPath('data.days.5.ranges.0.end', '13:00')
+            ->assertJsonPath('data.days.6.is_open', true);
     }
 
     public function test_un_horaire_hors_du_pas_de_15_minutes_est_refuse(): void
     {
         $this->putJson('/api/v1/horaires', [
-            'ouverture' => '08:10',
-            'fermeture' => '19:30',
-            'pause_active' => false,
+            'days' => HoraireOuverture::weekLike(['ouverture' => '08:10', 'pause_active' => false]),
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors('ouverture');
+            ->assertJsonValidationErrors('days.0.ranges.0.start');
     }
 
-    public function test_une_fermeture_a_moins_de_deux_heures_de_l_ouverture_est_refusee(): void
+    public function test_une_plage_trop_courte_est_refusee(): void
     {
         $this->putJson('/api/v1/horaires', [
-            'ouverture' => '08:00',
-            'fermeture' => '09:00',
-            'pause_active' => false,
+            'days' => HoraireOuverture::weekLike(['ouverture' => '08:00', 'fermeture' => '08:15', 'pause_active' => false]),
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors('fermeture');
+            ->assertJsonValidationErrors('days.0.ranges.0.end');
     }
 
-    public function test_une_pause_hors_bornes_est_refusee(): void
+    public function test_une_coupure_qui_chevauche_le_matin_est_refusee(): void
     {
-        $this->putJson('/api/v1/horaires', [
-            'ouverture' => '08:00',
-            'fermeture' => '19:30',
-            'pause_active' => true,
-            'pause_debut' => '08:15',
-            'pause_fin' => '19:15',
-        ], $this->enTetes($this->jeton))
+        $jours = HoraireOuverture::weekLike([]);
+        $jours[0]['ranges'][1]['start'] = '12:00';
+
+        $this->putJson('/api/v1/horaires', ['days' => $jours], $this->enTetes($this->jeton))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['pause_debut', 'pause_fin']);
+            ->assertJsonValidationErrors('days.0.ranges.1.start');
     }
 
-    public function test_la_pause_est_obligatoire_quand_elle_est_active(): void
+    public function test_les_sept_jours_sont_obligatoires(): void
     {
-        $this->putJson('/api/v1/horaires', [
-            'ouverture' => '08:00',
-            'fermeture' => '19:30',
-            'pause_active' => true,
-        ], $this->enTetes($this->jeton))
+        $this->putJson('/api/v1/horaires', [], $this->enTetes($this->jeton))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['pause_debut', 'pause_fin']);
+            ->assertJsonValidationErrors('days');
     }
 }

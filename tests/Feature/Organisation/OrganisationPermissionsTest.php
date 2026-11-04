@@ -6,6 +6,7 @@ use App\Auth\RolesParDefaut;
 use App\Enums\DomainePermission;
 use App\Models\Clinique;
 use App\Models\DerogationPermission;
+use App\Models\HoraireOuverture;
 use App\Models\Role;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -62,7 +63,7 @@ class OrganisationPermissionsTest extends TestCase
             ['deleteJson', '/api/v1/organisation/moyen-paiement', []],
             ['getJson', '/api/v1/organisation/factures', []],
             ['getJson', "/api/v1/organisation/cliniques/{$this->clinique->id}/horaires", []],
-            ['putJson', "/api/v1/organisation/cliniques/{$this->clinique->id}/horaires", ['ouverture' => '08:00', 'fermeture' => '19:30', 'pause_active' => false]],
+            ['putJson', "/api/v1/organisation/cliniques/{$this->clinique->id}/horaires", ['days' => HoraireOuverture::weekLike(['pause_active' => false])]],
         ];
 
         foreach ($appels as [$methode, $uri, $charge]) {

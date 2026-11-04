@@ -72,7 +72,7 @@ class PremiersPasTest extends TestCase
         ]));
         $this->clinique->update(['latitude' => 46.6, 'longitude' => 6.7]);
         $this->travel(1)->minutes();
-        HoraireOuverture::withoutGlobalScopes()->where('clinique_id', $this->clinique->id)->update(['fermeture' => '18:00', 'updated_at' => now()]);
+        HoraireOuverture::withoutGlobalScopes()->where('clinique_id', $this->clinique->id)->update(['days' => json_encode(HoraireOuverture::weekLike(['fermeture' => '18:00'])), 'updated_at' => now()]);
 
         $faites = $this->faites();
         $this->assertTrue($faites['salles']);

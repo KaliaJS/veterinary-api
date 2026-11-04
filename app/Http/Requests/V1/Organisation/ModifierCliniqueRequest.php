@@ -9,6 +9,12 @@ class ModifierCliniqueRequest extends FormRequest
 {
     use ReglesScopees;
 
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return ['nombre_boxes.prohibited' => 'Le nombre de boxes se règle avec l’hospitalisation, dans les services de la clinique.'];
+    }
+
     /** @return array<string, mixed> */
     public function rules(): array
     {
@@ -24,7 +30,9 @@ class ModifierCliniqueRequest extends FormRequest
             'tel' => ['sometimes', 'nullable', 'string', 'max:30'],
             'email' => ['sometimes', 'nullable', 'email', 'max:255'],
             'fuseau_horaire' => ['sometimes', 'timezone'],
-            'nombre_boxes' => ['sometimes', 'integer', 'between:0,50'],
+            // Les boxes se règlent par les services, sous le verrou de la clinique et la garde
+            // des boxes occupés (quatrième passe, 04.11.2026) : jamais par la fiche
+            'nombre_boxes' => ['prohibited'],
         ];
     }
 }

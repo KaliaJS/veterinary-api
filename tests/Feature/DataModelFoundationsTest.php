@@ -30,7 +30,7 @@ class DataModelFoundationsTest extends TestCase
         HoraireOuverture::factory()->create(['clinique_id' => $clinique->id]);
 
         $this->assertNotNull($clinique->societe->organisation);
-        $this->assertTrue($clinique->horaireOuverture->dimanche_ferme);
+        $this->assertFalse($clinique->horaireOuverture->days[6]['is_open']);
         $this->assertContains($clinique->id, $clinique->societe->organisation->cliniques->pluck('id'));
     }
 

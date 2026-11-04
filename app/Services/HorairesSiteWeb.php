@@ -8,9 +8,10 @@ use Carbon\CarbonImmutable;
 
 /**
  * Horaires d'une clinique mis en forme pour le site web (public et
- * aperçu de l'éditeur) : sept jours, plages « 08:00 – 12:30 », statut
- * « Ouvert · jusqu'à … » / « Fermé · ouvre … » dans le fuseau de la
- * clinique — mêmes bornes que le planning, pause comprise.
+ * aperçu de l'éditeur) et l'annuaire : sept jours, chacun avec ses plages
+ * (« 08:00 à 12:00 », « 13:30 à 18:00 » ; demande de Jim, 04.11.2026),
+ * statut « Ouvert · jusqu'à … » / « Fermé · ouvre … » dans le fuseau de
+ * la clinique. Mêmes plages que le planning : fermé pendant la coupure.
  */
 class HorairesSiteWeb
 {
@@ -21,13 +22,14 @@ class HorairesSiteWeb
     /**
      * Lecture seule : sans réglages enregistrés, les valeurs par défaut
      * s'appliquent sans être écrites (l'éditeur lit aussi les cliniques
-     * sœurs, hors de la clinique du jeton).
+     * sœurs, hors de la clinique du jeton). L'annuaire passe les horaires
+     * déjà chargés avec ses cliniques (`$horaires`), sans requête de plus.
      *
      * @return array{jours: list<array{jour: string, est_aujourdhui: bool, plages: list<string>}>, est_ouvert: bool, statut: string}
      */
-    public function pour(Clinique $clinique): array
+    public function pour(Clinique $clinique, ?HoraireOuverture $horaires = null): array
     {
-        $horaires = HoraireOuverture::withoutGlobalScopes()->where('clinique_id', $clinique->id)->first()
+        $horaires ??= HoraireOuverture::withoutGlobalScopes()->where('clinique_id', $clinique->id)->first()
             ?? new HoraireOuverture(HoraireOuverture::DEFAUTS);
         $maintenant = CarbonImmutable::now($clinique->fuseau_horaire ?? 'Europe/Zurich');
         $lundi = $maintenant->startOfWeek(CarbonImmutable::MONDAY)->startOfDay();
@@ -46,20 +48,12 @@ class HorairesSiteWeb
     }
 
     /**
-     * @param  array{fermee: bool, ouverture: int, fermeture: int, pause: array{int, int}|null}  $bornes
-     * @return list<string> « 08:00 – 12:30 », « 14:00 – 19:30 » ; vide si fermé
+     * @param  array{plages: list<array{int, int}>}  $bornes
+     * @return list<string> « 08:00 à 12:30 », « 14:00 à 19:30 » ; vide si fermé
      */
     private function plages(array $bornes): array
     {
-        if ($bornes['fermee']) {
-            return [];
-        }
-
-        $intervalles = $bornes['pause']
-            ? [[$bornes['ouverture'], $bornes['pause'][0]], [$bornes['pause'][1], $bornes['fermeture']]]
-            : [[$bornes['ouverture'], $bornes['fermeture']]];
-
-        return array_map(fn (array $p): string => $this->heure($p[0]).' – '.$this->heure($p[1]), $intervalles);
+        return array_map(fn (array $p): string => $this->heure($p[0]).' à '.$this->heure($p[1]), $bornes['plages']);
     }
 
     /** @return array{est_ouvert: bool, statut: string} */
@@ -71,15 +65,7 @@ class HorairesSiteWeb
             $jour = $maintenant->startOfDay()->addDays($i);
             $bornes = $this->calculateur->bornesDuJour($horaires, $jour);
 
-            if ($bornes['fermee']) {
-                continue;
-            }
-
-            $intervalles = $bornes['pause']
-                ? [[$bornes['ouverture'], $bornes['pause'][0]], [$bornes['pause'][1], $bornes['fermeture']]]
-                : [[$bornes['ouverture'], $bornes['fermeture']]];
-
-            foreach ($intervalles as [$debut, $fin]) {
+            foreach ($bornes['plages'] as [$debut, $fin]) {
                 if ($i === 0 && $minute >= $debut && $minute < $fin) {
                     return ['est_ouvert' => true, 'statut' => 'Ouvert · jusqu’à '.$this->heure($fin)];
                 }

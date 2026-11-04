@@ -169,22 +169,20 @@ class PlanningIsolationTest extends TestCase
 
     public function test_les_horaires_sont_ceux_de_la_clinique_du_jeton(): void
     {
-        HoraireOuverture::factory()->create(['clinique_id' => $this->cliniqueA->id, 'ouverture' => '09:00']);
-        HoraireOuverture::factory()->create(['clinique_id' => $this->cliniqueB->id, 'ouverture' => '07:00']);
+        HoraireOuverture::factory()->create(['clinique_id' => $this->cliniqueA->id, 'days' => HoraireOuverture::weekLike(['ouverture' => '09:00'])]);
+        HoraireOuverture::factory()->create(['clinique_id' => $this->cliniqueB->id, 'days' => HoraireOuverture::weekLike(['ouverture' => '07:00'])]);
 
         $entetes = $this->enTetes($this->jetonA);
 
-        $this->getJson('/api/v1/horaires', $entetes)->assertOk()->assertJsonPath('data.ouverture', '09:00');
+        $this->getJson('/api/v1/horaires', $entetes)->assertOk()->assertJsonPath('data.days.0.ranges.0.start', '09:00');
 
         $this->putJson('/api/v1/horaires', [
-            'ouverture' => '10:00',
-            'fermeture' => '18:00',
-            'pause_active' => false,
+            'days' => HoraireOuverture::weekLike(['ouverture' => '10:00', 'fermeture' => '18:00', 'pause_active' => false]),
         ], $entetes)->assertOk();
 
         $this->assertSame(
             '07:00',
-            substr(HoraireOuverture::withoutGlobalScopes()->where('clinique_id', $this->cliniqueB->id)->sole()->ouverture, 0, 5),
+            HoraireOuverture::withoutGlobalScopes()->where('clinique_id', $this->cliniqueB->id)->sole()->days[0]['ranges'][0]['start'],
         );
     }
 

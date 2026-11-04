@@ -169,7 +169,7 @@ class SiteWebTest extends TestCase
     {
         $soeur = Clinique::factory()->create(['nom' => 'Le Lac', 'societe_id' => $this->clinique->societe_id]);
         HoraireOuverture::withoutGlobalScopes()->create([...HoraireOuverture::DEFAUTS, 'clinique_id' => $this->clinique->id]);
-        HoraireOuverture::withoutGlobalScopes()->create([...HoraireOuverture::DEFAUTS, 'clinique_id' => $soeur->id, 'samedi_ferme' => true, 'pause_active' => false]);
+        HoraireOuverture::withoutGlobalScopes()->create(['clinique_id' => $soeur->id, 'days' => HoraireOuverture::weekLike(['samedi_ferme' => true, 'pause_active' => false])]);
         $this->publier();
 
         // Mercredi 10:00, heure de Zurich.
@@ -179,13 +179,13 @@ class SiteWebTest extends TestCase
             ->assertOk()
             ->assertJsonCount(2, 'data.cliniques')
             ->assertJsonPath('data.cliniques.0.horaires.jours.0.jour', 'Lundi')
-            ->assertJsonPath('data.cliniques.0.horaires.jours.0.plages', ['08:00 – 12:30', '14:00 – 19:30'])
-            ->assertJsonPath('data.cliniques.0.horaires.jours.5.plages', ['08:00 – 12:30', '14:00 – 15:00'])
+            ->assertJsonPath('data.cliniques.0.horaires.jours.0.plages', ['08:00 à 12:30', '14:00 à 19:30'])
+            ->assertJsonPath('data.cliniques.0.horaires.jours.5.plages', ['08:00 à 12:30', '14:00 à 15:00'])
             ->assertJsonPath('data.cliniques.0.horaires.jours.6.plages', [])
             ->assertJsonPath('data.cliniques.0.horaires.jours.2.est_aujourdhui', true)
             ->assertJsonPath('data.cliniques.0.horaires.statut', 'Ouvert · jusqu’à 12:30')
             ->assertJsonPath('data.cliniques.1.nom', 'Le Lac')
-            ->assertJsonPath('data.cliniques.1.horaires.jours.0.plages', ['08:00 – 19:30'])
+            ->assertJsonPath('data.cliniques.1.horaires.jours.0.plages', ['08:00 à 19:30'])
             ->assertJsonPath('data.cliniques.1.horaires.jours.5.plages', [])
             ->assertJsonPath('data.cliniques.1.horaires.statut', 'Ouvert · jusqu’à 19:30');
 

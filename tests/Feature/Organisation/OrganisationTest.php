@@ -13,6 +13,7 @@ use App\Models\Absence;
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
 use App\Models\Employe;
+use App\Models\HoraireOuverture;
 use App\Models\Organisation;
 use App\Models\OrganisationFacture;
 use App\Models\Role;
@@ -180,11 +181,10 @@ class OrganisationTest extends TestCase
 
         $reponse->assertCreated()->assertJsonPath('data.nom', 'Riviera');
 
-        $this->assertDatabaseHas('horaires_ouverture', [
-            'clinique_id' => $reponse->json('data.id'),
-            'ouverture' => '08:00',
-            'fermeture' => '19:30',
-        ]);
+        $this->assertSame(
+            HoraireOuverture::DEFAUTS['days'],
+            HoraireOuverture::withoutGlobalScopes()->where('clinique_id', $reponse->json('data.id'))->sole()->days,
+        );
     }
 
     public function test_la_creation_de_clinique_respecte_la_limite_de_la_formule(): void

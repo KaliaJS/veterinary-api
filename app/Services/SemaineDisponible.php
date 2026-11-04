@@ -8,8 +8,8 @@ use Carbon\CarbonImmutable;
 
 /**
  * Une semaine d'une clinique (du lundi au dimanche), chaque jour avec
- * toutes ses heures d'ouverture au pas d'un rendez-vous, libres ou non
- * (pause exclue, heure passée jamais libre). Une heure est libre si une
+ * toutes ses heures d'ouverture au pas d'un rendez-vous, plage par plage,
+ * libres ou non (coupure de midi exclue, heure passée jamais libre). Une heure est libre si une
  * ligne du planning l'est pour toute la durée demandée. Les jours hors de
  * la période (avant aujourd'hui, après la limite) gardent leur place,
  * `visible` à faux et sans heures. Calendrier des clients (un mois) et de
@@ -24,9 +24,9 @@ class SemaineDisponible
 
     /**
      * L'heure est-elle l'une de celles que montre le calendrier (24.10.2026) :
-     * sur le pas de la grille compté depuis l'ouverture, hors pause, entre
-     * aujourd'hui et la limite ? Une heure à côté de la grille prendrait deux
-     * créneaux à la fois.
+     * sur la grille de sa plage (comptée depuis le début de la plage), hors
+     * coupure, entre aujourd'hui et la limite ? Une heure à côté de la grille
+     * prendrait deux créneaux à la fois.
      */
     public function estUneHeureProposee(Clinique $fiche, CarbonImmutable $debut, CarbonImmutable $limite): bool
     {
@@ -39,14 +39,30 @@ class SemaineDisponible
 
         $horaires = HoraireOuverture::withoutGlobalScope('clinique')->where('clinique_id', $fiche->id)->first()
             ?? new HoraireOuverture(HoraireOuverture::DEFAUTS);
-        $bornes = $this->calculateur->bornesDuJour($horaires, $jour);
         $minute = $local->hour * 60 + $local->minute;
 
-        return ! $bornes['fermee']
-            && $minute >= $bornes['ouverture']
-            && $minute + self::PAS_MINUTES <= $bornes['fermeture']
-            && ($minute - $bornes['ouverture']) % self::PAS_MINUTES === 0
-            && ! ($bornes['pause'] && $minute < $bornes['pause'][1] && $minute + self::PAS_MINUTES > $bornes['pause'][0]);
+        return in_array($minute, self::heuresDesPlages($this->calculateur->bornesDuJour($horaires, $jour)['plages']), true);
+    }
+
+    /**
+     * Les heures proposées d'un jour, en minutes locales : chaque plage a
+     * sa grille, au pas d'un rendez-vous depuis son début (l'après-midi qui
+     * reprend à 13:30 propose 13:30), et un rendez-vous y tient entier.
+     * Rien dans la coupure de midi.
+     *
+     * @param  list<array{int, int}>  $plages
+     * @return list<int>
+     */
+    public static function heuresDesPlages(array $plages): array
+    {
+        $heures = [];
+        foreach ($plages as [$debut, $fin]) {
+            for ($minute = $debut; $minute + self::PAS_MINUTES <= $fin; $minute += self::PAS_MINUTES) {
+                $heures[] = $minute;
+            }
+        }
+
+        return $heures;
     }
 
     /**
@@ -79,10 +95,7 @@ class SemaineDisponible
             // Les trous du jour en horodatages : une heure est libre si un trou la contient entière
             $libres = $trous[$i]->map(fn (array $trou): array => [$trou['debut']->getTimestamp(), $trou['fin']->getTimestamp()])->all();
             $heures = [];
-            for ($minute = $bornes['ouverture']; ! $bornes['fermee'] && $minute + self::PAS_MINUTES <= $bornes['fermeture']; $minute += self::PAS_MINUTES) {
-                if ($bornes['pause'] && $minute < $bornes['pause'][1] && $minute + self::PAS_MINUTES > $bornes['pause'][0]) {
-                    continue;
-                }
+            foreach (self::heuresDesPlages($bornes['plages']) as $minute) {
                 $debut = $jour->setTime(intdiv($minute, 60), $minute % 60);
                 $instant = $debut->getTimestamp();
                 $heures[] = [

@@ -298,7 +298,7 @@ class DisponibilitesTest extends TestCase
     public function test_l_annuaire_calcule_toutes_les_cliniques_comme_chacune_dans_son_contexte(): void
     {
         $autre = Clinique::factory()->create();
-        HoraireOuverture::factory()->create(['clinique_id' => $autre->id, 'samedi_ferme' => true]);
+        HoraireOuverture::factory()->create(['clinique_id' => $autre->id, 'days' => HoraireOuverture::weekLike(['samedi_ferme' => true])]);
         $ligneAutre = LignePlanning::factory()->create(['clinique_id' => $autre->id]);
         $sansHoraires = Clinique::factory()->create();
         LignePlanning::factory()->create(['clinique_id' => $sansHoraires->id]);
@@ -326,7 +326,7 @@ class DisponibilitesTest extends TestCase
         if ($jour->isPast()) {
             $jour = CarbonImmutable::parse('last sunday of october '.($annee + 1));
         }
-        HoraireOuverture::query()->where('clinique_id', $this->clinique->id)->update(['dimanche_ferme' => false, 'pause_active' => false]);
+        HoraireOuverture::query()->where('clinique_id', $this->clinique->id)->update(['days' => json_encode(HoraireOuverture::weekLike(['dimanche_ferme' => false, 'pause_active' => false]))]);
 
         $local = fn (int $heure): CarbonImmutable => CarbonImmutable::parse($jour->toDateString(), 'Europe/Zurich')->setTime($heure, 0);
         RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $this->ligne->id, 'starts_at' => $local(10)->utc(), 'ends_at' => $local(11)->utc()]);

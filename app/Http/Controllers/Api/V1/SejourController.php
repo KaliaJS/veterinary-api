@@ -54,7 +54,11 @@ class SejourController extends Controller
             // Sous verrou, revérifié (24.10.2026) : deux admissions envoyées en
             // même temps ne prennent ni le même patient ni le même box
             Patient::withoutGlobalScopes()->whereKey($donnees['patient_id'])->lockForUpdate()->first();
-            Clinique::withoutGlobalScopes()->whereKey(app(ContexteClinique::class)->cliniqueId())->lockForUpdate()->first();
+            $clinique = Clinique::withoutGlobalScopes()->whereKey(app(ContexteClinique::class)->cliniqueId())->lockForUpdate()->first();
+            // La capacité, relue sous le même verrou que les services de la clinique (04.11.2026)
+            if ($clinique !== null && (int) $donnees['box'] > (int) $clinique->nombre_boxes) {
+                throw ValidationException::withMessages(['box' => "La clinique compte {$clinique->nombre_boxes} boxes."]);
+            }
             if (Sejour::withoutGlobalScope('clinique')->enCours()->where('patient_id', $donnees['patient_id'])->exists()) {
                 throw ValidationException::withMessages(['patient_id' => 'Ce patient est déjà hospitalisé.']);
             }
@@ -108,7 +112,11 @@ class SejourController extends Controller
             // (24.10.2026) : un transfert et une admission au même instant ne
             // mettent pas deux séjours dans le même box
             if (array_key_exists('box', $donnees) && (int) $donnees['box'] !== (int) $sejour->box) {
-                Clinique::withoutGlobalScopes()->whereKey(app(ContexteClinique::class)->cliniqueId())->lockForUpdate()->first();
+                $clinique = Clinique::withoutGlobalScopes()->whereKey(app(ContexteClinique::class)->cliniqueId())->lockForUpdate()->first();
+                // La capacité, relue sous le verrou (04.11.2026)
+                if ($clinique !== null && (int) $donnees['box'] > (int) $clinique->nombre_boxes) {
+                    throw ValidationException::withMessages(['box' => "La clinique compte {$clinique->nombre_boxes} boxes."]);
+                }
                 if (Sejour::query()->enCours()->where('box', $donnees['box'])->whereKeyNot($sejour->id)->exists()) {
                     throw ValidationException::withMessages(['box' => 'Ce box est occupé par un séjour en cours.']);
                 }

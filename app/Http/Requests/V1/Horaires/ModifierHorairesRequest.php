@@ -6,9 +6,12 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 
 /**
- * Invariants des réglages (docs/data-model.md §3 — Horaires) : pas de
- * 15 min, fermeture ≥ ouverture + 2 h, pause commençant ≥ 30 min après
- * l'ouverture, finissant ≥ 30 min avant la fermeture, durée ≥ 15 min.
+ * Horaires jour par jour (demande de Jim, 04.11.2026) : les sept jours,
+ * du lundi au dimanche, chacun ouvert ou fermé, avec une ou deux plages
+ * (matin et après-midi). Au pas de 15 minutes ; une plage dure au moins
+ * 30 minutes ; l'après-midi reprend au moins 15 minutes après la fin du
+ * matin. Un jour fermé peut garder ses plages, pour les retrouver quand
+ * il rouvre. Chaque erreur se range sous son jour (`days.2.ranges.1.start`).
  */
 class ModifierHorairesRequest extends FormRequest
 {
@@ -16,68 +19,92 @@ class ModifierHorairesRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'ouverture' => ['required', 'date_format:H:i'],
-            'fermeture' => ['required', 'date_format:H:i'],
-            'fermeture_samedi' => ['sometimes', 'nullable', 'date_format:H:i'],
-            'samedi_ferme' => ['sometimes', 'boolean'],
-            'dimanche_ferme' => ['sometimes', 'boolean'],
-            'pause_active' => ['sometimes', 'boolean'],
-            'pause_debut' => ['nullable', 'date_format:H:i', 'required_if_accepted:pause_active'],
-            'pause_fin' => ['nullable', 'date_format:H:i', 'required_if_accepted:pause_active'],
+            'days' => ['required', 'array', 'size:7'],
+            'days.*' => ['required', 'array'],
+            'days.*.is_open' => ['required', 'boolean'],
+            'days.*.ranges' => ['present', 'array', 'max:2'],
+            'days.*.ranges.*.start' => ['required', 'date_format:H:i'],
+            'days.*.ranges.*.end' => ['required', 'date_format:H:i'],
+            // L'onglet qui envoie (tiré au hasard à son ouverture) et son compteur : un envoi plus
+            // ancien du même onglet n'écrit pas ; un grand numéro ne bloque que son onglet
+            'writer' => ['sometimes', 'nullable', 'uuid'],
+            'seq' => ['required_with:writer', 'nullable', 'integer', 'between:1,1000000000'],
         ];
     }
 
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
-            $minutes = fn (?string $heure): ?int => $heure === null
-                ? null
-                : (int) substr($heure, 0, 2) * 60 + (int) substr($heure, 3, 2);
+            $minutes = fn (string $heure): int => (int) substr($heure, 0, 2) * 60 + (int) substr($heure, 3, 2);
 
-            $champs = ['ouverture', 'fermeture', 'fermeture_samedi', 'pause_debut', 'pause_fin'];
+            foreach ((array) $this->input('days') as $i => $jour) {
+                // Un jour déjà refusé par les règles (forme, nombre de plages) ne se vérifie pas plus loin
+                if (! is_array($jour) || $validator->errors()->hasAny(["days.$i", "days.$i.is_open", "days.$i.ranges", "days.$i.ranges.*"])) {
+                    continue;
+                }
+                $plages = array_values((array) ($jour['ranges'] ?? []));
 
-            foreach ($champs as $champ) {
-                $valeur = $minutes($this->input($champ));
+                if (filter_var($jour['is_open'] ?? false, FILTER_VALIDATE_BOOLEAN) && $plages === []) {
+                    $validator->errors()->add("days.$i.ranges", 'Indiquez au moins une plage pour un jour ouvert.');
+                }
 
-                if ($valeur !== null && $valeur % 15 !== 0) {
-                    $validator->errors()->add($champ, 'Les horaires se règlent au pas de 15 minutes.');
+                foreach ($plages as $j => $plage) {
+                    $cle = "days.$i.ranges.$j";
+                    $debut = $minutes($plage['start']);
+                    $fin = $minutes($plage['end']);
+
+                    foreach (['start' => $debut, 'end' => $fin] as $champ => $valeur) {
+                        if ($valeur % 15 !== 0) {
+                            $validator->errors()->add("$cle.$champ", 'Les horaires se règlent au pas de 15 minutes.');
+                        }
+                    }
+
+                    if ($fin < $debut + 30) {
+                        $validator->errors()->add("$cle.end", 'Une plage dure au moins 30 minutes.');
+                    }
+
+                    if ($j > 0 && $debut < $minutes($plages[$j - 1]['end']) + 15) {
+                        $validator->errors()->add("$cle.start", 'L’après-midi reprend au moins 15 minutes après la fin du matin.');
+                    }
                 }
             }
-
-            $ouverture = $minutes($this->input('ouverture'));
-            $fermeture = $minutes($this->input('fermeture'));
-            $fermetureSamedi = $minutes($this->input('fermeture_samedi'));
-
-            if ($ouverture === null || $fermeture === null) {
-                return;
-            }
-
-            if ($fermeture < $ouverture + 120) {
-                $validator->errors()->add('fermeture', 'La fermeture doit suivre l’ouverture d’au moins 2 heures.');
-            }
-
-            if ($fermetureSamedi !== null && $fermetureSamedi < $ouverture + 120) {
-                $validator->errors()->add('fermeture_samedi', 'La fermeture du samedi doit suivre l’ouverture d’au moins 2 heures.');
-            }
-
-            $pauseDebut = $minutes($this->input('pause_debut'));
-            $pauseFin = $minutes($this->input('pause_fin'));
-
-            if ($pauseDebut === null || $pauseFin === null) {
-                return;
-            }
-
-            if ($pauseDebut < $ouverture + 30) {
-                $validator->errors()->add('pause_debut', 'La pause doit commencer au moins 30 minutes après l’ouverture.');
-            }
-
-            if ($pauseFin > $fermeture - 30) {
-                $validator->errors()->add('pause_fin', 'La pause doit finir au moins 30 minutes avant la fermeture.');
-            }
-
-            if ($pauseFin - $pauseDebut < 15) {
-                $validator->errors()->add('pause_fin', 'La pause dure au moins 15 minutes.');
-            }
         });
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        return [
+            'days.size' => 'Les horaires comptent les sept jours de la semaine.',
+            'days.*.ranges.max' => 'Deux plages au plus par jour : le matin et l’après-midi.',
+            'days.*.ranges.*.start.date_format' => 'Une heure au format 08:00.',
+            'days.*.ranges.*.end.date_format' => 'Une heure au format 18:00.',
+        ];
+    }
+
+    public function writer(): ?string
+    {
+        return $this->validated('writer');
+    }
+
+    public function seq(): ?int
+    {
+        $seq = $this->validated('seq');
+
+        return $seq === null ? null : (int) $seq;
+    }
+
+    /**
+     * Les sept jours tels qu'ils s'enregistrent : ouvert ou fermé, et les
+     * plages dans l'ordre de la journée.
+     *
+     * @return list<array{is_open: bool, ranges: list<array{start: string, end: string}>}>
+     */
+    public function days(): array
+    {
+        return array_map(fn (array $jour): array => [
+            'is_open' => (bool) $jour['is_open'],
+            'ranges' => array_values(array_map(fn (array $plage): array => ['start' => $plage['start'], 'end' => $plage['end']], $jour['ranges'] ?? [])),
+        ], array_values($this->validated('days')));
     }
 }

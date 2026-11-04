@@ -25,9 +25,9 @@ class HoraireOuvertureController extends Controller
         $this->authorize('update', HoraireOuverture::class);
 
         $horaires = $this->horaires();
-        $horaires->update($request->validated());
+        [$ecrits, $applique] = $horaires->writeDays($request->days(), $request->writer(), $request->seq());
 
-        return new HoraireOuvertureResource($horaires);
+        return (new HoraireOuvertureResource($ecrits->setRelation('clinique', $horaires->clinique)))->applied($applique);
     }
 
     /**

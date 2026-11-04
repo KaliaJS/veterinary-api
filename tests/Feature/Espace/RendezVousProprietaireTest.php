@@ -212,7 +212,7 @@ class RendezVousProprietaireTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-10-24 16:00', 'Europe/Zurich'));
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();
         $clinique = Clinique::factory()->dansLAnnuaire()->create(['fuseau_horaire' => 'Europe/Zurich']);
-        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id, 'dimanche_ferme' => false, 'samedi_ferme' => true]);
+        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id, 'days' => HoraireOuverture::weekLike(['dimanche_ferme' => false, 'samedi_ferme' => true])]);
         LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
 
         $creneaux = $this->getJson('/api/v1/espace/cliniques', $this->enTetes($jeton))->assertOk()->json('data.0.creneaux');
@@ -245,14 +245,14 @@ class RendezVousProprietaireTest extends TestCase
     {
         $this->travelTo(CarbonImmutable::parse('next tuesday 14:07:30', 'Europe/Zurich'));
         $clinique = Clinique::factory()->dansLAnnuaire()->create(['fuseau_horaire' => 'Europe/Zurich', 'rdv_sans_compte' => true, 'rdv_a_valider' => true]);
-        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id, 'ouverture' => '08:10']);
+        HoraireOuverture::factory()->create(['clinique_id' => $clinique->id, 'days' => HoraireOuverture::weekLike(['ouverture' => '08:10'])]);
         LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
 
         ['jeton' => $jeton] = $this->proprietaireAvecJeton();
         $creneaux = $this->getJson('/api/v1/espace/cliniques', $this->enTetes($jeton))->assertOk()->json('data.0.creneaux');
         $this->assertCount(3, $creneaux);
-        // 14:07:30 sur une grille qui part de 8:10 : 14:10
-        $this->assertSame('14:10', CarbonImmutable::parse($creneaux[0]['debut'])->setTimezone('Europe/Zurich')->format('H:i'));
+        // 14:07:30 : l'après-midi a sa grille depuis sa reprise à 14:00 (plages jour par jour, 04.11.2026) : 14:20
+        $this->assertSame('14:20', CarbonImmutable::parse($creneaux[0]['debut'])->setTimezone('Europe/Zurich')->format('H:i'));
 
         foreach ($creneaux as $c) {
             ['jeton' => $jeton] = $this->proprietaireAvecJeton();

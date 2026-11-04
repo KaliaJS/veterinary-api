@@ -51,9 +51,9 @@ class OrganisationHorairesTest extends TestCase
         $this->getJson("/api/v1/organisation/cliniques/{$this->cliniqueSoeur->id}/horaires", $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonPath('data.fuseau_horaire', $this->cliniqueSoeur->fuseau_horaire)
-            ->assertJsonPath('data.ouverture', '08:00')
-            ->assertJsonPath('data.fermeture', '19:30')
-            ->assertJsonPath('data.dimanche_ferme', true);
+            ->assertJsonPath('data.days.0.ranges.0.start', '08:00')
+            ->assertJsonPath('data.days.0.ranges.1.end', '19:30')
+            ->assertJsonPath('data.days.6.is_open', false);
 
         $this->assertDatabaseHas('horaires_ouverture', ['clinique_id' => $this->cliniqueSoeur->id]);
         $this->assertDatabaseMissing('horaires_ouverture', ['clinique_id' => $this->clinique->id]);
@@ -64,25 +64,20 @@ class OrganisationHorairesTest extends TestCase
         $this->getJson('/api/v1/horaires', $this->enTetes($this->jeton))->assertOk();
 
         $this->putJson("/api/v1/organisation/cliniques/{$this->cliniqueSoeur->id}/horaires", [
-            'ouverture' => '07:30',
-            'fermeture' => '18:00',
-            'samedi_ferme' => true,
-            'pause_active' => false,
+            'days' => HoraireOuverture::weekLike(['ouverture' => '07:30', 'fermeture' => '18:00', 'samedi_ferme' => true, 'pause_active' => false]),
         ], $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonPath('data.ouverture', '07:30')
-            ->assertJsonPath('data.fermeture', '18:00')
-            ->assertJsonPath('data.samedi_ferme', true)
-            ->assertJsonPath('data.pause_active', false);
+            ->assertJsonPath('data.days.0.ranges', [['start' => '07:30', 'end' => '18:00']])
+            ->assertJsonPath('data.days.5.is_open', false);
 
-        $ouvertures = HoraireOuverture::withoutGlobalScopes()->pluck('ouverture', 'clinique_id');
-        $this->assertStringStartsWith('07:30', $ouvertures[$this->cliniqueSoeur->id]);
-        $this->assertStringStartsWith('08:00', $ouvertures[$this->clinique->id]);
+        $jours = HoraireOuverture::withoutGlobalScopes()->get()->keyBy('clinique_id');
+        $this->assertSame('07:30', $jours[$this->cliniqueSoeur->id]->days[0]['ranges'][0]['start']);
+        $this->assertSame('08:00', $jours[$this->clinique->id]->days[0]['ranges'][0]['start']);
 
         // La lecture « clinique du jeton » n'a pas bougé.
         $this->getJson('/api/v1/horaires', $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonPath('data.ouverture', '08:00');
+            ->assertJsonPath('data.days.0.ranges.0.start', '08:00');
     }
 
     public function test_les_horaires_d_une_clinique_creee_se_posent_dans_la_foulee(): void
@@ -97,15 +92,11 @@ class OrganisationHorairesTest extends TestCase
         ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
 
         $this->putJson("/api/v1/organisation/cliniques/{$id}/horaires", [
-            'ouverture' => '09:00',
-            'fermeture' => '17:00',
-            'pause_active' => true,
-            'pause_debut' => '12:00',
-            'pause_fin' => '13:00',
+            'days' => HoraireOuverture::weekLike(['ouverture' => '09:00', 'fermeture' => '17:00', 'pause_debut' => '12:00', 'pause_fin' => '13:00']),
         ], $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonPath('data.ouverture', '09:00')
-            ->assertJsonPath('data.pause_debut', '12:00');
+            ->assertJsonPath('data.days.0.ranges.0.start', '09:00')
+            ->assertJsonPath('data.days.0.ranges.0.end', '12:00');
 
         $this->assertSame(1, HoraireOuverture::withoutGlobalScopes()->where('clinique_id', $id)->count());
     }
@@ -113,24 +104,21 @@ class OrganisationHorairesTest extends TestCase
     public function test_les_invariants_des_horaires_s_appliquent_aussi_depuis_l_organisation(): void
     {
         $this->putJson("/api/v1/organisation/cliniques/{$this->cliniqueSoeur->id}/horaires", [
-            'ouverture' => '08:10',
-            'fermeture' => '09:00',
+            'days' => HoraireOuverture::weekLike(['ouverture' => '08:10', 'fermeture' => '08:30', 'pause_active' => false]),
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['ouverture', 'fermeture']);
+            ->assertJsonValidationErrors(['days.0.ranges.0.start', 'days.0.ranges.0.end']);
     }
 
     public function test_la_clinique_du_jeton_elle_meme_est_atteignable_par_l_organisation(): void
     {
         $this->putJson("/api/v1/organisation/cliniques/{$this->clinique->id}/horaires", [
-            'ouverture' => '08:00',
-            'fermeture' => '20:00',
-            'pause_active' => false,
+            'days' => HoraireOuverture::weekLike(['fermeture' => '20:00', 'pause_active' => false]),
         ], $this->enTetes($this->jeton))->assertOk();
 
         $this->getJson('/api/v1/horaires', $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonPath('data.fermeture', '20:00');
+            ->assertJsonPath('data.days.0.ranges.0.end', '20:00');
     }
 
     public function test_une_clinique_d_une_autre_organisation_est_introuvable(): void
@@ -138,11 +126,7 @@ class OrganisationHorairesTest extends TestCase
         $this->getJson("/api/v1/organisation/cliniques/{$this->cliniqueEtrangere->id}/horaires", $this->enTetes($this->jeton))
             ->assertNotFound();
 
-        $this->putJson("/api/v1/organisation/cliniques/{$this->cliniqueEtrangere->id}/horaires", [
-            'ouverture' => '07:00',
-            'fermeture' => '18:00',
-            'pause_active' => false,
-        ], $this->enTetes($this->jeton))->assertNotFound();
+        $this->putJson("/api/v1/organisation/cliniques/{$this->cliniqueEtrangere->id}/horaires", ['days' => HoraireOuverture::weekLike(['pause_active' => false])], $this->enTetes($this->jeton))->assertNotFound();
 
         $this->assertDatabaseMissing('horaires_ouverture', ['clinique_id' => $this->cliniqueEtrangere->id]);
     }
@@ -153,18 +137,10 @@ class OrganisationHorairesTest extends TestCase
         // mais pas `organisation` : les cliniques sœurs lui échappent.
         ['jeton' => $jetonVeterinaire] = $this->employeAvecJeton($this->clinique);
 
-        $this->putJson('/api/v1/horaires', [
-            'ouverture' => '08:00',
-            'fermeture' => '19:30',
-            'pause_active' => false,
-        ], $this->enTetes($jetonVeterinaire))->assertOk();
+        $this->putJson('/api/v1/horaires', ['days' => HoraireOuverture::weekLike(['pause_active' => false])], $this->enTetes($jetonVeterinaire))->assertOk();
 
         $this->getJson("/api/v1/organisation/cliniques/{$this->cliniqueSoeur->id}/horaires", $this->enTetes($jetonVeterinaire))
             ->assertForbidden();
-        $this->putJson("/api/v1/organisation/cliniques/{$this->cliniqueSoeur->id}/horaires", [
-            'ouverture' => '08:00',
-            'fermeture' => '19:30',
-            'pause_active' => false,
-        ], $this->enTetes($jetonVeterinaire))->assertForbidden();
+        $this->putJson("/api/v1/organisation/cliniques/{$this->cliniqueSoeur->id}/horaires", ['days' => HoraireOuverture::weekLike(['pause_active' => false])], $this->enTetes($jetonVeterinaire))->assertForbidden();
     }
 }

@@ -603,8 +603,9 @@ Route::prefix('v1')->group(function (): void {
         // de NIVEAU ORGANISATION (partagés entre les cliniques du
         // jeton) ; jamais de suppression de fiche. Les enfants du
         // dossier se résolvent toujours via le patient.
-        // Le NPA remplit la localité : répertoire officiel de swisstopo, hors ligne (03.11.2026)
-        Route::get('localites', LocalityController::class)->middleware('can:patients');
+        // Le NPA remplit la localité : répertoire officiel de swisstopo, hors ligne (03.11.2026).
+        // Droit Patients ou Organisation, vérifié dans le contrôleur (création d'une clinique, 04.11.2026)
+        Route::get('localites', LocalityController::class);
         Route::apiResource('clients', ClientController::class)->except('destroy');
         // L'historique d'un propriétaire sur un fil (fenêtre propriétaire, 03.11.2026)
         Route::get('clients/{client}/historique', ClientHistoryController::class);

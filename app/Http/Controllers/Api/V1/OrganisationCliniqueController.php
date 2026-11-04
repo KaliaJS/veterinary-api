@@ -24,7 +24,7 @@ use Illuminate\Validation\ValidationException;
  * Cliniques de l'organisation (écran Organisation). Modèle de
  * structure : résolution explicite depuis l'organisation du jeton,
  * jamais par binding implicite. La création respecte la limite de la
- * formule et pose les horaires par défaut ; la suppression est tolérée
+ * formule et pose les horaires (par défaut, ou ceux d'une autre clinique) ; la suppression est tolérée
  * pour une clinique vide seulement — une clinique avec historique se
  * désactive, elle ne s'efface pas (docs/data-model.md, décisions
  * ouvertes) — et jamais la dernière.
@@ -95,6 +95,7 @@ class OrganisationCliniqueController extends Controller
                 'latitude' => $donnees['latitude'] ?? null,
                 'longitude' => $donnees['longitude'] ?? null,
                 'tel' => $donnees['tel'] ?? null,
+                'email' => $donnees['email'] ?? null,
                 'fuseau_horaire' => $donnees['fuseau_horaire'] ?? 'Europe/Zurich',
                 'nombre_boxes' => $donnees['nombre_boxes'] ?? 0,
             ]);
@@ -104,9 +105,15 @@ class OrganisationCliniqueController extends Controller
             // clinique visée n'est pas celle du jeton : geste de
             // structure, l'invariant d'écriture locale est contourné
             // explicitement (comme l'embauche multi-cliniques).
+            // Les horaires d'une autre clinique de l'organisation, quand la
+            // création les reprend (04.11.2026)
+            $modele = isset($donnees['hours_from'])
+                ? HoraireOuverture::withoutGlobalScopes()->where('clinique_id', $donnees['hours_from'])->value('days')
+                : null;
             HoraireOuverture::withoutEvents(fn () => HoraireOuverture::create([
                 'clinique_id' => $clinique->id,
                 ...HoraireOuverture::DEFAUTS,
+                ...($modele !== null ? ['days' => is_string($modele) ? json_decode($modele, true) : $modele] : []),
             ]));
 
             return $clinique;
