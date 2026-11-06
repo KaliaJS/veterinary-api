@@ -45,6 +45,8 @@ class RendezVousController extends Controller
             ->when($request->date('du'), fn ($requete, $du) => $requete->where('ends_at', '>', $du))
             ->when($request->date('au'), fn ($requete, $au) => $requete->where('starts_at', '<', $au))
             ->when($request->integer('ligne_planning_id'), fn ($requete, $ligne) => $requete->where('ligne_planning_id', $ligne))
+            // Le dossier d'un animal (onglet Rendez-vous, 05.11.2026), comme les factures
+            ->when($request->integer('patient_id'), fn ($requete, int $patient) => $requete->where('patient_id', $patient))
             ->when($request->boolean('actifs'), fn ($requete) => $requete
                 ->where('status', '!=', StatutRendezVous::Annule)
                 ->where('type', '!=', TypeRendezVous::Tampon))

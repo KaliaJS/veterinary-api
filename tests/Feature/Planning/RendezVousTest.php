@@ -359,6 +359,31 @@ class RendezVousTest extends TestCase
             ->assertJsonPath('meta.total', 3);
     }
 
+    /** Le dossier patient (onglet Rendez-vous, 05.11.2026) : les rendez-vous d'un seul animal, annulés compris. */
+    public function test_le_filtre_patient_id_ne_sert_que_les_rendez_vous_de_cet_animal(): void
+    {
+        $organisation = $this->clinique->societe->organisation_id;
+        $client = Client::factory()->create(['organisation_id' => $organisation]);
+        $bagheera = Patient::factory()->create(['organisation_id' => $organisation, 'client_id' => $client->id]);
+        $jazz = Patient::factory()->create(['organisation_id' => $organisation, 'client_id' => $client->id]);
+
+        $controle = $this->rendezVous(['patient_id' => $bagheera->id, 'client_id' => $client->id]);
+        $annule = $this->rendezVous(['patient_id' => $bagheera->id, 'client_id' => $client->id, 'status' => StatutRendezVous::Annule]);
+        $this->rendezVous(['patient_id' => $jazz->id, 'client_id' => $client->id]);
+        $this->rendezVous(['patient_id' => null, 'client_id' => null]);
+
+        $ids = collect($this->getJson("/api/v1/rendez-vous?patient_id={$bagheera->id}&per_page=100", $this->enTetes($this->jeton))
+            ->assertOk()
+            ->json('data'))->pluck('id')->sort()->values()->all();
+
+        $this->assertSame(collect([$controle->id, $annule->id])->sort()->values()->all(), $ids);
+
+        // Sans le filtre, la liste reste celle de toute la clinique
+        $this->getJson('/api/v1/rendez-vous?per_page=1', $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('meta.total', 4);
+    }
+
     public function test_la_suppression_est_toleree_dans_la_fenetre_d_undo_de_la_creation(): void
     {
         $id = $this->postJson('/api/v1/rendez-vous', [
