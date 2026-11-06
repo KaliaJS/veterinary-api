@@ -434,7 +434,8 @@ class PushNotificationsTest extends TestCase
     public function test_un_rendez_vous_cree_par_la_clinique_previent_le_proprietaire_confirme(): void
     {
         Queue::fake([SendPush::class]);
-        $this->travelTo(CarbonImmutable::now('Europe/Zurich')->setTime(9, 0));
+        // Un mardi : la clinique est ouverte, quel que soit le jour où le test tourne (07.11.2026)
+        $this->travelTo(CarbonImmutable::now('Europe/Zurich')->next('Tuesday')->setTime(9, 0));
         $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
         HoraireOuverture::factory()->create(['clinique_id' => $clinique->id]);
         $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
