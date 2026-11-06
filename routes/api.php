@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\V1\Auth\SessionController;
 use App\Http\Controllers\Api\V1\BlocOccupancyController;
 use App\Http\Controllers\Api\V1\BoutiquePaiementController;
 use App\Http\Controllers\Api\V1\CarnetSanteController;
+use App\Http\Controllers\Api\V1\CashStatisticsController;
 use App\Http\Controllers\Api\V1\CatalogueSearchController;
 use App\Http\Controllers\Api\V1\ChecklistInterventionController;
 use App\Http\Controllers\Api\V1\ClicheDicomController;
@@ -778,6 +779,8 @@ Route::prefix('v1')->group(function (): void {
         Route::middleware('can:facturation')->prefix('facturation')->group(function (): void {
             Route::get('prestations', [PrestationController::class, 'index']);
             Route::get('statistiques', StatistiquesCaisseController::class);
+            // L'onglet Statistiques sur une période choisie (06.11.2026)
+            Route::get('statistics', CashStatisticsController::class);
 
             Route::get('factures', [FactureController::class, 'index']);
             Route::get('factures/journal', JournalFacturesController::class);

@@ -21,6 +21,8 @@ class UpdateStaffPreferencesRequest extends FormRequest
             'hide_non_favorite_tools' => ['sometimes', 'boolean'],
             // Schéma dentaire (04.11.2026) : A fiche AVDC, B carte en couleur, C vue de côté, D quadrants
             'dental_chart_view' => ['sometimes', 'string', Rule::in(['A', 'B', 'C', 'D'])],
+            // Statistiques de la Caisse (06.11.2026) : barres ou courbe
+            'stats_chart_style' => ['sometimes', 'string', Rule::in(['bars', 'line'])],
         ];
     }
 
@@ -34,6 +36,7 @@ class UpdateStaffPreferencesRequest extends FormRequest
             'tool_favorites.*' => 'Cet outil n’existe pas.',
             'hide_non_favorite_tools.boolean' => 'Choisissez oui ou non.',
             'dental_chart_view' => 'Cette vue du schéma dentaire n’existe pas.',
+            'stats_chart_style' => 'Choisissez les barres ou la courbe.',
         ];
     }
 }
