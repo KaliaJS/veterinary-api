@@ -32,10 +32,15 @@ use Illuminate\Support\Collection;
  * Les colonnes et les horaires se lisent une fois (load), puis chaque
  * période coûte deux requêtes (absences, rendez-vous), quel que soit le
  * nombre de jours, de colonnes ou de rendez-vous ; les rendez-vous se
- * lisent en flux, colonne après colonne (vérification du 06.11.2026).
+ * lisent par paquets de mille, colonne après colonne (06.11.2026, puis
+ * 07.11.2026 : sous MySQL, une requête lue « ligne à ligne » garde quand
+ * même tout son résultat en mémoire).
  */
 class PlanningOccupancy
 {
+    /** Les rendez-vous d'un paquet */
+    private const int CHUNK = 1000;
+
     /** @var Collection<int, LignePlanning> */
     private Collection $lanes;
 
@@ -94,7 +99,7 @@ class PlanningOccupancy
         }
 
         $absent = $this->absences($from, $to);
-        // Les rendez-vous lus en flux, colonne après colonne : seuls ceux de la colonne en cours sont en mémoire
+        // Les rendez-vous lus par paquets de mille, colonne après colonne : seuls ceux de la colonne en cours et du paquet sont en mémoire
         $rows = $this->bookingRows($from, $to);
         $windows = [];
 
@@ -183,23 +188,34 @@ class PlanningOccupancy
 
     /**
      * Les rendez-vous qui occupent (ni annulés, ni tampons), triés par
-     * colonne, en une requête lue ligne à ligne.
+     * colonne, lus par paquets de mille : chaque paquet reprend après le
+     * dernier lu (colonne, puis numéro d'ordre), une requête par paquet.
      *
      * @return \Generator<int, \stdClass>
      */
     private function bookingRows(string $from, string $to): \Generator
     {
-        // Une marge d'un jour de chaque côté : les fuseaux décalent les bornes
-        yield from RendezVous::withoutGlobalScope('clinique')
-            ->whereIn('ligne_planning_id', $this->lanes->pluck('id')->all())
-            ->where('status', '!=', StatutRendezVous::Annule)
-            ->where('type', '!=', TypeRendezVous::Tampon)
-            ->where('starts_at', '<', CarbonImmutable::parse($to, 'UTC')->addDays(2))
-            ->where('ends_at', '>', CarbonImmutable::parse($from, 'UTC')->subDay())
-            ->orderBy('ligne_planning_id')
-            ->toBase()
-            ->select(['ligne_planning_id', 'starts_at', 'ends_at'])
-            ->cursor();
+        [$lastLane, $lastId] = [0, 0];
+        do {
+            // Une marge d'un jour de chaque côté : les fuseaux décalent les bornes
+            $chunk = RendezVous::withoutGlobalScope('clinique')
+                ->whereIn('ligne_planning_id', $this->lanes->pluck('id')->all())
+                ->where('status', '!=', StatutRendezVous::Annule)
+                ->where('type', '!=', TypeRendezVous::Tampon)
+                ->where('starts_at', '<', CarbonImmutable::parse($to, 'UTC')->addDays(2))
+                ->where('ends_at', '>', CarbonImmutable::parse($from, 'UTC')->subDay())
+                ->where(fn ($after) => $after->where('ligne_planning_id', '>', $lastLane)
+                    ->orWhere(fn ($same) => $same->where('ligne_planning_id', $lastLane)->where('id', '>', $lastId)))
+                ->orderBy('ligne_planning_id')
+                ->orderBy('id')
+                ->limit(self::CHUNK)
+                ->toBase()
+                ->get(['id', 'ligne_planning_id', 'starts_at', 'ends_at']);
+            foreach ($chunk as $row) {
+                yield $row;
+                [$lastLane, $lastId] = [(int) $row->ligne_planning_id, (int) $row->id];
+            }
+        } while ($chunk->count() === self::CHUNK);
     }
 
     /**

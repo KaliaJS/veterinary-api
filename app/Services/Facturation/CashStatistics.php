@@ -37,7 +37,7 @@ use Illuminate\Support\Collection;
  * factures.
  *
  * @phpstan-type PaidInvoice array{clinic: string, lane: string, species: string, method: string, total: float, deposit: float, cashed: float, day: string}
- * @phpstan-type DueInvoice array{id: int, number: string, owner_name: string|null, patient_name: string|null, clinic_id: int, lane: int|null, issued_on: string, age_days: int, amount: float}
+ * @phpstan-type DueInvoice array{issued_at: string, id: int, number: string, owner_name: string|null, patient_name: string|null, clinic_id: int, lane: int|null, issued_on: string, age_days: int, amount: float}
  * @phpstan-type Totals array{revenue: float, count: int, clinic: array<string, array{revenue: float, count: int}>, lane: array<string, array{revenue: float, count: int}>, species: array<string, array{revenue: float, count: int}>, method: array<string, array{revenue: float, count: int}>, payments: array<string, float>}
  * @phpstan-type SlotTotals array{revenue: float, count: int, payments: array<string, float>}
  */
@@ -88,7 +88,7 @@ class CashStatistics
         $slots = $this->slotsOf($from, $to, $granularity);
         $comparisonSlots = $comparison ? $this->comparisonSlotsOf($slots, $comparison[0], $comparison[1], $granularity) : [];
 
-        // Lues en flux et additionnées au fil de l'eau : la mémoire ne dépend pas du nombre de factures
+        // Lues par paquets de mille et additionnées au fil de l'eau : la mémoire ne dépend pas du nombre de factures
         $paid = $this->scanPaid($from, $to, $slots);
         $paidBefore = $comparison ? $this->scanPaid($comparison[0], $comparison[1], $comparisonSlots) : null;
         $acts = $this->acts($from, $to);
@@ -113,7 +113,7 @@ class CashStatistics
             ],
             'comparison' => $comparison ? ['kind' => $compare, 'from' => $comparison[0]->toDateString(), 'to' => $comparison[1]->toDateString()] : null,
             'clinic_id' => $clinicId,
-            'clinics' => $organisationClinics->map(fn (Clinique $clinique): array => ['id' => $clinique->id, 'name' => $clinique->nom])->values()->all(),
+            'clinics' => $organisationClinics->map(fn (Clinique $clinique): array => ['id' => $clinique->id, 'name' => $clinique->nom, 'timezone' => $clinique->fuseau_horaire ?: 'Europe/Zurich'])->values()->all(),
             'indicators' => [
                 'revenue' => $this->figure($current['revenue'], $before['revenue'] ?? null),
                 'paid_count' => $this->figure($current['count'], $before['count'] ?? null),
@@ -157,8 +157,8 @@ class CashStatistics
      * l'an dernier, ou la précédente :
      * - un jour seul : la veille ;
      * - des mois entiers : les mois d'avant ;
-     * - depuis un 1er janvier, dans l'année : les mêmes jours de l'année d'avant ;
-     * - depuis un 1er du mois, dans le mois : les mêmes jours du mois d'avant ;
+     * - depuis un 1er du mois, dans le mois (janvier compris) : les mêmes jours du mois d'avant ;
+     * - depuis un 1er janvier, sur plus d'un mois de l'année : les mêmes jours de l'année d'avant ;
      * - sinon : autant de jours juste avant.
      *
      * @return array{0: CarbonImmutable, 1: CarbonImmutable}|null
@@ -179,15 +179,32 @@ class CashStatistics
 
             return [$from->subMonthsNoOverflow($months), $from->subDay()];
         }
-        if ($from->day === 1 && $from->month === 1 && $to->year === $from->year) {
-            return [$from->subYearNoOverflow(), $to->subYearNoOverflow()];
-        }
+        // Dans un seul mois, même en janvier (« Ce mois » : décembre, 07.11.2026)
         if ($from->day === 1 && $to->year === $from->year && $to->month === $from->month) {
             return [$from->subMonthNoOverflow(), $to->subMonthNoOverflow()];
+        }
+        if ($from->day === 1 && $from->month === 1 && $to->year === $from->year) {
+            return [$from->subYearNoOverflow(), $to->subYearNoOverflow()];
         }
         $days = (int) $from->diffInDays($to) + 1;
 
         return [$from->subDays($days), $from->subDay()];
+    }
+
+    /** Les lignes d'un paquet de factures : une requête par paquet */
+    private const int CHUNK = 1000;
+
+    /**
+     * Les factures d'une requête, lues par paquets de mille dans l'ordre de
+     * leur numéro d'ordre (07.11.2026) : sous MySQL, une requête lue « ligne à
+     * ligne » garde quand même tout son résultat en mémoire.
+     *
+     * @param  Builder<Facture>  $query
+     * @return iterable<int, \stdClass>
+     */
+    private function inChunks(Builder $query): iterable
+    {
+        return $query->toBase()->lazyById(self::CHUNK, 'factures.id', 'id');
     }
 
     /** L'instant UTC où commence ce jour du calendrier de la clinique */
@@ -233,8 +250,9 @@ class CashStatistics
     }
 
     /**
-     * Les factures payées dans la période, lues en flux (une requête, une
-     * ligne à la fois) et additionnées au fil de l'eau : les totaux et leurs
+     * Les factures payées dans la période, lues par paquets de mille (une
+     * requête par paquet, jamais tout le résultat d'un coup : MySQL garde en
+     * mémoire le résultat entier d'une requête) et additionnées au fil de l'eau : les totaux et leurs
      * ventilations, chaque créneau, et les colonnes rencontrées.
      *
      * @param  list<array{from: string, to: string}>  $slots
@@ -246,12 +264,10 @@ class CashStatistics
         $perSlot = array_map(fn (): array => ['revenue' => 0.0, 'count' => 0, 'payments' => array_fill_keys(self::PAYMENT_KEYS, 0.0)], $slots);
         $lanes = [];
 
-        $rows = $this->invoicesWithTotal(['factures.clinique_id', 'factures.ligne_planning_id', 'factures.species', 'factures.moyen_paiement', 'factures.acompte', 'factures.payee_le'])
+        $rows = $this->inChunks($this->invoicesWithTotal(['factures.id', 'factures.clinique_id', 'factures.ligne_planning_id', 'factures.species', 'factures.moyen_paiement', 'factures.acompte', 'factures.payee_le'])
             ->where('statut', StatutFacture::Payee)
             ->where('payee_le', '>=', $this->startOf($from))
-            ->where('payee_le', '<', $this->startOf($to->addDay()))
-            ->toBase()
-            ->cursor();
+            ->where('payee_le', '<', $this->startOf($to->addDay())));
 
         foreach ($rows as $row) {
             $invoice = $this->paidInvoice($row);
@@ -323,8 +339,9 @@ class CashStatistics
     }
 
     /**
-     * Les factures dues à ce jour, lues en flux, les plus anciennes d'abord :
-     * le total et le nombre, l'âge par tranche, et les premières à lister.
+     * Les factures dues à ce jour, lues par paquets de mille : le total et le
+     * nombre, l'âge par tranche, et les plus anciennes à lister (gardées au
+     * fil de la lecture, jamais toutes en mémoire).
      *
      * @return array{total: float, count: int, aging: array<string, array{total: float, count: int}>, listed: list<DueInvoice>, lanes: array<int, true>}
      */
@@ -333,12 +350,10 @@ class CashStatistics
         $out = ['total' => 0.0, 'count' => 0, 'aging' => array_fill_keys(['under_30', 'from_30_to_59', 'over_60'], ['total' => 0.0, 'count' => 0]), 'listed' => [], 'lanes' => []];
         $todayN = CarbonImmutable::parse($today->toDateString());
 
-        $rows = $this->invoicesWithTotal(['factures.id', 'factures.numero', 'factures.owner_name', 'factures.patient_name', 'factures.clinique_id', 'factures.ligne_planning_id', 'factures.acompte', 'factures.emise_le'])
-            ->where('statut', StatutFacture::Due)
-            ->orderBy('emise_le')
-            ->orderBy('factures.id')
-            ->toBase()
-            ->cursor();
+        $rows = $this->inChunks($this->invoicesWithTotal(['factures.id', 'factures.numero', 'factures.owner_name', 'factures.patient_name', 'factures.clinique_id', 'factures.ligne_planning_id', 'factures.acompte', 'factures.emise_le'])
+            ->where('statut', StatutFacture::Due));
+        // Les plus anciennes (émission, puis numéro d'ordre), triées de temps en temps pour rester peu nombreuses
+        $oldest = fn (array $a, array $b): int => [$a['issued_at'], $a['id']] <=> [$b['issued_at'], $b['id']];
 
         foreach ($rows as $row) {
             $issuedOn = (string) $this->localDay((string) $row->emise_le);
@@ -350,22 +365,28 @@ class CashStatistics
             $out['count']++;
             $out['aging'][$bucket]['total'] += $amount;
             $out['aging'][$bucket]['count']++;
-            if (count($out['listed']) < self::DUE_LISTED) {
-                $lane = $row->ligne_planning_id === null ? null : (int) $row->ligne_planning_id;
-                if ($lane !== null) {
-                    $out['lanes'][$lane] = true;
-                }
-                $out['listed'][] = [
-                    'id' => (int) $row->id,
-                    'number' => (string) $row->numero,
-                    'owner_name' => $row->owner_name === null ? null : (string) $row->owner_name,
-                    'patient_name' => $row->patient_name === null ? null : (string) $row->patient_name,
-                    'clinic_id' => (int) $row->clinique_id,
-                    'lane' => $lane,
-                    'issued_on' => $issuedOn,
-                    'age_days' => $age,
-                    'amount' => $amount,
-                ];
+            $out['listed'][] = [
+                'issued_at' => (string) $row->emise_le,
+                'id' => (int) $row->id,
+                'number' => (string) $row->numero,
+                'owner_name' => $row->owner_name === null ? null : (string) $row->owner_name,
+                'patient_name' => $row->patient_name === null ? null : (string) $row->patient_name,
+                'clinic_id' => (int) $row->clinique_id,
+                'lane' => $row->ligne_planning_id === null ? null : (int) $row->ligne_planning_id,
+                'issued_on' => $issuedOn,
+                'age_days' => $age,
+                'amount' => $amount,
+            ];
+            if (count($out['listed']) >= 2 * self::DUE_LISTED) {
+                usort($out['listed'], $oldest);
+                $out['listed'] = array_slice($out['listed'], 0, self::DUE_LISTED);
+            }
+        }
+        usort($out['listed'], $oldest);
+        $out['listed'] = array_slice($out['listed'], 0, self::DUE_LISTED);
+        foreach ($out['listed'] as $invoice) {
+            if ($invoice['lane'] !== null) {
+                $out['lanes'][$invoice['lane']] = true;
             }
         }
         $out['total'] = round($out['total'], 2);
@@ -756,12 +777,12 @@ class CashStatistics
      */
     private function history(CarbonImmutable $today): array
     {
-        $base = fn () => $this->invoicesWithTotal(['factures.payee_le'])
+        $base = fn () => $this->invoicesWithTotal(['factures.id', 'factures.payee_le'])
             ->where('statut', StatutFacture::Payee)
             ->whereNotNull('payee_le')
             ->where('payee_le', '<', $this->startOf($today->addDay()));
 
-        // Le premier jour d'abord (une requête), puis les montants lus en flux
+        // Le premier jour d'abord (une requête), puis les montants lus par paquets de mille
         $firstPaid = Facture::query()->whereIn('clinique_id', $this->clinicIds)->where('statut', StatutFacture::Payee)->whereNotNull('payee_le')->min('payee_le');
         $first = $firstPaid === null ? $today : CarbonImmutable::parse((string) $this->localDay((string) $firstPaid));
         if ($first->greaterThan($today)) {
@@ -770,7 +791,7 @@ class CashStatistics
         $granularity = $first->diffInDays($today) + 1 <= self::HISTORY_DAYS_UP_TO ? 'day' : 'week';
         $points = $this->slotsOf($first, $today, $granularity);
         $sums = array_fill(0, count($points), 0.0);
-        foreach ($base()->toBase()->cursor() as $row) {
+        foreach ($this->inChunks($base()) as $row) {
             $sums[$this->slotIndex($points, (string) $this->localDay((string) $row->payee_le))] += round((float) $row->lines_total, 2);
         }
 

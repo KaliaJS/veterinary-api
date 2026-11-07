@@ -160,6 +160,70 @@ class CashStatisticsTest extends TestCase
             ->assertJsonPath('data.comparison.to', '2026-10-04');
     }
 
+    /** Dernière passe (07.11.2026) : « Ce mois » en janvier se compare à décembre, « Cette année » à l'an d'avant. */
+    public function test_ce_mois_en_janvier_se_compare_a_decembre(): void
+    {
+        $this->stats(['from' => '2026-01-01', 'to' => '2026-01-10', 'compare' => 'previous'])->assertOk()
+            ->assertJsonPath('data.comparison.from', '2025-12-01')
+            ->assertJsonPath('data.comparison.to', '2025-12-10');
+        $this->stats(['from' => '2026-01-01', 'to' => '2026-03-10', 'compare' => 'previous'])->assertOk()
+            ->assertJsonPath('data.comparison.from', '2025-01-01')
+            ->assertJsonPath('data.comparison.to', '2025-03-10');
+    }
+
+    /** Dernière passe (07.11.2026) : chaque clinique sert son fuseau, pour le jour d'aujourd'hui de l'écran. */
+    public function test_les_cliniques_servent_leur_fuseau(): void
+    {
+        $loin = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id, 'fuseau_horaire' => 'Pacific/Kiritimati']);
+
+        $cliniques = collect($this->stats(['from' => '2026-11-02', 'to' => '2026-11-04'])->assertOk()->json('data.clinics'))->keyBy('id');
+        $this->assertSame('Europe/Zurich', $cliniques[$this->clinique->id]['timezone']);
+        $this->assertSame('Pacific/Kiritimati', $cliniques[$loin->id]['timezone']);
+    }
+
+    /**
+     * Dernière passe (07.11.2026) : factures et rendez-vous se lisent par paquets
+     * de mille (une requête par paquet), jamais en un seul résultat que MySQL
+     * garderait tout entier en mémoire ; les chiffres restent justes.
+     */
+    public function test_factures_et_rendez_vous_se_lisent_par_paquets_de_mille(): void
+    {
+        $ligne = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id]);
+        $organisation = $this->clinique->societe->organisation_id;
+        $factures = [];
+        $rendezVous = [];
+        for ($i = 0; $i < 1500; $i++) {
+            // Du lundi 5 au vendredi 9 octobre, toutes les deux minutes et demie dès 8 h à Zurich
+            $quand = CarbonImmutable::parse('2026-10-05 06:00:00', 'UTC')->addDays(intdiv($i, 300))->addSeconds(($i % 300) * 150)->format('Y-m-d H:i:s');
+            $factures[] = ['organisation_id' => $organisation, 'clinique_id' => $this->clinique->id, 'numero' => 'FC-P-'.$i, 'emise_le' => $quand, 'payee_le' => $quand, 'patient_name' => 'Rex', 'species' => 'CH', 'owner_name' => 'M. Test', 'statut' => 'payee', 'moyen_paiement' => 'tpe', 'ligne_planning_id' => $ligne->id, 'stock_sorti' => true, 'acompte' => 0, 'taux_tva' => 8.1, 'created_at' => $quand, 'updated_at' => $quand];
+            $rendezVous[] = ['clinique_id' => $this->clinique->id, 'ligne_planning_id' => $ligne->id, 'patient_name' => 'Rex', 'species' => 'CH', 'owner_name' => 'M. Test', 'type' => 'consult', 'status' => 'fini', 'flags' => '[]', 'reason' => 'Contrôle', 'starts_at' => $quand, 'ends_at' => $quand, 'created_at' => $quand, 'updated_at' => $quand];
+        }
+        foreach (array_chunk($factures, 500) as $paquet) {
+            DB::table('factures')->insert($paquet);
+        }
+        foreach (array_chunk($rendezVous, 500) as $paquet) {
+            DB::table('rendez_vous')->insert($paquet);
+        }
+        DB::statement("insert into facture_lignes (facture_id, libelle, quantite, prix_chf, type, created_at, updated_at) select id, 'Consultation', 1, 10, 'acte', created_at, updated_at from factures where numero like 'FC-P-%'");
+        // Un rendez-vous de 9 h à 10 h le lundi 5 octobre, pour l'occupation
+        DB::table('rendez_vous')->where('ligne_planning_id', $ligne->id)->orderBy('id')->limit(1)->update(['starts_at' => '2026-10-05 07:00:00', 'ends_at' => '2026-10-05 08:00:00']);
+
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $reponse = $this->stats(['from' => '2026-10-05', 'to' => '2026-10-09'])->assertOk();
+        $requetes = array_column(DB::getQueryLog(), 'query');
+        DB::disableQueryLog();
+
+        $reponse->assertJsonPath('data.indicators.revenue.value', 15000)
+            ->assertJsonPath('data.indicators.paid_count.value', 1500)
+            ->assertJsonPath('data.indicators.occupancy.booked_minutes', 60);
+        $this->assertSame(15000, (int) collect($reponse->json('data.history.points'))->sum('revenue'));
+        $parPaquets = fn (string $table): int => count(array_filter($requetes, fn (string $q): bool => str_contains($q, 'from "'.$table.'"') && str_contains($q, 'limit 1000')));
+        // Factures payées (deux paquets) et histoire (deux paquets)
+        $this->assertGreaterThanOrEqual(4, $parPaquets('factures'));
+        $this->assertSame(2, $parPaquets('rendez_vous'));
+    }
+
     /** Vérification du 06.11.2026 (L1) : par semaine, la comparaison garde la même coupe, créneau par créneau. */
     public function test_les_semaines_de_la_comparaison_sont_alignees(): void
     {
