@@ -142,6 +142,37 @@ class FactureController extends Controller
             throw ValidationException::withMessages(['facture' => 'Cette facture vient de la sortie d’un séjour : elle ne se supprime pas, ses lignes se corrigent en caisse.']);
         }
 
+        $this->refuserSiNonSupprimable($request, $facture);
+
+        DB::transaction(function () use ($request, $facture, $stock): void {
+            // Deux suppressions en même temps (07.11.2026) : la facture relue sous
+            // verrou ; déjà supprimée par l'autre, son stock est déjà revenu
+            $verrouillee = Facture::withoutGlobalScopes()->whereKey($facture->id)->lockForUpdate()->first();
+            if ($verrouillee === null) {
+                return;
+            }
+            // Les contrôles refaits sous le verrou (07.11.2026) : un paiement par
+            // terminal a pu démarrer entre-temps
+            $this->refuserSiNonSupprimable($request, $verrouillee);
+            $stock->inverserMouvementsDe(
+                $facture,
+                'Annulation facture '.$facture->numero,
+                $request->user(),
+            );
+
+            $facture->delete();
+        });
+
+        return response()->noContent();
+    }
+
+    /**
+     * Supprimable : aucun paiement en cours, et l'annulation immédiate d'une
+     * création encore due, sans clôture ni décompte, par la même personne.
+     * Vérifié avant, puis refait sous le verrou de la facture.
+     */
+    private function refuserSiNonSupprimable(Request $request, Facture $facture): void
+    {
         // Un paiement Stripe attend le client : il serait encaissé sans facture
         if ($facture->aUnPaiementEnCours()) {
             throw ValidationException::withMessages(['paiements' => 'Un paiement est en cours sur cette facture : annulez-le d’abord.']);
@@ -158,17 +189,5 @@ class FactureController extends Controller
                 'facture' => 'Une facture ne se supprime pas, le journal est immuable. Seule l’annulation immédiate d’une création est tolérée.',
             ]);
         }
-
-        DB::transaction(function () use ($request, $facture, $stock): void {
-            $stock->inverserMouvementsDe(
-                $facture,
-                'Annulation facture '.$facture->numero,
-                $request->user(),
-            );
-
-            $facture->delete();
-        });
-
-        return response()->noContent();
     }
 }

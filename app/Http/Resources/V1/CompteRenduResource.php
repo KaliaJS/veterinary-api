@@ -26,6 +26,10 @@ class CompteRenduResource extends JsonResource
             'tool_notes' => $this->tool_notes,
             'user_id' => $this->user_id,
             'redige_le' => $this->updated_at,
+            // Contrôle de version (06.11.2026) : la version ouverte repart à l'enregistrement
+            'version' => $this->version,
+            'texte_modifie_le' => $this->texte_modifie_le,
+            'modifie_par' => $this->whenLoaded('user', fn () => $this->user?->name),
             'signe_le' => $this->signe_le,
             // Le nom de la fiche d'équipe (un ancien membre devenu trace ne garde que son prénom)
             'signe_par' => $this->signataire->nom ?? null,

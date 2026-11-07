@@ -9,6 +9,8 @@ use Illuminate\Foundation\Http\FormRequest;
  * anamnèse, `o` examen clinique, `a` diagnostic, `p` traitement & plan.
  * `enregistrement_id` : le compte rendu part du brouillon d'un
  * enregistrement de la consultation, que cet enregistrement valide.
+ * `version` : la version ouverte ; dépassée, l'enregistrement est refusé
+ * (409) au lieu d'écraser le texte d'un autre (06.11.2026).
  */
 class EnregistrerCompteRenduRequest extends FormRequest
 {
@@ -21,6 +23,7 @@ class EnregistrerCompteRenduRequest extends FormRequest
             'a' => ['nullable', 'string'],
             'p' => ['nullable', 'string'],
             'enregistrement_id' => ['nullable', 'integer'],
+            'version' => ['nullable', 'integer', 'min:0'],
         ];
     }
 }

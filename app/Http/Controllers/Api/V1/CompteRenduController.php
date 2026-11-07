@@ -15,6 +15,7 @@ use App\Models\EnregistrementConsultation;
 use App\Models\RendezVous;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +35,12 @@ use Illuminate\Validation\ValidationException;
  */
 class CompteRenduController extends Controller
 {
+    /**
+     * Une écriture victime d'un interblocage MySQL (la fin de consultation verrouille
+     * la facture puis le rendez-vous) est rejouée, jamais une erreur 500 (07.11.2026)
+     */
+    private const ESSAIS = 3;
+
     public function afficher(string $rendezVous): CompteRenduResource
     {
         $this->authorize('viewAny', CompteRendu::class);
@@ -48,7 +55,7 @@ class CompteRenduController extends Controller
         $this->authorize('create', CompteRendu::class);
 
         $rendezVous = $this->rendezVousDeLOrganisation($rendezVous);
-        $compteRendu = DB::transaction(fn (): CompteRendu => $this->ecrire($rendezVous, $request));
+        $compteRendu = DB::transaction(fn (): CompteRendu => $this->ecrire($rendezVous, $request), self::ESSAIS);
 
         return new CompteRenduResource($this->charger($compteRendu));
     }
@@ -71,7 +78,7 @@ class CompteRenduController extends Controller
             $compteRendu->update(['signe_le' => now(), 'signe_par_id' => $signataire->id]);
 
             return $compteRendu;
-        });
+        }, self::ESSAIS);
 
         return new CompteRenduResource($this->charger($compteRendu));
     }
@@ -115,6 +122,7 @@ class CompteRenduController extends Controller
         $rendezVous = $this->rendezVousDeLOrganisation($rendezVous);
 
         $compteRendu = DB::transaction(function () use ($rendezVous, $texte, $auteur): CompteRendu {
+            $this->verrouiller($rendezVous);
             // Deux premières lignes en même temps : l'index unique départage, l'autre ligne est reprise
             $rendezVous->compteRendu()->firstOrCreate([], ['user_id' => $auteur->id]);
             $compteRendu = $rendezVous->compteRendu()->lockForUpdate()->firstOrFail();
@@ -130,7 +138,7 @@ class CompteRenduController extends Controller
             $compteRendu->update(['tool_notes' => $avant === '' ? $texte : $avant."\n".$texte]);
 
             return $compteRendu;
-        });
+        }, self::ESSAIS);
 
         return new CompteRenduResource($this->charger($compteRendu));
     }
@@ -155,26 +163,42 @@ class CompteRenduController extends Controller
         /** @var User $auteur */
         $auteur = $request->user();
 
+        $this->verrouiller($rendezVous);
         $compteRendu = $rendezVous->compteRendu()->lockForUpdate()->first();
-        if ($compteRendu?->estSigne()) {
+        // Deux premiers enregistrements en même temps (vérification du 06.11.2026) :
+        // l'index unique départage ; l'autre ligne, née entre-temps, est reprise sous
+        // verrou et passe au contrôle de version (409), jamais une erreur 500
+        $estNe = false;
+        if ($compteRendu === null) {
+            $compteRendu = $rendezVous->compteRendu()->createOrFirst([], ['user_id' => $auteur->id]);
+            $estNe = $compteRendu->wasRecentlyCreated;
+            $compteRendu = $rendezVous->compteRendu()->lockForUpdate()->firstOrFail();
+        }
+        if ($compteRendu->estSigne()) {
+            // Signé pendant qu'on écrivait (07.11.2026) : le refus porte le compte rendu signé
+            if ($request->validated('version') !== null) {
+                $this->refuser($compteRendu, 'Ce compte rendu a été signé entre-temps : ajoutez votre texte en complément.');
+            }
             throw ValidationException::withMessages(['compte_rendu' => 'Ce compte rendu est signé : ajoutez un complément.']);
         }
 
-        if ($compteRendu === null) {
-            $compteRendu = $rendezVous->compteRendu()->create([...$texte, 'user_id' => $auteur->id]);
-        } else {
-            $avant = $compteRendu->only(['s', 'o', 'a', 'p']);
-            $compteRendu->fill($texte);
-            // Un compte rendu né d'une ligne notée n'a encore aucun texte : pas de version vide (04.11.2026)
-            $etaitVide = collect($avant)->every(fn ($v): bool => trim((string) $v) === '');
-            if ($compteRendu->isDirty(['s', 'o', 'a', 'p'])) {
-                if (! $etaitVide) {
-                    $compteRendu->versions()->create([...$avant, 'user_id' => $compteRendu->user_id, 'redigee_le' => $compteRendu->updated_at ?? now()]);
-                }
-                $compteRendu->user_id = $auteur->id;
+        $this->refuserSiDepasse($compteRendu, $texte, $request->validated('version'));
+
+        $avant = $compteRendu->only(['s', 'o', 'a', 'p']);
+        $compteRendu->fill($texte);
+        // Un compte rendu né d'une ligne notée n'a encore aucun texte : pas de version vide (04.11.2026)
+        $etaitVide = collect($avant)->every(fn ($v): bool => trim((string) $v) === '');
+        if ($compteRendu->isDirty(['s', 'o', 'a', 'p'])) {
+            if (! $etaitVide) {
+                $compteRendu->versions()->create([...$avant, 'user_id' => $compteRendu->user_id, 'redigee_le' => $compteRendu->updated_at ?? now()]);
             }
-            $compteRendu->save();
+            $compteRendu->user_id = $auteur->id;
+            $compteRendu->version = $compteRendu->version + 1;
+            $compteRendu->texte_modifie_le = now();
         }
+        $compteRendu->save();
+        // Né de cet enregistrement : 201, comme avant
+        $compteRendu->wasRecentlyCreated = $estNe;
 
         // Relu et enregistré par le vétérinaire : le brouillon de
         // l'enregistrement est validé
@@ -193,6 +217,48 @@ class CompteRenduController extends Controller
         return $compteRendu;
     }
 
+    /**
+     * Contrôle de version (choix de Jim, 06.11.2026) : quelqu'un a enregistré
+     * un autre texte depuis l'ouverture. Refusé (409) au lieu d'écraser ; la
+     * réponse porte le texte du serveur, qui l'a modifié et quand. Un texte
+     * identique à celui du serveur passe : il n'écrase rien.
+     *
+     * @param  array<string, mixed>  $texte
+     */
+    private function refuserSiDepasse(?CompteRendu $compteRendu, array $texte, mixed $versionOuverte): void
+    {
+        if ($versionOuverte === null || (int) $versionOuverte === ($compteRendu->version ?? 0)) {
+            return;
+        }
+        $change = collect($texte)->contains(fn ($v, string $k): bool => trim((string) $v) !== trim((string) $compteRendu?->{$k}));
+        if (! $change || $compteRendu === null) {
+            return;
+        }
+
+        $this->refuser($compteRendu, 'Ce compte rendu a été modifié par quelqu’un d’autre depuis que vous l’avez ouvert.');
+    }
+
+    /** Le refus (409) avec le compte rendu tel qu'il est sur le serveur */
+    private function refuser(CompteRendu $compteRendu, string $message): never
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => $message,
+            'data' => (new CompteRenduResource($this->charger($compteRendu)))->resolve(),
+        ], 409));
+    }
+
+    /**
+     * Le rendez-vous verrouillé d'abord (deuxième vérification du 07.11.2026) :
+     * sous MySQL, deux premiers enregistrements qui verrouillent un compte rendu
+     * encore inexistant posent des verrous d'intervalle compatibles, puis leurs
+     * INSERT se bloquent l'un l'autre (1213). Le rendez-vous, lui, existe : son
+     * verrou fait passer les écritures l'une après l'autre.
+     */
+    private function verrouiller(RendezVous $rendezVous): void
+    {
+        RendezVous::withoutGlobalScopes()->whereKey($rendezVous->id)->lockForUpdate()->first();
+    }
+
     private function signataire(): Employe
     {
         return app(ContexteClinique::class)->employe()
@@ -201,7 +267,7 @@ class CompteRenduController extends Controller
 
     private function charger(CompteRendu $compteRendu): CompteRendu
     {
-        return $compteRendu->load(['signataire.user', 'complements.signataire.user'])->loadCount('versions');
+        return $compteRendu->load(['user', 'signataire.user', 'complements.signataire.user'])->loadCount('versions');
     }
 
     /**

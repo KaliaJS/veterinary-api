@@ -25,11 +25,11 @@ class CompteRendu extends Model
 
     protected $table = 'comptes_rendus';
 
-    protected $fillable = ['rendez_vous_id', 's', 'o', 'a', 'p', 'tool_notes', 'user_id', 'signe_le', 'signe_par_id'];
+    protected $fillable = ['rendez_vous_id', 's', 'o', 'a', 'p', 'tool_notes', 'user_id', 'signe_le', 'signe_par_id', 'version', 'texte_modifie_le'];
 
     protected function casts(): array
     {
-        return ['signe_le' => 'datetime'];
+        return ['signe_le' => 'datetime', 'version' => 'integer', 'texte_modifie_le' => 'datetime'];
     }
 
     /** Signé, le texte ne change plus, même hors de l'API */
