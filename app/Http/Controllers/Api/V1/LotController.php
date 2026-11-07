@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\DomainePermission;
 use App\Enums\MotifAjustementStock;
+use App\Enums\TypeMouvementStupefiant;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\V1\LotRegisterTakeResource;
 use App\Http\Resources\V1\LotResource;
 use App\Http\Resources\V1\LotTakeResource;
 use App\Models\Lot;
@@ -103,10 +105,26 @@ class LotController extends Controller
      * À qui ce lot a été donné ou vendu (04.11.2026) : chaque sortie qui y a
      * pris, nette de ce qui lui a été rendu, avec l'animal et le client, la
      * plus récente d'abord. Une sortie entièrement annulée n'y est plus.
+     * Un stupéfiant (07.11.2026) : son registre fait foi, ses lignes de sortie
+     * sur ce lot, en ml, nettes de leurs corrections.
      */
     public function sorties(Request $request, Lot $lot): AnonymousResourceCollection
     {
         $this->authorize('viewAny', Lot::class);
+
+        if (Produit::query()->withoutGlobalScopes()->whereKey($lot->produit_id)->value('est_stupefiant')) {
+            $lignes = MouvementStupefiant::query()
+                ->where('lot_id', $lot->id)
+                ->where('quantite', '<', 0)
+                ->where('type', '!=', TypeMouvementStupefiant::Correction->value)
+                ->withSum('corrections as corrige', 'quantite')
+                ->whereRaw('mouvements_stupefiants.quantite + coalesce((select sum(c.quantite) from mouvements_stupefiants c where c.corrige_id = mouvements_stupefiants.id), 0) < -0.0005')
+                ->with(['patient' => fn ($patient) => $patient->withoutGlobalScopes()])
+                ->latest('id')
+                ->paginate($this->parPage($request, 100));
+
+            return LotRegisterTakeResource::collection($lignes);
+        }
 
         $prises = LotAllocation::query()
             ->where('lot_id', $lot->id)

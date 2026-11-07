@@ -239,13 +239,19 @@ class FefoLots
     }
 
     /**
-     * Le lot d'un numéro, sous verrou, cherché une seule fois par son numéro ;
-     * écarté depuis, il renaît vide avec sa péremption (celle donnée, sinon la
-     * dernière que son décompte a figée).
+     * Le lot d'un numéro, sous verrou, cherché une seule fois : par son numéro
+     * et le mois de sa péremption quand elle est connue (07.11.2026 : le
+     * 31.03.2028 d'une commande et le « 2028-03 » d'une saisie sont le même
+     * lot), sinon par son numéro. Absent (écarté depuis, ou jamais reçu), il
+     * naît vide avec sa péremption : celle donnée, sinon la dernière que son
+     * décompte a figée.
      */
     public function lotByNumber(int $produitId, int $cliniqueId, string $number, ?Carbon $expiresOn = null): Lot
     {
         $lot = Lot::withoutGlobalScopes()->where('clinique_id', $cliniqueId)->where('produit_id', $produitId)->where('numero_lot', $number)
+            // Le mois : du premier jour, inclus, au premier jour du mois suivant, exclu (une date peut porter une heure)
+            ->when($expiresOn !== null, fn ($q) => $q->where('peremption_le', '>=', $expiresOn->copy()->startOfMonth()->toDateString())
+                ->where('peremption_le', '<', $expiresOn->copy()->startOfMonth()->addMonthNoOverflow()->toDateString()))
             ->orderBy('id')->lockForUpdate()->first();
         if ($lot !== null) {
             return $lot;

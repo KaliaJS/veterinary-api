@@ -14,11 +14,13 @@ use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\Produit;
 use App\Services\RegistreStupefiants;
+use App\Services\Stocks\FefoLots;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -128,17 +130,17 @@ class MouvementStupefiantController extends Controller
     }
 
     /**
-     * Le lot d'une réception manuelle : retrouvé au même numéro et à la même
-     * péremption dans la clinique, sinon créé vide ; la réception y fait
-     * entrer sa quantité. Sous le verrou de la substance.
+     * Le lot d'une réception manuelle : retrouvé au même numéro et au même
+     * mois de péremption dans la clinique (un lot reçu par commande au
+     * 31.03.2028 est celui de « 2028-03 »), sinon créé vide ; la réception y
+     * fait entrer sa quantité. Sous le verrou de la substance.
      */
     private function lotRecu(Produit $produit, int $cliniqueId, string $numero, string $peremption): Lot
     {
         $this->registre->soldeVerrouille($produit, $cliniqueId);
-        $premierDuMois = CarbonImmutable::createFromFormat('!Y-m', $peremption)->toDateString();
+        $mois = CarbonImmutable::createFromFormat('!Y-m', $peremption);
 
-        return Lot::query()->where('produit_id', $produit->id)->where('numero_lot', $numero)->whereDate('peremption_le', $premierDuMois)->lockForUpdate()->first()
-            ?? Lot::create(['produit_id' => $produit->id, 'clinique_id' => $cliniqueId, 'numero_lot' => $numero, 'peremption_le' => $premierDuMois, 'quantite' => 0]);
+        return app(FefoLots::class)->lotByNumber($produit->id, $cliniqueId, $numero, Carbon::parse($mois->toDateString()));
     }
 
     /**

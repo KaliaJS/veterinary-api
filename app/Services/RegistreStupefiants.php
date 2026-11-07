@@ -189,7 +189,8 @@ class RegistreStupefiants
             return [[$lot?->id, $lot?->numero_lot, $quantite]];
         }
 
-        return $this->repartir($produit, $cliniqueId, $quantite, $solde, $lot, $type === TypeMouvementStupefiant::Elimination, false, $type === TypeMouvementStupefiant::Elimination ? 'quantite' : 'lot_id');
+        // Un lot vide se dit sur le champ du lot, pour que le formulaire le montre (07.11.2026)
+        return $this->repartir($produit, $cliniqueId, $quantite, $solde, $lot, $type === TypeMouvementStupefiant::Elimination, false);
     }
 
     /**

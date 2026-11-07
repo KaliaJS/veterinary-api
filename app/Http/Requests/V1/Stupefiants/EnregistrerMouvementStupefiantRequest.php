@@ -77,6 +77,13 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
+            // Un lot reçu déjà périmé (le mois est passé, à l'heure de la clinique) : l'inscrire se confirme
+            $peremption = $this->input('lot_peremption');
+            $ceMois = now(app(ContexteClinique::class)->clinique()?->fuseau_horaire ?: 'Europe/Zurich')->format('Y-m');
+            if ($this->est(TypeMouvementStupefiant::Reception) && is_string($peremption) && preg_match('/^\d{4}-\d{2}$/', $peremption) === 1
+                && $peremption < $ceMois && ! $this->boolean('lot_perime_confirme')) {
+                $validator->errors()->add('lot_peremption', 'Ce lot est déjà périmé : l’inscrire quand même ?');
+            }
             if ($this->est(TypeMouvementStupefiant::Remise) && ! in_array($this->tableau(), ['a', 'b'], true) && ! $validator->errors()->has('produit_id')) {
                 $validator->errors()->add('produit_id', 'Précisez d’abord le tableau de la substance (a ou b) : la remise en dépend.');
             }
@@ -162,6 +169,8 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             // créé, ou retrouvé au même numéro et à la même péremption, dans la clinique
             'numero_lot' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception)), 'nullable', 'string', 'max:30'],
             'lot_peremption' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception)), 'nullable', 'date_format:Y-m'],
+            // Un lot déjà périmé s'inscrit, mais confirmé (07.11.2026)
+            'lot_perime_confirme' => ['sometimes', 'boolean'],
             // Le lot d'une sortie, s'il est choisi (04.11.2026) : un lot de la substance, dans la clinique ; sans lui,
             // celui qui périme le premier est inscrit. Une correction reprend celui de sa ligne
             'lot_id' => [

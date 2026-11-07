@@ -9,6 +9,7 @@ use Database\Factories\MouvementStupefiantFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use LogicException;
 
@@ -100,6 +101,16 @@ class MouvementStupefiant extends Model
     public function employe(): BelongsTo
     {
         return $this->belongsTo(Employe::class);
+    }
+
+    /**
+     * Les corrections de cette ligne
+     *
+     * @return HasMany<MouvementStupefiant, $this>
+     */
+    public function corrections(): HasMany
+    {
+        return $this->hasMany(self::class, 'corrige_id')->where('type', TypeMouvementStupefiant::Correction->value);
     }
 
     /** La ligne qu'une correction corrige
