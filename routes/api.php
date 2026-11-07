@@ -370,7 +370,9 @@ Route::prefix('v1')->group(function (): void {
         // Site web publié d'une organisation et de toutes ses cliniques.
         Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
         // Sa page « Boutique » (07.11.2026) : la vitrine de ce site seulement, son compteur à part
-        Route::get('sites/{slug}/boutique', [SiteShopController::class, 'show'])->where('slug', '[a-z0-9-]+')->withoutMiddleware('throttle:60,1')->middleware('throttle:60,1,site-boutique');
+        Route::get('sites/{slug}/boutique', [SiteShopController::class, 'index'])->where('slug', '[a-z0-9-]+')->withoutMiddleware('throttle:60,1')->middleware('throttle:60,1,site-boutique');
+        // Un article seul, pas encore chargé (« Réserver », adresse partagée) : même compteur
+        Route::get('sites/{slug}/boutique/articles/{article}', [SiteShopController::class, 'show'])->where('slug', '[a-z0-9-]+')->whereNumber('article')->withoutMiddleware('throttle:60,1')->middleware('throttle:60,1,site-boutique');
         // Domaines personnalisés : site d'un domaine actif ; autorisation de certificat (on-demand TLS)
         Route::get('domaines/{domaine}', [DomainePublicController::class, 'site'])->where('domaine', '[a-z0-9.-]+');
         Route::get('domaines-autorises', [DomainePublicController::class, 'autorise'])->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
@@ -561,6 +563,8 @@ Route::prefix('v1')->group(function (): void {
         // domaine organisation, contrôlé par la Policy.
         Route::get('site', [SiteWebController::class, 'afficher']);
         Route::patch('site', [SiteWebController::class, 'modifier']);
+        // L'aperçu de la page Boutique dans l'éditeur, même avant publication (07.11.2026)
+        Route::get('site/boutique', [SiteShopController::class, 'preview']);
         Route::post('site/logo', [SiteLogoController::class, 'televerser']);
         Route::delete('site/logo', [SiteLogoController::class, 'supprimer']);
         Route::put('site/domaine', [SiteDomaineController::class, 'connecter']);

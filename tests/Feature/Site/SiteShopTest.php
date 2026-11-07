@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Site;
 
+use App\Auth\RolesParDefaut;
 use App\Enums\ServiceClinique;
 use App\Models\Clinique;
 use App\Models\Produit;
+use App\Models\Role;
 use App\Models\SiteWeb;
 use App\Models\Stock;
 use Database\Factories\SiteWebFactory;
@@ -96,8 +98,8 @@ class SiteShopTest extends TestCase
 
         $reponse = $this->getJson('/api/v1/public/sites/deux-rives/boutique')->assertOk();
 
-        $this->assertSame([$croquettes->id], array_column($reponse->json('data.articles'), 'id'));
-        $this->assertSame(['Article d’ailleurs'], array_column($this->getJson('/api/v1/public/sites/ailleurs/boutique')->json('data.articles'), 'name'));
+        $this->assertSame([$croquettes->id], array_column($reponse->json('data'), 'id'));
+        $this->assertSame(['Article d’ailleurs'], array_column($this->getJson('/api/v1/public/sites/ailleurs/boutique')->json('data'), 'name'));
     }
 
     public function test_un_site_non_publie_ou_une_organisation_fermee_ne_sert_pas_sa_boutique(): void
@@ -117,7 +119,7 @@ class SiteShopTest extends TestCase
     {
         $this->article(['nom' => 'Harnais confort · Taille S', 'categorie' => 'acc', 'prix' => 29, 'promo_pct' => 15, 'photo_chemin' => 'produits/abc123.webp']);
 
-        $article = $this->getJson('/api/v1/public/sites/deux-rives/boutique')->assertOk()->json('data.articles.0');
+        $article = $this->getJson('/api/v1/public/sites/deux-rives/boutique')->assertOk()->json('data.0');
 
         $this->assertSame('Harnais confort · Taille S', $article['name']);
         $this->assertSame('acc', $article['family']);
@@ -136,7 +138,7 @@ class SiteShopTest extends TestCase
         $this->article(['nom' => 'Aliment A']);
         $this->article(['nom' => 'Zeste, mis en avant', 'est_vedette' => true]);
 
-        $this->assertSame(['Zeste, mis en avant', 'Aliment A'], array_column($this->getJson('/api/v1/public/sites/deux-rives/boutique')->json('data.articles'), 'name'));
+        $this->assertSame(['Zeste, mis en avant', 'Aliment A'], array_column($this->getJson('/api/v1/public/sites/deux-rives/boutique')->json('data'), 'name'));
     }
 
     // Case 4 : les familles de la boutique en filtres
@@ -150,7 +152,7 @@ class SiteShopTest extends TestCase
 
         $this->assertSame(
             [['code' => 'ali', 'label' => 'Alimentation'], ['code' => 'acc', 'label' => 'Accessoires et jouets']],
-            $this->getJson('/api/v1/public/sites/deux-rives/boutique')->assertOk()->json('data.families'),
+            $this->getJson('/api/v1/public/sites/deux-rives/boutique')->assertOk()->json('meta.facettes'),
         );
     }
 
@@ -166,17 +168,14 @@ class SiteShopTest extends TestCase
         Stock::factory()->create(['produit_id' => $renal->id, 'clinique_id' => $annexe->id, 'quantite' => 2]);
         Stock::factory()->create(['produit_id' => $renal->id, 'clinique_id' => $sansBoutique->id, 'quantite' => 7]);
 
-        $data = $this->getJson('/api/v1/public/sites/deux-rives/boutique')->assertOk()->json('data');
+        $article = $this->getJson('/api/v1/public/sites/deux-rives/boutique')->assertOk()->json('data.0');
 
+        $this->assertSame('Aliment diététique pour soutenir la fonction rénale.', $article['description']);
+        // Les cliniques qui ont coché la boutique, chacune nommée, avec son stock en mots
         $this->assertSame([
-            ['id' => $this->clinique->id, 'name' => 'Deux Rives', 'city' => 'Lausanne'],
-            ['id' => $annexe->id, 'name' => 'Annexe de Pully', 'city' => 'Pully'],
-        ], $data['clinics']);
-        $this->assertSame('Aliment diététique pour soutenir la fonction rénale.', $data['articles'][0]['description']);
-        $this->assertSame([
-            ['clinic_id' => $this->clinique->id, 'level' => 'in_stock', 'label' => 'En stock'],
-            ['clinic_id' => $annexe->id, 'level' => 'few', 'label' => 'Plus que quelques-uns'],
-        ], $data['articles'][0]['stocks']);
+            ['clinic_id' => $this->clinique->id, 'name' => 'Deux Rives', 'city' => 'Lausanne', 'level' => 'in_stock', 'label' => 'En stock'],
+            ['clinic_id' => $annexe->id, 'name' => 'Annexe de Pully', 'city' => 'Pully', 'level' => 'few', 'label' => 'Plus que quelques-uns'],
+        ], $article['stocks']);
     }
 
     public function test_un_article_sans_stock_dans_une_clinique_y_est_epuise(): void
@@ -184,8 +183,8 @@ class SiteShopTest extends TestCase
         $this->article(['nom' => 'Kong Classic'], null);
 
         $this->assertSame(
-            [['clinic_id' => $this->clinique->id, 'level' => 'out', 'label' => 'Épuisé']],
-            $this->getJson('/api/v1/public/sites/deux-rives/boutique')->json('data.articles.0.stocks'),
+            [['clinic_id' => $this->clinique->id, 'name' => 'Deux Rives', 'city' => 'Lausanne', 'level' => 'out', 'label' => 'Épuisé']],
+            $this->getJson('/api/v1/public/sites/deux-rives/boutique')->json('data.0.stocks'),
         );
     }
 
@@ -205,6 +204,104 @@ class SiteShopTest extends TestCase
         $this->patchJson("/api/v1/boutique/produits/{$produit->id}/vitrine", ['shop_description' => ''], $this->enTetes($jeton))
             ->assertOk()
             ->assertJsonPath('data.shop_description', null);
+    }
+
+    // Pagination (décision de Jim, 07.11.2026) : 24 articles par page, la forme habituelle de l'API
+
+    public function test_le_catalogue_est_pagine_par_24(): void
+    {
+        foreach (range(1, 30) as $i) {
+            $this->article(['nom' => sprintf('Article %02d', $i)]);
+        }
+
+        $premiere = $this->getJson('/api/v1/public/sites/deux-rives/boutique')->assertOk();
+        $premiere->assertJsonCount(24, 'data')
+            ->assertJsonPath('meta.current_page', 1)
+            ->assertJsonPath('meta.last_page', 2)
+            ->assertJsonPath('meta.per_page', 24)
+            ->assertJsonPath('meta.total', 30)
+            ->assertJsonPath('data.0.name', 'Article 01');
+
+        $this->getJson('/api/v1/public/sites/deux-rives/boutique?page=2')->assertOk()
+            ->assertJsonCount(6, 'data')
+            ->assertJsonPath('data.0.name', 'Article 25');
+        // Jamais plus de 100 d'un coup
+        $this->getJson('/api/v1/public/sites/deux-rives/boutique?per_page=500')->assertOk()->assertJsonPath('meta.per_page', 100);
+    }
+
+    public function test_la_famille_se_filtre_au_serveur_et_les_familles_proposees_restent_celles_de_toute_la_boutique(): void
+    {
+        $this->article(['nom' => 'Croquettes', 'categorie' => 'ali']);
+        $this->article(['nom' => 'Balle', 'categorie' => 'acc']);
+        $this->article(['nom' => 'Laisse', 'categorie' => 'acc']);
+
+        $reponse = $this->getJson('/api/v1/public/sites/deux-rives/boutique?famille=acc')->assertOk();
+
+        $this->assertSame(['Balle', 'Laisse'], array_column($reponse->json('data'), 'name'));
+        $reponse->assertJsonPath('meta.total', 2);
+        $this->assertSame(['ali', 'acc'], array_column($reponse->json('meta.facettes'), 'code'));
+        $this->getJson('/api/v1/public/sites/deux-rives/boutique?famille=nimporte')->assertUnprocessable()->assertJsonValidationErrors('famille');
+        // Une famille qui n'a rien en vente : une page vide, pas une erreur
+        $this->getJson('/api/v1/public/sites/deux-rives/boutique?famille=med')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_un_article_se_lit_seul_et_seulement_dans_la_vitrine_de_ce_site(): void
+    {
+        $kong = $this->article(['nom' => 'Kong Classic', 'categorie' => 'acc', 'shop_description' => 'Le jouet à garnir.']);
+        $ordonnance = $this->article(['nom' => 'Meloxicam', 'categorie' => 'med', 'est_sur_ordonnance' => true]);
+        $autre = Clinique::factory()->create();
+        $ailleurs = $this->article(['nom' => 'D’ailleurs'], 5, $autre);
+
+        $this->getJson("/api/v1/public/sites/deux-rives/boutique/articles/{$kong->id}")->assertOk()
+            ->assertJsonPath('data.id', $kong->id)
+            ->assertJsonPath('data.name', 'Kong Classic')
+            ->assertJsonPath('data.description', 'Le jouet à garnir.')
+            ->assertJsonPath('data.stocks.0.label', 'En stock')
+            ->assertJsonMissingPath('data.cout');
+        $this->getJson("/api/v1/public/sites/deux-rives/boutique/articles/{$ordonnance->id}")->assertNotFound();
+        $this->getJson("/api/v1/public/sites/deux-rives/boutique/articles/{$ailleurs->id}")->assertNotFound();
+    }
+
+    // L'aperçu de l'éditeur : la vitrine de l'organisation du jeton, même avant publication
+
+    public function test_l_editeur_lit_sa_vitrine_et_sait_s_il_a_une_boutique_avant_publication(): void
+    {
+        ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        $employe->update(['role_id' => Role::withoutGlobalScope('organisation')
+            ->where('organisation_id', $this->clinique->societe->organisation_id)
+            ->where('nom', RolesParDefaut::ADMINISTRATEUR)
+            ->value('id')]);
+        $this->site->update(['est_publie' => false]);
+        $this->article(['nom' => 'Croquettes', 'categorie' => 'ali']);
+        $autre = Clinique::factory()->create();
+        $this->article(['nom' => 'D’ailleurs'], 5, $autre);
+
+        $this->getJson('/api/v1/site', $this->enTetes($jeton))->assertOk()->assertJsonPath('data.has_shop', true);
+        $reponse = $this->getJson('/api/v1/site/boutique?famille=ali', $this->enTetes($jeton))->assertOk();
+        $this->assertSame(['Croquettes'], array_column($reponse->json('data'), 'name'));
+        $reponse->assertJsonPath('meta.facettes.0.code', 'ali');
+        $this->getJson('/api/v1/site/boutique')->assertUnauthorized();
+    }
+
+    public function test_l_apercu_demande_le_droit_organisation_et_ne_montre_que_sa_propre_organisation(): void
+    {
+        $this->article(['nom' => 'Croquettes de Deux Rives']);
+        $autre = Clinique::factory()->create();
+        $this->article(['nom' => 'Laisse du Lac'], 4, $autre);
+        ['jeton' => $sansDroit] = $this->employeAvecJeton($this->clinique);
+        ['employe' => $admin, 'jeton' => $jeton] = $this->employeAvecJeton($autre);
+        $admin->update(['role_id' => Role::withoutGlobalScope('organisation')
+            ->where('organisation_id', $autre->societe->organisation_id)
+            ->where('nom', RolesParDefaut::ADMINISTRATEUR)
+            ->value('id')]);
+
+        // Un employé sans le droit Organisation : refusé
+        $this->getJson('/api/v1/site/boutique', $this->enTetes($sansDroit))->assertForbidden();
+
+        // L'administrateur d'une autre organisation ne voit que la sienne
+        $reponse = $this->getJson('/api/v1/site/boutique', $this->enTetes($jeton))->assertOk();
+        $this->assertSame(['Laisse du Lac'], array_column($reponse->json('data'), 'name'));
+        $this->assertSame([$autre->id], array_column($reponse->json('data.0.stocks'), 'clinic_id'));
     }
 
     // Isolement : un débit limité, à part de l'annuaire et des autres pages publiques
