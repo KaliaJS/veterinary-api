@@ -245,6 +245,50 @@ class ConsentTest extends TestCase
             ->assertJsonPath('data.consent_collector.id', $this->veterinaire->id);
     }
 
+    /** Le document du consentement garde qui l'a recueilli (07.11.2026) : signé à la clinique, la personne connectée */
+    public function test_signe_a_la_clinique_le_document_garde_qui_l_a_recueilli(): void
+    {
+        $this->postJson($this->url(), ['signataire' => 'Marc Fournier', 'signature' => self::SIGNATURE], $this->enTetes($this->jeton))->assertOk();
+
+        $document = Document::withoutGlobalScopes()->findOrFail($this->intervention->refresh()->consentement_document_id);
+        $this->assertSame($this->veterinaire->id, $document->employe_id);
+    }
+
+    /** Signé à distance par le lien : qui a envoyé le lien */
+    public function test_signe_a_distance_le_document_garde_qui_a_envoye_le_lien(): void
+    {
+        $this->envoyer(['email'])->assertOk();
+        $jeton = $this->jetonEnvoye();
+        app(ContexteClinique::class)->oublier();
+        $this->postJson('/api/v1/public/consentements/'.$jeton.'/signer', ['signataire' => 'Marc Fournier', 'signature' => self::SIGNATURE])->assertOk();
+
+        $document = Document::withoutGlobalScopes()->findOrFail($this->intervention->refresh()->consentement_document_id);
+        $this->assertSame($this->veterinaire->id, $document->employe_id);
+    }
+
+    /** La reprise des anciens consentements (migration du 08.11.2026) : qui l'a recueilli, sinon qui a envoyé le lien signé ; rien si rien ne le dit */
+    public function test_la_reprise_donne_leur_auteur_aux_anciens_consentements(): void
+    {
+        $patient = $this->intervention->patient;
+        $collegue = Employe::factory()->dans($this->clinique)->create();
+        $ancien = fn (string $nom) => $patient->documents()->create(['nom' => $nom, 'type' => 'consentement', 'signataire' => 'Marc Fournier', 'etabli_le' => '2026-10-01', 'employe_id' => null]);
+        $alaClinique = $ancien('À la clinique');
+        $aDistance = $ancien('À distance');
+        $orphelin = $ancien('Sans intervention');
+        $this->intervention->update(['consentement_signe_le' => now(), 'consentement_document_id' => $alaClinique->id, 'consentement_recueilli_par_id' => $collegue->id]);
+        $distante = Intervention::factory()->create(['clinique_id' => $this->clinique->id, 'patient_id' => $patient->id, 'consentement_signe_le' => now(), 'consentement_document_id' => $aDistance->id, 'consentement_recueilli_par_id' => null]);
+        ConsentRequest::withoutGlobalScopes()->create([
+            'intervention_id' => $distante->id, 'clinique_id' => $this->clinique->id, 'token_hash' => hash('sha256', 'x'), 'channels' => ['email'],
+            'expires_at' => now()->addDay(), 'signed_at' => now(), 'sent_by_employee_id' => $this->veterinaire->id,
+        ]);
+
+        (require database_path('migrations/2026_11_08_000300_consent_document_author.php'))->up();
+
+        $this->assertSame($collegue->id, $alaClinique->refresh()->employe_id);
+        $this->assertSame($this->veterinaire->id, $aDistance->refresh()->employe_id);
+        $this->assertNull($orphelin->refresh()->employe_id);
+    }
+
     public function test_l_intervention_dit_ou_envoyer(): void
     {
         $this->getJson('/api/v1/bloc/interventions/'.$this->intervention->id, $this->enTetes($this->jeton))->assertOk()

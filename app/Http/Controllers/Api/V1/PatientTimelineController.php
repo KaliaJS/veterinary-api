@@ -343,7 +343,7 @@ class PatientTimelineController extends Controller
      */
     private function weighings(Patient $patient, ?CarbonImmutable $before, int $limit): array
     {
-        $all = $patient->pesees()->orderBy('pesee_le')->orderBy('id')->get()->values();
+        $all = $patient->pesees()->with('employe')->orderBy('pesee_le')->orderBy('id')->get()->values();
         $lines = [];
         foreach ($all as $i => $weighing) {
             /** @var Pesee $weighing */
@@ -357,6 +357,8 @@ class PatientTimelineController extends Controller
                 'poids_kg' => $kg,
                 'ecart_kg' => $previous ? round($kg - (float) $previous->poids_kg, 2) : null,
                 'precedente_le' => $previous?->pesee_le->toDateString(),
+                // Qui a pesé (06.11.2026) ; null : le propriétaire, ou une pesée plus ancienne
+                'veterinaire' => $weighing->employe?->nom,
             ];
         }
 
@@ -529,7 +531,7 @@ class PatientTimelineController extends Controller
     /** @return list<array<string, mixed>> */
     private function documents(Patient $patient, ?CarbonImmutable $before, int $limit): array
     {
-        return $this->upToDay($patient->documents()->getQuery(), 'etabli_le', $before)
+        return $this->upToDay($patient->documents()->with('employe')->getQuery(), 'etabli_le', $before)
             ->orderByDesc('etabli_le')
             ->orderByDesc('id')
             ->limit($limit)
@@ -537,7 +539,14 @@ class PatientTimelineController extends Controller
             ->map(fn (Document $d): array => [
                 'type' => 'document', 'source' => 'document', 'id' => $d->id, 'date' => $this->day($d->etabli_le), 'a_venir' => false,
                 'titre' => $d->nom,
-                'detail' => implode(' · ', array_filter([$d->signataire, $d->visible_proprietaire === false ? 'interne' : 'partagé avec le propriétaire'])),
+                'detail' => implode(' · ', array_filter([
+                    $d->signataire,
+                    // Qui l'a ajouté, s'il n'est pas déjà dit par la signature (06.11.2026)
+                    // Un consentement : qui l'a recueilli, comme l'onglet Documents
+                    $d->employe !== null && $d->employe->nom !== $d->signataire ? ($d->type === 'consentement' ? 'recueilli par ' : 'ajouté par ').$d->employe->nom : null,
+                    $d->visible_proprietaire === false ? 'interne' : 'partagé avec le propriétaire',
+                ])),
+                'auteur' => $d->employe?->nom,
                 'document_id' => $d->id,
                 'document_type' => $d->type,
                 'a_fichier' => $d->chemin !== null,
@@ -586,7 +595,7 @@ class PatientTimelineController extends Controller
     {
         $day = CarbonImmutable::parse($x['date'])->setTimezone($this->zone());
         $parts = [
-            $x['titre'] ?? '', $x['detail'] ?? '', $x['numero'] ?? '', $x['signataire'] ?? '', $x['veterinaire'] ?? '',
+            $x['titre'] ?? '', $x['detail'] ?? '', $x['numero'] ?? '', $x['signataire'] ?? '', $x['veterinaire'] ?? '', $x['auteur'] ?? '',
             $x['produit'] ?? '', $x['lot'] ?? '', $x['libelle'] ?? '', $x['conclusion'] ?? '',
             implode(' ', $x['valences'] ?? []),
             ...array_map(fn (array $l): string => implode(' ', [$l['produit_nom'] ?? '', $l['posologie'] ?? '', $l['duree'] ?? '']), $x['lignes'] ?? []),

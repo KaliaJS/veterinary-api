@@ -30,6 +30,13 @@ class PatientResource extends JsonResource
             'nom' => $this->nom,
             'espece' => $this->espece,
             'race' => $this->race,
+            // La robe et le vétérinaire référent (06.11.2026)
+            'coat' => $this->coat,
+            'referring_vet_id' => $this->referring_vet_id,
+            'referring_vet' => $this->whenLoaded('referringVet', fn (): ?array => $this->referringVet === null ? null : [
+                'id' => $this->referringVet->id,
+                'nom' => $this->referringVet->nom,
+            ]),
             'sexe' => $this->sexe,
             'ne_le' => $this->ne_le?->toDateString(),
             'decede_le' => $this->decede_le?->toDateString(),

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\RecordsAuthor;
 use App\Models\Concerns\RecordsSourceOrganisation;
 use Database\Factories\DocumentFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -11,9 +12,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Document extends Model
 {
     /** @use HasFactory<DocumentFactory> */
-    use HasFactory, RecordsSourceOrganisation;
+    use HasFactory, RecordsAuthor, RecordsSourceOrganisation;
 
-    protected $fillable = ['patient_id', 'nom', 'type', 'chemin', 'nom_fichier', 'taille_octets', 'visible_proprietaire', 'signataire', 'ajoute_par', 'etabli_le', 'source_organisation_id', 'client_id'];
+    protected $fillable = ['patient_id', 'nom', 'type', 'chemin', 'nom_fichier', 'taille_octets', 'visible_proprietaire', 'signataire', 'ajoute_par', 'employe_id', 'etabli_le', 'source_organisation_id', 'client_id'];
 
     protected function casts(): array
     {
@@ -28,5 +29,12 @@ class Document extends Model
     public function patient(): BelongsTo
     {
         return $this->belongsTo(Patient::class);
+    }
+
+    /** Qui l'a ajouté au dossier (06.11.2026)
+     * @return BelongsTo<Employe, $this> */
+    public function employe(): BelongsTo
+    {
+        return $this->belongsTo(Employe::class)->withoutGlobalScope('clinique');
     }
 }

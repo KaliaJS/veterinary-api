@@ -18,6 +18,9 @@ class PeseeResource extends JsonResource
             'id' => $this->id,
             'poids_kg' => (float) $this->poids_kg,
             'pesee_le' => $this->pesee_le->toDateString(),
+            // Qui a pesé l'animal (06.11.2026) ; null : le propriétaire, ou une pesée plus ancienne
+            'employe_id' => $this->employe_id,
+            'veterinaire' => $this->whenLoaded('employe', fn (): ?string => $this->employe?->nom),
         ];
     }
 }

@@ -22,6 +22,9 @@ class DocumentResource extends JsonResource
             'nom' => $this->nom,
             'type' => $this->type,
             'signataire' => $this->signataire,
+            // Qui l'a ajouté au dossier (06.11.2026) ; null : hors de toute clinique, ou avant
+            'employe_id' => $this->employe_id,
+            'auteur' => $this->whenLoaded('employe', fn (): ?string => $this->employe?->nom),
             'etabli_le' => $this->etabli_le->toDateString(),
             'a_fichier' => $this->chemin !== null,
             'nom_fichier' => $this->nom_fichier,

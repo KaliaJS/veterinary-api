@@ -49,6 +49,8 @@ class Patient extends Model
         'amicus_declare_le', 'client_depuis',
         // Le poids de forme saisi par le vétérinaire (03.11.2026)
         'healthy_weight_min_kg', 'healthy_weight_max_kg',
+        // La robe (une description que le vétérinaire constate, hors identité réservable) et le vétérinaire référent (06.11.2026)
+        'coat', 'referring_vet_id',
     ];
 
     /** Un animal, un seul compte (02.11.2026) : sa fiche et sa puce ne disent jamais deux comptes */
@@ -124,6 +126,17 @@ class Patient extends Model
     public function organisation(): BelongsTo
     {
         return $this->belongsTo(Organisation::class);
+    }
+
+    /**
+     * Le vétérinaire référent, choisi sur la fiche (06.11.2026) : un employé
+     * de l'organisation, de quelque clinique qu'il soit.
+     *
+     * @return BelongsTo<Employe, $this>
+     */
+    public function referringVet(): BelongsTo
+    {
+        return $this->belongsTo(Employe::class, 'referring_vet_id')->withoutGlobalScope('clinique');
     }
 
     /** @return BelongsTo<Client, $this> */

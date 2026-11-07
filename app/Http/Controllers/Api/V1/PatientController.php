@@ -176,7 +176,7 @@ class PatientController extends Controller
             'client_depuis' => $donnees['client_depuis'] ?? aujourdhui()->year,
         ]);
 
-        return new PatientResource($patient->load('client'));
+        return new PatientResource($patient->load(['client', 'referringVet']));
     }
 
     public function show(Patient $patient): PatientResource
@@ -188,13 +188,17 @@ class PatientController extends Controller
         // pour afficher le nom — lecture seule.
         $patient->load([
             'client',
+            // Le vétérinaire référent, qui a pesé, qui a ajouté un document (06.11.2026)
+            'referringVet',
             'pesees' => fn ($requete) => $requete->orderBy('pesee_le')->orderBy('id'),
+            'pesees.employe',
             // Renouvelée ou non, et le dernier rappel parti : le carnet le dit d'après le serveur (01.11.2026)
             'vaccinations' => fn ($requete) => $requete->orderBy('echeance_le')->withMax('rappelsEnvoyes as rappel_envoye_le', 'envoye_le'),
             'vaccinations.employe' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
             'visites' => fn ($requete) => $requete->orderByDesc('visite_le')->orderByDesc('id'),
             'visites.employe' => fn ($requete) => $requete->withoutGlobalScope('clinique'),
             'documents' => fn ($requete) => $requete->orderByDesc('etabli_le')->orderByDesc('id'),
+            'documents.employe',
             'relevesOphtalmologiques' => fn ($requete) => $requete->orderByDesc('releve_le')->orderByDesc('id'),
             'relevesDentaires',
             'courbePoids',
@@ -231,6 +235,6 @@ class PatientController extends Controller
         $patient->update($donnees);
 
         // La bande du poids de forme se lit avec sa position, d'après la dernière pesée
-        return new PatientResource($patient->load(['client', 'courbePoids']));
+        return new PatientResource($patient->load(['client', 'courbePoids', 'referringVet']));
     }
 }

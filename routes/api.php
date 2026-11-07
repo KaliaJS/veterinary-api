@@ -123,6 +123,7 @@ use App\Http\Controllers\Api\V1\PackQuotaController;
 use App\Http\Controllers\Api\V1\PaiementCaisseController;
 use App\Http\Controllers\Api\V1\PanelLaboController;
 use App\Http\Controllers\Api\V1\PartieEnregistrementController;
+use App\Http\Controllers\Api\V1\PatientCareController;
 use App\Http\Controllers\Api\V1\PatientController;
 use App\Http\Controllers\Api\V1\PatientTimelineController;
 use App\Http\Controllers\Api\V1\PeseeController;
@@ -151,6 +152,7 @@ use App\Http\Controllers\Api\V1\RadioDossierController;
 use App\Http\Controllers\Api\V1\RadioPreviewController;
 use App\Http\Controllers\Api\V1\RappelsController;
 use App\Http\Controllers\Api\V1\ReferentielImagerieController;
+use App\Http\Controllers\Api\V1\ReferringVetController;
 use App\Http\Controllers\Api\V1\RegistreStupefiantController;
 use App\Http\Controllers\Api\V1\ReleveDentaireController;
 use App\Http\Controllers\Api\V1\ReleveOphtalmologiqueController;
@@ -646,6 +648,8 @@ Route::prefix('v1')->group(function (): void {
         Route::get('patients/rattachements', [DemandeRattachementController::class, 'index']);
         Route::post('patients/rattachements/{demande}/accepter', [DemandeRattachementController::class, 'accepter']);
         Route::post('patients/rattachements/{demande}/refuser', [DemandeRattachementController::class, 'refuser']);
+        // Les vétérinaires de l'organisation à choisir comme référent (07.11.2026), avant la ressource aussi
+        Route::get('patients/veterinaires', ReferringVetController::class);
 
         Route::apiResource('patients', PatientController::class)->except('destroy');
 
@@ -699,6 +703,8 @@ Route::prefix('v1')->group(function (): void {
 
         // Le dossier sur un fil (proposition B, 03.11.2026) : toute l'histoire, ce qui vient en tête
         Route::get('patients/{patient}/fil', PatientTimelineController::class);
+        // Soins et interventions : les interventions et les séjours de l'animal, lus sans rien écrire (06.11.2026)
+        Route::get('patients/{patient}/soins', PatientCareController::class);
 
         Route::get('patients/{patient}/documents', [DocumentController::class, 'index']);
         Route::post('patients/{patient}/documents', [DocumentController::class, 'store']);

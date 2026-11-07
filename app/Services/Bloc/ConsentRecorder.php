@@ -2,6 +2,7 @@
 
 namespace App\Services\Bloc;
 
+use App\Auth\ContexteClinique;
 use App\Enums\ConsentMethod;
 use App\Enums\PushType;
 use App\Events\InterventionUpdated;
@@ -50,6 +51,8 @@ class ConsentRecorder
                     'chemin' => $path,
                     'taille_octets' => strlen($png),
                     'signataire' => trim($signer),
+                    // Qui l'a recueilli, ou envoyé le lien signé à distance (06.11.2026)
+                    'employe_id' => $collector->id ?? $request->sent_by_employee_id ?? app(ContexteClinique::class)->employe()?->id,
                     'etabli_le' => now($intervention->clinique?->fuseau_horaire ?: 'Europe/Zurich')->toDateString(),
                     // Signé par le lien, hors de toute clinique : le document est celui de la clinique de l'intervention
                     // Destiné au propriétaire d'aujourd'hui : son successeur ne le verra pas

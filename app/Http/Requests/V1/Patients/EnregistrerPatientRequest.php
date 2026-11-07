@@ -7,6 +7,7 @@ use App\Enums\Allergen;
 use App\Enums\Espece;
 use App\Enums\Sexe;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
+use App\Http\Requests\V1\Patients\Concerns\PatientRecordMessages;
 use App\Rules\NumeroPuce;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -18,7 +19,7 @@ use Illuminate\Validation\Rule;
  */
 class EnregistrerPatientRequest extends FormRequest
 {
-    use ReglesScopees;
+    use PatientRecordMessages, ReglesScopees;
 
     /** @return array<string, mixed> */
     public function rules(): array
@@ -28,12 +29,16 @@ class EnregistrerPatientRequest extends FormRequest
             'nom' => ['required', 'string', 'max:255'],
             'espece' => ['required', Rule::enum(Espece::class)],
             'race' => ['nullable', 'string', 'max:255'],
+            // La robe (06.11.2026)
+            'coat' => ['nullable', 'string', 'max:120'],
             'sexe' => ['required', Rule::enum(Sexe::class)],
             'ne_le' => ['nullable', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             'est_sterilise' => ['sometimes', 'boolean'],
             'puce' => ['nullable', 'string', 'max:32', new NumeroPuce],
             // L'assurance de l'animal (28.10.2026)
             'assurance' => ['nullable', 'string', 'max:120'],
+            // Le vétérinaire référent : un vétérinaire de l'organisation (06.11.2026)
+            'referring_vet_id' => ['nullable', $this->referringVetRule()],
             'est_agressif' => ['sometimes', 'boolean'],
             'a_allergies' => ['sometimes', 'boolean'],
             // Les précisions des alertes (02.11.2026)

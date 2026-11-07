@@ -27,6 +27,7 @@ class DocumentController extends Controller
 
         return DocumentResource::collection(
             $patient->documents()
+                ->with('employe')
                 ->orderByDesc('etabli_le')
                 ->orderByDesc('id')
                 ->paginate($this->parPage($request)),
@@ -65,7 +66,8 @@ class DocumentController extends Controller
             'etabli_le' => $donnees['etabli_le'] ?? aujourdhui()->toDateString(),
         ]);
 
-        return new DocumentResource($document->refresh());
+        // Qui l'a ajouté : la personne connectée, gardée à la création (RecordsAuthor, 06.11.2026)
+        return new DocumentResource($document->refresh()->load('employe'));
     }
 
     /**
