@@ -19,12 +19,13 @@ class ClinicMessage extends Model
         static::deleting(fn (self $message) => $message->media()->first()?->delete());
     }
 
-    protected $fillable = ['sender_clinic_id', 'recipient_clinic_id', 'author_employee_id', 'body', 'read_at'];
+    protected $fillable = ['sender_clinic_id', 'recipient_clinic_id', 'author_employee_id', 'body', 'read_at', 'delivered_at'];
 
     protected function casts(): array
     {
         return [
             'read_at' => 'datetime',
+            'delivered_at' => 'datetime',
         ];
     }
 

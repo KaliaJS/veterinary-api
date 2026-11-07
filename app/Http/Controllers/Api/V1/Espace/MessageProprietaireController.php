@@ -12,6 +12,7 @@ use App\Models\MessageClientele;
 use App\Models\MessageMedia;
 use App\Models\User;
 use App\Services\Messages\MessageMediaService;
+use App\Services\Messages\MessageReceipts;
 use App\Support\TempsReel;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -30,8 +31,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class MessageProprietaireController extends Controller
 {
     /** Fils disponibles + fil demandé (ou le premier), avec ses messages. */
-    public function index(Request $request, ContexteProprietaire $contexte): JsonResponse
+    public function index(Request $request, ContexteProprietaire $contexte, MessageReceipts $receipts): JsonResponse
     {
+        // L'app du propriétaire relit ses messages : ceux des cliniques lui sont distribués (08.11.2026)
+        $receipts->ownerReceived($contexte->user()->id);
         $cliniques = $this->cliniques($contexte);
         $cliniqueId = $request->integer('clinique_id') ?: $cliniques->first()?->id;
         // Une clinique inconnue (lien d'un ancien e-mail) : la première, pas un écran vide
@@ -39,12 +42,11 @@ class MessageProprietaireController extends Controller
 
         $messages = collect();
         if ($clinique) {
-            MessageClientele::query()
-                ->where('user_id', $contexte->user()->id)
-                ->where('clinique_id', $clinique->id)
-                ->where('auteur', 'clinique')
-                ->whereNull('lu_le')
-                ->update(['lu_le' => now()]);
+            // Lus : la clinique voit ses coches passer au bleu
+            $receipts->read(
+                MessageClientele::query()->where('user_id', $contexte->user()->id)->where('clinique_id', $clinique->id)->where('auteur', 'clinique'),
+                'lu_le', 'clinique.'.$clinique->id, $contexte->user()->id,
+            );
 
             $messages = MessageClientele::query()
                 ->with('employe', 'media')
@@ -218,6 +220,7 @@ class MessageProprietaireController extends Controller
             'texte' => $m->texte,
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->lu_le?->toIso8601String(),
+            'status' => $m->auteur === 'proprietaire' ? MessageReceipts::status($m->delivered_at, $m->lu_le) : null,
             // Audio ou vidéo : le fichier, sa durée et son onde ; la transcription reste à la clinique
             'media' => $m->relationLoaded('media') && $m->media ? MessageMediaService::forOwner($m->media) : null,
         ];

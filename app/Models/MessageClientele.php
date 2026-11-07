@@ -24,12 +24,13 @@ class MessageClientele extends Model
         static::deleting(fn (self $message) => $message->media()->first()?->delete());
     }
 
-    protected $fillable = ['clinique_id', 'user_id', 'client_id', 'employe_id', 'auteur', 'texte', 'lu_le'];
+    protected $fillable = ['clinique_id', 'user_id', 'client_id', 'employe_id', 'auteur', 'texte', 'lu_le', 'delivered_at'];
 
     protected function casts(): array
     {
         return [
             'lu_le' => 'datetime',
+            'delivered_at' => 'datetime',
         ];
     }
 

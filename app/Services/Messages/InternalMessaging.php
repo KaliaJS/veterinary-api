@@ -42,11 +42,15 @@ class InternalMessaging
     /** La clinique du contexte paie la transcription (lue une fois par requête) */
     private ?bool $clinicPays = null;
 
-    public function __construct(private ContexteClinique $contexte, private CalculateurPermissions $permissions, private MessageMediaService $media) {}
+    public function __construct(private ContexteClinique $contexte, private CalculateurPermissions $permissions, private MessageMediaService $media, private MessageReceipts $receipts) {}
 
     /** @return list<array<string, mixed>> */
     public function threads(): array
     {
+        // L'app relit sa liste : les messages des collègues et des autres cliniques sont distribués (08.11.2026)
+        $this->receipts->staffReceived($this->me());
+        $this->receipts->clinicReceived($this->clinic()->id);
+
         return [...$this->staffThreads(), ...$this->clinicThreads()];
     }
 
@@ -56,7 +60,7 @@ class InternalMessaging
         if ($key[0] === 'e') {
             $colleague = $this->colleague((int) substr($key, 1));
             $me = $this->me();
-            $this->staffBetween($me, $colleague)->where('recipient_employee_id', $me->id)->whereNull('read_at')->update(['read_at' => now()]);
+            $this->receipts->read($this->staffBetween($me, $colleague)->where('recipient_employee_id', $me->id), 'read_at', 'utilisateur.'.$colleague->user_id);
             $messages = $this->staffBetween($me, $colleague)->with('sender', 'media')->orderBy('created_at')->orderBy('id')->get();
 
             return [
@@ -67,7 +71,7 @@ class InternalMessaging
 
         $other = $this->otherClinic((int) substr($key, 1));
         $mine = $this->clinic();
-        $this->clinicBetween($mine, $other)->where('recipient_clinic_id', $mine->id)->whereNull('read_at')->update(['read_at' => now()]);
+        $this->receipts->read($this->clinicBetween($mine, $other)->where('recipient_clinic_id', $mine->id), 'read_at', 'clinique.'.$other->id);
         $messages = $this->clinicBetween($mine, $other)->with('author', 'media')->orderBy('created_at')->orderBy('id')->get();
 
         return [
@@ -202,7 +206,10 @@ class InternalMessaging
             return [
                 ...$this->staffHeader($colleague),
                 'non_lus' => $thread->where('recipient_employee_id', $me->id)->whereNull('read_at')->count(),
-                'dernier' => ['texte' => mb_strimwidth($last->body, 0, 140, '…'), 'is_mine' => $last->sender_employee_id === $me->id, 'envoye_le' => $last->created_at?->toIso8601String()],
+                'dernier' => [
+                    'texte' => mb_strimwidth($last->body, 0, 140, '…'), 'is_mine' => $last->sender_employee_id === $me->id, 'envoye_le' => $last->created_at?->toIso8601String(),
+                    'status' => $last->sender_employee_id === $me->id ? MessageReceipts::status($last->delivered_at, $last->read_at) : null,
+                ],
             ];
         })->filter()->values()->all();
     }
@@ -228,7 +235,10 @@ class InternalMessaging
             return [
                 ...$this->clinicHeader($other, in_array($other->id, $open, true)),
                 'non_lus' => $thread->where('recipient_clinic_id', $mine->id)->whereNull('read_at')->count(),
-                'dernier' => ['texte' => mb_strimwidth($last->body, 0, 140, '…'), 'is_mine' => $last->sender_clinic_id === $mine->id, 'envoye_le' => $last->created_at?->toIso8601String()],
+                'dernier' => [
+                    'texte' => mb_strimwidth($last->body, 0, 140, '…'), 'is_mine' => $last->sender_clinic_id === $mine->id, 'envoye_le' => $last->created_at?->toIso8601String(),
+                    'status' => $last->sender_clinic_id === $mine->id ? MessageReceipts::status($last->delivered_at, $last->read_at) : null,
+                ],
             ];
         })->filter()->values()->all();
     }
@@ -258,6 +268,7 @@ class InternalMessaging
             'texte' => $m->body,
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->read_at?->toIso8601String(),
+            'status' => $m->sender_employee_id === $me->id ? MessageReceipts::status($m->delivered_at, $m->read_at) : null,
             'media' => $this->mediaOf($m),
         ];
     }
@@ -274,6 +285,7 @@ class InternalMessaging
             'texte' => $m->body,
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->read_at?->toIso8601String(),
+            'status' => $m->sender_clinic_id === $mine->id ? MessageReceipts::status($m->delivered_at, $m->read_at) : null,
             'media' => $this->mediaOf($m),
         ];
     }

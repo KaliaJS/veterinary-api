@@ -14,6 +14,7 @@ use App\Models\Organisation;
 use App\Models\PreferencesProprietaire;
 use App\Services\Messages\InternalMessaging;
 use App\Services\Messages\MessageMediaService;
+use App\Services\Messages\MessageReceipts;
 use App\Services\Notifications\Push;
 use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Builder;
@@ -38,11 +39,13 @@ use Throwable;
  */
 class MessagerieCliniqueController extends Controller
 {
-    public function __construct(private InternalMessaging $internes) {}
+    public function __construct(private InternalMessaging $internes, private MessageReceipts $receipts) {}
 
     /** Les fils de la clinique, de ses clients, de l'employé avec ses collègues, avec les autres cliniques : le plus récent d'abord. */
     public function index(): JsonResponse
     {
+        // L'app de la clinique relit sa liste : les messages des clients lui sont distribués (08.11.2026)
+        $this->receipts->clinicReceivedFromOwners((int) app(ContexteClinique::class)->cliniqueId());
         $fils = collect([...$this->filsDesClients(), ...$this->internes->threads()])
             ->sortByDesc(fn (array $fil): string => (string) ($fil['dernier']['envoye_le'] ?? ''))->values();
 
@@ -87,7 +90,10 @@ class MessagerieCliniqueController extends Controller
                 'client' => $nom,
                 'peut_repondre' => $lie !== null,
                 'non_lus' => $fil->where('auteur', 'proprietaire')->whereNull('lu_le')->count(),
-                'dernier' => ['texte' => mb_strimwidth($dernier->texte, 0, 140, '…'), 'auteur' => $dernier->auteur, 'is_mine' => $dernier->auteur === 'clinique', 'envoye_le' => $dernier->created_at?->toIso8601String()],
+                'dernier' => [
+                    'texte' => mb_strimwidth($dernier->texte, 0, 140, '…'), 'auteur' => $dernier->auteur, 'is_mine' => $dernier->auteur === 'clinique', 'envoye_le' => $dernier->created_at?->toIso8601String(),
+                    'status' => $dernier->auteur === 'clinique' ? MessageReceipts::status($dernier->delivered_at, $dernier->lu_le) : null,
+                ],
             ];
         })->values()->all();
     }
@@ -99,7 +105,8 @@ class MessagerieCliniqueController extends Controller
             return response()->json(['data' => $this->internes->thread($cle)]);
         }
         [$fiche, $userId, $lie] = $this->fiche($cle);
-        $this->messagesDu($cle, $fiche)->where('auteur', 'proprietaire')->whereNull('lu_le')->update(['lu_le' => now()]);
+        // Lus : le propriétaire voit ses coches passer au bleu (08.11.2026)
+        $this->receipts->read($this->messagesDu($cle, $fiche)->where('auteur', 'proprietaire'), 'lu_le', $userId !== null ? 'utilisateur.'.$userId : null, $userId);
         $messages = $this->messagesDu($cle, $fiche)->with('employe', 'media')->orderBy('created_at')->orderBy('id')->get();
         $paie = app(MessageMediaService::class)->clinicPays(Organisation::query()->find(app(ContexteClinique::class)->organisationId()));
 
@@ -245,6 +252,7 @@ class MessagerieCliniqueController extends Controller
             'texte' => $m->texte,
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->lu_le?->toIso8601String(),
+            'status' => $m->auteur === 'clinique' ? MessageReceipts::status($m->delivered_at, $m->lu_le) : null,
             'media' => $media ? MessageMediaService::forClinic($media, (bool) $paie) : null,
         ];
     }

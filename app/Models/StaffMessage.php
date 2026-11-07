@@ -22,12 +22,13 @@ class StaffMessage extends Model
         static::deleting(fn (self $message) => $message->media()->first()?->delete());
     }
 
-    protected $fillable = ['organisation_id', 'sender_employee_id', 'recipient_employee_id', 'body', 'read_at'];
+    protected $fillable = ['organisation_id', 'sender_employee_id', 'recipient_employee_id', 'body', 'read_at', 'delivered_at'];
 
     protected function casts(): array
     {
         return [
             'read_at' => 'datetime',
+            'delivered_at' => 'datetime',
         ];
     }
 

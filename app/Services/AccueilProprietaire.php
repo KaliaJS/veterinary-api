@@ -17,6 +17,7 @@ use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\Vaccination;
+use App\Services\Messages\MessageReceipts;
 use App\Support\DocumentHeader;
 use Illuminate\Support\Collection;
 
@@ -45,6 +46,8 @@ class AccueilProprietaire
         $commandesPretes = $commandes->where('statut', StatutCommandeBoutique::Prete);
         $derniereCommande = $commandes->first();
 
+        // L'app du propriétaire est ouverte et apprend ses messages : ils lui sont distribués (08.11.2026)
+        app(MessageReceipts::class)->ownerReceived($contexte->user()->id);
         $messagesNonLus = MessageClientele::query()
             ->where('user_id', $contexte->user()->id)
             ->where('auteur', 'clinique')
