@@ -150,7 +150,13 @@ class Devis extends Model
         }
         $lignes = $this->relationLoaded('lignes') ? $this->lignes : $this->lignes()->get();
         $soin = $this->tauxTva();
-        $produits = Produit::withoutGlobalScopes()->whereIn('id', $lignes->pluck('produit_id')->filter())->get()->keyBy('id');
+        // Les articles déjà chargés avec les lignes (une liste de devis), sinon lus en une requête, aucune sans article
+        $ids = $lignes->pluck('produit_id')->filter()->unique()->values();
+        $produits = match (true) {
+            $ids->isEmpty() => collect(),
+            $lignes->every(fn (DevisLigne $ligne): bool => $ligne->produit_id === null || $ligne->relationLoaded('produit')) => $lignes->pluck('produit')->filter()->keyBy('id'),
+            default => Produit::withoutGlobalScopes()->whereIn('id', $ids)->get()->keyBy('id'),
+        };
 
         return VatBreakdown::of([
             ...$lignes->map(fn (DevisLigne $ligne): array => [

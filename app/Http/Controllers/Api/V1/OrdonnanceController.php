@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Api\V1;
 use App\Auth\ContexteClinique;
 use App\Enums\PieceNumerotee;
 use App\Enums\StatutOrdonnance;
+use App\Http\Controllers\Api\V1\Concerns\ServedListing;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Ordonnances\EnregistrerOrdonnanceRequest;
 use App\Http\Resources\V1\OrdonnanceResource;
 use App\Models\MouvementStupefiant;
 use App\Models\Ordonnance;
+use App\Models\Patient;
 use App\Models\Produit;
 use App\Services\GestionnaireStock;
 use App\Services\Numeroteur;
@@ -18,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -30,6 +33,8 @@ use Illuminate\Validation\ValidationException;
  */
 class OrdonnanceController extends Controller
 {
+    use ServedListing;
+
     /** Fenêtre d'annulation d'une signature — couvre l'undo de 10 s du front plus la latence. */
     private const int FENETRE_ANNULATION_SECONDES = 20;
 
@@ -38,28 +43,86 @@ class OrdonnanceController extends Controller
         private GestionnaireStock $stock,
     ) {}
 
+    /** Les tris de l'écran Ordonnances (07.11.2026) */
+    public const array SORTS = ['recent', 'old', 'patient'];
+
+    /**
+     * Le registre de l'organisation, trié, filtré et cherché par le serveur
+     * sur toutes les ordonnances, page après page (tri au-delà de 100
+     * lignes, 07.11.2026) ; `meta.facettes` : le nombre d'ordonnances de
+     * chaque état et celui des renouvellements demandés, à traiter, quels
+     * que soient la recherche et le filtre.
+     */
     public function index(Request $request): AnonymousResourceCollection
     {
         $this->authorize('viewAny', Ordonnance::class);
+        $request->validate([
+            ...$this->listingRules(self::SORTS),
+            'statut' => ['sometimes', 'nullable', Rule::enum(StatutOrdonnance::class)],
+        ]);
+        $motif = $this->searchPattern($request);
 
         $ordonnances = Ordonnance::query()
             ->with(Ordonnance::relationsDocument())
             ->when($request->enum('statut', StatutOrdonnance::class), fn (Builder $requete, StatutOrdonnance $statut) => $requete->where('statut', $statut))
             ->when($request->integer('patient_id'), fn (Builder $requete, int $patient) => $requete->where('patient_id', $patient))
-            ->when($request->filled('q'), function (Builder $requete) use ($request): void {
-                $terme = '%'.$request->string('q')->trim()->lower().'%';
-                $requete->where(fn (Builder $clause) => $clause
-                    ->whereRaw('lower(numero) like ?', [$terme])
-                    ->orWhereHas('patient', fn (Builder $patient) => $patient->whereRaw('lower(nom) like ?', [$terme]))
-                    ->orWhereHas('lignes.produit', fn (Builder $produit) => $produit->whereRaw('lower(nom) like ?', [$terme])));
-            })
-            ->latest('signee_le')
-            ->latest('id')
+            // Le numéro, l'animal, son propriétaire, les médicaments
+            ->when($motif !== null, fn (Builder $requete) => $requete->where(fn (Builder $clause) => $clause
+                ->tap(fn (Builder $c) => $this->whereLikeAny($c, ['ordonnances.numero'], $motif))
+                ->orWhereHas('patient', fn (Builder $patient) => $patient->where(fn (Builder $p) => $p
+                    ->tap(fn (Builder $pp) => $this->whereLikeAny($pp, ['patients.nom'], $motif))
+                    ->orWhereHas('client', fn (Builder $client) => $this->whereLikeAny($client, ['clients.nom', "coalesce(clients.prenom, '')"], $motif))))
+                ->orWhereHas('lignes.produit', fn (Builder $produit) => $this->whereLikeAny($produit, ['produits.nom'], $motif))))
+            ->tap(fn (Builder $requete) => $this->sortPrescriptions($requete, $this->sortOf($request, 'recent')))
             ->paginate($this->parPage($request));
         // Les principes actifs des médicaments de la page, en une requête (allergies, 03.11.2026)
         Produit::withCatalogueSubstances($ordonnances->getCollection()->flatMap(fn (Ordonnance $o) => $o->lignes->pluck('produit')));
 
-        return OrdonnanceResource::collection($ordonnances);
+        return OrdonnanceResource::collection($ordonnances)->additional([
+            'meta' => ['facettes' => $this->prescriptionFacets($request)],
+        ]);
+    }
+
+    /**
+     * La date de signature, ou le nom de l'animal (puis la plus récente) ; le
+     * numéro départage, toujours.
+     *
+     * @param  Builder<Ordonnance>  $requete
+     */
+    private function sortPrescriptions(Builder $requete, string $tri): void
+    {
+        match ($tri) {
+            'old' => $requete->orderBy('signee_le')->orderBy('id'),
+            'patient' => $requete
+                ->orderBy(Patient::withoutGlobalScopes()->selectRaw('lower(patients.nom)')->whereColumn('patients.id', 'ordonnances.patient_id')->limit(1))
+                ->orderByDesc('signee_le')
+                ->orderByDesc('id'),
+            default => $requete->orderByDesc('signee_le')->orderByDesc('id'),
+        };
+    }
+
+    /**
+     * Les compteurs du filtre et la pastille du menu (les renouvellements
+     * demandés par les propriétaires, encore à traiter), en une requête.
+     *
+     * @return array{tous: int, active: int, stop: int, renouvellements: int}
+     */
+    private function prescriptionFacets(Request $request): array
+    {
+        $ligne = Ordonnance::query()
+            ->when($request->integer('patient_id'), fn (Builder $requete, int $patient) => $requete->where('patient_id', $patient))
+            ->selectRaw(implode(', ', [
+                'count(*) as tous',
+                'sum(case when statut = ? then 1 else 0 end) as active',
+                'sum(case when statut = ? then 1 else 0 end) as stop',
+                'sum(case when statut = ? and exists (select 1 from demandes_renouvellement_ordonnance d where d.ordonnance_id = ordonnances.id and d.traitee_le is null) then 1 else 0 end) as renouvellements',
+            ]), [StatutOrdonnance::Active->value, StatutOrdonnance::Cloturee->value, StatutOrdonnance::Active->value])
+            ->toBase()
+            ->first();
+
+        return collect(['tous', 'active', 'stop', 'renouvellements'])
+            ->mapWithKeys(fn (string $cle): array => [$cle => (int) ($ligne->{$cle} ?? 0)])
+            ->all();
     }
 
     public function store(EnregistrerOrdonnanceRequest $request): OrdonnanceResource

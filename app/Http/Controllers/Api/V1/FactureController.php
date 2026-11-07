@@ -7,6 +7,7 @@ use App\Enums\MoyenPaiement;
 use App\Enums\StatutFacture;
 use App\Enums\TypeLigneFacture;
 use App\Enums\VatContext;
+use App\Http\Controllers\Api\V1\Concerns\ServedListing;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Facturation\EnregistrerFactureRequest;
 use App\Http\Resources\V1\FactureResource;
@@ -21,6 +22,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -33,12 +35,26 @@ use Illuminate\Validation\ValidationException;
  */
 class FactureController extends Controller
 {
+    use ServedListing;
+
     /** Fenêtre d'annulation d'une création — couvre l'undo de 10 s du front plus la latence. */
     private const int FENETRE_ANNULATION_SECONDES = 20;
+
+    /** Les tris de la liste (07.11.2026) */
+    public const array SORTS = ['recent', 'old', 'amount'];
+
+    /** Le TTC d'une facture en SQL, comme Facture::totalTtc */
+    private const string SQL_TOTAL = 'round(coalesce((select sum(facture_lignes.quantite * facture_lignes.prix_chf) from facture_lignes where facture_lignes.facture_id = factures.id), 0), 2)';
 
     public function index(Request $request): AnonymousResourceCollection
     {
         $this->authorize('viewAny', Facture::class);
+        $request->validate([
+            ...$this->listingRules(self::SORTS),
+            'statut' => ['sometimes', 'nullable', Rule::enum(StatutFacture::class)],
+            'a_regler' => ['sometimes', 'boolean'],
+        ]);
+        $motif = $this->searchPattern($request);
 
         $factures = Facture::query()
             ->with(['lignes', 'decompte', 'encaisseePar:id,name'])
@@ -58,8 +74,20 @@ class FactureController extends Controller
                 ->whereNull('cloture_caisse_id')
                 ->where('clinique_id', app(ContexteClinique::class)->cliniqueId())
                 ->where(fn (Builder $q) => $q->whereNull('moyen_paiement')->orWhere('moyen_paiement', '!=', MoyenPaiement::Virement->value)))
-            ->latest('emise_le')
-            ->latest('id')
+            // À régler (onglet du dossier, 07.11.2026) : due, et il reste quelque chose après l'acompte
+            ->when($request->boolean('a_regler'), fn (Builder $requete) => $requete
+                ->where('statut', StatutFacture::Due)
+                ->whereRaw(self::SQL_TOTAL.' - factures.acompte > 0'))
+            // Le numéro, les lignes, l'animal et le propriétaire écrits sur la facture
+            ->when($motif !== null, fn (Builder $requete) => $requete->where(fn (Builder $clause) => $clause
+                ->tap(fn (Builder $c) => $this->whereLikeAny($c, ['factures.numero', "coalesce(factures.patient_name, '')", "coalesce(factures.owner_name, '')"], $motif))
+                ->orWhereHas('lignes', fn (Builder $ligne) => $this->whereLikeAny($ligne, ['facture_lignes.libelle'], $motif))))
+            ->tap(fn (Builder $requete) => match ($this->sortOf($request, 'recent')) {
+                'old' => $requete->orderBy('emise_le')->orderBy('id'),
+                // Le TTC servi (Facture::totalTtc : la somme des lignes, arrondie)
+                'amount' => $requete->orderByRaw(self::SQL_TOTAL.' desc')->orderByDesc('id'),
+                default => $requete->latest('emise_le')->latest('id'),
+            })
             ->paginate($this->parPage($request));
 
         return FactureResource::collection($factures);

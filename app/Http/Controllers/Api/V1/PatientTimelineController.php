@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Auth\ContexteClinique;
 use App\Enums\StatutAnalyse;
 use App\Enums\StatutOrdonnance;
 use App\Enums\StatutRendezVous;
@@ -27,6 +28,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 /**
@@ -39,12 +41,38 @@ use Illuminate\Validation\Rule;
  * de trente. Même curseur que l'historique d'un propriétaire : `avant`
  * (inclusif, le `meta.suivant` reçu) et `sauter` (ceux de cette seconde
  * déjà servis) ; `type` n'en garde qu'une sorte (les filtres du dossier).
+ * Les onglets en liste du dossier (07.11.2026) : `filtre` (selon la sorte)
+ * et `q` (insensible à la casse et aux accents) portent sur toute
+ * l'histoire de l'animal, avant la page et le curseur.
  */
 class PatientTimelineController extends Controller
 {
     private const PAGE_SIZE = 30;
 
     public const TYPES = ['visite', 'vaccin', 'poids', 'prescription', 'examen', 'document'];
+
+    /** Les filtres des onglets, par sorte (les menus du dossier) */
+    public const array FILTERS = [
+        'vaccin' => ['due', 'current', 'renewed'],
+        'poids' => ['trois', 'an'],
+        'prescription' => ['active', 'renew', 'closed'],
+        'examen' => ['imaging', 'lab', 'eye', 'out'],
+    ];
+
+    /** Le plus long texte cherché */
+    public const int SEARCH_MAX = 100;
+
+    /**
+     * Filtré ou cherché, chaque source est lue en entier jusqu'à ce plafond
+     * (les plus récentes d'abord) : une histoire d'animal n'en approche pas,
+     * une base abîmée ne se lit pas sans fin (vérification du 07.11.2026).
+     */
+    public const int NARROWED_LIMIT = 2000;
+
+    /** Le plafond, abaissé par un test seulement */
+    public static ?int $narrowedLimitForTests = null;
+
+    private const array MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
     public function __invoke(Request $request, Patient $patient): JsonResponse
     {
@@ -53,23 +81,45 @@ class PatientTimelineController extends Controller
             'avant' => ['sometimes', 'nullable', 'date'],
             'sauter' => ['sometimes', 'integer', 'min:0', 'max:10000'],
             'type' => ['sometimes', 'nullable', Rule::in(self::TYPES)],
+            // Un filtre n'existe que pour sa sorte
+            'filtre' => ['sometimes', 'nullable', 'string', Rule::in(self::FILTERS[(string) $request->string('type')] ?? [])],
+            // Une recherche porte sur une sorte : sans elle, toutes les sources de l'animal seraient lues
+            'q' => ['sometimes', 'nullable', 'string', 'max:'.self::SEARCH_MAX, Rule::prohibitedIf(! $request->filled('type'))],
         ]);
         $before = $request->filled('avant') ? CarbonImmutable::parse((string) $request->string('avant'))->utc() : null;
         $skip = $before === null ? 0 : $request->integer('sauter');
         $type = $request->filled('type') ? (string) $request->string('type') : null;
-        $wants = fn (string $t): bool => $type === null || $type === $t;
+        $filter = $request->filled('filtre') ? (string) $request->string('filtre') : null;
+        $search = $this->normalized(trim((string) $request->string('q')));
+        $search = $search === '' ? null : $search;
+        // Un filtre ne garde qu'une source : les autres ne sont pas lues
+        $sources = match ($filter) {
+            'due' => ['rappel'],
+            'current', 'renewed' => ['vaccination'],
+            'imaging' => ['imagerie'],
+            'lab', 'out' => ['analyse'],
+            'eye' => ['releve_oph'],
+            default => null,
+        };
+        $wants = fn (string $t, ?string $source = null): bool => ($type === null || $type === $t) && ($sources === null || $source === null || in_array($source, $sources, true));
         $clinics = Clinique::withoutGlobalScopes()->whereHas('societe', fn ($q) => $q->where('organisation_id', $patient->organisation_id))->pluck('id');
-        $limit = self::PAGE_SIZE + 1 + $skip;
+        // Filtré ou cherché, tout ce qui est de la sorte est lu (jusqu'au plafond), puis gardé ou non : la page et le curseur portent sur toute l'histoire
+        $isNarrowed = $filter !== null || $search !== null;
+        $limit = $isNarrowed ? (self::$narrowedLimitForTests ?? self::NARROWED_LIMIT) : self::PAGE_SIZE + 1 + $skip;
+        $keep = fn (array $x): bool => $this->matchesFilter($x, $filter) && ($search === null || str_contains($this->haystack($x), $search));
 
         // Ordre total : la date, puis la sorte, la source et le numéro dans la même seconde
         $past = collect([
             ...($wants('visite') ? [...$this->appointments($patient, $clinics, $before, $limit), ...$this->visits($patient, $before, $limit)] : []),
-            ...($wants('vaccin') ? $this->vaccinations($patient, $before, $limit) : []),
+            ...($wants('vaccin', 'vaccination') ? $this->vaccinations($patient, $before, $limit) : []),
             ...($wants('poids') ? $this->weighings($patient, $before, $limit) : []),
             ...($wants('prescription') ? $this->prescriptions($patient, $before, $limit) : []),
-            ...($wants('examen') ? [...$this->imaging($patient, $before, $limit), ...$this->labTests($patient, $before, $limit), ...$this->eyeExams($patient, $before, $limit)] : []),
+            ...($wants('examen', 'imagerie') ? $this->imaging($patient, $before, $limit) : []),
+            ...($wants('examen', 'analyse') ? $this->labTests($patient, $before, $limit) : []),
+            ...($wants('examen', 'releve_oph') ? $this->eyeExams($patient, $before, $limit) : []),
             ...($wants('document') ? $this->documents($patient, $before, $limit) : []),
         ])
+            ->filter($keep)
             ->map(fn (array $x): array => [...$x, '_t' => CarbonImmutable::parse($x['date'])->utc()->getTimestamp()])
             ->sort(fn (array $a, array $b): int => [$b['_t'], $b['type'], $b['source'], $b['id']] <=> [$a['_t'], $a['type'], $a['source'], $a['id']])
             ->values();
@@ -91,8 +141,8 @@ class PatientTimelineController extends Controller
         $upcoming = $before === null
             ? collect([
                 ...($wants('visite') ? $this->upcomingAppointments($patient, $clinics) : []),
-                ...($wants('vaccin') ? $this->dueReminders($patient) : []),
-            ])->sortBy(fn (array $x): int => CarbonImmutable::parse($x['date'])->getTimestamp())->values()->all()
+                ...($wants('vaccin', 'rappel') ? $this->dueReminders($patient) : []),
+            ])->filter($keep)->sortBy(fn (array $x): int => CarbonImmutable::parse($x['date'])->getTimestamp())->values()->all()
             : [];
 
         return response()->json([
@@ -310,12 +360,11 @@ class PatientTimelineController extends Controller
             ];
         }
 
-        return collect($lines)
+        $newestFirst = collect($lines)
             ->filter(fn (array $x): bool => $before === null || substr($x['date'], 0, 10) <= $before->toDateString())
-            ->reverse()
-            ->take($limit)
-            ->values()
-            ->all();
+            ->reverse();
+
+        return $newestFirst->take($limit)->values()->all();
     }
 
     /**
@@ -497,6 +546,69 @@ class PatientTimelineController extends Controller
             ])
             ->values()
             ->all();
+    }
+
+    /**
+     * Le filtre d'un onglet (FILTERS) : les rappels, les injections encore
+     * valables ou renouvelées ; les pesées des trois ou de la dernière année ;
+     * les ordonnances en cours, renouvelables ou terminées ; une sorte
+     * d'examen, ou les analyses hors normes.
+     *
+     * @param  array<string, mixed>  $x
+     */
+    private function matchesFilter(array $x, ?string $filter): bool
+    {
+        return match ($filter) {
+            null => true,
+            'due' => $x['source'] === 'rappel',
+            'current' => $x['source'] === 'vaccination' && ! $x['est_renouvelee'],
+            'renewed' => $x['source'] === 'vaccination' && $x['est_renouvelee'],
+            'trois', 'an' => substr($x['date'], 0, 10) >= aujourdhui()->subYears($filter === 'an' ? 1 : 3)->toDateString(),
+            'active' => (bool) ($x['en_cours'] ?? false),
+            'renew' => ($x['renouvellements'] ?? 0) > 0,
+            'closed' => ! ($x['en_cours'] ?? false),
+            'imaging' => $x['source'] === 'imagerie',
+            'lab' => $x['source'] === 'analyse',
+            'eye' => $x['source'] === 'releve_oph',
+            'out' => ($x['hors_normes'] ?? 0) > 0,
+            default => false,
+        };
+    }
+
+    /**
+     * Ce que la recherche lit d'une ligne : son titre, son détail, ses
+     * numéros, noms et médicaments, et sa date écrite comme à l'écran
+     * (« 12.03.2025 », « 12 mars 2025 »), sans casse ni accents.
+     *
+     * @param  array<string, mixed>  $x
+     */
+    private function haystack(array $x): string
+    {
+        $day = CarbonImmutable::parse($x['date'])->setTimezone($this->zone());
+        $parts = [
+            $x['titre'] ?? '', $x['detail'] ?? '', $x['numero'] ?? '', $x['signataire'] ?? '', $x['veterinaire'] ?? '',
+            $x['produit'] ?? '', $x['lot'] ?? '', $x['libelle'] ?? '', $x['conclusion'] ?? '',
+            implode(' ', $x['valences'] ?? []),
+            ...array_map(fn (array $l): string => implode(' ', [$l['produit_nom'] ?? '', $l['posologie'] ?? '', $l['duree'] ?? '']), $x['lignes'] ?? []),
+            $day->format('d.m.Y'),
+            $day->day.' '.self::MONTHS[$day->month - 1].' '.$day->year,
+        ];
+
+        return $this->normalized(implode(' | ', $parts));
+    }
+
+    /** Sans casse ni accents (« Échographie » se trouve avec « echo ») */
+    private function normalized(string $text): string
+    {
+        return Str::lower(Str::ascii($text));
+    }
+
+    private ?string $zone = null;
+
+    /** Le fuseau de la clinique du jeton, pour la date écrite d'une ligne */
+    private function zone(): string
+    {
+        return $this->zone ??= (app(ContexteClinique::class)->clinique()?->fuseau_horaire ?: 'Europe/Zurich');
     }
 
     /** « Schirmer 15 et 17 », « pression 18 à droite » ; rien sans mesure */
