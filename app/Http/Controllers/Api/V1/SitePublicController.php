@@ -7,6 +7,7 @@ use App\Models\Clinique;
 use App\Models\Organisation;
 use App\Models\SiteWeb;
 use App\Services\HorairesSiteWeb;
+use App\Services\Site\PublicShop;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -20,7 +21,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class SitePublicController extends Controller
 {
-    public function afficher(string $slug, HorairesSiteWeb $horaires): JsonResponse
+    public function afficher(string $slug, HorairesSiteWeb $horaires, PublicShop $shop): JsonResponse
     {
         $site = SiteWeb::withoutGlobalScopes()->with('organisation')->where('slug', $slug)->where('est_publie', true)->firstOrFail();
         $organisation = Organisation::ouvertes()->findOrFail($site->organisation_id);
@@ -38,6 +39,8 @@ class SitePublicController extends Controller
                 ->map(fn (array $m): array => collect($m)->except(['est_masque', 'a_accepte'])->all())->values()->all(),
             'actualites' => collect($site->actualites ?? [])->sortByDesc('date')->values()->all(),
             'organisation' => ['nom' => $organisation->nom],
+            // La page « Boutique » du site : une clinique a coché le service et un article est en vente (07.11.2026)
+            'has_shop' => $shop->isOpen($organisation),
             'cliniques' => $cliniques->map(fn (Clinique $clinique): array => [
                 'id' => $clinique->id,
                 'nom' => $clinique->nom,

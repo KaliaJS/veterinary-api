@@ -17,6 +17,20 @@ enum CategorieProduit: string
     // La boutique ne vend pas que des médicaments (Jim, 03.11.2026)
     case Accessoire = 'acc';
 
+    /** Le nom de la famille, montré au public (filtres de la boutique du site, 07.11.2026) */
+    public function label(): string
+    {
+        return match ($this) {
+            self::Medicament => 'Médicaments',
+            self::Alimentation => 'Alimentation',
+            self::Soin => 'Soins et hygiène',
+            self::Antiparasitaire => 'Antiparasitaires',
+            self::Phytotherapie => 'Phytothérapie',
+            self::Materiel => 'Matériel',
+            self::Accessoire => 'Accessoires et jouets',
+        };
+    }
+
     /** Les familles propres aux médicaments : ordonnance (aussi les antiparasitaires) */
     public function isDrug(): bool
     {

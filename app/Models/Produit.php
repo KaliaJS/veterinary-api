@@ -67,6 +67,8 @@ class Produit extends Model
         'photo_chemin',
         // Le taux de TVA à la vente (03.11.2026)
         'vat_rate',
+        // La phrase de la vitrine, montrée sur le site de la clinique (07.11.2026)
+        'shop_description',
     ];
 
     protected function casts(): array

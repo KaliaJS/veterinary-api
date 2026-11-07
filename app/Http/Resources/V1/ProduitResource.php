@@ -56,6 +56,8 @@ class ProduitResource extends JsonResource
             'est_vedette' => $this->est_vedette,
             // La photo de la vitrine (nouvel article B, 03.11.2026)
             'photo_url' => $this->resource->photoUrl(),
+            // La phrase de la vitrine, montrée sur le site de la clinique (07.11.2026)
+            'shop_description' => $this->shop_description,
             // Commander automatiquement sous le seuil, jusqu'où, l'écart décidé par la clinique, et ses
             // sources : tout dans la clinique ouverte (par clinique depuis le 04.11.2026)
             'is_auto_order' => (bool) $this->orderSetting()?->is_auto_order,

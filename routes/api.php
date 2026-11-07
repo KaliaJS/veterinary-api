@@ -166,6 +166,7 @@ use App\Http\Controllers\Api\V1\SessionTeleconsultationController;
 use App\Http\Controllers\Api\V1\SiteDomaineController;
 use App\Http\Controllers\Api\V1\SiteLogoController;
 use App\Http\Controllers\Api\V1\SitePublicController;
+use App\Http\Controllers\Api\V1\SiteShopController;
 use App\Http\Controllers\Api\V1\SiteWebController;
 use App\Http\Controllers\Api\V1\SocieteController;
 use App\Http\Controllers\Api\V1\SoinSejourController;
@@ -368,6 +369,8 @@ Route::prefix('v1')->group(function (): void {
         Route::post('demandes/{jeton}/paiement', [DemandePubliqueController::class, 'paiement'])->where('jeton', '[A-Za-z0-9]{48}')->middleware('throttle:20,1,paiement');
         // Site web publié d'une organisation et de toutes ses cliniques.
         Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
+        // Sa page « Boutique » (07.11.2026) : la vitrine de ce site seulement, son compteur à part
+        Route::get('sites/{slug}/boutique', [SiteShopController::class, 'show'])->where('slug', '[a-z0-9-]+')->withoutMiddleware('throttle:60,1')->middleware('throttle:60,1,site-boutique');
         // Domaines personnalisés : site d'un domaine actif ; autorisation de certificat (on-demand TLS)
         Route::get('domaines/{domaine}', [DomainePublicController::class, 'site'])->where('domaine', '[a-z0-9.-]+');
         Route::get('domaines-autorises', [DomainePublicController::class, 'autorise'])->withoutMiddleware('throttle:60,1')->middleware('throttle:fichiers');
