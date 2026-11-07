@@ -5,6 +5,7 @@ namespace App\Http\Resources\V1;
 use App\Models\MouvementStupefiant;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Collection;
 
 /**
  * Une ligne du registre des stupéfiants : son type, sa quantité signée, le
@@ -15,6 +16,13 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class MouvementStupefiantResource extends JsonResource
 {
+    /**
+     * Toutes les lignes d'une inscription, quand elle vient d'être écrite (une par lot, 06.11.2026)
+     *
+     * @var Collection<int, MouvementStupefiant>|null
+     */
+    public ?Collection $lignesEcrites = null;
+
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
@@ -22,6 +30,12 @@ class MouvementStupefiantResource extends JsonResource
             'id' => $this->id,
             'clinique_id' => $this->clinique_id,
             'produit_id' => $this->produit_id,
+            // Le lot de la ligne, son numéro figé à l'inscription (04.11.2026)
+            'lot_id' => $this->lot_id,
+            'numero_lot' => $this->numero_lot,
+            // La première ligne de la même inscription, quand une sortie s'écrit sur plusieurs lots
+            'premiere_ligne_id' => $this->premiere_ligne_id,
+            'lignes' => $this->when($this->lignesEcrites !== null, fn () => self::collection($this->lignesEcrites)),
             'patient_id' => $this->patient_id,
             'employe_id' => $this->employe_id,
             'type' => $this->type->value,

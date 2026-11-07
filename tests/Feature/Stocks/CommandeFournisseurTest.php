@@ -419,7 +419,7 @@ class CommandeFournisseurTest extends TestCase
         $produit = $this->produit(['est_stupefiant' => true, 'tableau_stupefiant' => 'a']);
         ['employe' => $veto, 'jeton' => $jetonVeto] = $this->employeAvecJeton($this->clinique);
         $this->clinique->update(['responsable_stupefiants_id' => $veto->id]);
-        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $produit->id, 'type' => 'reception', 'quantite' => 1, 'fournisseur' => 'Grossiste', 'bulletin' => 'BL-1', 'bulletin_le' => now('Europe/Zurich')->toDateString()], $this->enTetes($jetonVeto))->assertCreated();
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $produit->id, 'type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 1, 'fournisseur' => 'Grossiste', 'bulletin' => 'BL-1', 'bulletin_le' => now('Europe/Zurich')->toDateString()], $this->enTetes($jetonVeto))->assertCreated();
         $this->postJson('/api/v1/stupefiants/visa', [], $this->enTetes($jetonVeto))->assertOk();
         $commande = CommandeFournisseur::factory()->envoyee()->create(['clinique_id' => $this->clinique->id]);
         CommandeFournisseurLigne::factory()->create(['commande_fournisseur_id' => $commande->id, 'produit_id' => $produit->id, 'quantite' => 10]);

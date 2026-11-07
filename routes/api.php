@@ -1008,6 +1008,8 @@ Route::prefix('v1')->group(function (): void {
 
             Route::get('lots', [LotController::class, 'index']);
             Route::post('lots/{lot}/ecarter', [LotController::class, 'ecarter']);
+            // À qui un lot a été donné ou vendu (lots décomptés à chaque sortie, 04.11.2026)
+            Route::get('lots/{lot}/sorties', [LotController::class, 'sorties']);
         });
 
         // Registre des stupéfiants — domaine stocks, tenu PAR CLINIQUE

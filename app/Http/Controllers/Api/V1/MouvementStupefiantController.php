@@ -8,14 +8,18 @@ use App\Enums\TypeMouvementStupefiant;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Stupefiants\EnregistrerMouvementStupefiantRequest;
 use App\Http\Resources\V1\MouvementStupefiantResource;
+use App\Models\Lot;
 use App\Models\MouvementStupefiant;
 use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\Produit;
 use App\Services\RegistreStupefiants;
+use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -83,7 +87,8 @@ class MouvementStupefiantController extends Controller
         $type = TypeMouvementStupefiant::from($donnees['type']);
         $cliniqueId = (int) app(ContexteClinique::class)->cliniqueId();
 
-        $mouvement = DB::transaction(function () use ($donnees, $type, $cliniqueId, $request): MouvementStupefiant {
+        // Une sortie plus grande que son lot s'écrit en une ligne par lot (06.11.2026)
+        $lignes = DB::transaction(function () use ($donnees, $type, $cliniqueId, $request): Collection {
             $produit = Produit::query()->findOrFail($donnees['produit_id']);
             $details = [
                 'motif' => filled($donnees['motif'] ?? null) ? trim($donnees['motif']) : $type->libelle(),
@@ -96,19 +101,44 @@ class MouvementStupefiantController extends Controller
                 'fournisseur' => $donnees['fournisseur'] ?? null,
                 'bulletin' => $donnees['bulletin'] ?? null,
                 'bulletin_le' => $donnees['bulletin_le'] ?? null,
+                // Le lot choisi pour une sortie (contrôlé par la requête) ; sans lui, le registre inscrit le premier en FEFO
+                'lot' => filled($donnees['lot_id'] ?? null) ? Lot::query()->findOrFail($donnees['lot_id']) : null,
             ];
+            // Une réception manuelle entre dans son lot (décision de Jim, 07.11.2026)
+            if ($type === TypeMouvementStupefiant::Reception) {
+                $details['lot'] = $this->lotRecu($produit, $cliniqueId, (string) $donnees['numero_lot'], (string) $donnees['lot_peremption']);
+            }
 
             $quantite = match ($type) {
-                TypeMouvementStupefiant::Correction => $this->correction($donnees, $produit, $details),
+                TypeMouvementStupefiant::Correction => $this->correction($donnees, $produit, $cliniqueId, $details),
                 TypeMouvementStupefiant::Inventaire => $this->inventaire($donnees, $produit, $cliniqueId, $details),
                 TypeMouvementStupefiant::Visa => 0.0,
                 default => $type->sens() * (float) $donnees['quantite'],
             };
 
-            return $this->registre->ecrire($produit, $type, $quantite, $details, $cliniqueId, $request->user());
+            return $this->registre->ecrireParLot($produit, $type, $quantite, $details, $cliniqueId, $request->user());
         });
+        $lignes = (new EloquentCollection($lignes->all()))->load(['produit', 'corrige']);
 
-        return new MouvementStupefiantResource($mouvement->load(['produit', 'corrige']));
+        // La dernière ligne (le stock après l'inscription), avec toutes les lignes écrites
+        $resource = new MouvementStupefiantResource($lignes->last());
+        $resource->lignesEcrites = $lignes;
+
+        return $resource;
+    }
+
+    /**
+     * Le lot d'une réception manuelle : retrouvé au même numéro et à la même
+     * péremption dans la clinique, sinon créé vide ; la réception y fait
+     * entrer sa quantité. Sous le verrou de la substance.
+     */
+    private function lotRecu(Produit $produit, int $cliniqueId, string $numero, string $peremption): Lot
+    {
+        $this->registre->soldeVerrouille($produit, $cliniqueId);
+        $premierDuMois = CarbonImmutable::createFromFormat('!Y-m', $peremption)->toDateString();
+
+        return Lot::query()->where('produit_id', $produit->id)->where('numero_lot', $numero)->whereDate('peremption_le', $premierDuMois)->lockForUpdate()->first()
+            ?? Lot::create(['produit_id' => $produit->id, 'clinique_id' => $cliniqueId, 'numero_lot' => $numero, 'peremption_le' => $premierDuMois, 'quantite' => 0]);
     }
 
     /**
@@ -118,9 +148,12 @@ class MouvementStupefiantController extends Controller
      * @param  array<string, mixed>  $donnees
      * @param  array<string, mixed>  $details
      */
-    private function correction(array $donnees, Produit $produit, array &$details): float
+    private function correction(array $donnees, Produit $produit, int $cliniqueId, array &$details): float
     {
-        $corrigee = MouvementStupefiant::query()->whereKey($donnees['corrige_id'])->where('produit_id', $produit->id)->first();
+        // La substance d'abord sous verrou, puis la ligne et ses corrections en lecture verrouillante : deux
+        // corrections envoyées au même instant passent l'une après l'autre, la seconde voit la première
+        $this->registre->soldeVerrouille($produit, $cliniqueId);
+        $corrigee = MouvementStupefiant::query()->whereKey($donnees['corrige_id'])->where('produit_id', $produit->id)->lockForUpdate()->first();
         if ($corrigee === null || in_array($corrigee->type, [TypeMouvementStupefiant::Visa, TypeMouvementStupefiant::Correction], true)) {
             throw ValidationException::withMessages(['corrige_id' => 'Choisissez une ligne de cette substance à corriger.']);
         }
@@ -129,16 +162,25 @@ class MouvementStupefiantController extends Controller
 
         // Une correction redresse la ligne, sans la dépasser ni en inverser le sens (vérification du 01.11.2026)
         $origine = (float) $corrigee->quantite;
-        $net = $origine + (float) MouvementStupefiant::query()->where('corrige_id', $corrigee->id)->where('type', TypeMouvementStupefiant::Correction)->sum('quantite');
+        $net = $origine + (float) MouvementStupefiant::query()->where('corrige_id', $corrigee->id)->where('type', TypeMouvementStupefiant::Correction)
+            ->lockForUpdate()->get(['quantite'])->sum(fn (MouvementStupefiant $c): float => (float) $c->quantite);
         $apres = $net + $quantite;
         if ($apres * $origine < -0.0000005 || abs($apres) > abs($origine) + 0.0005) {
-            throw ValidationException::withMessages(['quantite' => 'Une correction ne peut pas dépasser la ligne corrigée ('.RegistreStupefiants::quantite($origine).').']);
+            // Une inscription écrite sur plusieurs lots se corrige ligne par ligne (06.11.2026)
+            $inscription = $corrigee->premiere_ligne_id ?? $corrigee->id;
+            $nombre = MouvementStupefiant::query()->where(fn ($ligne) => $ligne->whereKey($inscription)->orWhere('premiere_ligne_id', $inscription))->count();
+            throw ValidationException::withMessages(['quantite' => 'Une correction ne peut pas dépasser la ligne corrigée ('.RegistreStupefiants::quantite($origine).').'
+                .($nombre > 1 ? ' Elle s’est inscrite en '.$nombre.' lignes, une par lot : corrigez chaque ligne pour son lot.' : '')]);
         }
         // Une remise sur formulaire officiel annulée, dont le formulaire a resservi : elle ne se rétablit plus (art. 51, al. 3)
         if ($corrigee->type === TypeMouvementStupefiant::Remise && $corrigee->ordonnance_id === null && filled($corrigee->ordonnance_numero)
             && abs($net) < 0.0005 && abs($apres) >= 0.0005) {
+            // Les lignes de la même inscription (une par lot, 06.11.2026) sont la même remise
+            $inscription = $corrigee->premiere_ligne_id ?? $corrigee->id;
             $autres = MouvementStupefiant::withoutGlobalScopes()->where('produit_id', $produit->id)->where('type', TypeMouvementStupefiant::Remise)
-                ->whereNull('ordonnance_id')->where('ordonnance_numero', $corrigee->ordonnance_numero)->whereKeyNot($corrigee->id)->lockForUpdate()->get(['id', 'quantite']);
+                ->whereNull('ordonnance_id')->where('ordonnance_numero', $corrigee->ordonnance_numero)->whereKeyNot($inscription)
+                ->where(fn ($ligne) => $ligne->whereNull('premiere_ligne_id')->orWhere('premiere_ligne_id', '!=', $inscription))
+                ->lockForUpdate()->get(['id', 'quantite']);
             $actives = $autres->filter(fn (MouvementStupefiant $r): bool => abs((float) $r->quantite + (float) MouvementStupefiant::withoutGlobalScopes()->where('corrige_id', $r->id)->sum('quantite')) > 0.0005);
             if ($actives->isNotEmpty()) {
                 throw ValidationException::withMessages(['corrige_id' => 'Le formulaire officiel de cette remise a resservi à une autre remise : elle ne se rétablit plus.']);

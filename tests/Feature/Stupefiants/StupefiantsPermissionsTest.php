@@ -79,7 +79,7 @@ class StupefiantsPermissionsTest extends TestCase
         $this->getJson('/api/v1/stupefiants/registre', $entetes)->assertOk();
         $this->postJson('/api/v1/stupefiants/mouvements', [
             'produit_id' => $this->substance->id,
-            'type' => 'reception',
+            'type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01',
             'fournisseur' => 'Grossiste',
             'quantite' => 10,
             'bulletin' => 'BL-1',

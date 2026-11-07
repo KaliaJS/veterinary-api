@@ -118,28 +118,25 @@ class StockWatchTest extends TestCase
     }
 
     /**
-     * Seuls les lots qui couvrent le stock actuel comptent (vérification du
-     * 04.11.2026) : les lots ne sont pas décomptés à la vente, on suppose
-     * vendus les plus anciens. Rangés du plus lointain au plus proche, on
-     * garde ceux dont la somme couvre la quantité en stock.
+     * Les lots se lisent tels qu'ils sont (04.11.2026) : chaque sortie les
+     * décompte (FEFO), la règle de secours qui supposait vendus les plus
+     * anciens est retirée. Un lot vide ne compte pas ; un lot périmé encore
+     * en rayon est dit périmé, même quand d'autres lots couvrent le stock.
      */
-    public function test_seuls_les_lots_qui_couvrent_le_stock_actuel_comptent(): void
+    public function test_les_lots_se_lisent_tels_qu_ils_sont_sans_regle_de_secours(): void
     {
         $ici = $this->clinique->id;
-        // 5 en stock ; lots : 4 en 2028, 3 en 2027-06, 10 en 2026-10 (périmé). Couvert par 2028 (4) + 2027-06 (3) : le périmé est déjà vendu
-        $vendu = $this->article('Vendu au fur et à mesure', 0, [$ici => 5], [[$ici, '2028-01-01', 4], [$ici, '2027-06-01', 3], [$ici, '2026-10-01', 10]]);
-        // 12 en stock : il faut tous les lots, le périmé compris
-        $plein = $this->article('Encore plein', 0, [$ici => 12], [[$ici, '2028-01-01', 4], [$ici, '2026-10-01', 10]]);
-        // Stock à 0 : aucun lot compté
-        $epuise = $this->article('Épuisé', 0, [$ici => 0], [[$ici, '2026-10-01', 6]]);
+        // Un lot périmé encore noté, à côté d'un lot lointain qui couvre le stock : la règle de secours
+        // le supposait vendu et le taisait ; il est dit
+        $avecPerime = $this->article('Périmé encore en rayon', 0, [$ici => 3], [[$ici, '2028-01-01', 3], [$ici, '2026-10-01', 2]]);
+        // Le lot périmé vidé par les sorties : il ne compte plus
+        $vide = $this->article('Périmé vendu', 0, [$ici => 4], [[$ici, '2028-01-01', 4], [$ici, '2026-10-01', 0]]);
 
         $reponse = $this->getJson('/api/v1/stocks/surveillance', $this->enTetes($this->jeton))->assertOk();
         $de = fn (Produit $p) => collect($reponse->json('data.produits'))->firstWhere('id', $p->id);
-        $this->assertSame(['date' => '06.2027', 'etat' => null], $de($vendu)['peremption'][(string) $ici]);
-        $this->assertSame(['date' => '06.2027', 'etat' => null], $de($vendu)['peremption']['toutes']);
-        $this->assertSame(['date' => '10.2026', 'etat' => 'perime'], $de($plein)['peremption'][(string) $ici]);
-        $this->assertNull($de($epuise)['peremption'][(string) $ici]);
-        $this->assertNull($de($epuise)['peremption']['toutes']);
+        $this->assertSame(['date' => '10.2026', 'etat' => 'perime'], $de($avecPerime)['peremption'][(string) $ici]);
+        $this->assertSame(['date' => '10.2026', 'etat' => 'perime'], $de($avecPerime)['peremption']['toutes']);
+        $this->assertSame(['date' => '01.2028', 'etat' => null], $de($vide)['peremption'][(string) $ici]);
         $reponse->assertJsonPath("data.a_surveiller.{$ici}.peremption_3_mois", 1);
     }
 
@@ -151,7 +148,7 @@ class StockWatchTest extends TestCase
     public function test_un_lot_sans_peremption_ne_fait_pas_tomber_la_surveillance(): void
     {
         $ici = $this->clinique->id;
-        // 6 en stock : 4 sans péremption (gardés d'abord), puis 2 sur le lot de 2027-01
+        // Un lot sans péremption à côté d'un lot de 2027-01 : la date est celle du lot daté
         $mixte = $this->article('Laisse et vaccin', 0, [$ici => 6], [[$ici, null, 4], [$ici, '2027-01-01', 5]]);
         // Seulement du matériel sans péremption
         $materiel = $this->article('Muselière', 0, [$ici => 3], [[$ici, null, 3]]);

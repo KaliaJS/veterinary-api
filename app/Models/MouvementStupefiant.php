@@ -30,8 +30,8 @@ class MouvementStupefiant extends Model
     protected $table = 'mouvements_stupefiants';
 
     protected $fillable = [
-        'clinique_id', 'produit_id', 'patient_id', 'employe_id', 'type',
-        'quantite', 'solde_apres', 'corrige_id', 'quantite_comptee', 'motif',
+        'clinique_id', 'produit_id', 'lot_id', 'numero_lot', 'patient_id', 'employe_id', 'type',
+        'quantite', 'solde_apres', 'corrige_id', 'premiere_ligne_id', 'quantite_comptee', 'motif',
         'patient_nom', 'detenteur_nom', 'signataire_nom', 'ordonnance_id', 'ordonnance_numero', 'ordonnance_le',
         'fournisseur', 'bulletin', 'bulletin_le', 'date_registre', 'created_at',
     ];
@@ -74,6 +74,16 @@ class MouvementStupefiant extends Model
     public function produit(): BelongsTo
     {
         return $this->belongsTo(Produit::class);
+    }
+
+    /**
+     * Le lot inscrit sur la ligne (04.11.2026) : c'est de lui que le stock sort, ou à lui qu'il revient
+     *
+     * @return BelongsTo<Lot, $this>
+     */
+    public function lot(): BelongsTo
+    {
+        return $this->belongsTo(Lot::class);
     }
 
     /** @return BelongsTo<Patient, $this> */

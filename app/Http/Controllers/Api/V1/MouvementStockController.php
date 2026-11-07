@@ -23,6 +23,8 @@ class MouvementStockController extends Controller
 
         $mouvements = $produit->mouvements()
             ->withoutGlobalScope('clinique')
+            // Les lots de chaque mouvement, en une lecture (toutes cliniques, comme le journal)
+            ->with(['lotAllocations' => fn ($lots) => $lots->withoutGlobalScope('clinique')->orderBy('id')])
             ->latest('created_at')
             ->latest('id')
             ->paginate($this->parPage($request));

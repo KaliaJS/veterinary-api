@@ -15,11 +15,10 @@ use Illuminate\Http\JsonResponse;
  * servie, que l'écran lit sans la recalculer. Pour chaque article de
  * l'organisation, par clinique et toutes cliniques confondues :
  *
- * - la plus proche péremption des lots qui couvrent le stock actuel, au
- *   format « MM.YYYY ». Les lots ne sont pas décomptés à la vente ni à un
- *   ajustement : on suppose vendus les plus anciens. Rangés du plus
- *   lointain au plus proche, on garde ceux dont la somme couvre la
- *   quantité en stock ; un stock à zéro ne garde aucun lot ;
+ * - la plus proche péremption de ses lots qui ont encore des unités, au
+ *   format « MM.YYYY ». Chaque sortie de stock décompte les lots (FEFO,
+ *   04.11.2026) : ils disent ce qui est en rayon, sans règle de secours ;
+ *   un lot sans péremption (matériel, accessoires) n'a pas de date ;
  *   et son état : `perime` (mois passé), `proche` (moins de 3 mois, la règle
  *   des lots « < 3 mois »), ou null ;
  * - le stock bas (seuil > 0 et stock au plus au seuil, comme
@@ -56,43 +55,26 @@ class StockWatchController extends Controller
 
         $debutMois = aujourdhui()->startOfMonth();
         $etatDe = fn (Carbon $date): ?string => $date->lt($debutMois) ? 'perime' : ($date->lt($debutMois->copy()->addMonths(3)) ? 'proche' : null);
-        $peremption = fn ($dates): ?array => ($plusProche = $dates->min()) === null ? null : ['date' => $plusProche->format('m.Y'), 'etat' => $etatDe($plusProche)];
+        // Un lot sans péremption ne périme jamais : il n'a pas de date
+        $peremption = fn ($dates): ?array => ($plusProche = $dates->filter()->min()) === null ? null : ['date' => $plusProche->format('m.Y'), 'etat' => $etatDe($plusProche)];
         $estBas = fn (int $seuil, int $quantite): bool => $quantite === 0 || ($seuil > 0 && $quantite <= $seuil);
-        // Les lots qui couvrent un stock : du plus lointain au plus proche, jusqu'à couvrir la quantité.
-        // Un lot sans péremption (matériel, accessoires) ne périme jamais : il passe en premier, sans date
-        $couvrant = function ($lotsClinique, int $stock) {
-            $gardes = collect();
-            $somme = 0;
-            foreach ($lotsClinique->sortByDesc(fn (Lot $lot) => $lot->peremption_le->timestamp ?? PHP_INT_MAX) as $lot) {
-                if ($somme >= $stock) {
-                    break;
-                }
-                $gardes->push($lot);
-                $somme += (int) $lot->quantite;
-            }
-
-            return $gardes;
-        };
 
         $comptes = ['toutes' => ['stock_bas' => 0, 'peremption_3_mois' => 0]];
         foreach ($cliniqueIds as $id) {
             $comptes[(string) $id] = ['stock_bas' => 0, 'peremption_3_mois' => 0];
         }
 
-        $lignes = $produits->map(function (Produit $produit) use ($lots, $cliniqueIds, $peremption, $estBas, $couvrant, &$comptes): array {
+        $lignes = $produits->map(function (Produit $produit) use ($lots, $cliniqueIds, $peremption, $estBas, &$comptes): array {
             $seuil = (int) $produit->seuil_alerte;
             $sesLots = $lots->get($produit->id, collect());
             $parClinique = [];
             $bas = ['toutes' => $estBas($seuil, (int) $produit->stocks->sum('quantite'))];
-            $tousCouvrants = collect();
             foreach ($cliniqueIds as $id) {
                 $stock = $produit->stocks->firstWhere('clinique_id', $id);
-                $gardes = $couvrant($sesLots->where('clinique_id', $id), (int) ($stock->quantite ?? 0));
-                $tousCouvrants = $tousCouvrants->merge($gardes);
-                $parClinique[(string) $id] = $peremption($gardes->pluck('peremption_le'));
+                $parClinique[(string) $id] = $peremption($sesLots->where('clinique_id', $id)->pluck('peremption_le'));
                 $bas[(string) $id] = $stock !== null && $estBas($seuil, (int) $stock->quantite);
             }
-            $parClinique = ['toutes' => $peremption($tousCouvrants->pluck('peremption_le'))] + $parClinique;
+            $parClinique = ['toutes' => $peremption($sesLots->pluck('peremption_le'))] + $parClinique;
             foreach ($parClinique as $portee => $valeur) {
                 $comptes[$portee]['peremption_3_mois'] += $valeur !== null && $valeur['etat'] !== null ? 1 : 0;
                 $comptes[$portee]['stock_bas'] += $bas[$portee] ? 1 : 0;

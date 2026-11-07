@@ -62,14 +62,14 @@ class RegistreStupefiantTest extends TestCase
 
     private function recevoir(float $quantite = 20): void
     {
-        $this->inscrire(['type' => 'reception', 'quantite' => $quantite, 'fournisseur' => 'Grossiste', 'bulletin' => 'BL-1', 'bulletin_le' => now('Europe/Zurich')->toDateString()])->assertCreated();
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => $quantite, 'fournisseur' => 'Grossiste', 'bulletin' => 'BL-1', 'bulletin_le' => now('Europe/Zurich')->toDateString()])->assertCreated();
     }
 
     public function test_une_reception_porte_le_fournisseur_le_bulletin_et_sa_date(): void
     {
-        $this->inscrire(['type' => 'reception', 'quantite' => 20])->assertUnprocessable()->assertJsonValidationErrors(['fournisseur' => 'Indiquez le fournisseur.']);
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 20])->assertUnprocessable()->assertJsonValidationErrors(['fournisseur' => 'Indiquez le fournisseur.']);
 
-        $this->inscrire(['type' => 'reception', 'quantite' => 20, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-88214', 'bulletin_le' => '2026-10-14'])
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 20, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-88214', 'bulletin_le' => '2026-10-14'])
             ->assertCreated()
             ->assertJsonPath('data.type', 'reception')
             ->assertJsonPath('data.quantite', 20)
@@ -249,7 +249,7 @@ class RegistreStupefiantTest extends TestCase
     public function test_un_produit_non_stupefiant_est_refuse(): void
     {
         $ordinaire = Produit::factory()->medicament()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
-        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $ordinaire->id, 'type' => 'reception', 'quantite' => 5, 'fournisseur' => 'x', 'bulletin' => 'BL-1', 'bulletin_le' => now('Europe/Zurich')->toDateString()], $this->enTetes($this->jeton))
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $ordinaire->id, 'type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 5, 'fournisseur' => 'x', 'bulletin' => 'BL-1', 'bulletin_le' => now('Europe/Zurich')->toDateString()], $this->enTetes($this->jeton))
             ->assertUnprocessable()->assertJsonValidationErrors('produit_id');
     }
 
@@ -290,12 +290,12 @@ class RegistreStupefiantTest extends TestCase
     {
         // Des lignes déjà en base : leur date de registre est le jour de l'inscription à Zurich (01.11.2026)
         $ligne = fn (array $a) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'motif' => 'x', 'date_registre' => CarbonImmutable::parse($a['created_at'], 'UTC')->setTimezone('Europe/Zurich')->toDateString(), ...$a]));
-        $ligne(['type' => 'reception', 'quantite' => 25, 'solde_apres' => 25, 'created_at' => '2025-12-20 10:00:00']);
-        $ligne(['type' => 'reception', 'quantite' => 20, 'solde_apres' => 45, 'created_at' => '2026-03-01 10:00:00']);
+        $ligne(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 25, 'solde_apres' => 25, 'created_at' => '2025-12-20 10:00:00']);
+        $ligne(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 20, 'solde_apres' => 45, 'created_at' => '2026-03-01 10:00:00']);
         $ligne(['type' => 'administration', 'quantite' => -1.2, 'solde_apres' => 43.8, 'created_at' => '2026-04-01 10:00:00']);
         $ligne(['type' => 'vol', 'quantite' => -5, 'solde_apres' => 38.8, 'created_at' => '2026-05-01 10:00:00']);
         $ligne(['type' => 'correction', 'quantite' => 0.2, 'solde_apres' => 39, 'created_at' => '2026-05-02 10:00:00']);
-        $ligne(['type' => 'reception', 'quantite' => 3, 'solde_apres' => 42, 'created_at' => '2027-01-02 10:00:00']);
+        $ligne(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 3, 'solde_apres' => 42, 'created_at' => '2027-01-02 10:00:00']);
 
         $fiche = $this->getJson('/api/v1/stupefiants/registre?du=2026-01-01&au=2026-12-31', $this->enTetes($this->jeton))->assertOk()->json('data.fiches.0');
         $this->assertSame(25.0, (float) $fiche['stock_debut']);
@@ -336,7 +336,7 @@ class RegistreStupefiantTest extends TestCase
 
     public function test_la_date_du_bulletin_n_est_pas_dans_le_futur(): void
     {
-        $this->inscrire(['type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin_le' => now()->addDays(3)->toDateString()])
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin_le' => now()->addDays(3)->toDateString()])
             ->assertUnprocessable()->assertJsonValidationErrors('bulletin_le');
     }
 
@@ -346,7 +346,7 @@ class RegistreStupefiantTest extends TestCase
         $vide = Produit::factory()->stupefiant()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Fentanyl']);
         // Des lignes déjà en base : leur date de registre est le jour de l'inscription à Zurich (01.11.2026)
         $ligne = fn (array $a) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create(['clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'motif' => 'x', 'date_registre' => CarbonImmutable::parse($a['created_at'], 'UTC')->setTimezone('Europe/Zurich')->toDateString(), ...$a]));
-        $ligne(['type' => 'reception', 'quantite' => 10, 'created_at' => '2026-01-01 08:00:00']);
+        $ligne(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 10, 'created_at' => '2026-01-01 08:00:00']);
         $ligne(['type' => 'administration', 'quantite' => -1, 'created_at' => '2026-03-01 08:00:00']);
         $ligne(['type' => 'remise', 'quantite' => -2, 'created_at' => '2026-03-02 08:00:00']);
 
@@ -363,7 +363,7 @@ class RegistreStupefiantTest extends TestCase
     {
         $this->clinique->update(['fuseau_horaire' => 'Europe/Zurich']);
         $tard = MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create([
-            'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'type' => 'reception', 'quantite' => 5, 'motif' => 'x',
+            'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 5, 'motif' => 'x',
             'created_at' => CarbonImmutable::parse('2026-10-25 23:30', 'Europe/Zurich')->utc(), 'date_registre' => '2026-10-25',
         ]));
         $ids = collect($this->getJson('/api/v1/stupefiants/registre?du=2026-10-25&au=2026-10-25', $this->enTetes($this->jeton))->assertOk()->json('data.fiches.0.lignes'))->pluck('id');
@@ -376,7 +376,7 @@ class RegistreStupefiantTest extends TestCase
         $this->clinique->update(['fuseau_horaire' => 'Europe/Zurich']);
         $jour = CarbonImmutable::parse('2026-07-14', 'Europe/Zurich');
         $mouvement = fn (CarbonImmutable $quand) => MouvementStupefiant::withoutEvents(fn () => MouvementStupefiant::query()->create([
-            'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'type' => 'reception', 'quantite' => 5, 'motif' => 'Réception grossiste', 'created_at' => $quand->utc(), 'date_registre' => $quand->setTimezone('Europe/Zurich')->toDateString(),
+            'clinique_id' => $this->clinique->id, 'produit_id' => $this->substance->id, 'type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 5, 'motif' => 'Réception grossiste', 'created_at' => $quand->utc(), 'date_registre' => $quand->setTimezone('Europe/Zurich')->toDateString(),
         ]));
         $tard = $mouvement($jour->setTime(23, 30));
         // 00:30 le 14 à Zurich, encore le 13 en UTC : compté par « du »
@@ -505,7 +505,7 @@ class RegistreStupefiantTest extends TestCase
         $remise(['ordonnance_officielle_le' => $aujourdhui->toDateString()])
             ->assertUnprocessable()->assertJsonValidationErrors(['ordonnance_officielle' => 'Ce formulaire officiel a déjà servi à la remise de ce médicament : une ordonnance du tableau a ne se renouvelle pas (art. 51, al. 3 OCStup).']);
         $autre = Produit::factory()->stupefiant()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'nom' => 'Morphine 10 mg/ml', 'tableau_stupefiant' => 'a']);
-        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $autre->id, 'type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Grossiste', 'bulletin' => 'BL-9', 'bulletin_le' => $aujourdhui->toDateString()], $this->enTetes($this->jeton))->assertCreated();
+        $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $autre->id, 'type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 5, 'fournisseur' => 'Grossiste', 'bulletin' => 'BL-9', 'bulletin_le' => $aujourdhui->toDateString()], $this->enTetes($this->jeton))->assertCreated();
         $this->postJson('/api/v1/stupefiants/mouvements', ['produit_id' => $autre->id, 'type' => 'remise', 'quantite' => 1, 'patient_id' => $this->patient->id, 'ordonnance_officielle' => '7012345', 'ordonnance_officielle_le' => $aujourdhui->toDateString()], $this->enTetes($this->jeton))->assertCreated();
     }
 
@@ -573,7 +573,7 @@ class RegistreStupefiantTest extends TestCase
     {
         $aujourdhui = CarbonImmutable::now('Europe/Zurich');
         $finDuMoisPasse = $aujourdhui->startOfMonth()->subDay();
-        $this->inscrire(['type' => 'reception', 'quantite' => 20, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-1', 'bulletin_le' => $finDuMoisPasse->toDateString()])->assertCreated();
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 20, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-1', 'bulletin_le' => $finDuMoisPasse->toDateString()])->assertCreated();
 
         $bilan = fn (CarbonImmutable $du, CarbonImmutable $au) => $this->getJson('/api/v1/stupefiants/registre?du='.$du->toDateString().'&au='.$au->toDateString(), $this->enTetes($this->jeton))->assertOk()->json('data.fiches');
         $moisPasse = $bilan($finDuMoisPasse->startOfMonth(), $finDuMoisPasse);
@@ -587,8 +587,8 @@ class RegistreStupefiantTest extends TestCase
         $demain = $aujourdhui->addDay();
         $this->travelTo($demain->setTime(0, 30));
         ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
-        $this->inscrire(['type' => 'reception', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-2', 'bulletin_le' => $demain->toDateString()])->assertCreated();
-        $this->inscrire(['type' => 'reception', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-3', 'bulletin_le' => $demain->addDay()->toDateString()])
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-2', 'bulletin_le' => $demain->toDateString()])->assertCreated();
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-3', 'bulletin_le' => $demain->addDay()->toDateString()])
             ->assertUnprocessable()->assertJsonValidationErrors(['bulletin_le' => 'La date du bulletin ne peut pas être dans le futur.']);
     }
 
@@ -603,10 +603,10 @@ class RegistreStupefiantTest extends TestCase
     /** Chaque achat attesté par un bulletin de livraison (art. 62, al. 1 OCStup) : son numéro et sa date */
     public function test_une_reception_au_registre_porte_toujours_son_bulletin(): void
     {
-        $this->inscrire(['type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Vetpoint'])
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 5, 'fournisseur' => 'Vetpoint'])
             ->assertUnprocessable()->assertJsonValidationErrors(['bulletin' => 'Indiquez le numéro du bulletin de livraison.', 'bulletin_le' => 'Indiquez la date du bulletin.']);
         // Une date impossible : un seul message
-        $reponse = $this->inscrire(['type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-1', 'bulletin_le' => '2026-13-45'])->assertUnprocessable();
+        $reponse = $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-1', 'bulletin_le' => '2026-13-45'])->assertUnprocessable();
         $this->assertSame(['Indiquez la date du bulletin.'], $reponse->json('errors.bulletin_le'));
         // Un retour garde son bulletin facultatif, mais le bulletin ne se donne jamais à une administration
         $this->recevoir();
@@ -621,7 +621,7 @@ class RegistreStupefiantTest extends TestCase
         $this->recevoir(10);
         $this->inscrire(['type' => 'administration', 'quantite' => 1, 'patient_id' => $this->patient->id])->assertCreated();
         // Saisie après l'administration, datée par son bulletin d'avant-hier
-        $this->inscrire(['type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-4', 'bulletin_le' => $aujourdhui->subDays(2)->toDateString()])->assertCreated();
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-4', 'bulletin_le' => $aujourdhui->subDays(2)->toDateString()])->assertCreated();
 
         $lignes = $this->getJson('/api/v1/stupefiants/registre?du='.$aujourdhui->subDays(3)->toDateString().'&au='.$aujourdhui->toDateString(), $this->enTetes($this->jeton))->assertOk()->json('data.fiches.0.lignes');
         $this->assertSame(['BL-4', 'BL-1', null], array_column($lignes, 'bulletin'));
@@ -646,7 +646,7 @@ class RegistreStupefiantTest extends TestCase
         $aujourdhui = CarbonImmutable::now('Europe/Zurich');
         $this->recevoir(10);
         $this->inscrire(['type' => 'inventaire', 'quantite_comptee' => 10])->assertCreated();
-        $this->inscrire(['type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-2', 'bulletin_le' => $aujourdhui->subDays(2)->toDateString()])
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-2', 'bulletin_le' => $aujourdhui->subDays(2)->toDateString()])
             ->assertCreated()
             ->assertJsonPath('data.date_registre', $aujourdhui->toDateString())
             ->assertJsonPath('data.bulletin_le', $aujourdhui->subDays(2)->toDateString());
@@ -666,7 +666,7 @@ class RegistreStupefiantTest extends TestCase
 
         $this->travelTo($jour->addDay()->setTime(10, 0));
         ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
-        $this->inscrire(['type' => 'reception', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-5', 'bulletin_le' => $jour->toDateString()])
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 5, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-5', 'bulletin_le' => $jour->toDateString()])
             ->assertCreated()->assertJsonPath('data.date_registre', $jour->addDay()->toDateString());
         $fiche = $this->getJson('/api/v1/stupefiants/registre?du='.$jour->startOfYear()->toDateString().'&au='.$jour->toDateString(), $this->enTetes($this->jeton))->assertOk()->json('data.fiches.0');
         $this->assertEquals(10, $fiche['stock_fin']);
@@ -710,7 +710,7 @@ class RegistreStupefiantTest extends TestCase
         // Le lendemain, un bulletin du jour du visa : daté du lendemain (le visa arrête ce jour, à l'heure de Zurich)
         $this->travelTo($jour->addDay()->setTime(10, 0));
         ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
-        $this->inscrire(['type' => 'reception', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-6', 'bulletin_le' => $jour->toDateString()])
+        $this->inscrire(['type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01', 'quantite' => 1, 'fournisseur' => 'Vetpoint', 'bulletin' => 'BL-6', 'bulletin_le' => $jour->toDateString()])
             ->assertCreated()->assertJsonPath('data.date_registre', $jour->addDay()->toDateString());
     }
 

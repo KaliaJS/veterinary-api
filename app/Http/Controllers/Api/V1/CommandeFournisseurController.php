@@ -16,8 +16,8 @@ use App\Models\CommandeFournisseurLigne;
 use App\Models\Lot;
 use App\Models\Produit;
 use App\Services\GestionnaireStock;
-use App\Services\Purchasing\AutoOrdering;
 use App\Services\Numeroteur;
+use App\Services\Purchasing\AutoOrdering;
 use App\Services\RegistreStupefiants;
 use App\Services\Vetpoint\ClientVetpoint;
 use App\Services\Vetpoint\VetpointCgv;
@@ -360,32 +360,35 @@ class CommandeFournisseurController extends Controller
                 // avec le droit des stupéfiants ; le stock le suit (24.10.2026)
                 if ($ligne->produit->est_stupefiant) {
                     Gate::authorize(DomainePermission::Stupefiants->value);
-                    app(RegistreStupefiants::class)->inscrire($ligne->produit, (float) $ligne->quantite, 'Réception '.$commande->numero, $commande->clinique_id, $request->user(), [
+                    $registre = app(RegistreStupefiants::class);
+                    // Son lot est inscrit au registre (04.11.2026) : créé vide sous le verrou de la
+                    // substance, il reçoit ce que la ligne fait entrer au stock
+                    $registre->soldeVerrouille($ligne->produit, $commande->clinique_id);
+                    $lotRecu = $peremption !== null || $ligne->produit->peremption_le !== null
+                        ? $this->nouveauLot($commande, $ligne, $peremption, 0)
+                        : null;
+                    $registre->inscrire($ligne->produit, (float) $ligne->quantite, 'Réception '.$commande->numero, $commande->clinique_id, $request->user(), [
                         // Le fournisseur et la pièce : ce que demande l'art. 57 OCStup (01.11.2026)
                         'fournisseur' => $commande->fournisseur ?: 'Fournisseur de la commande '.$commande->numero,
                         'bulletin' => $bulletin['bulletin'],
                         'bulletin_le' => $bulletin['bulletin_le'],
+                        'lot' => $lotRecu,
                     ]);
-                } else {
-                    $this->stock->entrer(
-                        $ligne->produit,
-                        $ligne->quantite,
-                        'Réception '.$commande->numero,
-                        $request->user(),
-                        $commande,
-                        cliniqueId: $commande->clinique_id,
-                    );
+
+                    continue;
                 }
 
+                $this->stock->entrer(
+                    $ligne->produit,
+                    $ligne->quantite,
+                    'Réception '.$commande->numero,
+                    $request->user(),
+                    $commande,
+                    cliniqueId: $commande->clinique_id,
+                );
+
                 if ($peremption !== null || $ligne->produit->peremption_le !== null) {
-                    // Lot de la clinique : la péremption de Vetpoint, sinon celle du produit
-                    Lot::create([
-                        'produit_id' => $ligne->produit_id,
-                        'clinique_id' => $commande->clinique_id,
-                        'numero_lot' => 'LOT '.substr($commande->numero, -3).'-'.substr($ligne->produit->reference, -2),
-                        'peremption_le' => $peremption ?? $ligne->produit->peremption_le,
-                        'quantite' => $ligne->quantite,
-                    ]);
+                    $this->nouveauLot($commande, $ligne, $peremption, $ligne->quantite);
                 }
             }
 
@@ -395,6 +398,18 @@ class CommandeFournisseurController extends Controller
         $commande->receptionVetpoint = $vetpoint;
 
         return new CommandeFournisseurResource($commande->load('lignes'));
+    }
+
+    /** Le lot reçu dans la clinique de la commande : la péremption de Vetpoint, sinon celle du produit */
+    private function nouveauLot(CommandeFournisseur $commande, CommandeFournisseurLigne $ligne, mixed $peremption, int $quantite): Lot
+    {
+        return Lot::create([
+            'produit_id' => $ligne->produit_id,
+            'clinique_id' => $commande->clinique_id,
+            'numero_lot' => 'LOT '.substr($commande->numero, -3).'-'.substr($ligne->produit->reference, -2),
+            'peremption_le' => $peremption ?? $ligne->produit->peremption_le,
+            'quantite' => $quantite,
+        ]);
     }
 
     public function destroy(int $commande): Response

@@ -115,7 +115,8 @@ final class CareCancellation
         if ($units <= 0) {
             return null;
         }
-        $this->stock->entrer($product, $units, $label, $user, $care);
+        // Rendu aux lots d'où le soin les avait pris
+        $this->stock->entrer($product, $units, $label, $user, $care, reverses: $taken);
         $taken->each(fn (MouvementStock $m) => $m->forceFill(['reversed_at' => now()])->save());
 
         return ['returned' => true, 'lost' => false, 'units' => $units];

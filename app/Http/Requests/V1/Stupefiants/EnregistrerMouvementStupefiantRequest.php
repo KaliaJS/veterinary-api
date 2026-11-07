@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\V1\Stupefiants;
 
+use App\Auth\ContexteClinique;
 use App\Enums\StatutOrdonnance;
 use App\Enums\TypeMouvementStupefiant;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
@@ -63,6 +64,9 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
     /** Le numéro du formulaire officiel, sans ses espaces (« 7 012 345 ») */
     protected function prepareForValidation(): void
     {
+        if (is_string($this->input('numero_lot'))) {
+            $this->merge(['numero_lot' => trim($this->input('numero_lot'))]);
+        }
         if (is_string($this->input('ordonnance_officielle'))) {
             // Sans espaces : « 7 012 345 » ; les zéros en tête s'ôtent après le contrôle (MouvementStupefiantController)
             $this->merge(['ordonnance_officielle' => (string) preg_replace('/[\s’\'.]/u', '', $this->input('ordonnance_officielle'))]);
@@ -154,6 +158,19 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             ],
             'corrige_id' => [Rule::requiredIf(fn (): bool => $this->est($t::Correction)), 'nullable', 'integer'],
             'motif' => [Rule::requiredIf(fn (): bool => $this->est($t::Perte, $t::Vol, $t::Elimination, $t::Correction)), 'nullable', 'string', 'max:255'],
+            // Une réception donne son lot, son numéro et sa péremption (décision de Jim, 07.11.2026) : le lot est
+            // créé, ou retrouvé au même numéro et à la même péremption, dans la clinique
+            'numero_lot' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception)), 'nullable', 'string', 'max:30'],
+            'lot_peremption' => [Rule::requiredIf(fn (): bool => $this->est($t::Reception)), Rule::prohibitedIf(fn (): bool => ! $this->est($t::Reception)), 'nullable', 'date_format:Y-m'],
+            // Le lot d'une sortie, s'il est choisi (04.11.2026) : un lot de la substance, dans la clinique ; sans lui,
+            // celui qui périme le premier est inscrit. Une correction reprend celui de sa ligne
+            'lot_id' => [
+                Rule::prohibitedIf(fn (): bool => $this->type()?->sens() !== -1),
+                'nullable', 'integer',
+                // Ce qu'il contient se compte en ml, sous verrou, à l'écriture (un lot vide y est refusé)
+                Rule::exists('lots', 'id')->where('produit_id', (int) $this->input('produit_id'))
+                    ->where('clinique_id', app(ContexteClinique::class)->cliniqueId()),
+            ],
         ];
     }
 
@@ -178,6 +195,13 @@ class EnregistrerMouvementStupefiantRequest extends FormRequest
             'ordonnance_officielle_le.prohibited' => 'Le formulaire officiel ne sert qu’à la remise d’une substance du tableau a.',
             'fournisseur.required' => 'Indiquez le fournisseur.',
             'corrige_id.required' => 'Choisissez la ligne à corriger.',
+            'numero_lot.required' => 'Indiquez le numéro du lot reçu.',
+            'numero_lot.prohibited' => 'Le numéro de lot se donne à une réception ; une sortie choisit son lot.',
+            'lot_peremption.required' => 'Indiquez la péremption du lot reçu.',
+            'lot_peremption.date_format' => 'Indiquez la péremption du lot, mois et année.',
+            'lot_peremption.prohibited' => 'La péremption du lot se donne à une réception.',
+            'lot_id.exists' => 'Choisissez un lot de cette substance, dans la clinique.',
+            'lot_id.prohibited' => 'Le lot se choisit pour une sortie ; une correction reprend celui de la ligne corrigée.',
             'fournisseur.prohibited' => 'Le fournisseur ne se donne qu’à une réception ou un retour.',
             'bulletin.prohibited' => 'Le bulletin ne se donne qu’à une réception, un retour ou une élimination.',
             'bulletin_le.prohibited' => 'Le bulletin ne se donne qu’à une réception, un retour ou une élimination.',

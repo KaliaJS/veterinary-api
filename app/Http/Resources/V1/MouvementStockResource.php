@@ -28,6 +28,13 @@ class MouvementStockResource extends JsonResource
             'source_type' => $this->source_type,
             'source_id' => $this->source_id,
             'created_at' => $this->created_at,
+            // Les lots pris ou rendus par ce mouvement (FEFO, 04.11.2026) ; numéro vide : sans lot connu
+            'lots' => $this->whenLoaded('lotAllocations', fn (): array => $this->lotAllocations->map(fn ($allocation): array => [
+                'lot_id' => $allocation->lot_id,
+                'numero_lot' => $allocation->lot_number,
+                'peremption' => $allocation->expires_on?->format('m.Y'),
+                'quantite' => $allocation->quantity,
+            ])->values()->all()),
         ];
     }
 }

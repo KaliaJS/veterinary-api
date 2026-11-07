@@ -8,6 +8,7 @@ use Database\Factories\MouvementStockFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 /**
@@ -69,5 +70,15 @@ class MouvementStock extends Model
     public function source(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    /**
+     * Les lots que ce mouvement a pris ou rendus (FEFO, 04.11.2026)
+     *
+     * @return HasMany<LotAllocation, $this>
+     */
+    public function lotAllocations(): HasMany
+    {
+        return $this->hasMany(LotAllocation::class, 'mouvement_stock_id');
     }
 }

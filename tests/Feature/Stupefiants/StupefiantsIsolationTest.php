@@ -101,7 +101,7 @@ class StupefiantsIsolationTest extends TestCase
 
         $this->postJson('/api/v1/stupefiants/mouvements', [
             'produit_id' => $etranger->id,
-            'type' => 'reception',
+            'type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01',
             'fournisseur' => 'Grossiste',
             'quantite' => 5,
         ], $this->enTetes($this->jeton))
@@ -129,7 +129,7 @@ class StupefiantsIsolationTest extends TestCase
     {
         $this->postJson('/api/v1/stupefiants/mouvements', [
             'produit_id' => $this->substance->id,
-            'type' => 'reception',
+            'type' => 'reception', 'numero_lot' => 'LOT R', 'lot_peremption' => '2028-01',
             'fournisseur' => 'Grossiste',
             'quantite' => 20,
             'bulletin' => 'BL-1',

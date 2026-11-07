@@ -21,6 +21,8 @@ class LotResource extends JsonResource
             'numero_lot' => $this->numero_lot,
             'peremption' => $this->peremptionAffichee(),
             'quantite' => $this->quantite,
+            // Un stupéfiant : ce que le lot contient en ml (le registre compte des dixièmes), lu par la liste
+            'contenu' => $this->getAttribute('contenu_ml'),
         ];
     }
 }

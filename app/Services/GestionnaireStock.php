@@ -5,11 +5,13 @@ namespace App\Services;
 use App\Auth\ContexteClinique;
 use App\Enums\MotifAjustementStock;
 use App\Models\Clinique;
+use App\Models\Lot;
 use App\Models\MouvementStock;
 use App\Models\MouvementStupefiant;
 use App\Models\Produit;
 use App\Models\Stock;
 use App\Models\User;
+use App\Services\Stocks\FefoLots;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -28,6 +30,10 @@ use Illuminate\Validation\ValidationException;
  * l'invariant d'écriture locale, comme l'embauche multi-cliniques).
  * Les sorties sont bornées à zéro et le mouvement trace l'écart
  * réellement appliqué. Un undo est un mouvement inverse.
+ *
+ * Chaque mouvement qui change le nombre d'unités suit aussi les lots
+ * (FefoLots, 04.11.2026) : une sortie prend dans le lot qui périme le
+ * premier, une annulation rend au lot d'où la sortie venait.
  */
 class GestionnaireStock
 {
@@ -41,6 +47,11 @@ class GestionnaireStock
      * par défaut) et le journalise. Retourne l'écart réellement appliqué
      * (0 si le stock était déjà à zéro pour une sortie).
      *
+     * `$lot` : le lot dont la sortie part d'abord (un lot écarté) ;
+     * `$reverses` : les mouvements que celui-ci annule, à qui il rend leurs lots.
+     *
+     * @param  iterable<MouvementStock>  $reverses
+     *
      * @throws AuthorizationException si la clinique visée n'est pas de l'organisation du jeton
      */
     public function appliquer(
@@ -51,6 +62,8 @@ class GestionnaireStock
         ?MotifAjustementStock $motif = null,
         ?Model $source = null,
         ?int $cliniqueId = null,
+        ?Lot $lot = null,
+        iterable $reverses = [],
     ): int {
         // Un stupéfiant ne bouge que par son registre (24.10.2026, décision de
         // Jim) : facture, ordonnance, soin, vente ou commande n'y touchent pas,
@@ -61,7 +74,7 @@ class GestionnaireStock
 
         $cliniqueId = $this->cliniqueCible($cliniqueId);
 
-        return DB::transaction(function () use ($produit, $ecart, $libelle, $auteur, $motif, $source, $cliniqueId): int {
+        return DB::transaction(function () use ($produit, $ecart, $libelle, $auteur, $motif, $source, $cliniqueId, $lot, $reverses): int {
             // Le même ordre partout, l'article puis le stock (vérification
             // finale de l'hospitalisation, 03.11.2026) : sous MySQL, l'écriture
             // au journal verrouille l'article ; la caisse, les réceptions et
@@ -78,9 +91,10 @@ class GestionnaireStock
 
             // Le flacon entamé n'est pas un flacon fermé : il reste, même au
             // dernier flacon fermé sorti (troisième vérification, 03.11.2026)
+            $avant = (int) $stock->quantite;
             $stock->update(['quantite' => $nouvelle]);
 
-            MouvementStock::withoutEvents(fn (): MouvementStock => MouvementStock::create([
+            $mouvement = MouvementStock::withoutEvents(fn (): MouvementStock => MouvementStock::create([
                 'produit_id' => $produit->id,
                 'clinique_id' => $cliniqueId,
                 'user_id' => $auteur?->id,
@@ -91,9 +105,17 @@ class GestionnaireStock
                 'source_id' => $source?->getKey(),
                 'created_at' => now(),
             ]));
+            // Les lots suivent, sous les mêmes verrous : FEFO pour une sortie, le lot d'origine pour une annulation
+            $this->lots()->follow($mouvement, $avant, $source, $motif, $lot, $reverses);
 
             return $reel;
         });
+    }
+
+    /** Le décompte des lots (résolu ici : le gestionnaire se construit sans argument) */
+    private function lots(): FefoLots
+    {
+        return app(FefoLots::class);
     }
 
     public function sortir(Produit $produit, int $quantite, string $libelle, ?User $auteur = null, ?Model $source = null, ?int $cliniqueId = null): int
@@ -153,6 +175,7 @@ class GestionnaireStock
             }
             $left = round($available - $taken, 3);
             $before = ['number' => $stock->opening_number, 'at' => $stock->opened_at, 'rest' => $rest];
+            $closedBefore = (int) $stock->quantite;
             $opening = $units > 0 ? $this->nextOpening($stock) : $stock->opening_number;
             $stock->update([
                 'quantite' => $stock->quantite - $units,
@@ -162,12 +185,14 @@ class GestionnaireStock
                 'opened_at' => $left <= 0 ? null : ($units > 0 ? now() : ($stock->opened_at ?? now())),
             ]);
             // Signée comme la quantité : une sortie est négative
-            $this->journal($produit, $cliniqueId, $author, -$units, -$taken, $label, null, $source, [
+            $take = $this->journal($produit, $cliniqueId, $author, -$units, -$taken, $label, null, $source, [
                 'opening_number' => $opening,
                 'previous_opening_number' => $before['number'],
                 'previous_opened_at' => $before['at'],
                 'from_opened' => round(min($taken, $before['rest']), 3),
             ]);
+            // Les unités ouvertes sortent du lot qui périme le premier
+            $this->lots()->follow($take, $closedBefore, $source);
 
             // La contenance vraiment utilisée : la prise fige celle-là
             return ['units' => $units, 'dose' => $taken, 'rupture' => $taken < round($dose, 3), 'registre' => false, 'opening' => $left > 0 ? $opening : null, 'content' => $content, 'dose_unit' => $produit->dose_unit, 'price' => $produit->prix];
@@ -252,10 +277,13 @@ class GestionnaireStock
             $lost = round($dose - $back, 3);
             $reason ??= $lost > 0 ? 'full' : null;
 
+            $closedBefore = (int) $stock->quantite;
             $stock->update(['quantite' => $stock->quantite + $closed, ...($restore ?? [])]);
             $take->forceFill(['reversed_at' => now()])->save();
             if ($back > 0) {
-                $this->journal($produit, $cliniqueId, $author, $closed, $back, $label, null, $source, ['dose_unit' => $unit]);
+                $returned = $this->journal($produit, $cliniqueId, $author, $closed, $back, $label, null, $source, ['dose_unit' => $unit]);
+                // Les unités redevenues fermées retournent aux lots d'où la prise les avait sorties
+                $this->lots()->follow($returned, $closedBefore, $source, reverses: [$take]);
             }
             if ($lost > 0) {
                 $why = match ($reason) {
@@ -503,9 +531,10 @@ class GestionnaireStock
         ]));
     }
 
-    public function entrer(Produit $produit, int $quantite, string $libelle, ?User $auteur = null, ?Model $source = null, ?int $cliniqueId = null): int
+    /** @param  iterable<MouvementStock>  $reverses  les sorties que cette entrée rend (leurs lots d'origine) */
+    public function entrer(Produit $produit, int $quantite, string $libelle, ?User $auteur = null, ?Model $source = null, ?int $cliniqueId = null, iterable $reverses = []): int
     {
-        return $this->appliquer($produit, abs($quantite), $libelle, $auteur, source: $source, cliniqueId: $cliniqueId);
+        return $this->appliquer($produit, abs($quantite), $libelle, $auteur, source: $source, cliniqueId: $cliniqueId, reverses: $reverses);
     }
 
     /**
@@ -563,7 +592,8 @@ class GestionnaireStock
     /**
      * Annule les mouvements qu'un acte (facture, ordonnance) a produits :
      * un mouvement inverse par ligne du journal — l'historique reste
-     * complet, le stock revient où il était.
+     * complet, le stock revient où il était, chaque lot retrouve ce que
+     * la sortie y avait pris.
      */
     public function inverserMouvementsDe(Model $source, string $libelle, ?User $auteur = null): void
     {
@@ -574,7 +604,7 @@ class GestionnaireStock
             ->get();
 
         foreach ($mouvements as $mouvement) {
-            $this->appliquer($mouvement->produit, -$mouvement->quantite, $libelle, $auteur, cliniqueId: $mouvement->clinique_id);
+            $this->appliquer($mouvement->produit, -$mouvement->quantite, $libelle, $auteur, cliniqueId: $mouvement->clinique_id, reverses: [$mouvement]);
         }
     }
 }
