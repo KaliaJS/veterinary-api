@@ -1437,6 +1437,27 @@ répartition FEFO affichée par urgence (périmé / < 3 mois / < 6 mois).
 « Péremption ») et supprime le lot. La réception d'une commande crée un
 lot. Confirme le « par lot en production » du champ `exp`.
 
+**Lots décomptés à chaque sortie, FEFO** (décision de Jim, 04.11.2026) :
+toute sortie de stock (caisse, boutique, soin, ordonnance, ajustement)
+passe par `GestionnaireStock`, qui fait suivre les lots (`FefoLots`) sous
+le verrou de l'article. Ordre d'une sortie, dans la clinique du
+mouvement : le lot imposé (lot écarté, lot inscrit au registre), les lots
+datés non périmés (le plus proche d'abord, puis le suivant), les lots
+sans péremption, le stock sans lot connu, les lots périmés en dernier
+(« Périmé : écarté » les prend d'abord). Table `lot_allocations` (immuable) :
+`kind` (`take` | `return` | `entry` | `reconciliation`), mouvement du
+journal, lot (FK, `null` si écarté depuis), numéro et péremption figés,
+quantité signée, prise rendue (`returns_allocation_id`), animal et client
+de la sortie. Une annulation (facture ou ordonnance annulée, soin retiré,
+`+1` après un `−1`) rend à chaque lot ce que la sortie y avait pris ; un
+lot écarté entre-temps renaît avec son numéro et sa péremption. Un lot
+vide n'est plus listé (`GET /stocks/lots`) ; `GET /stocks/lots/{lot}/sorties`
+dit à qui il a été donné ou vendu. Remise d'accord unique des lots avec le
+stock (migration `2026_11_06_000502`, les plus anciens supposés partis).
+Un stupéfiant suit son registre : chaque ligne inscrit son lot
+(`mouvements_stupefiants.lot_id`, `numero_lot` figé), choisi ou FEFO, et
+le stock sort de ce lot ou y revient.
+
 ### Boutique (écran porté)
 
 - **Commandes en ligne** : `{ id « C-104 », client (nom), scope
@@ -1519,6 +1540,76 @@ faut journaliser les envois :
   pour « À : ». Annonce sans contenu (`messages.change`) sur
   `utilisateur.{id}` (collègues) et `clinique.{id}` (les deux cliniques).
   Seul le texte part, aucun document.
+- **Messages audio et vidéo façon Telegram (feu vert de Jim, 06.11.2026)** :
+  dans le fil d'un client (clé « u12 », des deux côtés), entre collègues
+  (« e12 ») et entre cliniques (« k34 ») depuis le 07.11.2026 (décision de
+  Jim). `message_media` (un par message : `message_clientele_id`,
+  `staff_message_id` ou `clinic_message_id`, effacé en cascade ;
+  `clinique_id` d'où il part,
+  `kind` audio ou video, `path` sur le disque privé, `mime` reconnu aux
+  premiers octets : audio/webm, audio/mp4, audio/ogg, video/webm,
+  video/mp4, `size_bytes`, `duration_ms`, `peaks` de 0 à 1). Le texte du
+  message dit « Message audio » ou « Message vidéo ». Bornes
+  (`config/messages.php`, décision de Jim du 07.11.2026) : audio 2 min et
+  3 Mo, vidéo ronde 60 s et 20 Mo ; la vraie durée est lue dans le fichier
+  (`MediaDuration` : blocs WebM, `mvhd`, `mdhd` ou fragments MP4, page Ogg),
+  refusée si elle ne se lit pas, dépasse la limite ou s'écarte de plus de
+  2 s ou 20 % de celle annoncée, puis gardée telle quelle. Marques MP4
+  d'enregistrement seulement (pas de HEIC ni d'AVIF). Fichiers servis avec
+  `X-Content-Type-Options: nosniff`. Un propriétaire envoie au plus 10
+  vidéos par heure et 200 Mo par jour (comptés sous verrou du compte).
+  « →A » sur l'audio seulement ; la durée facturée ne dépasse jamais 120 s
+  par message. Deuxième vérification (07.11.2026) : la lecture a un budget
+  de pas, huit niveaux de boîtes au plus, refuse tout entier ou élément
+  hors du fichier, lit `stts`, le plus grand temps des blocs WebM (des blocs
+  qui ne progressent pas : illisible) et le plus haut granule Ogg des pages
+  au CRC juste ; un fichier plus lourd que 64 kbit/s × durée + 16 Ko
+  (vidéo : 3 Mbit/s + 64 Ko) est refusé. Troisième vérification : vingt
+  pistes au plus (les seules déclarées dans Tracks), mémoire bornée quel
+  que soit le fichier ; tolérance de 1,5 s sur la limite (l'app s'arrête
+  une seconde avant) ; un refus net de Deepgram retire l'estimation du
+  budget ; un fichier effacé avec le compte ne compte plus dans le
+  stockage ; index sur `provider_at`. Quatrième vérification : le fichier
+  se lit par position (`ByteSource`, fenêtre de 256 Ko), jamais chargé ni
+  copié en entier ; marge du MP4 audio de 188 octets par seconde en plus
+  (table `stsz`) ; plafond de 3 h par jour (heure suisse) des secondes
+  payées à Deepgram pour les messages d'une organisation
+  (`daily_provider_seconds`), au-delà plus de « →A » jusqu'au lendemain ;
+  l'estimation pendant l'appel ne dépasse pas ce qui reste du jour.
+  Cinquième vérification : le plafond du jour se réserve sous verrou dans
+  `compteurs_mensuels` (clé `messages-deepgram:{organisation}:{jour}`) :
+  la tâche réserve son estimation dans le reste, la durée payée la
+  remplace à la réponse (0 pour un refus net), plus de reste : refus
+  jusqu'au lendemain ; une transcription de messages à la fois par
+  organisation (`WithoutOverlapping`). Le budget du mois compte la même
+  réservation. `provider_seconds` et
+  `provider_at` : la durée réellement payée à Deepgram, comptée au budget
+  de la plateforme (`secondesFournisseur`). Au-delà de 122 s chez Deepgram
+  (qui ne sait pas couper un fichier), le texte est refusé après coup, la
+  clinique ne paie rien et le message ne repart plus. `POST /messages/{u…}/media`, `GET /messages/media/{id}` (équipe de
+  la clinique du fil), `POST /espace/messages/media`,
+  `GET /espace/messages/media/{id}` (le compte du fil). Transcription
+  « →A » (`POST /messages/media/{id}/transcription`, équipe de la clinique
+  seulement) : une fois par message (`transcript_status` pending, done,
+  failed ; trois appels au plus), texte chiffré dans `transcript`,
+  `transcript_seconds` facturées à `transcript_organisation_id` avec les
+  minutes des consultations (ConsommationTranscription::secondes, mêmes
+  plafonds, même budget Deepgram, même ligne de facture) ; seulement si
+  l'organisation paie (abonnement actif et réglé, identité vérifiée).
+  Annonce sans contenu quand elle est finie (`clinique.{id}` du fil d'un
+  client, `utilisateur.{id}` des deux collègues, `clinique.{id}` des deux
+  cliniques). Lecture du fichier : la clinique du fil d'un client, les deux
+  collègues, les deux cliniques du canal ; entre cliniques, la
+  transcription est facturée à celle qui la demande, l'autre la relit sans
+  repayer. Les fichiers comptent dans le stockage de l'organisation d'où
+  ils partent. Effacé par le modèle, le fichier part aussitôt ; effacé en
+  cascade par la base, la purge de nuit `messages:purge-media` l'efface
+  (fichiers de plus d'une heure sans ligne). Un compte effacé laisse ses
+  messages au fil de la clinique, comme ses textes ; ses fichiers audio et
+  vidéo partent (décision de Jim, 07.11.2026 : `path` vide, `erased_at`),
+  la transcription reste, la bulle dit « Message audio effacé avec le
+  compte » et le fichier répond 410. Un fichier ne s'efface qu'après la
+  validation de la transaction.
 
 ---
 

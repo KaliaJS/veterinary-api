@@ -6,6 +6,7 @@ use App\Enums\StatutPartie;
 use App\Enums\TypeAlerte;
 use App\Mail\AlerteTranscription;
 use App\Mail\PlafondTranscriptionOrganisation;
+use App\Models\MessageMedia;
 use App\Models\Organisation;
 use App\Models\PartieEnregistrement;
 use App\Services\CompteurMensuel;
@@ -26,6 +27,10 @@ use Illuminate\Support\Facades\Mail;
  * approche de son propre plafond. Une partie déjà enregistrée est toujours
  * transcrite : les plafonds bloquent seulement le début d'un nouvel
  * enregistrement. Pas de TVA : Meteora Systems Sàrl n'y est pas assujettie.
+ *
+ * Les messages audio et vidéo transcrits par « →A » (07.11.2026) comptent
+ * avec les consultations : mêmes minutes, même tarif, mêmes plafonds, même
+ * budget Deepgram, même ligne sur la facture.
  */
 final class ConsommationTranscription
 {
@@ -57,6 +62,22 @@ final class ConsommationTranscription
             $fin = $debut->addMonthNoOverflow();
         }
 
+        $consultations = $this->secondesConsultations($organisationId, $debut, $fin);
+
+        // Les messages transcrits, comptés à l'organisation qui les a demandés
+        $messages = (int) MessageMedia::query()
+            ->where('transcript_status', MessageMedia::STATUS_DONE)
+            ->where('transcribed_at', '>=', CarbonImmutable::instance($debut)->utc())
+            ->when($fin, fn ($requete) => $requete->where('transcribed_at', '<', CarbonImmutable::instance($fin)->utc()))
+            ->when($organisationId, fn ($requete) => $requete->where('transcript_organisation_id', $organisationId))
+            ->sum('transcript_seconds');
+
+        return $consultations + $messages;
+    }
+
+    /** Secondes de consultations transcrites (la durée réelle de l'audio, facturée telle quelle) */
+    private function secondesConsultations(?int $organisationId, CarbonInterface $debut, ?CarbonInterface $fin): int
+    {
         return (int) PartieEnregistrement::query()
             ->join('enregistrements_consultation', 'enregistrements_consultation.id', '=', 'parties_enregistrement.enregistrement_consultation_id')
             ->where('parties_enregistrement.statut', StatutPartie::Transcrite)
@@ -64,6 +85,24 @@ final class ConsommationTranscription
             ->when($fin, fn ($requete) => $requete->where('parties_enregistrement.transcrite_le', '<', CarbonImmutable::instance($fin)->utc()))
             ->when($organisationId, fn ($requete) => $requete->where('enregistrements_consultation.organisation_id', $organisationId))
             ->sum('parties_enregistrement.duree_secondes');
+    }
+
+    /**
+     * Secondes payées à Deepgram ce mois-ci (heure suisse) : les consultations,
+     * et pour les messages la durée réellement traitée, même au-delà de ce que
+     * la clinique paie, même quand le texte a été refusé (deuxième
+     * vérification, 07.11.2026).
+     */
+    public function secondesFournisseur(): int
+    {
+        $debut = CarbonImmutable::now('Europe/Zurich')->startOfMonth();
+        $fin = $debut->addMonthNoOverflow();
+
+        return $this->secondesConsultations(null, $debut, $fin) + (int) MessageMedia::query()
+            ->whereNotNull('provider_seconds')
+            ->where('provider_at', '>=', $debut->utc())
+            ->where('provider_at', '<', $fin->utc())
+            ->sum('provider_seconds');
     }
 
     /**
@@ -95,15 +134,29 @@ final class ConsommationTranscription
         return $this->secondes($organisation->id, $debut, $fin);
     }
 
-    /** Pourquoi l'organisation ne peut pas commencer un enregistrement, ou null. */
-    public function refus(Organisation $organisation): ?string
+    /**
+     * Pourquoi l'organisation ne paie pas la transcription, ou null :
+     * abonnement en cours et réglé, identité de qui l'a inscrite vérifiée.
+     * Sans cela, le bouton de transcription des messages n'existe pas (07.11.2026).
+     */
+    public function abonnementRefuse(Organisation $organisation): ?string
     {
-        $budget = config('transcription.budget_deepgram_usd');
-
         return match (true) {
             $organisation->statut_abonnement === 'impaye' => 'Une facture de votre abonnement attend son règlement : réglez-la dans les réglages de facturation pour utiliser la transcription.',
             $organisation->statut_abonnement !== 'actif' => 'La transcription demande un abonnement en cours.',
             $organisation->attendIdentite() => 'La transcription s’ouvre une fois l’identité de qui a inscrit la clinique vérifiée.',
+            default => null,
+        };
+    }
+
+    /** Pourquoi l'organisation ne peut pas commencer un enregistrement, ou null. */
+    public function refus(Organisation $organisation): ?string
+    {
+        $budget = config('transcription.budget_deepgram_usd');
+        $abonnement = $this->abonnementRefuse($organisation);
+
+        return match (true) {
+            $abonnement !== null => $abonnement,
             $this->montant($this->secondesDeLaPeriode($organisation)) >= $organisation->plafond_transcription => 'Le plafond de transcription de votre organisation est atteint pour cette période. Un administrateur peut le relever dans les réglages de l’organisation.',
             $budget !== null && $this->depenseDeepgram() >= $budget => 'La transcription est momentanément indisponible. Réessayez plus tard.',
             default => null,
@@ -122,7 +175,7 @@ final class ConsommationTranscription
      */
     public function depenseDeepgram(): float
     {
-        $secondes = $this->secondes() + CompteurMensuel::valeur(self::ESSAIS_EN_VOL);
+        $secondes = $this->secondesFournisseur() + CompteurMensuel::valeur(self::ESSAIS_EN_VOL);
 
         return round($secondes / 60 * (float) config('transcription.cout_minute_deepgram_usd'), 2);
     }
@@ -139,7 +192,18 @@ final class ConsommationTranscription
      */
     public function essaiEnvoye(int $octets): array
     {
-        $secondes = (int) ceil(max(0, $octets) * 8 / self::BITS_PAR_SECONDE);
+        return $this->essaiDeSecondes((int) ceil(max(0, $octets) * 8 / self::BITS_PAR_SECONDE));
+    }
+
+    /**
+     * Le même compte avant l'envoi, d'une durée déjà estimée : un message
+     * vidéo (07.11.2026), dont la taille dit l'image plus que le son.
+     *
+     * @return array{mois: string, secondes: int}
+     */
+    public function essaiDeSecondes(int $secondes): array
+    {
+        $secondes = max(0, $secondes);
 
         return ['mois' => $secondes > 0 ? CompteurMensuel::ajouter(self::ESSAIS_EN_VOL, $secondes) : '', 'secondes' => $secondes];
     }
@@ -223,7 +287,7 @@ final class ConsommationTranscription
                 continue;
             }
             if (Cache::add('transcription-alerte-'.$seuil.'-'.now('Europe/Zurich')->format('Y-m'), true, now()->addDays(40))) {
-                Mail::to($destinataire)->send(new AlerteTranscription($seuil, $depense, (float) $budget, self::minutes($this->secondes())));
+                Mail::to($destinataire)->send(new AlerteTranscription($seuil, $depense, (float) $budget, self::minutes($this->secondesFournisseur())));
             }
 
             return;

@@ -19,8 +19,8 @@ class PlafondTranscriptionOrganisation extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(subject: $this->seuil >= 100
-            ? 'Transcription des consultations : plafond atteint'
-            : "Transcription des consultations : {$this->seuil} % du plafond");
+            ? 'Transcription des consultations et des messages : plafond atteint'
+            : "Transcription des consultations et des messages : {$this->seuil} % du plafond");
     }
 
     public function content(): Content

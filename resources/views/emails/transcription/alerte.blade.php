@@ -1,5 +1,5 @@
 <x-mail::message>
-# Transcription des consultations
+# Transcription des consultations et des messages
 
 @if ($seuil >= 100)
 La plateforme a transcrit {{ $minutes }} minutes ce mois-ci, pour une dépense Deepgram estimée à {{ number_format($depense, 2, '.', "'") }} $ : le budget de {{ number_format($budget, 2, '.', "'") }} $ est atteint. Aucun nouvel enregistrement ne peut commencer avant le mois prochain ; les parties déjà enregistrées sont transcrites.

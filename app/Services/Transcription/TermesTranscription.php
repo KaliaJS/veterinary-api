@@ -3,6 +3,7 @@
 namespace App\Services\Transcription;
 
 use App\Models\EnregistrementConsultation;
+use App\Models\Organisation;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -36,6 +37,20 @@ final class TermesTranscription
             ...($patientId ? $this->vaccins($patientId) : []),
             ...($patientId ? $this->medicamentsDuPatient($patientId) : []),
             ...$this->produitsPrescrits($enregistrement->organisation_id),
+        ]);
+    }
+
+    /**
+     * Pour un message audio ou vidéo (07.11.2026), sans animal désigné : la
+     * liste de l'organisation, puis les produits qu'elle prescrit le plus.
+     *
+     * @return list<string>
+     */
+    public function pourOrganisation(Organisation $organisation): array
+    {
+        return self::retenir([
+            ...($organisation->termes_transcription ?? []),
+            ...$this->produitsPrescrits($organisation->id),
         ]);
     }
 

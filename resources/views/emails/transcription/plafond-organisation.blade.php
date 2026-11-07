@@ -1,9 +1,9 @@
 <x-mail::message>
-# Transcription des consultations
+# Transcription des consultations et des messages
 
 @php($chf = fn (float $v) => number_format($v, 2, '.', "'").' CHF')
 @if ($seuil >= 100)
-{{ $organisation }} a utilisé {{ $chf($montant) }} de transcription sur la période d'abonnement en cours et atteint son plafond de {{ $chf($plafond) }}. Aucun nouvel enregistrement ne peut commencer avant le renouvellement de l'abonnement ; les consultations en cours se terminent normalement.
+{{ $organisation }} a utilisé {{ $chf($montant) }} de transcription sur la période d'abonnement en cours et atteint son plafond de {{ $chf($plafond) }}. Aucun nouvel enregistrement de consultation ne peut commencer et aucun message ne peut être transcrit avant le renouvellement de l'abonnement ; les consultations en cours se terminent normalement.
 @else
 {{ $organisation }} a utilisé {{ $chf($montant) }} de transcription sur la période d'abonnement en cours, soit {{ $seuil }} % de son plafond de {{ $chf($plafond) }}.
 @endif

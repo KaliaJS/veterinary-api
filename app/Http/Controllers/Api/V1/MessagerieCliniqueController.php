@@ -6,11 +6,14 @@ use App\Auth\ContexteClinique;
 use App\Enums\PushType;
 use App\Events\MessagesChangent;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\V1\Messages\SendMessageMediaRequest;
 use App\Mail\ReponseClinique;
 use App\Models\Client;
 use App\Models\MessageClientele;
+use App\Models\Organisation;
 use App\Models\PreferencesProprietaire;
 use App\Services\Messages\InternalMessaging;
+use App\Services\Messages\MessageMediaService;
 use App\Services\Notifications\Push;
 use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Builder;
@@ -97,7 +100,8 @@ class MessagerieCliniqueController extends Controller
         }
         [$fiche, $userId, $lie] = $this->fiche($cle);
         $this->messagesDu($cle, $fiche)->where('auteur', 'proprietaire')->whereNull('lu_le')->update(['lu_le' => now()]);
-        $messages = $this->messagesDu($cle, $fiche)->with('employe')->orderBy('created_at')->orderBy('id')->get();
+        $messages = $this->messagesDu($cle, $fiche)->with('employe', 'media')->orderBy('created_at')->orderBy('id')->get();
+        $paie = app(MessageMediaService::class)->clinicPays(Organisation::query()->find(app(ContexteClinique::class)->organisationId()));
 
         return response()->json(['data' => [
             'cle' => $cle,
@@ -108,7 +112,7 @@ class MessagerieCliniqueController extends Controller
             'client' => trim($fiche->prenom.' '.$fiche->nom),
             'client_id' => $fiche->id,
             'peut_repondre' => $lie,
-            'messages' => $messages->map(fn (MessageClientele $m): array => $this->message($m))->all(),
+            'messages' => $messages->map(fn (MessageClientele $m): array => $this->message($m, $paie))->all(),
         ]]);
     }
 
@@ -119,24 +123,63 @@ class MessagerieCliniqueController extends Controller
         if (in_array($cle[0], ['e', 'k'], true)) {
             return response()->json(['data' => $this->internes->send($cle, $texte)], 201);
         }
+        [$colonnes, $estPremier, $fiche] = $this->nouveauMessage($cle, 'texte');
+        $message = MessageClientele::create([...$colonnes, 'texte' => $texte]);
+        $this->publier($message, $fiche, $estPremier);
+
+        return response()->json(['data' => $this->message($message->load('employe'))], 201);
+    }
+
+    /**
+     * Un message audio ou une vidéo ronde (07.11.2026) : au client du fil, à
+     * un collègue ou à une autre clinique (InternalMessaging).
+     */
+    public function repondreMedia(SendMessageMediaRequest $request, string $cle, MessageMediaService $media): JsonResponse
+    {
+        // Collègues et autres cliniques aussi (décision de Jim, 07.11.2026)
+        if (in_array($cle[0], ['e', 'k'], true)) {
+            return response()->json(['data' => $this->internes->sendMedia($cle, $request->file('file'), (string) $request->validated('kind'), $request->durationMs(), $request->validated('peaks'))], 201);
+        }
+        [$colonnes, $estPremier, $fiche] = $this->nouveauMessage($cle, 'file');
+        $message = $media->store($colonnes, $request->file('file'), (string) $request->validated('kind'), $request->durationMs(), $request->validated('peaks'));
+        $this->publier($message, $fiche, $estPremier);
+
+        return response()->json(['data' => $this->message($message->load('employe'))], 201);
+    }
+
+    /**
+     * Les colonnes d'un message de la clinique dans ce fil, si le client a
+     * encore un compte lié ; et si c'est le premier du fil.
+     *
+     * @return array{0: array<string, mixed>, 1: bool, 2: Client}
+     */
+    private function nouveauMessage(string $cle, string $champ): array
+    {
         [$fiche, $userId, $lie] = $this->fiche($cle);
         if (! $lie || $userId === null) {
-            throw ValidationException::withMessages(['texte' => 'Ce client n’a plus de compte lié : il ne lirait pas ce message. Appelez-le.']);
+            throw ValidationException::withMessages([$champ => 'Ce client n’a plus de compte lié : il ne lirait pas ce message. Appelez-le.']);
         }
         $contexte = app(ContexteClinique::class);
         // Le premier message du fil (la clinique écrit la première, 01.11.2026) : l'e-mail dit comment entrer dans l'espace
         $estPremier = ! MessageClientele::query()->where('clinique_id', $contexte->cliniqueId())->where('user_id', $userId)->exists();
-        $message = MessageClientele::create([
+
+        return [[
             'clinique_id' => $contexte->cliniqueId(),
             'user_id' => $userId,
             'client_id' => $fiche->id,
             'employe_id' => $contexte->employe()?->id,
             'auteur' => 'clinique',
-            'texte' => $texte,
-        ]);
+        ], $estPremier, $fiche];
+    }
+
+    /** Le propriétaire est prévenu en temps réel, sur son téléphone, et par e-mail s'il l'a choisi ; la clinique aussi */
+    private function publier(MessageClientele $message, Client $fiche, bool $estPremier): void
+    {
+        $contexte = app(ContexteClinique::class);
+        $userId = (int) $message->user_id;
         TempsReel::diffuser(fn () => MessagesChangent::dispatch('utilisateur.'.$userId, $userId));
         TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$contexte->cliniqueId(), $userId));
-        Push::to([$userId], PushType::ClinicMessage, $contexte->clinique()->nom, mb_strimwidth($texte, 0, 120, '…'), '/espace/messages');
+        Push::to([$userId], PushType::ClinicMessage, $contexte->clinique()->nom, mb_strimwidth($message->texte, 0, 120, '…'), '/espace/messages');
         // Par e-mail aussi, s'il ne l'a pas coupé (« Réponses de la clinique »)
         $proprietaire = $fiche->user;
         if ($proprietaire !== null && PreferencesProprietaire::query()->where('user_id', $userId)->value('reponses_clinique') !== false) {
@@ -147,8 +190,6 @@ class MessagerieCliniqueController extends Controller
                 report($e);
             }
         }
-
-        return response()->json(['data' => $this->message($message->load('employe'))], 201);
     }
 
     /**
@@ -183,9 +224,19 @@ class MessagerieCliniqueController extends Controller
             : $requete->where('user_id', (int) substr($cle, 1));
     }
 
-    /** @return array<string, mixed> */
-    private function message(MessageClientele $m): array
+    /**
+     * Un message ; audio ou vidéo, son fichier (durée, onde) et sa
+     * transcription, servis à l'équipe de la clinique.
+     *
+     * @return array<string, mixed>
+     */
+    private function message(MessageClientele $m, ?bool $paie = null): array
     {
+        $media = $m->relationLoaded('media') ? $m->media : null;
+        if ($media !== null && $paie === null) {
+            $paie = app(MessageMediaService::class)->clinicPays(Organisation::query()->find(app(ContexteClinique::class)->organisationId()));
+        }
+
         return [
             'id' => $m->id,
             'auteur' => $m->auteur,
@@ -194,6 +245,7 @@ class MessagerieCliniqueController extends Controller
             'texte' => $m->texte,
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->lu_le?->toIso8601String(),
+            'media' => $media ? MessageMediaService::forClinic($media, (bool) $paie) : null,
         ];
     }
 }

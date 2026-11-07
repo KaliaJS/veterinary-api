@@ -6,14 +6,20 @@ use App\Auth\ContexteProprietaire;
 use App\Events\MessagesChangent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\EnvoyerMessageRequest;
+use App\Http\Requests\V1\Espace\SendOwnerMessageMediaRequest;
 use App\Models\Clinique;
 use App\Models\MessageClientele;
+use App\Models\MessageMedia;
+use App\Models\User;
+use App\Services\Messages\MessageMediaService;
 use App\Support\TempsReel;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Messages (proto : un fil avec « la clinique », réponse sous 24 h).
@@ -41,7 +47,7 @@ class MessageProprietaireController extends Controller
                 ->update(['lu_le' => now()]);
 
             $messages = MessageClientele::query()
-                ->with('employe')
+                ->with('employe', 'media')
                 ->where('user_id', $contexte->user()->id)
                 ->where('clinique_id', $clinique->id)
                 ->orderBy('created_at')
@@ -75,8 +81,62 @@ class MessageProprietaireController extends Controller
 
     public function envoyer(EnvoyerMessageRequest $request, ContexteProprietaire $contexte): JsonResponse
     {
-        $cliniqueId = (int) $request->validated('clinique_id');
+        $colonnes = $this->nouveauMessage((int) $request->validated('clinique_id'), $contexte);
+        $message = MessageClientele::create([...$colonnes, 'texte' => trim($request->validated('texte'))]);
+        $this->annoncer($message);
 
+        return response()->json(['data' => $this->message($message)], 201);
+    }
+
+    /** Un message audio ou une vidéo ronde à la clinique (07.11.2026), aux mêmes conditions qu'un texte */
+    public function envoyerMedia(SendOwnerMessageMediaRequest $request, ContexteProprietaire $contexte, MessageMediaService $media): JsonResponse
+    {
+        $colonnes = $this->nouveauMessage((int) $request->validated('clinique_id'), $contexte);
+        // Les quotas sous verrou du compte, du contrôle à l'écriture : deux envois au même instant ne les dépassent pas
+        $message = DB::transaction(function () use ($request, $contexte, $media, $colonnes): MessageClientele {
+            User::query()->whereKey($contexte->user()->id)->lockForUpdate()->first();
+            $this->exigerQuota($contexte, (string) $request->validated('kind'), (int) $request->file('file')?->getSize());
+
+            return $media->store($colonnes, $request->file('file'), (string) $request->validated('kind'), $request->durationMs(), $request->validated('peaks'));
+        });
+        $this->annoncer($message);
+
+        return response()->json(['data' => $this->message($message)], 201);
+    }
+
+    /** Le fichier d'un message audio ou vidéo de l'un de ses fils, sinon introuvable */
+    public function media(int $media, ContexteProprietaire $contexte): StreamedResponse
+    {
+        $fichier = MessageMedia::query()
+            ->whereHas('message', fn ($q) => $q->where('user_id', $contexte->user()->id))
+            ->findOrFail($media);
+
+        return MessageMediaService::response($fichier);
+    }
+
+    /**
+     * Un propriétaire envoie au plus 10 vidéos par heure et 200 Mo
+     * d'enregistrements par jour (vérification du 07.11.2026).
+     */
+    private function exigerQuota(ContexteProprietaire $contexte, string $kind, int $octets): void
+    {
+        $siens = fn () => MessageMedia::query()->whereHas('message', fn ($q) => $q->where('user_id', $contexte->user()->id)->where('auteur', 'proprietaire'));
+        if ($kind === 'video' && $siens()->where('kind', 'video')->where('created_at', '>', now()->subHour())->count() >= (int) config('messages.media.owner_videos_per_hour')) {
+            throw ValidationException::withMessages(['file' => 'Dix vidéos par heure au plus : réessayez un peu plus tard.']);
+        }
+        if ((int) $siens()->where('created_at', '>', now()->subDay())->sum('size_bytes') + $octets > (int) config('messages.media.owner_bytes_per_day')) {
+            throw ValidationException::withMessages(['file' => '200 Mo d’enregistrements par jour au plus : réessayez demain.']);
+        }
+    }
+
+    /**
+     * Les colonnes d'un message du propriétaire à cette clinique, s'il en
+     * est client et qu'elle reçoit ses messages.
+     *
+     * @return array<string, mixed>
+     */
+    private function nouveauMessage(int $cliniqueId, ContexteProprietaire $contexte): array
+    {
         if (! $this->cliniques($contexte)->contains('id', $cliniqueId)) {
             throw ValidationException::withMessages(['clinique_id' => 'Vous n’êtes pas client de cette clinique.']);
         }
@@ -87,18 +147,19 @@ class MessageProprietaireController extends Controller
 
         // Sa fiche client dans l'organisation de la clinique : le fil reste attribuable (28.10.2026)
         $organisation = $this->cliniques($contexte)->firstWhere('id', $cliniqueId)?->societe()->withoutGlobalScopes()->value('organisation_id');
-        $message = MessageClientele::create([
+
+        return [
             'clinique_id' => $cliniqueId,
             'user_id' => $contexte->user()->id,
             'client_id' => $contexte->clients()->firstWhere('organisation_id', $organisation)?->id,
             'auteur' => 'proprietaire',
-            'texte' => trim($request->validated('texte')),
-        ]);
+        ];
+    }
 
-        // La clinique l'apprend aussitôt (sans le contenu : il se lit par l'API)
-        TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$cliniqueId, $contexte->user()->id));
-
-        return response()->json(['data' => $this->message($message)], 201);
+    /** La clinique l'apprend aussitôt (sans le contenu : il se lit par l'API) */
+    private function annoncer(MessageClientele $message): void
+    {
+        TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$message->clinique_id, (int) $message->user_id));
     }
 
     /** « Réponses uniquement » : la réponse reste ouverte ce nombre de jours après le dernier message de la clinique */
@@ -157,6 +218,8 @@ class MessageProprietaireController extends Controller
             'texte' => $m->texte,
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->lu_le?->toIso8601String(),
+            // Audio ou vidéo : le fichier, sa durée et son onde ; la transcription reste à la clinique
+            'media' => $m->relationLoaded('media') && $m->media ? MessageMediaService::forOwner($m->media) : null,
         ];
     }
 }

@@ -10,11 +10,15 @@ use App\Events\MessagesChangent;
 use App\Models\ClinicMessage;
 use App\Models\Clinique;
 use App\Models\Employe;
+use App\Models\Organisation;
 use App\Models\StaffMessage;
 use App\Services\Notifications\Push;
 use App\Support\TempsReel;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
@@ -29,12 +33,16 @@ use Illuminate\Validation\ValidationException;
  *   Veterinary. Toute l'équipe de chacune le lit, comme un groupe ; ouvert
  *   par l'une, il est lu pour elle.
  *
- * Seul le texte part : aucun dossier, aucun document joint. L'annonce en
- * temps réel ne porte aucun contenu (MessagesChangent).
+ * Le texte, et des messages audio et vidéo (décision de Jim, 07.11.2026) ;
+ * aucun dossier, aucun document joint. L'annonce en temps réel ne porte
+ * aucun contenu (MessagesChangent).
  */
 class InternalMessaging
 {
-    public function __construct(private ContexteClinique $contexte, private CalculateurPermissions $permissions) {}
+    /** La clinique du contexte paie la transcription (lue une fois par requête) */
+    private ?bool $clinicPays = null;
+
+    public function __construct(private ContexteClinique $contexte, private CalculateurPermissions $permissions, private MessageMediaService $media) {}
 
     /** @return list<array<string, mixed>> */
     public function threads(): array
@@ -49,7 +57,7 @@ class InternalMessaging
             $colleague = $this->colleague((int) substr($key, 1));
             $me = $this->me();
             $this->staffBetween($me, $colleague)->where('recipient_employee_id', $me->id)->whereNull('read_at')->update(['read_at' => now()]);
-            $messages = $this->staffBetween($me, $colleague)->with('sender')->orderBy('created_at')->orderBy('id')->get();
+            $messages = $this->staffBetween($me, $colleague)->with('sender', 'media')->orderBy('created_at')->orderBy('id')->get();
 
             return [
                 ...$this->staffHeader($colleague),
@@ -60,7 +68,7 @@ class InternalMessaging
         $other = $this->otherClinic((int) substr($key, 1));
         $mine = $this->clinic();
         $this->clinicBetween($mine, $other)->where('recipient_clinic_id', $mine->id)->whereNull('read_at')->update(['read_at' => now()]);
-        $messages = $this->clinicBetween($mine, $other)->with('author')->orderBy('created_at')->orderBy('id')->get();
+        $messages = $this->clinicBetween($mine, $other)->with('author', 'media')->orderBy('created_at')->orderBy('id')->get();
 
         return [
             ...$this->clinicHeader($other),
@@ -71,42 +79,71 @@ class InternalMessaging
     /** @return array<string, mixed> */
     public function send(string $key, string $body): array
     {
+        return $this->deliver($key, 'texte', fn (string $model, array $attributes): Model => $model::create([...$attributes, 'body' => $body]));
+    }
+
+    /**
+     * Un message audio ou une vidéo ronde (décision de Jim, 07.11.2026),
+     * aux mêmes conditions qu'un texte. Le fichier est lu par les deux
+     * collègues, ou par les équipes des deux cliniques, et par personne d'autre.
+     *
+     * @param  array<int|string, float|int|string>  $peaks
+     * @return array<string, mixed>
+     */
+    public function sendMedia(string $key, UploadedFile $file, string $kind, int $durationMs, array $peaks): array
+    {
+        return $this->deliver($key, 'file', fn (string $model, array $attributes, string $foreignKey): Model => $this->media->storeWith(
+            fn (string $label): Model => $model::create([...$attributes, 'body' => $label]),
+            $foreignKey, $this->clinic()->id, $file, $kind, $durationMs, $peaks,
+        ));
+    }
+
+    /**
+     * Le message écrit par `$make` (le modèle, ses colonnes sans le texte,
+     * la colonne de son fichier), après les mêmes contrôles pour le texte
+     * et l'enregistrement ; les deux côtés prévenus, sans contenu.
+     *
+     * @param  Closure(class-string<Model>, array<string, mixed>, string): Model  $make
+     * @return array<string, mixed>
+     */
+    private function deliver(string $key, string $field, Closure $make): array
+    {
         $me = $this->me();
         if ($key[0] === 'e') {
             $colleague = $this->colleague((int) substr($key, 1));
             if (! $this->canWriteTo($colleague)) {
-                throw ValidationException::withMessages(['texte' => $colleague->nom.' ne peut plus lire les Messages : écrivez-lui autrement.']);
+                throw ValidationException::withMessages([$field => $colleague->nom.' ne peut plus lire les Messages : écrivez-lui autrement.']);
             }
-            $message = StaffMessage::create([
+            /** @var StaffMessage $message */
+            $message = $make(StaffMessage::class, [
                 'organisation_id' => $me->organisation_id,
                 'sender_employee_id' => $me->id,
                 'recipient_employee_id' => $colleague->id,
-                'body' => $body,
-            ]);
+            ], 'staff_message_id');
             foreach ([$me->user_id, $colleague->user_id] as $userId) {
                 TempsReel::diffuser(fn () => MessagesChangent::dispatch('utilisateur.'.$userId));
             }
-            Push::to([$colleague->user_id], PushType::TeamMessage, $me->nom, mb_strimwidth($body, 0, 120, '…'), '/clinique/messages');
+            Push::to([$colleague->user_id], PushType::TeamMessage, $me->nom, mb_strimwidth($message->body, 0, 120, '…'), '/clinique/messages');
 
             return $this->staffMessage($message->load('sender'), $me);
         }
 
         $other = $this->otherClinic((int) substr($key, 1));
         if (! Clinique::withoutGlobalScopes()->ouvertes()->whereKey($other->id)->exists()) {
-            throw ValidationException::withMessages(['texte' => $other->nom.' n’est plus ouverte sur Veterinary : appelez-la.']);
+            throw ValidationException::withMessages([$field => $other->nom.' n’est plus ouverte sur Veterinary : appelez-la.']);
         }
         $mine = $this->clinic();
-        $message = ClinicMessage::create([
+        /** @var ClinicMessage $message */
+        $message = $make(ClinicMessage::class, [
             'sender_clinic_id' => $mine->id,
             'recipient_clinic_id' => $other->id,
             'author_employee_id' => $me->id,
-            'body' => $body,
-        ]);
+        ], 'clinic_message_id');
         foreach ([$mine->id, $other->id] as $cliniqueId) {
             TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$cliniqueId));
         }
         // Toute l'équipe de l'autre clinique qui lit les Messages (droit patients, comme pour y écrire)
-        Push::to(Push::staffOf($other->id, DomainePermission::Patients), PushType::TeamMessage, $mine->nom, mb_strimwidth($body, 0, 120, '…'), '/clinique/messages', except: $me->user_id);
+        Push::to(Push::staffOf($other->id, DomainePermission::Patients), PushType::TeamMessage, $mine->nom, mb_strimwidth($message->body, 0, 120, '…'), '/clinique/messages', except: $me->user_id);
 
         return $this->clinicMessage($message->load('author'), $mine, $other);
     }
@@ -221,6 +258,7 @@ class InternalMessaging
             'texte' => $m->body,
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->read_at?->toIso8601String(),
+            'media' => $this->mediaOf($m),
         ];
     }
 
@@ -236,7 +274,20 @@ class InternalMessaging
             'texte' => $m->body,
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->read_at?->toIso8601String(),
+            'media' => $this->mediaOf($m),
         ];
+    }
+
+    /** Le fichier d'un message audio ou vidéo, avec « →A » quand la clinique du contexte paie */
+    private function mediaOf(StaffMessage|ClinicMessage $m): ?array
+    {
+        $media = $m->relationLoaded('media') ? $m->media : null;
+        if ($media === null) {
+            return null;
+        }
+        $this->clinicPays ??= $this->media->clinicPays(Organisation::query()->find($this->contexte->organisationId()));
+
+        return MessageMediaService::forClinic($media, $this->clinicPays);
     }
 
     /** Peut lire les Messages : accès actif, contrat en cours, affecté à une clinique, le droit Patients */

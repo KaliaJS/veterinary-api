@@ -7,10 +7,13 @@ use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
 use App\Models\Clinique;
 use App\Models\EnregistrementConsultation;
+use App\Models\MessageClientele;
+use App\Models\MessageMedia;
 use App\Models\Organisation;
 use App\Models\OrganisationFacture;
 use App\Models\PartieEnregistrement;
 use App\Models\RendezVous;
+use App\Models\User;
 use App\Paiements\PasserelleAbonnement;
 use App\Services\Abonnements\AbonnementSaas;
 use Carbon\CarbonImmutable;
@@ -69,7 +72,7 @@ class FacturationTranscriptionTest extends TestCase
         $facture = OrganisationFacture::query()->latest('id')->firstOrFail();
         // 2500 s : 42 minutes à 5 centimes
         $this->assertSame(24900 + 210, $this->stripe->dernierPrelevement()['centimes']);
-        $this->assertSame('Transcription des consultations, du 20.10.2026 au 19.11.2026 : 42 min', $facture->lignes[1]['libelle']);
+        $this->assertSame('Transcription des consultations et des messages, du 20.10.2026 au 19.11.2026 : 42 min', $facture->lignes[1]['libelle']);
         $this->assertSame(2.1, $facture->lignes[1]['montant']);
         $this->assertDatabaseHas('facturations_transcription', ['organisation_id' => $this->organisation->id, 'minutes' => 42, 'organisation_facture_id' => $facture->id]);
 
@@ -87,7 +90,7 @@ class FacturationTranscriptionTest extends TestCase
         app(AbonnementSaas::class)->souscrire($this->organisation->refresh(), FormuleSaas::Hopital);
 
         $lignes = OrganisationFacture::query()->latest('id')->firstOrFail()->lignes;
-        $this->assertSame('Transcription des consultations, du 20.10.2026 au 29.10.2026 : 1 min', end($lignes)['libelle']);
+        $this->assertSame('Transcription des consultations et des messages, du 20.10.2026 au 29.10.2026 : 1 min', end($lignes)['libelle']);
 
         // Le renouvellement suivant ne la refacture pas
         $this->travelTo(CarbonImmutable::parse('2026-11-30 06:00', 'Europe/Zurich'));
@@ -135,6 +138,56 @@ class FacturationTranscriptionTest extends TestCase
 
         $this->assertSame(10, $this->stripe->dernierPrelevement()['centimes']);
         $this->assertDatabaseHas('organisations', ['id' => $this->organisation->id, 'statut_abonnement' => 'resilie']);
+    }
+
+    /**
+     * Messages audio et vidéo (feu vert de Jim, 06.11.2026) : leurs minutes
+     * transcrites s'ajoutent à celles des consultations, sur la même ligne,
+     * arrondies une fois pour toute la période.
+     */
+    public function test_les_minutes_des_messages_s_ajoutent_a_celles_des_consultations_sur_la_facture(): void
+    {
+        $this->transcrite(1500, '2026-10-20 11:00');
+        $this->messageTranscrit(1000, '2026-11-02 09:30');
+        // Un message transcrit par une autre organisation ne compte pas ici
+        $autre = Clinique::factory()->create();
+        $this->messageTranscrit(900, '2026-11-02 09:30', $autre);
+
+        $this->travelTo(CarbonImmutable::parse('2026-11-20 06:00', 'Europe/Zurich'));
+        $this->artisan('abonnements:renouveler')->assertSuccessful();
+
+        $facture = OrganisationFacture::query()->where('organisation_id', $this->organisation->id)->latest('id')->firstOrFail();
+        // 2500 s : 42 minutes à 5 centimes
+        $this->assertSame('251.10', (string) $facture->montant);
+        $this->assertSame('Transcription des consultations et des messages, du 20.10.2026 au 19.11.2026 : 42 min', $facture->lignes[1]['libelle']);
+        $this->assertSame(2.1, $facture->lignes[1]['montant']);
+        $this->assertDatabaseHas('facturations_transcription', ['organisation_id' => $this->organisation->id, 'secondes' => 2500, 'minutes' => 42]);
+    }
+
+    /** Un message audio transcrit à l'heure suisse donnée, facturé à l'organisation de sa clinique. */
+    private function messageTranscrit(int $secondes, string $heureSuisse, ?Clinique $clinique = null): void
+    {
+        $clinique ??= $this->clinique;
+        $message = MessageClientele::query()->create([
+            'clinique_id' => $clinique->id,
+            'user_id' => User::factory()->create()->id,
+            'auteur' => 'proprietaire',
+            'texte' => 'Message audio',
+        ]);
+        MessageMedia::query()->create([
+            'message_clientele_id' => $message->id,
+            'clinique_id' => $clinique->id,
+            'kind' => 'audio',
+            'path' => 'messages/'.$clinique->id.'/essai.webm',
+            'mime' => 'audio/webm',
+            'size_bytes' => 4000,
+            'duration_ms' => $secondes * 1000,
+            'peaks' => [0.5],
+            'transcript_status' => 'done',
+            'transcript_seconds' => $secondes,
+            'transcript_organisation_id' => $clinique->societe->organisation_id,
+            'transcribed_at' => CarbonImmutable::parse($heureSuisse, 'Europe/Zurich')->utc(),
+        ]);
     }
 
     /** Une partie transcrite à l'heure suisse donnée. */

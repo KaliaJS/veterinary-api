@@ -282,7 +282,15 @@ class Organisation extends Model
         // Les vidéos de formation vendues par ses cliniques (31.10.2026)
         $videos = (int) Video::query()->where('organisation_id', $this->id)->sum(DB::raw(Video::STORAGE_SQL));
 
-        return (int) $this->stockage_autres_octets + $pdf + $videos + (int) ClicheDicom::query()
+        // Les messages audio et vidéo (07.11.2026), sauf les fichiers effacés avec le compte de leur auteur
+        $messages = (int) MessageMedia::query()
+            ->whereNull('message_media.erased_at')
+            ->join('cliniques', 'cliniques.id', '=', 'message_media.clinique_id')
+            ->join('societes', 'societes.id', '=', 'cliniques.societe_id')
+            ->where('societes.organisation_id', $this->id)
+            ->sum('message_media.size_bytes');
+
+        return (int) $this->stockage_autres_octets + $pdf + $videos + $messages + (int) ClicheDicom::query()
             ->join('examens_imagerie', 'examens_imagerie.id', '=', 'cliches_dicom.examen_imagerie_id')
             ->join('cliniques', 'cliniques.id', '=', 'examens_imagerie.clinique_id')
             ->join('societes', 'societes.id', '=', 'cliniques.societe_id')

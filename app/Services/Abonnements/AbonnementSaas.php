@@ -1516,7 +1516,8 @@ final class AbonnementSaas
             $minutes = ConsommationTranscription::minutes($secondes);
             $usage[] = [
                 'type' => 'transcription',
-                'libelle' => 'Transcription des consultations, '.self::periode($debut, $fin).' : '.$minutes.' min',
+                // Les messages audio et vidéo transcrits s'y ajoutent (07.11.2026)
+                'libelle' => 'Transcription des consultations et des messages, '.self::periode($debut, $fin).' : '.$minutes.' min',
                 'montant' => $this->transcription->montant($secondes),
                 'secondes' => $secondes,
                 'minutes' => $minutes,

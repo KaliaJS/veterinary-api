@@ -102,6 +102,7 @@ use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
 use App\Http\Controllers\Api\V1\LocalityController;
 use App\Http\Controllers\Api\V1\LotController;
+use App\Http\Controllers\Api\V1\MessageMediaController;
 use App\Http\Controllers\Api\V1\MessagerieCliniqueController;
 use App\Http\Controllers\Api\V1\MouvementStockController;
 use App\Http\Controllers\Api\V1\MouvementStupefiantController;
@@ -460,6 +461,9 @@ Route::prefix('v1')->group(function (): void {
         Route::get('boutique', [BoutiqueProprietaireController::class, 'vitrine']);
         Route::get('messages', [MessageProprietaireController::class, 'index']);
         Route::post('messages', [MessageProprietaireController::class, 'envoyer'])->middleware('throttle:espace-messages');
+        // Messages audio et vidéo façon Telegram (07.11.2026) : envoyer, écouter
+        Route::post('messages/media', [MessageProprietaireController::class, 'envoyerMedia'])->middleware('throttle:espace-messages');
+        Route::get('messages/media/{media}', [MessageProprietaireController::class, 'media'])->whereNumber('media');
         Route::get('coordonnees', [CoordonneesProprietaireController::class, 'afficher']);
         Route::get('preferences', [ReglagesProprietaireController::class, 'preferences']);
         // « Terminer la configuration » du propriétaire (28.10.2026)
@@ -676,6 +680,11 @@ Route::prefix('v1')->group(function (): void {
             // « e12 » : un collègue ; « k34 » : une autre clinique (01.11.2026)
             Route::get('{cle}', [MessagerieCliniqueController::class, 'fil'])->where('cle', '[ucek][0-9]+');
             Route::post('{cle}', [MessagerieCliniqueController::class, 'repondre'])->where('cle', '[ucek][0-9]+')->middleware('throttle:60,1,messages-clinique');
+            // Messages audio et vidéo façon Telegram (07.11.2026), dans tous les fils où l'on écrit ;
+            // la transcription « →A » par Deepgram, une fois par message
+            Route::post('{cle}/media', [MessagerieCliniqueController::class, 'repondreMedia'])->where('cle', '[uek][0-9]+')->middleware('throttle:60,1,messages-clinique');
+            Route::get('media/{media}', [MessageMediaController::class, 'show'])->whereNumber('media');
+            Route::post('media/{media}/transcription', [MessageMediaController::class, 'transcribe'])->whereNumber('media')->middleware('throttle:30,1,messages-transcription');
         });
         Route::put('rappels/reglages', [RappelsController::class, 'modifierReglages']);
 

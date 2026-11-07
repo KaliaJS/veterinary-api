@@ -11,6 +11,7 @@ use App\Models\Document;
 use App\Models\Employe;
 use App\Models\FactureProprietaire;
 use App\Models\MessageClientele;
+use App\Models\MessageMedia;
 use App\Models\Patient;
 use App\Models\SellerAccountClosure;
 use App\Models\User;
@@ -260,6 +261,14 @@ class SuppressionCompte
                     MessageClientele::query()->where('user_id', $user->id)->where('clinique_id', $cliniqueId)->update(['client_id' => $fiche]);
                 }
             }
+
+            // Ses messages audio et vidéo (décision de Jim, 07.11.2026) : les fichiers
+            // partent avec le compte ; le texte du fil et la transcription restent
+            $enregistrements = MessageMedia::query()->whereNull('erased_at')->whereNotNull('path')
+                ->whereHas('message', fn ($message) => $message->where('user_id', $user->id)->where('auteur', 'proprietaire'))
+                ->get(['id', 'path']);
+            array_push($fichiers, ...$enregistrements->pluck('path')->all());
+            MessageMedia::query()->whereKey($enregistrements->modelKeys())->update(['path' => null, 'erased_at' => now()]);
 
             // Les animaux qu'il gérait seul, sans clinique ; ceux d'une
             // clinique restent à la clinique (proprietaire_id vidé par la base).
