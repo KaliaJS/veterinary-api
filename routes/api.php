@@ -189,6 +189,7 @@ use App\Http\Controllers\Api\V1\TerminalPaiementController;
 use App\Http\Controllers\Api\V1\TrameImagerieController;
 use App\Http\Controllers\Api\V1\TranscriptionController;
 use App\Http\Controllers\Api\V1\TransfertAppelController;
+use App\Http\Controllers\Api\V1\UnfinishedWorkController;
 use App\Http\Controllers\Api\V1\UrgenceAttenteController;
 use App\Http\Controllers\Api\V1\VaccinationController;
 use App\Http\Controllers\Api\V1\VaccinCatalogueController;
@@ -555,6 +556,8 @@ Route::prefix('v1')->group(function (): void {
         // Préférences de la personne dans cette clinique : outils favoris, masquer les autres (04.11.2026)
         Route::get('preferences', [StaffPreferenceController::class, 'show']);
         Route::patch('preferences', [StaffPreferenceController::class, 'update'])->middleware('throttle:60,1');
+        // « À terminer » : le travail du jour du vétérinaire, bouclé ou non (08.11.2026)
+        Route::get('unfinished-work', UnfinishedWorkController::class)->middleware('can:patients');
 
         // Le destroy n'existe que pour les salles de bloc (l'écran du
         // bloc gère sa liste) — gardes métier dans le contrôleur.
