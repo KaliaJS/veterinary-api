@@ -207,6 +207,12 @@ class Patient extends Model
         return $this->hasMany(Document::class);
     }
 
+    /** @return HasMany<NeuroExam, $this> */
+    public function neuroExams(): HasMany
+    {
+        return $this->hasMany(NeuroExam::class);
+    }
+
     /** @return HasMany<ReleveOphtalmologique, $this> */
     public function relevesOphtalmologiques(): HasMany
     {

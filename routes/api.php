@@ -112,6 +112,7 @@ use App\Http\Controllers\Api\V1\MessagerieCliniqueController;
 use App\Http\Controllers\Api\V1\MouvementStockController;
 use App\Http\Controllers\Api\V1\MouvementStupefiantController;
 use App\Http\Controllers\Api\V1\MoyenPaiementController;
+use App\Http\Controllers\Api\V1\NeuroExamController;
 use App\Http\Controllers\Api\V1\NotificationSettingsController;
 use App\Http\Controllers\Api\V1\OpenedUnitController;
 use App\Http\Controllers\Api\V1\OrdonnanceController;
@@ -735,6 +736,12 @@ Route::prefix('v1')->group(function (): void {
         Route::post('patients/{patient}/releves-ophtalmologiques', [ReleveOphtalmologiqueController::class, 'store']);
         Route::patch('patients/{patient}/releves-ophtalmologiques/{releve}', [ReleveOphtalmologiqueController::class, 'update']);
         Route::delete('patients/{patient}/releves-ophtalmologiques/{releve}', [ReleveOphtalmologiqueController::class, 'destroy']);
+
+        // Schéma neurologique (08.11.2026) : les signes, examen après examen ; modifiable le jour même
+        Route::get('patients/{patient}/neuro-exams', [NeuroExamController::class, 'index']);
+        Route::post('patients/{patient}/neuro-exams', [NeuroExamController::class, 'store']);
+        Route::patch('patients/{patient}/neuro-exams/{exam}', [NeuroExamController::class, 'update'])->whereNumber('exam');
+        Route::delete('patients/{patient}/neuro-exams/{exam}', [NeuroExamController::class, 'destroy'])->whereNumber('exam');
 
         // Analyses et imagerie du dossier patient — toutes cliniques
         // de l'organisation (le dossier médical est partagé), borné
