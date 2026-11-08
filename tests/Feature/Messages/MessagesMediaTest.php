@@ -35,7 +35,7 @@ use Tests\TestCase;
 /**
  * Messages audio et vidéo façon Telegram (demande de Jim, 04.11.2026 ;
  * feu vert du 06.11.2026) : dans le fil d'un client, la clinique et le
- * propriétaire envoient un message audio ou une vidéo ronde d'une minute
+ * propriétaire envoient un message audio ou une vidéo ronde de deux minutes
  * au plus ; l'onde et la durée sont servies avec le message. Le bouton
  * « →A » transcrit un message par Deepgram, une seule fois, compté dans
  * l'utilisation de l'organisation et refacturé comme la transcription des
@@ -169,17 +169,26 @@ class MessagesMediaTest extends TestCase
 
     public function test_les_limites_de_duree_de_taille_et_d_onde(): void
     {
-        // Décision de Jim (07.11.2026) : audio de 2 minutes au plus, vidéo d'une minute au plus
-        // Au moins 1,5 s de tolérance (troisième vérification) : l'app s'arrête une seconde avant
-        $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 61600, 'file' => $this->fichier('webm', 61600)])->assertUnprocessable()->assertJsonValidationErrors('duration_ms');
-        $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 61400, 'file' => $this->fichier('webm', 61400)])->assertCreated();
-        $this->envoyerCommeClinique(['duration_ms' => 121600, 'file' => $this->fichier('webm', 121600)])->assertUnprocessable()->assertJsonValidationErrors('duration_ms')
+        // Décision de Jim (07.11.2026) : audio de 2 minutes au plus ; vidéo de 2 minutes pile au plus (08.11.2026)
+        // 2,5 s de tolérance : l'app s'arrête pile à la limite, un onglet caché peut retarder l'arrêt d'une seconde
+        $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 122600, 'file' => $this->fichier('webm', 122600)])->assertUnprocessable()
+            ->assertJsonPath('errors.duration_ms.0', 'Une vidéo dure deux minutes au plus.');
+        $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 122400, 'file' => $this->fichier('webm', 122400)])->assertCreated();
+        $this->envoyerCommeClinique(['duration_ms' => 122600, 'file' => $this->fichier('webm', 122600)])->assertUnprocessable()->assertJsonValidationErrors('duration_ms')
             ->assertJsonPath('errors.duration_ms.0', 'Un message audio dure deux minutes au plus.');
-        $this->envoyerCommeClinique(['duration_ms' => 121400, 'file' => $this->fichier('webm', 121400)])->assertCreated();
+        $this->envoyerCommeClinique(['duration_ms' => 122400, 'file' => $this->fichier('webm', 122400)])->assertCreated();
+        // Une vraie vidéo de deux minutes, au débit de l'app (1 Mbit/s d'image, 64 kbit/s de son : 16 Mo environ),
+        // envoyée par un propriétaire en MP4 (Safari, iPhone) comme par la clinique en WebM
+        $poids = (int) (120 * (1_000_000 + 64_000) / 8);
+        $this->envoyerCommeProprietaire(['kind' => 'video', 'duration_ms' => 120000, 'file' => $this->fichier('mp4', 120000, $poids)])->assertCreated();
+        $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 120000, 'file' => $this->fichier('webm', 120000, $poids)])->assertCreated();
+        // Arrêtée pile à deux minutes, un onglet caché la laisse filer un peu : la bulle dit 2:00, jamais 2:01
+        $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 120000, 'file' => $this->fichier('webm', 120600)])->assertCreated()
+            ->assertJsonPath('data.media.duration_ms', 120000);
         $this->envoyerCommeClinique(['duration_ms' => 200])->assertUnprocessable()->assertJsonValidationErrors('duration_ms');
-        // Audio de 3 Mo au plus, vidéo de 20 Mo au plus
+        // Audio de 3 Mo au plus, vidéo de 40 Mo au plus (deux minutes depuis le 08.11.2026)
         $this->envoyerCommeClinique(['file' => $this->fichier('webm', 7400, 3 * 1024 * 1024 + 2048)])->assertUnprocessable()->assertJsonValidationErrors('file');
-        $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 9000, 'file' => $this->fichier('webm', 9000, 20 * 1024 * 1024 + 2048)])->assertUnprocessable()->assertJsonValidationErrors('file');
+        $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 9000, 'file' => $this->fichier('webm', 9000, 40 * 1024 * 1024 + 2048)])->assertUnprocessable()->assertJsonValidationErrors('file');
         // L'onde : des valeurs de 0 à 1, 64 au plus
         $this->envoyerCommeClinique(['peaks' => [0.2, 1.4]])->assertUnprocessable()->assertJsonValidationErrors('peaks.1');
         $this->envoyerCommeClinique(['peaks' => array_fill(0, 65, 0.5)])->assertUnprocessable()->assertJsonValidationErrors('peaks');
@@ -493,7 +502,7 @@ class MessagesMediaTest extends TestCase
     public function test_les_poids_annonces_dans_les_erreurs_sont_ceux_de_la_configuration(): void
     {
         $this->envoyerCommeClinique(['file' => $this->fichier('webm', 7400, 3 * 1024 * 1024 + 2048)])->assertJsonPath('errors.file.0', 'Ce message audio est trop lourd (3 Mo au plus).');
-        $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 9000, 'file' => $this->fichier('webm', 9000, 20 * 1024 * 1024 + 2048)])->assertJsonPath('errors.file.0', 'Cette vidéo est trop lourde (20 Mo au plus).');
+        $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 9000, 'file' => $this->fichier('webm', 9000, 40 * 1024 * 1024 + 2048)])->assertJsonPath('errors.file.0', 'Cette vidéo est trop lourde (40 Mo au plus).');
         config(['messages.media.audio.max_kb' => 1024]);
         $this->envoyerCommeClinique(['file' => $this->fichier('webm', 7400, 1024 * 1024 + 2048)])->assertJsonPath('errors.file.0', 'Ce message audio est trop lourd (1 Mo au plus).');
     }
@@ -511,7 +520,7 @@ class MessagesMediaTest extends TestCase
         MessageMedia::query()->whereKey($id)->update(['size_bytes' => 3 * 1024 * 1024 + 1]);
 
         $this->transcrire($id)->assertUnprocessable();
-        MessageMedia::query()->whereKey($id)->update(['size_bytes' => 4000, 'duration_ms' => 121600]);
+        MessageMedia::query()->whereKey($id)->update(['size_bytes' => 4000, 'duration_ms' => 122600]);
         $this->transcrire($id)->assertUnprocessable();
 
         $this->assertSame([], $this->transcripteur->appels);

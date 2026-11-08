@@ -67,7 +67,7 @@ class SendMessageMediaRequest extends FormRequest
 
     private static function tooLong(bool $video): string
     {
-        return $video ? 'Une vidéo dure une minute au plus.' : 'Un message audio dure deux minutes au plus.';
+        return $video ? 'Une vidéo dure deux minutes au plus.' : 'Un message audio dure deux minutes au plus.';
     }
 
     /** La durée lue dans le fichier (vérification du 07.11.2026), en millisecondes */
@@ -125,7 +125,9 @@ class SendMessageMediaRequest extends FormRequest
 
                 return;
             }
-            $this->realDurationMs = max((int) config('messages.media.min_ms'), $real);
+            // Dans la tolérance mais au-delà de la limite (un onglet caché a retardé l'arrêt) : gardée à la limite,
+            // la bulle dit 2:00 et non 2:01 (vérification du 08.11.2026)
+            $this->realDurationMs = max((int) config('messages.media.min_ms'), min($real, $limits['max_seconds'] * 1000));
         }];
     }
 

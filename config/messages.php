@@ -9,14 +9,16 @@ return [
 
     'media' => [
         // Durée et taille au plus, par genre (décision de Jim, 07.11.2026) : audio de
-        // 2 minutes, vidéo ronde d'une minute. Les poids laissent de la marge sur
-        // ce qu'enregistre l'app (audio 32 à 128 kbit/s, vidéo vers 1 Mbit/s)
+        // 2 minutes ; vidéo ronde de 2 minutes pile depuis le 08.11.2026 (une minute avant).
+        // Les poids laissent de la marge sur ce qu'enregistre l'app (audio 32 à 128 kbit/s,
+        // vidéo vers 1 Mbit/s)
         'audio' => ['max_seconds' => 120, 'max_kb' => 3 * 1024],
-        'video' => ['max_seconds' => 60, 'max_kb' => 20 * 1024],
+        'video' => ['max_seconds' => 120, 'max_kb' => 40 * 1024],
 
-        // Marge sur la limite : l'app s'arrête une seconde avant ; au moins 1,5 s ici, pour
-        // qu'un enregistrement fait dans l'app ne soit jamais refusé (troisième vérification)
-        'tolerance_ms' => 1500,
+        // Marge sur la limite : l'app s'arrête pile à la limite (08.11.2026) ; un onglet caché
+        // peut retarder son minuteur d'une seconde, et l'arrêt du MediaRecorder prend un peu de
+        // temps : 2,5 s ici, pour qu'un enregistrement fait dans l'app ne soit jamais refusé
+        'tolerance_ms' => 2500,
         'min_ms' => 500,
 
         // Écart permis entre la durée annoncée et celle lue dans le fichier : 2 s, ou 20 %
