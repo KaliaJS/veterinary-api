@@ -1,0 +1,469 @@
+<?xml version="1.0" encoding = "utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  xmlns:isabv="http://xml.admin.ch/Health/VeterinaryPublicHealth/AntibioticsConsumption/Prescription/EH/1"
+  targetNamespace="http://xml.admin.ch/Health/VeterinaryPublicHealth/AntibioticsConsumption/Prescription/EH/1"
+  xmlns:jaxb="http://java.sun.com/xml/ns/jaxb" jaxb:version="2.1" elementFormDefault="qualified">
+  <xs:annotation>
+    <xs:documentation>08.05.2018</xs:documentation>
+  </xs:annotation>
+
+  <xs:element name="EH">
+    <xs:annotation>
+      <xs:documentation xml:lang="de">
+        Einzeltherapie (Heimtier)
+      </xs:documentation>
+      <xs:documentation xml:lang="fr">
+        Traitement individuel (Animal de compagnie)
+      </xs:documentation>
+      <xs:documentation xml:lang="it">
+        Terapia individuale (Animale da compagnia)
+      </xs:documentation>
+    </xs:annotation>
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="dateOfVisit" type="xs:dateTime">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Konsultationsdatum
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Date de consultation
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Data della consultazione
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="recipeNumber" type="xs:string">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Verschreibungs-Nr
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              N° de prescription
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              N. prescrizione
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="veterinaryPracticeUID" type="xs:string">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Einheitliche Unternehmens-Identifikationsnummer (UID) der Tierarztpraxis / -klinik
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Le numéro d'identification unique de l'entreprise du cabinet / clinique vétérinaire
+              (IDE)
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Il numero di identificazione dell'azienda unificata di studio veterinario / clinica
+              veterinaria (IDI)
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="appendix" type="xs:string" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Zusatz
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Complément
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Complemento
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="veterinaryPracticeAddress" type="xs:string">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Adresse der Praxis / Klinik
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Adresse du cabinet / de la clinique
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Indirizzo dello studio / della clinica
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="species" type="xs:string">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Tierart (Stammdaten: Spezies)
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Espèce animale (Données de base: Espèce)
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Specie animale (Dati anagrafici: Specie)
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="identification" type="xs:string" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Identifikation
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Identification
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Identificazione
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="postcode" type="xs:string" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Die Postleitzahl des Tierhalters / der Tierhalterin
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Le code postal du propriétaire de l'animal
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Il codice postale del proprietario dell'animale domestico
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="address" type="xs:string" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Adresse
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Adresse
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Indirizzo
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="treatingAnimalsNumber" type="xs:positiveInteger" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Anzahl therapierende Tiere (Stück).
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Nombre d’animaux à traiter (Pièces).
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Numero di animali da trattare (Pezzi).
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="animalWeight" type="isabv:fractionalWeight">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Gewicht / Ø Gewicht pro Tier
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Poids / Poids Ø par animal
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Peso / Peso Ø per animale
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="diagnosisKey" type="xs:string">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Diagnoseschlüssel
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Clé de diagnostic
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Codice della diagnosi
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="diagnosisDescription" type="xs:string" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Diagnosebeschrieb
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Description du diagnostic
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Descrizione della diagnosi
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="preparations" type="isabv:preparations">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Präparate
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Préparations
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Preparati
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="additionalInstructions" type="xs:string" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Zusätzliche Anweisungen und Bemerkungen
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Instructions et remarques supplémentaires
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Istruzioni e osservazioni aggiuntive
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element minOccurs="0" name="active" type="xs:boolean">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Aktiv
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element name="reference" type="isabv:reference" minOccurs="0">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              PSW-Referenzfeld
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Champ de référence PSW
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Campo di riferimento PSW
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+        <xs:element minOccurs="0" name="antibiogramPerformed" type="xs:boolean">
+          <xs:annotation>
+            <xs:documentation xml:lang="de">
+              Antibiogramm durchgeführt
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+              Antibiogramme réalisé
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+              Antibiogramma effettuato
+            </xs:documentation>
+          </xs:annotation>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:simpleType name="reference">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="50" />
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="preparations">
+    <xs:sequence>
+      <xs:element name="preparation" type="isabv:preparation" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="preparation">
+    <xs:sequence>
+      <xs:element name="preparationID" type="xs:string">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Präparat
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            Préparation
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            Preparato
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="applicationType" type="xs:string" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Applikationsart (Stammdaten)
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            Voie d'administration
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            Tipo di applicazione
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="firstDosis" type="isabv:dailyDosis">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            1. Dosierung
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            1. Dosage
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            1. Dosaggio
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="secondDosis" type="isabv:dailyDosis" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            2. Dosierung
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            2. Dosage
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            2. Dosaggio
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="totalDosis" type="xs:double">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Gesamtverbrauch
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            Consommation totale
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            Consumo totale
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="givenAmount" type="xs:double">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Abgegebene Menge
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            Quantité remise
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            Quantità consegnata
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="treatmentStart" type="xs:date" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Behandlungsbeginn
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            Début du traitement
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            Inizio del trattamento
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="treatmentDays" type="xs:positiveInteger">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Total Behandlungstage
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            Total des jours de traitement
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            Giorni di trattamento totali
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="treatmentEnd" type="xs:date" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Behandlungsende
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            Fin du traitement
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            Fine del trattamento
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="followUpDate" type="xs:date" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Datum Nachkontrolle
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            Date du contrôle de suivi
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            Data del controllo successivo
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element minOccurs="0" name="criticalSubstanceConfirmed" type="xs:boolean">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Der Benutzer hat bestätigt, dass das Präparat kritische(n) Wirkstoff(e) enthält
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            L'utilisateur a confirmé que la préparation contient la (les) substance(s) active(s) critique(s).
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            L'utilizzatore ha confermato che il preparato contiene principi attivi critici.
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="dailyDosis">
+    <xs:sequence>
+      <xs:element name="animalDosis" type="xs:double">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Applikationsmenge / Verabreichung / Tier
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            Quantité appliquée / administration / animal
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            Quantità applicata / somministrazione / animale
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="treatmentDays" type="xs:positiveInteger">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Behandlungstage
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            Jours de traitement
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            Giorni di trattamento
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="servingMode" type="xs:string">
+        <xs:annotation>
+          <xs:documentation xml:lang="de">
+            Verabreichungsmodus (Stammdaten)
+          </xs:documentation>
+          <xs:documentation xml:lang="fr">
+            Fréquence d'administration
+          </xs:documentation>
+          <xs:documentation xml:lang="it">
+            Frequenza di somministrazione
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="fractionalWeight">
+    <xs:restriction base="xs:decimal">
+      <xs:fractionDigits value="6"/>
+      <xs:minExclusive value="0"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>

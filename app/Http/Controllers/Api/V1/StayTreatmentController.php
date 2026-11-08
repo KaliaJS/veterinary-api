@@ -11,6 +11,7 @@ use App\Models\Sejour;
 use App\Models\SejourSoin;
 use App\Models\StayTreatment;
 use App\Services\Hospitalisation\StaySheets;
+use App\Services\Isabv\Declarations;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -48,6 +49,12 @@ class StayTreatmentController extends Controller
             ]);
             $this->sheets->open($sejour);
             $this->sheets->materialize($sejour, $this->sheets->today($sejour), $treatment);
+            // SI ABV (08.11.2026) : un antibiotique utilisé pendant le séjour se déclare, à compléter ;
+            // la fréquence vient de ses heures de prise
+            if ($treatment->product_id !== null) {
+                app(Declarations::class)->forProductUse($treatment, $sejour->clinique_id, $sejour->patient, $treatment->product, Declarations::responsibleFor($sejour->veterinaire_id),
+                    $this->sheets->today($sejour), $treatment->dose_amount !== null ? ['product_dose' => (float) $treatment->dose_amount] : [], $treatment->times ? (float) count($treatment->times) : null);
+            }
 
             return $treatment;
         });
@@ -76,6 +83,8 @@ class StayTreatmentController extends Controller
                 ->filter(fn (SejourSoin $soin): bool => $this->sheets->instant($sejour, $soin->jour->toDateString(), $soin->prevu_a)->gt(now()))
                 ->modelKeys();
             SejourSoin::query()->whereKey($ids)->where('fait', false)->whereNull('skipped_at')->delete();
+            // SI ABV : arrêté, le traitement dit ses jours (de la première prise à l'arrêt)
+            app(Declarations::class)->treatmentStopped($treatment);
 
             return $treatment;
         });

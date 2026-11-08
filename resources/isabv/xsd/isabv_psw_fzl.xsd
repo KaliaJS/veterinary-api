@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding = "utf-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://xml.admin.ch/Health/VeterinaryPublicHealth/AntibioticsConsumption/Prescription/FZL/1"
+           xmlns:isabv="http://xml.admin.ch/Health/VeterinaryPublicHealth/AntibioticsConsumption/Prescription/FZL/1"
+           xmlns:jaxb="http://java.sun.com/xml/ns/jaxb" jaxb:version="2.1" elementFormDefault="qualified">
+    <xs:annotation>
+        <xs:documentation>20.09.2022</xs:documentation>
+    </xs:annotation>
+
+    <xs:element name="FZL">
+        <xs:annotation>
+            <xs:documentation xml:lang="de">
+                Formular für Zoo- und Labortiere
+            </xs:documentation>
+            <xs:documentation xml:lang="fr">
+                Formulaire pour les animaux de zoo et de laboratoire
+            </xs:documentation>
+            <xs:documentation xml:lang="it">
+                Modulo per animali da zoo e da laboratorio
+            </xs:documentation>
+        </xs:annotation>
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="dateOfVisit" type="xs:dateTime">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Abgabedatum
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            Date de remise
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            Data di distribuzione
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="recipeNumber" type="xs:string">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Verschreibungs-Nr
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            N° de prescription
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            N. prescrizione
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="veterinaryPracticeUID" type="xs:string">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Einheitliche Unternehmens-Identifikationsnummer der Tierarztpraxis/-klinik
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            Le numéro d'identification unique de l'entreprise du cabinet / clinique vétérinaire
+                            (IDE)
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            Il numero di identificazione dell'azienda unificata di studio veterinario / clinica
+                            veterinaria (IDI)
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="appendix" type="xs:string" minOccurs="0">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Zusatz
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            Complément
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            Complemento
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="veterinaryPracticeAddress" type="xs:string">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Adresse der Praxis / Klinik
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            Adresse du cabinet / de la clinique
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            Indirizzo dello studio / della clinica
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="species" type="xs:string">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Tierart (Stammdaten: Spezies)
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            Espèce animale (Données de base: Espèce)
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            Specie animale (Dati anagrafici: Specie)
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="address" type="xs:string">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Tierhaltung Adresse
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            Adresse de l'exploitation
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            Indirizzo dell’azienda
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="preparationID" type="xs:string">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Präparat (Stammdaten: Präparate)
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            Préparation (Données de base: Préparations)
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            Preparato (Dati anagrafici: Preparati)
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="givenAmount" type="xs:double">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Abgegebene Menge
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            Quantité remise
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            Quantità consegnata
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="additionalInstructions" type="xs:string" minOccurs="0">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Zusätzliche Anweisungen und Bemerkungen
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            Instructions et remarques supplémentaires
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            Istruzioni e osservazioni aggiuntive
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element minOccurs="0" name="active" type="xs:boolean">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Aktiv
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element name="reference" type="isabv:reference" minOccurs="0">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            PSW-Referenzfeld
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            Champ de référence PSW
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            Campo di riferimento PSW
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element minOccurs="0" name="antibiogramPerformed" type="xs:boolean">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Antibiogramm durchgeführt
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            Antibiogramme réalisé
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            Antibiogramma effettuato
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+                <xs:element minOccurs="0" name="criticalSubstanceConfirmed" type="xs:boolean">
+                    <xs:annotation>
+                        <xs:documentation xml:lang="de">
+                            Der Benutzer hat bestätigt, dass das Präparat kritische(n) Wirkstoff(e) enthält
+                        </xs:documentation>
+                        <xs:documentation xml:lang="fr">
+                            L'utilisateur a confirmé que la préparation contient la (les) substance(s) active(s) critique(s).
+                        </xs:documentation>
+                        <xs:documentation xml:lang="it">
+                            L'utilizzatore ha confermato che il preparato contiene principi attivi critici.
+                        </xs:documentation>
+                    </xs:annotation>
+                </xs:element>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:simpleType name="reference">
+        <xs:restriction base="xs:string">
+            <xs:maxLength value="50" />
+        </xs:restriction>
+    </xs:simpleType>
+
+</xs:schema>

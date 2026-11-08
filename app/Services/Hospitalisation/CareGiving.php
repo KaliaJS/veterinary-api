@@ -4,8 +4,10 @@ namespace App\Services\Hospitalisation;
 
 use App\Models\Sejour;
 use App\Models\SejourSoin;
+use App\Models\StayTreatment;
 use App\Models\User;
 use App\Services\GestionnaireStock;
+use App\Services\Isabv\Declarations;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -63,6 +65,17 @@ final class CareGiving
             // le garde, lu sous le verrou du séjour (huitième vérification)
             $reason = $fresh->sorti_le === null ? null : ($isRaced ? 'raced' : 'discharged');
             $care->update(['is_unbilled' => $reason !== null]);
+            // SI ABV (08.11.2026) : un soin ponctuel avec un antibiotique de la liste est utilisé à la clinique, il se déclare
+            // (une prise d'un traitement se déclare avec son traitement)
+            if ($care->treatment_id === null && $care->produit !== null) {
+                app(Declarations::class)->cancelFor($care);
+                app(Declarations::class)->forProductUse($care, $fresh->clinique_id, $fresh->patient, $care->produit, Declarations::responsibleFor($fresh->veterinaire_id),
+                    $care->jour, ['days_1' => 1, ...($care->dose_amount !== null ? ['product_dose' => (float) $care->dose_amount] : [])], 1.0);
+            }
+            // Celle d'un traitement déjà arrêté (une prise annulée par erreur, notée de nouveau) se recompte
+            if ($care->treatment_id !== null && ($treatment = StayTreatment::query()->find($care->treatment_id)) !== null && Declarations::isTreatmentOver($treatment)) {
+                app(Declarations::class)->treatmentStopped($treatment);
+            }
 
             return ['care' => $care, 'stock' => $this->takeStock($care, $fresh, $user), 'unbilled' => $reason !== null, 'unbilled_reason' => $reason];
         });

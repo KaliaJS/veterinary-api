@@ -41,6 +41,19 @@ return [
         'profil' => env('VETPOINT_PROFIL_URL', 'https://test.vetpoint.ch/ecommerce/control/profile'),
     ],
 
+    // SI ABV de l'OSAV (08.11.2026) : en local et dans les essais, les envois
+    // partent vers le faux serveur de l'API (routes `fake-isabv`, qui valident
+    // les XSD officiels) ; ailleurs, vers le vrai. Les données de base
+    // (lecture publique, sans jeton) viennent toujours du vrai serveur.
+    'isabv' => [
+        'url' => env('ISABV_URL', in_array(env('APP_ENV'), ['local', 'testing'], true)
+            ? rtrim((string) env('APP_URL', 'http://localhost'), '/').'/fake-isabv/api/isabv'
+            : 'https://www.isabv.blv.admin.ch/api/isabv'),
+        'master_data_url' => env('ISABV_MASTER_DATA_URL', 'https://www.isabv.blv.admin.ch/api/isabv/psw/getMasterData'),
+        // L'application web SI ABV, celle où les cliniques s'inscrivent (page de l'OSAV, 08.11.2026)
+        'web_url' => 'https://www.isabvapp.blv.admin.ch/home',
+    ],
+
     'stripe' => [
         'key' => env('STRIPE_KEY'),
         'secret' => env('STRIPE_SECRET'),

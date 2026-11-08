@@ -34,6 +34,7 @@ class ProtectionRoutesTest extends TestCase
         'rappels/desabonner/' => 'Lien signé « Ne plus recevoir les rappels » des e-mails aux propriétaires (middleware signed).',
         'sanctum/csrf-cookie' => 'Route de Sanctum, sans effet : l’API n’a pas de session.',
         'up' => 'Sonde de santé.',
+        'fake-isabv/' => 'Faux serveur SI ABV de l’OSAV pour les essais (08.11.2026) : monté en local et dans les essais seulement (bootstrap/app.php), sans aucune donnée réelle.',
         '/' => 'Page d’accueil du serveur.',
     ];
 

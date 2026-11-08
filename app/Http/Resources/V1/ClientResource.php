@@ -36,6 +36,9 @@ class ClientResource extends JsonResource
             'rue' => $this->rue,
             'npa' => $this->npa,
             'localite' => $this->localite,
+            // L'unité d'élevage (SI ABV, 08.11.2026)
+            'holding_number' => $this->holding_number,
+            'holding_address' => $this->holding_address,
             'a_un_compte' => $this->user_id !== null,
             // Le compte, pour lui écrire depuis sa fiche (messagerie, 28.10.2026)
             'compte_id' => $this->user_id,

@@ -31,6 +31,7 @@ class EnregistrerPatientRequest extends FormRequest
             'race' => ['nullable', 'string', 'max:255'],
             // La robe (06.11.2026)
             'coat' => ['nullable', 'string', 'max:120'],
+            'isabv_species' => ['sometimes', 'nullable', 'string', Rule::exists('isabv_codes', 'code')->where('kind', 'species')],
             'sexe' => ['required', Rule::enum(Sexe::class)],
             'ne_le' => ['nullable', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             'est_sterilise' => ['sometimes', 'boolean'],

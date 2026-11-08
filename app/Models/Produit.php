@@ -7,6 +7,7 @@ use App\Enums\VatRate;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use App\Models\Concerns\AUnePhoto;
 use App\Services\Catalogue\AtcFromCatalogue;
+use App\Services\Isabv\PreparationResolver;
 use App\Support\TempsReel;
 use Database\Factories\ProduitFactory;
 use Illuminate\Database\Eloquent\Collection;
@@ -69,6 +70,8 @@ class Produit extends Model
         'vat_rate',
         // La phrase de la vitrine, montrée sur le site de la clinique (07.11.2026)
         'shop_description',
+        // La préparation SI ABV choisie à la main (08.11.2026)
+        'isabv_preparation_code',
     ];
 
     protected function casts(): array
@@ -251,6 +254,8 @@ class Produit extends Model
         return match (true) {
             $this->est_stupefiant => $this->nom.' : stupéfiant, délivré seulement sur ordonnance et inscrit au registre.',
             $this->est_sur_ordonnance => $this->nom.' : sur ordonnance, à délivrer depuis la facture de la consultation.',
+            // Un antibiotique de la liste de l'OSAV part de la consultation, où il se déclare au SI ABV (08.11.2026)
+            $this->categorie === CategorieProduit::Medicament && (bool) $this->isabvPreparation()?->must_transfer => $this->nom.' : antibiotique, à délivrer depuis la facture de la consultation (il se déclare au SI ABV).',
             default => null,
         };
     }
@@ -279,6 +284,33 @@ class Produit extends Model
         }
 
         return $this->catalogueSubstancesCache;
+    }
+
+    /** La préparation SI ABV lue d'avance (withIsabvPreparations) : false tant qu'elle n'est pas lue */
+    private IsabvPreparation|false|null $isabvPreparationCache = false;
+
+    /** La préparation SI ABV de l'article : choisie à la main, sinon par le code-barres (08.11.2026) */
+    public function isabvPreparation(): ?IsabvPreparation
+    {
+        if ($this->isabvPreparationCache === false) {
+            $this->isabvPreparationCache = app(PreparationResolver::class)->forProduct($this);
+        }
+
+        return $this->isabvPreparationCache;
+    }
+
+    /**
+     * Lit d'avance, en deux requêtes, les préparations SI ABV d'une liste d'articles.
+     *
+     * @param  iterable<Produit|null>  $products
+     */
+    public static function withIsabvPreparations(iterable $products): void
+    {
+        $list = collect($products)->filter();
+        $found = app(PreparationResolver::class)->forProducts($list);
+        foreach ($list as $product) {
+            $product->isabvPreparationCache = $found[$product->id] ?? null;
+        }
     }
 
     /**

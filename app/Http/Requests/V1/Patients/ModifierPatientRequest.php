@@ -26,6 +26,8 @@ class ModifierPatientRequest extends FormRequest
             'race' => ['sometimes', 'nullable', 'string', 'max:255'],
             // La robe (06.11.2026)
             'coat' => ['sometimes', 'nullable', 'string', 'max:120'],
+            // L'espèce ou la catégorie d'utilisation SI ABV (08.11.2026)
+            'isabv_species' => ['sometimes', 'nullable', 'string', Rule::exists('isabv_codes', 'code')->where('kind', 'species')],
             'sexe' => ['sometimes', Rule::enum(Sexe::class)],
             'ne_le' => ['sometimes', 'nullable', 'date', 'before_or_equal:'.aujourdhui()->toDateString()],
             // Jour local suisse (l'application compte en UTC)

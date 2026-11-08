@@ -51,6 +51,8 @@ class Patient extends Model
         'healthy_weight_min_kg', 'healthy_weight_max_kg',
         // La robe (une description que le vétérinaire constate, hors identité réservable) et le vétérinaire référent (06.11.2026)
         'coat', 'referring_vet_id',
+        // L'espèce ou la catégorie d'utilisation SI ABV (08.11.2026)
+        'isabv_species',
     ];
 
     /** Un animal, un seul compte (02.11.2026) : sa fiche et sa puce ne disent jamais deux comptes */

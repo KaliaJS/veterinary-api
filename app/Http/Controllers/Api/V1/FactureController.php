@@ -17,6 +17,7 @@ use App\Models\Produit;
 use App\Models\Sejour;
 use App\Services\CreationFacture;
 use App\Services\GestionnaireStock;
+use App\Services\Isabv\Declarations;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -188,6 +189,10 @@ class FactureController extends Controller
                 $request->user(),
             );
 
+            // SI ABV : les déclarations de ses lignes s'effacent (08.11.2026)
+            foreach ($facture->lignes()->get() as $ligne) {
+                app(Declarations::class)->cancelFor($ligne);
+            }
             $facture->delete();
         });
 

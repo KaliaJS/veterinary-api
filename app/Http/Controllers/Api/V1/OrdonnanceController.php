@@ -14,6 +14,7 @@ use App\Models\Ordonnance;
 use App\Models\Patient;
 use App\Models\Produit;
 use App\Services\GestionnaireStock;
+use App\Services\Isabv\Declarations;
 use App\Services\Numeroteur;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -41,6 +42,7 @@ class OrdonnanceController extends Controller
     public function __construct(
         private Numeroteur $numeroteur,
         private GestionnaireStock $stock,
+        private Declarations $declarations,
     ) {}
 
     /** Les tris de l'écran Ordonnances (07.11.2026) */
@@ -63,7 +65,7 @@ class OrdonnanceController extends Controller
         $motif = $this->searchPattern($request);
 
         $ordonnances = Ordonnance::query()
-            ->with(Ordonnance::relationsDocument())
+            ->with([...Ordonnance::relationsDocument(), 'antibioticDeclarations'])
             ->when($request->enum('statut', StatutOrdonnance::class), fn (Builder $requete, StatutOrdonnance $statut) => $requete->where('statut', $statut))
             ->when($request->integer('patient_id'), fn (Builder $requete, int $patient) => $requete->where('patient_id', $patient))
             // Le numéro, l'animal, son propriétaire, les médicaments
@@ -163,17 +165,20 @@ class OrdonnanceController extends Controller
                 );
             }
 
+            // SI ABV (08.11.2026) : les antibiotiques de la liste de l'OSAV se déclarent
+            $this->declarations->forOrdonnance($ordonnance, $donnees['isabv'] ?? [], array_map(fn (array $ligne) => $ligne['isabv'] ?? null, $donnees['lignes']));
+
             return $ordonnance;
         });
 
-        return new OrdonnanceResource($ordonnance->load(Ordonnance::relationsDocument()));
+        return new OrdonnanceResource($ordonnance->load([...Ordonnance::relationsDocument(), 'antibioticDeclarations']));
     }
 
     public function show(Ordonnance $ordonnance): OrdonnanceResource
     {
         $this->authorize('view', $ordonnance);
 
-        return new OrdonnanceResource($ordonnance->load(Ordonnance::relationsDocument()));
+        return new OrdonnanceResource($ordonnance->load([...Ordonnance::relationsDocument(), 'antibioticDeclarations']));
     }
 
     /**
@@ -218,6 +223,9 @@ class OrdonnanceController extends Controller
             );
 
             $ordonnance->precedente?->update(['statut' => StatutOrdonnance::Active]);
+
+            // Ses déclarations SI ABV, pas encore parties (fenêtre d'annulation), s'effacent
+            $this->declarations->cancelFor($ordonnance);
 
             $ordonnance->delete();
         });

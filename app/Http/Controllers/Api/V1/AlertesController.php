@@ -30,6 +30,7 @@ class AlertesController extends Controller
                 $this->contexte->permet(DomainePermission::Stocks),
                 $this->contexte->permet(DomainePermission::Organisation),
                 $this->contexte->permet(DomainePermission::Facturation),
+                $this->contexte->permet(DomainePermission::Prescrire),
             ),
         );
 

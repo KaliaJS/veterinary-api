@@ -25,6 +25,7 @@ use App\Models\RendezVous;
 use App\Services\CreationFacture;
 use App\Services\Facturation\LineVat;
 use App\Services\GestionnaireStock;
+use App\Services\Isabv\Declarations;
 use App\Services\MutationRendezVous;
 use App\Services\Numeroteur;
 use Illuminate\Support\Facades\DB;
@@ -190,6 +191,9 @@ class FinConsultationController extends Controller
                 }
 
                 $facture->update(['ordonnance_id' => $ordonnance->id]);
+
+                // SI ABV (08.11.2026) : prescrit, remis ou donné pendant la consultation, l'antibiotique se déclare
+                app(Declarations::class)->forOrdonnance($ordonnance, $donnees['isabv'] ?? [], array_map(fn (array $medicament) => $medicament['isabv'] ?? null, array_values($donnees['medicaments'])));
             }
 
             if (isset($donnees['vaccination'])) {
@@ -219,7 +223,7 @@ class FinConsultationController extends Controller
         }
 
         if ($ordonnance !== null && Gate::allows('patients')) {
-            $complements['ordonnance'] = new OrdonnanceResource($ordonnance->load(['lignes.produit', 'employe']));
+            $complements['ordonnance'] = new OrdonnanceResource($ordonnance->load(['lignes.produit', 'employe', 'antibioticDeclarations']));
         }
 
         if ($complements !== []) {

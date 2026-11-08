@@ -2,15 +2,19 @@
 
 namespace App\Services\Alertes;
 
+use App\Enums\DeclarationStatus;
 use App\Enums\StatutCommandeFournisseur;
 use App\Enums\StatutPaiement;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeAlerte;
+use App\Http\Resources\V1\AntibioticDeclarationResource;
 use App\Mail\AutoBasketNotice;
+use App\Models\AntibioticDeclaration;
 use App\Models\Clinique;
 use App\Models\CommandeFournisseur;
 use App\Models\DemandeRendezVous;
 use App\Models\Facture;
+use App\Models\IsabvConnection;
 use App\Models\Lot;
 use App\Models\Organisation;
 use App\Models\Paiement;
@@ -46,13 +50,52 @@ class AlertesClinique
     ) {}
 
     /** @return list<Alerte> */
-    public function pour(Clinique $clinique, bool $stock, bool $consommation, bool $paiement = false): array
+    public function pour(Clinique $clinique, bool $stock, bool $consommation, bool $paiement = false, bool $antibiotique = false): array
     {
         return [
+            ...($antibiotique ? $this->antibiotiques($clinique) : []),
             ...($paiement ? $this->paiements($clinique) : []),
             ...($stock ? $this->stock($clinique) : []),
             ...($consommation && $clinique->societe?->organisation ? $this->consommation($clinique->societe->organisation) : []),
         ];
+    }
+
+    /**
+     * SI ABV (08.11.2026) : les déclarations pas encore parties, à déclarer au
+     * plus tard le 20 du mois qui suit (O-SI ABV, art. 4, al. 2), quand
+     * l'échéance est dans cinq jours ou passée. Pour qui prescrit, dans une
+     * clinique qui déclare par Veterinary.
+     *
+     * @return list<Alerte>
+     */
+    public function antibiotiques(Clinique $clinique): array
+    {
+        if (IsabvConnection::activeFor($clinique->id) === null) {
+            return [];
+        }
+        $today = CarbonImmutable::now($clinique->fuseau_horaire ?: 'Europe/Zurich')->startOfDay();
+        $pending = AntibioticDeclaration::withoutGlobalScopes()->with(['patient' => fn ($q) => $q->withoutGlobalScopes()])
+            ->where('clinique_id', $clinique->id)
+            ->whereIn('status', [DeclarationStatus::ToComplete, DeclarationStatus::Rejected, DeclarationStatus::Ready, DeclarationStatus::Replaced])
+            ->orderBy('visit_on')->get()
+            ->filter(fn (AntibioticDeclaration $d): bool => AntibioticDeclarationResource::deadline($d->visit_on)->lessThanOrEqualTo($today->addDays(5)))
+            ->values();
+        if ($pending->isEmpty()) {
+            return [];
+        }
+        $late = $pending->filter(fn (AntibioticDeclaration $d): bool => AntibioticDeclarationResource::deadline($d->visit_on)->lessThan($today));
+        $first = AntibioticDeclarationResource::deadline($pending->first()->visit_on);
+
+        return [$this->alerte(
+            TypeAlerte::Antibiotique,
+            'echeance:'.$this->empreinte($pending->map(fn (AntibioticDeclaration $d) => $d->id.'-'.$d->status->value)),
+            $late->isNotEmpty() ? 'urgent' : 'warn',
+            $late->isNotEmpty()
+                ? $this->compte($late->count(), 'déclaration SI ABV en retard', 'déclarations SI ABV en retard')
+                : $this->compte($pending->count(), 'déclaration SI ABV à faire partir avant le '.$first->format('d.m.Y'), 'déclarations SI ABV à faire partir avant le '.$first->format('d.m.Y')),
+            'À compléter ou à faire partir dans Déclarations SI ABV : '.$this->noms($pending->map(fn (AntibioticDeclaration $d): string => ($d->patient->nom ?? 'sans patient').' ('.$d->visit_on->format('d.m.Y').')')).'.',
+            'antibiotic-declarations',
+        )];
     }
 
     /** @return list<Alerte> */

@@ -15,4 +15,6 @@ enum TypeAlerte: string
     case Stock = 'stock';
     case Consommation = 'consommation';
     case Paiement = 'paiement';
+    /** Déclarations SI ABV proches de leur échéance du 20, ou en retard (08.11.2026) : dans l'app seulement */
+    case Antibiotique = 'isabv';
 }

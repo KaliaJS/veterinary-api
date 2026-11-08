@@ -5,6 +5,7 @@ namespace App\Http\Resources\V1;
 use App\Models\Patient;
 use App\Models\Pesee;
 use App\Models\ReleveDentaire;
+use App\Services\Isabv\Declarations;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -32,6 +33,9 @@ class PatientResource extends JsonResource
             'race' => $this->race,
             // La robe et le vétérinaire référent (06.11.2026)
             'coat' => $this->coat,
+            // SI ABV (08.11.2026) : choisie sur la fiche, sinon proposée selon l'espèce
+            'isabv_species' => $this->isabv_species,
+            'isabv_species_default' => Declarations::defaultSpecies($this->resource),
             'referring_vet_id' => $this->referring_vet_id,
             'referring_vet' => $this->whenLoaded('referringVet', fn (): ?array => $this->referringVet === null ? null : [
                 'id' => $this->referringVet->id,

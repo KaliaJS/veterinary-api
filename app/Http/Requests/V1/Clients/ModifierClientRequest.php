@@ -23,6 +23,9 @@ class ModifierClientRequest extends FormRequest
             'rue' => ['sometimes', 'nullable', 'string', 'max:255'],
             'npa' => ['sometimes', 'nullable', 'digits:4'],
             'localite' => ['sometimes', 'nullable', 'string', 'max:255'],
+            // L'unité d'élevage d'un détenteur d'animaux de rente (SI ABV, 08.11.2026)
+            'holding_number' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'holding_address' => ['sometimes', 'nullable', 'string', 'max:255'],
             // Case cochée par la clinique à la demande d'un client sans compte (28.10.2026)
             'rappels_sms' => ['sometimes', 'boolean'],
             // Fenêtre propriétaire (03.11.2026) : contact d'urgence, note de l'accueil,

@@ -3,6 +3,8 @@
 namespace App\Http\Resources\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\CategorieProduit;
+use App\Http\Controllers\Api\V1\Isabv\IsabvReferenceController;
 use App\Models\ProductOrderSetting;
 use App\Models\ProductSource;
 use App\Models\Produit;
@@ -52,6 +54,10 @@ class ProduitResource extends JsonResource
             'atc_code' => $this->atc_code,
             // Les principes actifs du catalogue, par le code-barres (allergies, 03.11.2026)
             'substances' => $this->resource->catalogueSubstances(),
+            // La préparation SI ABV : à déclarer à l'OSAV si `is_declarable` (08.11.2026)
+            'isabv' => $this->when($this->categorie === CategorieProduit::Medicament, fn () => ($preparation = $this->resource->isabvPreparation())
+                ? [...IsabvReferenceController::preparation($preparation), 'is_manual' => trim((string) $this->isabv_preparation_code) !== '']
+                : null),
             'promo_pct' => $this->promo_pct,
             'est_vedette' => $this->est_vedette,
             // La photo de la vitrine (nouvel article B, 03.11.2026)

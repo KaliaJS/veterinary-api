@@ -27,6 +27,8 @@ class Client extends Model
         'tel', 'email', 'rue', 'npa', 'localite', 'rappels_sms',
         // Fenêtre propriétaire (03.11.2026)
         'rappels_email', 'emergency_contact', 'emergency_phone', 'note', 'muted_reminders', 'language', 'accepts_news', 'photo_consent_at',
+        // L'unité d'élevage d'un détenteur d'animaux de rente, pour le SI ABV (08.11.2026)
+        'holding_number', 'holding_address',
     ];
 
     /** Un animal, un seul compte (02.11.2026) : la fiche ne prend pas un compte autre que celui de ses animaux */

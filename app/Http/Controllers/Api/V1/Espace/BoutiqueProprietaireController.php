@@ -46,6 +46,8 @@ class BoutiqueProprietaireController extends Controller
             ->where('est_boutique', true)
             ->orderBy('nom')
             ->get()
+            // Leurs préparations SI ABV, en deux requêtes : un antibiotique ne se vend pas librement
+            ->tap(fn ($produits) => Produit::withIsabvPreparations($produits))
             ->groupBy('organisation_id');
 
         $stocks = Stock::withoutGlobalScopes()->get()->groupBy('clinique_id');

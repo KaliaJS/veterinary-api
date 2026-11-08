@@ -18,6 +18,7 @@ use App\Models\Prestation;
 use App\Models\Produit;
 use App\Models\Stock;
 use App\Services\Facturation\LineVat;
+use App\Services\Isabv\Declarations;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -69,7 +70,8 @@ class FactureLigneController extends Controller
             if ($produit->est_stupefiant) {
                 throw ValidationException::withMessages(['produit_id' => $produit->refusVenteLibre()]);
             }
-            if ($produit->est_sur_ordonnance) {
+            // Un antibiotique de la liste de l'OSAV aussi : sa déclaration revient à qui prescrit (SI ABV, 08.11.2026)
+            if ($produit->est_sur_ordonnance || $produit->isabvPreparation()?->must_transfer) {
                 Gate::authorize(DomainePermission::Prescrire->value);
             }
 
@@ -89,7 +91,7 @@ class FactureLigneController extends Controller
             $context = isset($donnees['vat_context']) ? VatContext::from($donnees['vat_context']) : LineVat::articleContext($produit, $facture->hasCare());
             $this->assurerUnSoin($facture, $context);
 
-            $facture->lignes()->create([
+            $ligne = $facture->lignes()->create([
                 'libelle' => $produit->nom,
                 'quantite' => 1,
                 'prix_chf' => $produit->prix,
@@ -97,6 +99,9 @@ class FactureLigneController extends Controller
                 'produit_id' => $produit->id,
                 'vat_context' => $context,
             ]);
+
+            // SI ABV (08.11.2026) : un antibiotique remis ou donné en caisse se déclare aussi, à compléter
+            app(Declarations::class)->forProductUse($ligne, $facture->clinique_id, $facture->patient, $produit, app(ContexteClinique::class)->employe()?->id, aujourdhui());
 
             $facture->prescriptions()->create([
                 'nom' => $produit->nom,
@@ -168,6 +173,11 @@ class FactureLigneController extends Controller
             ]);
         }
 
+        // Un antibiotique de la liste de l'OSAV : retirer sa ligne désactive sa déclaration, geste de qui prescrit
+        if ($ligne->produit_id !== null && Produit::query()->find($ligne->produit_id)?->isabvPreparation()?->must_transfer) {
+            Gate::authorize(DomainePermission::Prescrire->value);
+        }
+
         DB::transaction(function () use ($facture, $ligne): void {
             if ($ligne->type === TypeLigneFacture::Medicament) {
                 $facture->prescriptions()
@@ -177,6 +187,8 @@ class FactureLigneController extends Controller
                     ->delete();
             }
 
+            // SI ABV : sa déclaration s'efface (ou se désactive à l'OSAV si elle est partie)
+            app(Declarations::class)->cancelFor($ligne);
             $ligne->delete();
 
             // Plus aucun soin : ce qui était donné pendant le soin est remis au propriétaire,

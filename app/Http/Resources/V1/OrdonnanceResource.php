@@ -55,6 +55,10 @@ class OrdonnanceResource extends JsonResource
                 ])->values(),
             ),
             'patient' => new PatientResource($this->whenLoaded('patient')),
+            // Ses déclarations SI ABV (08.11.2026) : à compléter, prête, envoyée, refusée
+            'antibiotic_declarations' => $this->whenLoaded('antibioticDeclarations', fn () => $this->antibioticDeclarations
+                ->filter(fn ($declaration) => ! in_array($declaration->status->value, ['replaced', 'deactivated'], true))
+                ->map(fn ($declaration): array => ['id' => $declaration->id, 'status' => $declaration->status->value, 'form' => $declaration->form->value])->values()),
             // L'ordonnance telle qu'elle s'imprime (A5, 01.11.2026)
             'document' => $this->when(
                 $this->relationLoaded('patient') && $this->relationLoaded('employe') && $this->relationLoaded('clinique'),

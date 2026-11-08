@@ -11,6 +11,9 @@ class CatalogueImport extends Model
 
     public const REFDATA = 'refdata';
 
+    /** Données de base de l'OSAV pour le SI ABV (08.11.2026) */
+    public const ISABV = 'isabv';
+
     public const REUSSI = 'reussi';
 
     public const IDENTIQUE = 'identique';

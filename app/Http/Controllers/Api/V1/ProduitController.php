@@ -48,6 +48,7 @@ class ProduitController extends Controller
             ->paginate($this->parPage($request, 100));
         // Les principes actifs de la page, en une requête
         Produit::withCatalogueSubstances($produits->getCollection());
+        Produit::withIsabvPreparations($produits->getCollection());
 
         return ProduitResource::collection($produits);
     }

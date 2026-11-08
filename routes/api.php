@@ -96,6 +96,10 @@ use App\Http\Controllers\Api\V1\InscriptionCliniqueController;
 use App\Http\Controllers\Api\V1\InterventionController;
 use App\Http\Controllers\Api\V1\InvitationController;
 use App\Http\Controllers\Api\V1\InvitationEquipeController;
+use App\Http\Controllers\Api\V1\Isabv\AntibioticDeclarationController;
+use App\Http\Controllers\Api\V1\Isabv\IsabvConnectionController;
+use App\Http\Controllers\Api\V1\Isabv\IsabvReferenceController;
+use App\Http\Controllers\Api\V1\Isabv\ProductPreparationController;
 use App\Http\Controllers\Api\V1\JournalFacturesController;
 use App\Http\Controllers\Api\V1\LicenciementEmployeController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
@@ -983,8 +987,33 @@ Route::prefix('v1')->group(function (): void {
             Route::get('produits', RechercheVetpointController::class)->middleware('can:stocks');
         });
 
+        // SI ABV (08.11.2026) : déclarer les antibiotiques à l'OSAV. Réglage de la
+        // clinique (droit Organisation), listes de l'OSAV et déclarations (droit
+        // Patients, gestes sous droit Prescrire au contrôleur)
+        Route::prefix('isabv')->group(function (): void {
+            Route::put('connection', [IsabvConnectionController::class, 'update'])->middleware(['can:organisation', 'throttle:10,1']);
+            Route::middleware('can:patients')->group(function (): void {
+                // Lu aussi par qui prescrit : la variante seulement, sans le token (droit Organisation pour le reste)
+                Route::get('connection', [IsabvConnectionController::class, 'show']);
+                Route::get('reference', [IsabvReferenceController::class, 'index']);
+                Route::get('diagnoses', [IsabvReferenceController::class, 'diagnoses']);
+                Route::get('preparations', [IsabvReferenceController::class, 'preparations']);
+                Route::get('declarations', [AntibioticDeclarationController::class, 'index']);
+                Route::get('declarations/{declaration}', [AntibioticDeclarationController::class, 'show'])->whereNumber('declaration');
+                Route::put('declarations/{declaration}', [AntibioticDeclarationController::class, 'update'])->whereNumber('declaration');
+                Route::post('declarations/{declaration}/entered-on-web', [AntibioticDeclarationController::class, 'enteredOnWeb'])->whereNumber('declaration');
+                Route::post('declarations/{declaration}/deactivated-on-web', [AntibioticDeclarationController::class, 'deactivatedOnWeb'])->whereNumber('declaration');
+                Route::get('consultations', [AntibioticDeclarationController::class, 'consultations']);
+                Route::post('consultations', [AntibioticDeclarationController::class, 'sendConsultations'])->middleware('throttle:10,1');
+                Route::get('duplicates', [AntibioticDeclarationController::class, 'duplicates'])->middleware('throttle:20,1');
+                Route::post('duplicates/reactivate', [AntibioticDeclarationController::class, 'reactivate'])->middleware('throttle:10,1');
+            });
+        });
+
         Route::middleware('can:stocks')->prefix('stocks')->group(function (): void {
             Route::get('produits', [ProduitController::class, 'index']);
+            // La préparation SI ABV d'un médicament, choisie à la main (08.11.2026)
+            Route::patch('produits/{produit}/isabv', [ProductPreparationController::class, 'update']);
             // « À surveiller » : la plus proche péremption de chaque article et le stock bas, avec leurs comptes (04.11.2026)
             Route::get('surveillance', StockWatchController::class);
             Route::post('produits/{produit}/vetpoint', [ProduitVetpointController::class, 'store']);

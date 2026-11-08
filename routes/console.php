@@ -21,6 +21,13 @@ Schedule::command('sites:verifier-domaines')->everyTenMinutes()->withoutOverlapp
 // `catalogue:swissmedic` et `catalogue:refdata` à la main.
 Schedule::command('catalogue:swissmedic')->monthlyOn(3, '04:00')->environments(['production'])->withoutOverlapping(180)->onOneServer();
 Schedule::command('catalogue:refdata')->weeklyOn(1, '04:30')->environments(['production'])->withoutOverlapping(180)->onOneServer();
+// SI ABV (08.11.2026) : les données de base de l'OSAV, chaque nuit (rien n'est relu si l'OSAV n'a rien changé)
+Schedule::command('isabv:master-data')->dailyAt('04:45')->timezone('Europe/Zurich')->environments(['production'])->withoutOverlapping(60)->onOneServer();
+// SI ABV : ce qui attend repart (envoi, désactivation, réponse perdue)
+Schedule::command('isabv:send')->everyFifteenMinutes()->withoutOverlapping(14)->onOneServer();
+// SI ABV : le nombre de consultations de l'année écoulée, à déclarer pour le 20 février : chaque matin du 1er au 19 février (ce qui est parti tel quel ne repart pas)
+Schedule::command('isabv:send-consultations')->dailyAt('06:00')->timezone('Europe/Zurich')->environments(['production'])
+    ->when(fn (): bool => now('Europe/Zurich')->month === 2 && now('Europe/Zurich')->day <= 19)->withoutOverlapping(60)->onOneServer();
 
 // Abonnements maison : renouvellements à la date anniversaire (avec les
 // minutes de transcription de la période) et nouvelles tentatives après un

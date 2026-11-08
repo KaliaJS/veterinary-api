@@ -5,8 +5,10 @@ namespace App\Services\Hospitalisation;
 use App\Models\MouvementStock;
 use App\Models\Sejour;
 use App\Models\SejourSoin;
+use App\Models\StayTreatment;
 use App\Models\User;
 use App\Services\GestionnaireStock;
+use App\Services\Isabv\Declarations;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -55,6 +57,13 @@ final class CareCancellation
                 'dose_unit' => $care->dose_unit,
                 'late_noted_at' => $care->late_noted_at,
             ]);
+
+            // SI ABV : la prise ponctuelle annulée n'a pas été utilisée, sa déclaration s'efface ou se désactive ;
+            // celle d'un traitement déjà arrêté se recompte (sans prise restante, elle se retire)
+            app(Declarations::class)->cancelFor($care);
+            if ($care->treatment_id !== null && ($treatment = StayTreatment::query()->find($care->treatment_id)) !== null && Declarations::isTreatmentOver($treatment)) {
+                app(Declarations::class)->treatmentStopped($treatment);
+            }
 
             return ['care' => $care, 'stock' => $this->giveBackStock($care, $user)];
         });

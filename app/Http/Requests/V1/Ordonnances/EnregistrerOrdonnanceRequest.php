@@ -4,6 +4,7 @@ namespace App\Http\Requests\V1\Ordonnances;
 
 use App\Enums\CategorieProduit;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
+use App\Http\Requests\V1\Concerns\RulesForIsabv;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -15,6 +16,7 @@ use Illuminate\Foundation\Http\FormRequest;
 class EnregistrerOrdonnanceRequest extends FormRequest
 {
     use ReglesScopees;
+    use RulesForIsabv;
 
     /** @return array<string, mixed> */
     public function rules(): array
@@ -31,6 +33,7 @@ class EnregistrerOrdonnanceRequest extends FormRequest
             'lignes.*.duree' => ['sometimes', 'string', 'max:255'],
             'renouvellements' => ['sometimes', 'integer', 'between:0,3'],
             'note' => ['nullable', 'string', 'max:2000'],
+            ...$this->isabvRules('lignes'),
         ];
     }
 

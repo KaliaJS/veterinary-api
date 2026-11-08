@@ -2,6 +2,7 @@
 
 namespace App\Services\Workday;
 
+use App\Enums\DeclarationStatus;
 use App\Enums\DomainePermission;
 use App\Enums\ServiceClinique;
 use App\Enums\StatutAnalyse;
@@ -9,10 +10,12 @@ use App\Enums\StatutIntervention;
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
 use App\Models\Analyse;
+use App\Models\AntibioticDeclaration;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\ExamenImagerie;
 use App\Models\Intervention;
+use App\Models\IsabvConnection;
 use App\Models\RendezVous;
 use App\Models\Sejour;
 use App\Models\StaySheet;
@@ -28,7 +31,7 @@ use Illuminate\Database\Eloquent\Builder;
  * feuille d'hospitalisation, le prélèvement, l'examen). Le pourcentage
  * compte ce qui vient d'aujourd'hui et qui est fait, sur ce qui vient
  * d'aujourd'hui plus tout ce qui reste des jours d'avant, sans limite
- * (choix de Jim). Sept sortes :
+ * (choix de Jim). Neuf sortes :
  * - compte rendu à rédiger : consultation, contrôle, urgence, fin de vie
  *   ou téléconsultation finie, sans compte rendu rédigé ;
  * - compte rendu à signer : rédigé, pas signé (seulement pour qui a le
@@ -41,7 +44,9 @@ use Illuminate\Database\Eloquent\Builder;
  *   vétérinaire, tant que le rapport du jour n'est pas signé ;
  * - analyse à valider (droit de valider) et imagerie à interpréter (droit
  *   de signer), qu'il a prescrites ;
- * - rendez-vous resté ouvert : passé, ni fini ni non venu.
+ * - rendez-vous resté ouvert : passé, ni fini ni non venu ;
+ * - déclaration SI ABV à compléter, refusée par l'OSAV ou pas encore
+ *   partie (clinique qui déclare par Veterinary, droit de prescrire).
  *
  * `reminder_at` : quinze minutes après la fin de son dernier rendez-vous ou
  * de sa dernière intervention du jour ; null s'il n'en a aucun.
@@ -55,7 +60,7 @@ class UnfinishedWork
     public const MAX_LINES = 100;
 
     /** Les sortes, dans l'ordre de la liste */
-    public const KINDS = ['report_to_write', 'report_to_sign', 'surgery_report', 'consent', 'stay_report', 'lab', 'imaging', 'open_appointment'];
+    public const KINDS = ['report_to_write', 'report_to_sign', 'surgery_report', 'consent', 'stay_report', 'lab', 'imaging', 'open_appointment', 'antibiotic_declaration'];
 
     /** @var array<string, array{count: int, lines: list<array<string, mixed>>}> */
     private array $remaining = [];
@@ -100,6 +105,9 @@ class UnfinishedWork
         }
         if ($canSign && $clinique->aService(ServiceClinique::Imagerie)) {
             $this->imaging($employe);
+        }
+        if ($can(DomainePermission::Prescrire) && IsabvConnection::activeFor($clinique->id) !== null) {
+            $this->antibioticDeclarations($employe);
         }
 
         $left = array_sum(array_column($this->remaining, 'count'));
@@ -329,6 +337,45 @@ class UnfinishedWork
                     'at' => $exam->realise_le->toIso8601String(),
                     'is_earlier' => ! $isToday,
                     'target' => ['type' => 'imaging', 'id' => $exam->id],
+                ]);
+            }
+        }
+    }
+
+    /**
+     * SI ABV (08.11.2026) : ses déclarations d'antibiotiques à compléter,
+     * refusées par l'OSAV ou pas encore parties ; du jour de la consultation.
+     * Celles du jour parties (ou saisies sur le site de l'OSAV) sont faites.
+     */
+    private function antibioticDeclarations(Employe $employe): void
+    {
+        $today = $this->dayStart->setTimezone($this->timezone)->toDateString();
+        // Les siennes, et celles sans vétérinaire (ou dont le contrat est fini) : à chacun qui prescrit
+        $declarations = AntibioticDeclaration::query()
+            ->where(fn (Builder $q) => $q->where('employe_id', $employe->id)->orWhereNull('employe_id')
+                ->orWhereIn('employe_id', Employe::query()->withoutGlobalScopes()->whereNotNull('fin_contrat_le')->where('fin_contrat_le', '<', $today)->select('id')))
+            ->where(fn (Builder $q) => $q->whereIn('status', [DeclarationStatus::ToComplete, DeclarationStatus::Rejected, DeclarationStatus::Ready])
+                ->orWhere(fn (Builder $q) => $q->whereDate('visit_on', $today)->whereIn('status', [DeclarationStatus::Sent, DeclarationStatus::EnteredOnWeb])))
+            ->with('patient:id,nom')
+            ->orderBy('visit_on')
+            ->get();
+        foreach ($declarations as $declaration) {
+            $isToday = $declaration->visit_on->toDateString() === $today;
+            // Faite une fois partie (ou saisie sur le site de l'OSAV) ; prête, elle n'est pas encore partie
+            $isDone = in_array($declaration->status, [DeclarationStatus::Sent, DeclarationStatus::EnteredOnWeb], true);
+            if ($this->count($isToday, $isDone)) {
+                $this->add('antibiotic_declaration', [
+                    'id' => $declaration->id,
+                    'patient' => $declaration->patient?->nom,
+                    'label' => match ($declaration->status) {
+                        DeclarationStatus::Rejected => 'Refusée par l’OSAV',
+                        DeclarationStatus::Ready => 'Pas encore partie',
+                        default => 'À compléter',
+                    },
+                    'status' => $declaration->status->value,
+                    'day' => $declaration->visit_on->toDateString(),
+                    'is_earlier' => ! $isToday,
+                    'target' => ['type' => 'antibiotic_declaration', 'id' => $declaration->id],
                 ]);
             }
         }

@@ -1,0 +1,277 @@
+swagger: '2.0'
+info:
+  description: Schnitstelle des IS ABV Servers Stammdaten für die Praxissoftware.
+  version: 2.0.0
+  title: IS ABV
+host: www.isabv.blv.admin.ch
+basePath: /api/isabv/psw
+tags:
+  - name: getMasterData
+    description: Ermöglicht den Zugriff auf Stammdaten
+schemes:
+  - https
+paths:
+  /getMasterData/administrationMethod:
+    get:
+      tags:
+        - getMasterData
+      summary: Gibt die Stammdateneinträge zu den Applikationsarten zurück
+      description: ''
+      operationId: getMasterDataAdministrationMethod
+      responses:
+        '200':
+          description: Erfolg
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/AdministrationMethod'
+        '404':
+          description: Service nicht gefunden
+        '500':
+          description: Interner Serverfehler
+  /getMasterData/administrationMode:
+    get:
+      tags:
+        - getMasterData
+      summary: Gibt die Stammdateneinträge zu den Verabreichungsmodus zurück
+      description: ''
+      operationId: getMasterDataAdministrationType
+      responses:
+        '200':
+          description: Erfolg
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/AdministrationMode'
+        '404':
+          description: Service nicht gefunden
+        '500':
+          description: Interner Serverfehler
+  /getMasterData/diagnosisKey:
+    get:
+      tags:
+        - getMasterData
+      summary: Gibt die Stammdateneinträge zu den Diagnosesschlüsseln zurück
+      description: ''
+      operationId: getMasterDataDiagnosisKey
+      responses:
+        '200':
+          description: Erfolg
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/DiagnosisKey'
+        '404':
+          description: Service nicht gefunden
+        '500':
+          description: Interner Serverfehler
+  /getMasterData/feedingMethod:
+    get:
+      tags:
+        - getMasterData
+      summary: Gibt die Stammdateneinträge zu den Fütterungsarten zurück
+      description: ''
+      operationId: getMasterDataFeedingMethod
+      responses:
+        '200':
+          description: Erfolg
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/FeedingMethod'
+        '404':
+          description: Service nicht gefunden
+        '500':
+          description: Interner Serverfehler
+  /getMasterData/feedingType:
+    get:
+      tags:
+        - getMasterData
+      summary: Gibt die Stammdateneinträge zu den Futtertypen zurück
+      description: ''
+      operationId: getMasterDataFeedingType
+      responses:
+        '200':
+          description: Erfolg
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/FeedingType'
+        '404':
+          description: Service nicht gefunden
+        '500':
+          description: Interner Serverfehler
+  /getMasterData/preparation:
+    get:
+      tags:
+        - getMasterData
+      summary: Gibt die Stammdateneinträge zu den Präparaten zurück
+      description: ''
+      operationId: getMasterDataPreparation
+      responses:
+        '200':
+          description: Erfolg
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Preparation'
+        '404':
+          description: Service nicht gefunden
+        '500':
+          description: Interner Serverfehler
+  /getMasterData/species:
+    get:
+      tags:
+        - getMasterData
+      summary: Gibt die Stammdateneinträge zu den Spezies zurück
+      description: ''
+      operationId: getMasterDataSpecies
+      responses:
+        '200':
+          description: Erfolg
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Species'
+        '404':
+          description: Service nicht gefunden
+        '500':
+          description: Interner Serverfehler
+  /getMasterData/lastModificationDate:
+    get:
+      tags:
+        - getMasterData
+      summary: Gibt das Datum der letzter Änderung in Stammdateneinträge zurück
+      description: ''
+      operationId: lastModificationDate
+      produces:
+      - "text/plain; charset=utf-8"
+      responses:
+        '200':
+          description: Erfolg
+          schema:
+            type: string
+            example: '2011-08-12T20:17:46.384Z'
+        '404':
+          description: Service nicht gefunden
+        '500':
+          description: Interner Serverfehler
+definitions:
+  AbstractMasterData:
+    type: object
+    properties:
+      code:
+        type: string
+        example: Code
+        description: Der Code des Stammdateneintrags
+      descriptionDE:
+        type: string
+        example: Beispiel
+        description: Die Bezeichnung des Eintrags auf Deutsch
+      descriptionFR:
+        type: string
+        example: Beispiel
+        description: Die Bezeichnung des Eintrags auf Französisch
+      descriptionIT:
+        type: string
+        example: Beispiel
+        description: Die Bezeichnung des Eintrags auf Italienisch
+  AdministrationMode:
+    type: object
+    allOf:
+      - $ref: '#/definitions/AbstractMasterData'
+    properties:
+      prescriptionCategory:
+        type: string
+        enum:
+          - OG
+          - NOG
+          - EH
+          - AV
+          - OGG
+        example: OG
+      value:
+        type: number
+        example: 0.25
+  AdministrationMethod:
+    type: object
+    allOf:
+      - $ref: '#/definitions/AbstractMasterData'
+    properties:
+      category:
+        type: string
+        enum:
+          - PRESCRIPTION
+          - DISTRIBUTION
+          - BOTH
+        example: PRESCRIPTION
+  PreparationCategory:
+    type: object
+    allOf:
+      - $ref: '#/definitions/AbstractMasterData'
+  FeedingMethod:
+    type: object
+    allOf:
+      - $ref: '#/definitions/AbstractMasterData'
+  FeedingType:
+    type: object
+    allOf:
+      - $ref: '#/definitions/AbstractMasterData'
+  DiagnosisKey:
+    type: object
+    allOf:
+      - $ref: '#/definitions/AbstractMasterData'
+    properties:
+      species:
+        $ref: '#/definitions/Species'
+      parentDiagnosisKey:
+        type: string
+        example: 1.1.1 - 1.1
+  Species:
+    type: object
+    allOf:
+      - $ref: '#/definitions/AbstractMasterData'
+    properties:
+      parentSpecies:
+        type: string
+        example: 1.1.2
+      validForConsultations:
+        description: "Wenn diese Property auf 'true' gesetzt ist, wird der Code der Spezies als gültig für die an den IS ABV Server gesendeten Konsultationen angesehen."
+        type: boolean
+        example: true
+  Unit:
+    type: object
+    allOf:
+      - $ref: '#/definitions/AbstractMasterData'
+  Preparation:
+    type: object
+    allOf:
+      - $ref: '#/definitions/AbstractMasterData'
+    properties:
+      atcCode:
+        type: string
+        example: QA00
+      unit:
+        $ref: '#/definitions/Unit'
+      preparationCategory:
+        $ref: '#/definitions/PreparationCategory'
+      transferISABV:
+        type: boolean
+        example: true
+      preparationType:
+        type: string
+        enum:
+          - HUMAN
+          - FOREIGN
+          - SWISS
+        example: HUMAN
+      administrationMethod:
+        $ref: '#/definitions/AdministrationMethod'
+      hasCriticalSubstance:
+        description: "Präparate, bei denen 'hasCriticalSubstance' auf 'true' gesetzt ist, benötigen eine zusätzliche Bestätigung für AV-Verschreibungen, die durch das aktualisierte xsd-Feld 'criticalSubstanceConfirmed' bereitgestellt wird."
+        type: boolean
+        example: true
+externalDocs:
+  description: Informationen
+  url: >-
+    https://www.blv.admin.ch/blv/de/home/tiere/tierarzneimittel/antibiotika/projekt-is-abv.html

@@ -5,6 +5,7 @@ namespace App\Http\Requests\V1\RendezVous;
 use App\Enums\CategorieProduit;
 use App\Enums\VatContext;
 use App\Http\Requests\V1\Concerns\ReglesScopees;
+use App\Http\Requests\V1\Concerns\RulesForIsabv;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -18,6 +19,7 @@ use Illuminate\Validation\Rule;
 class FinConsultationRequest extends FormRequest
 {
     use ReglesScopees;
+    use RulesForIsabv;
 
     /** @return array<string, mixed> */
     public function rules(): array
@@ -43,6 +45,7 @@ class FinConsultationRequest extends FormRequest
             'medicaments.*.duree' => ['nullable', 'string', 'max:255'],
             // Donné pendant la consultation ou remis au propriétaire ; sans lui, proposé selon l'article (TVA par ligne, 03.11.2026)
             'medicaments.*.vat_context' => ['sometimes', Rule::in([VatContext::Care->value, VatContext::Sale->value])],
+            ...$this->isabvRules('medicaments'),
         ];
     }
 }

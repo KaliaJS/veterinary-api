@@ -1,0 +1,489 @@
+swagger: "2.0"
+info:
+  description: "Interface de SI ABV pour le logiciel du cabinet."
+  version: "3.0.0"
+  title: "SI ABV"
+host: "www.isabv.blv.admin.ch"
+basePath: "/api/isabv"
+tags:
+  - name: "psw"
+    description: "Opérations du logiciel du cabinet"
+  - name: "jwt"
+    description: "Opérations du JSON Web Token"
+schemes:
+  - "https"
+paths:
+  /psw/prescription/{type}:
+    post:
+      tags:
+        - "psw"
+      summary: "Créer une nouvelle prescription dans le serveur SI ABV"
+      description: ""
+      operationId: "addRecipe"
+      consumes:
+        - "application/xml; charset=utf-8"
+      parameters:
+        - name: "type"
+          in: "path"
+          required: true
+          description: "Type de prescription"
+          type: "string"
+          items:
+            type: "string"
+            enum:
+              - "EH"
+              - "EN"
+              - "AV"
+        - in: "body"
+          name: "body"
+          description: "Prescription"
+          required: true
+          schema:
+            $ref: '#/definitions/Prescription'
+      responses:
+        201:
+          description: "Créée avec succès"
+          schema:
+            $ref: '#/definitions/CreateResponse'
+        400:
+          description: "Entrée invalide"
+          schema:
+            $ref: '#/definitions/Protocol'
+        401:
+          description: "JWT Invalide dans Authorization Header"
+        409:
+          description: "Au moins une préparation avec transfert vers SI ABV doit exister"
+      security:
+        - bearerAuth: []
+  /psw/prescription/deactivate/{prescriptionId}:
+    post:
+      tags:
+        - "psw"
+      summary: "Désactiver une prescription dans le serveur SI ABV"
+      description: ""
+      operationId: "deactivateRecipe"
+      consumes:
+        - "application/xml; charset=utf-8"
+      parameters:
+        - name: "prescriptionId"
+          in: "path"
+          required: true
+          description: "Numéro de prescription"
+          type: "string"
+      responses:
+        200:
+          description: "Désactivée avec succès"
+          schema:
+            $ref: '#/definitions/Protocol'
+        400:
+          description: "Entrée invalide. Le numéro de prescription n'est pas disponible dans le serveur SI ABV."
+        401:
+          description: "JWT Invalide dans Authorization Header"
+      security:
+        - bearerAuth: []
+  /psw/protocol:
+    post:
+      tags:
+        - "psw"
+      summary: "Requête au protocole de communication"
+      description: ""
+      operationId: "protocol"
+      consumes:
+        - "application/json; charset=utf-8"
+      parameters:
+        - in: "body"
+          name: "body"
+          description: "Critères de recherche auprès du protocole de communication"
+          required: true
+          schema:
+            $ref: '#/definitions/ProtocolSearch'
+      responses:
+        200:
+          description: "Opération réussie"
+          schema:
+            $ref: '#/definitions/Protocol'
+        400:
+          description: "Réponse JSON erronée. La structure de l'objet JSON, de la requête, n'est pas valide."
+        401:
+          description: "JWT Invalide dans Authorization Header"
+      security:
+        - bearerAuth: []
+  /psw/saveConsultation:
+    post:
+      tags:
+        - "psw"
+      summary: "Stocker les données de consultation sur le serveur IS ABV."
+      operationId: "saveConsultation"
+      consumes:
+        - "application/json; charset=utf-8"
+      parameters:
+        - in: "body"
+          name: "consultationDTO"
+          description: "Données de consultation"
+          required: true
+          schema:
+            $ref: '#/definitions/Consultation'
+      responses:
+        200:
+          description: "Opération réussie. Ce statut est utilisé si une ancienne entrée de consultation a été désactivée à la suite de cette demande."
+          schema:
+            $ref: '#/definitions/Protocol'
+        201:
+          description: "Opération réussie. Ce statut est utilisé si aucune autre entrée de consultation n'a été affectée."
+          schema:
+            $ref: '#/definitions/Protocol'
+        400:
+          description: "Réponse JSON erronée. La structure de l'objet JSON, de la requête, n'est pas valide."
+        401:
+          description: "JWT invalide dans l'en-tête de l'autorisation"
+      security:
+        - bearerAuth: []
+  /psw/prescription/getDuplicatePrescriptions:
+    post:
+      tags:
+        - "psw"
+      summary: "Ce point de terminaison renvoie la liste des numéros de prescription qui peuvent être réactivés pour le cabinet vétérinaire demandeur (prescriptions AV et FZL envoyées avec le PSW)."
+      operationId: "getDuplicatePrescriptions"
+      consumes:
+       - "application/json; charset=utf-8"
+      parameters:
+        - in: "body"
+          name: "body"
+          required: false
+          schema:
+            $ref: '#/definitions/UidAndAppendixOnlyDTO'
+      responses:
+        200:
+          description: "Opération réussie. Les numéros de prescription qui peuvent être réactivés se trouvent dans le paramètre “prescriptionIDs”."
+          schema:
+            $ref: "#/definitions/CommunicationProtocolDuplicatePrescriptionsDTO"
+        401:
+          description: "JWT invalide dans l'en-tête de l'autorisation"
+        415:
+          description: "Erreur “Unsupported media type”. Veuillez vous assurer qu'au moins un json vide (“{}”) est indiqué comme paramètre dans le corps du message"
+      security:
+        - bearerAuth: []
+  /psw/prescription/reactivateDuplicatePrescriptions:
+    post:
+      tags:
+        - "psw"
+      summary: "Ce point final sert à réactiver les prescriptions dupliquées. Il attend au moins les paramètres “uid”, “appendix”, “prescriptionIDs”."
+      operationId: "reactivateDuplicatePrescriptions"
+      consumes:
+       - "application/json; charset=utf-8"
+      parameters:
+        - in: "body"
+          name: "body"
+          required: true
+          schema:
+            $ref: '#/definitions/DuplicatePrescriptionReactivationDTO'
+      responses:
+        200:
+          description: "Opération réussie."
+          schema:
+            $ref: "#/definitions/DuplicatePrescriptionReactivationResponseDTO"
+        401:
+          description: "JWT invalide dans l'en-tête de l'autorisation"
+        400:
+          description: "Une erreur est survenue lors de la réactivation des prescriptions. Le message d'erreur est contenu dans la propriété “message”."
+          schema:
+            $ref: "#/definitions/DuplicatePrescriptionReactivationResponseDTO"
+      security:
+        - bearerAuth: []
+  /jwt/create:
+    post:
+      tags:
+        - "jwt"
+      summary: "Créer un JWT"
+      description: ""
+      operationId: "createJwt"
+      consumes:
+        - "application/json; charset=utf-8"
+      produces:
+        - "text/plain; charset=utf-8"
+      parameters:
+        - in: "body"
+          name: "body"
+          description: "Informations sur le cabinet / la clinique vétérinaire"
+          required: true
+          schema:
+            $ref: "#/definitions/VetOffice"
+      responses:
+        200:
+          description: "Créé avec succès"
+        400:
+          description: "Les paramètres IDE du cabinet / de la clinique vétérinaire ou du Token  ne sont pas disponibles."
+        401:
+          description: "La combinaison du numéro IDE, du complément et du Token est absente ou non active ou n'est pas valide dans le server SI ABV."
+  /jwt/validate:
+    post:
+      tags:
+        - "jwt"
+      summary: "Valider un JWT"
+      description: ""
+      operationId: "validateJwt"
+      consumes:
+        - "text/plain; charset=utf-8"
+      parameters:
+        - in: "body"
+          name: "jwt"
+          description: "Token du JSON Web"
+          required: true
+          schema:
+            $ref: "#/definitions/JWT"
+      responses:
+        200:
+          description: "JWT est valide"
+        400:
+          description: "JWT est invalide"
+securityDefinitions:
+  bearerAuth:
+    type: "apiKey"
+    name: "Authorization"
+    in: "header"
+definitions:
+  JWT:
+    type: "string"
+    example: "eyJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE1MjA2MDgzNDQsInN1YiI6IkNIRS0xMjMuNDU2Ljc4OSIsImV4cCI6MTUyMDYwODM0NX0.2wuaHFFaSrufigbqYRHdXU6In_qlYxRowv0H2AkDbfc"
+  Prescription:
+    type: "string"
+    description: "Das XML der Verschreibung gemäss den richtigen XSD pro Verschreibungsart"
+    example: "<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<EH
+	xmlns:xsi=http://www.w3.org/2001/XMLSchema-instance
+	xmlns:xsd=http://www.w3.org/2001/XMLSchema
+	xmlns=http://xml.admin.ch/Health/VeterinaryPublicHealth/AntibioticsConsumption/Prescription/EH/1>
+	<dateOfVisit>2022-04-14T00:00:00</dateOfVisit>
+	<recipeNumber>0a638e19-59ca-4d9c-b123-d33dfa99b6fd</recipeNumber>
+	<appendix>Zusatz</appendix>
+    <veterinaryPracticeUID>CHE-123.456.789</veterinaryPracticeUID>
+	<veterinaryPracticeAddress>Strasse 1, 8050 Zürich</veterinaryPracticeAddress>
+	<species>1.1</species>
+	<address />
+	<animalWeight>500</animalWeight>
+	<diagnosisKey>4</diagnosisKey>
+	<preparations>
+		<preparation>
+			<preparationID>XXXXX-XX</preparationID>
+			<firstDosis>
+				<animalDosis>2</animalDosis>
+				<treatmentDays>10</treatmentDays>
+				<servingMode>13</servingMode>
+			</firstDosis>
+			<totalDosis>60</totalDosis>
+			<givenAmount>1</givenAmount>
+			<treatmentDays>10</treatmentDays>
+		</preparation>
+	<preparations>
+</EH>"
+  VetOffice:
+    type: "object"
+    required:
+      - "uid"
+      - "token"
+    properties:
+      uid:
+        type: "string"
+        example: "CHE-123.456.789"
+        description: "N° IDE du cabinet / de la clinique vétérinaire"
+      token:
+        type: "string"
+        example: "feb3786f-c5d2-47cc-a8e0-e6d759548ff2"
+        description: "Token généré pour le logiciel du cabinet"
+      appendix:
+        type: "string"
+        description: "Complément"
+  CreateResponse:
+    type: "object"
+    properties:
+      uuid:
+        type: "string"
+        example: "7216d190-6d88-4dca-80c0-8afaa6bc4c1e"
+        description: "Clé primaire de la ressource créée"
+      duplicate:
+        type: "boolean"
+        description: "Si la prescription créée est un doublon ou non"
+      protocol:
+        type: "object"
+        $ref: "#/definitions/Protocol"
+  Message:
+    type: "object"
+    properties:
+      de:
+        type: "string"
+        example: "Deutsch"
+      fr:
+        type: "string"
+        example: "French"
+      it:
+        type: "string"
+        example: "Italian"
+  Protocol:
+    type: "object"
+    properties:
+      uuid:
+        type: "string"
+        example: "feb3786f-c5d2-47cc-a8e0-e6d759548ff2"
+        description: "Clef unique"
+      uid:
+        type: "string"
+        example: "CHE-123.456.789"
+        description: "N° IDE du cabinet / de la clinique vétérinaire"
+      appendix:
+        type: "string"
+        description: "Complément"
+      createdOn:
+        type: "string"
+        example: "2018-03-07T10:00:00"
+        description: "Date de réception"
+      prescriptionId:
+        type: "string"
+        example: "avb4092-c5d2-47cc-a8e0-e6d759548ff2"
+        description: "N° de prescription"
+      type:
+        type: "string"
+        enum:
+          - "EH"
+          - "EN"
+          - "AV"
+      message:
+        type: "object"
+        $ref: "#/definitions/Message"
+        description: "Message"
+      status:
+        type: "string"
+        enum:
+          - "OK"
+          - "NOK"
+      ignoredOptionalFields:
+        type: "object"
+        $ref: "#/definitions/Message"
+        description: "Champs facultatifs rejetés"
+      consultationID:
+        type: "string"
+        example: "avb4092-c5d2-47cc-a8e0-e6d759548ff2"
+        description: "L'UUID de la consultation qui a été sauvée."
+  ProtocolSearch:
+    type: "object"
+    properties:
+      uuid:
+        type: "string"
+        example: "feb3786f-c5d2-47cc-a8e0-e6d759548ff2"
+        description: "Unique Key"
+      prescriptionID:
+        type: "string"
+        example: "avb4092-c5d2-47cc-a8e0-e6d759548ff2"
+        description: "N° de prescription"
+      message:
+        type: "object"
+        $ref: "#/definitions/Message"
+        description: "Message"
+      ignoredOptionalFields:
+        type: "object"
+        $ref: "#/definitions/Message"
+        description: "Champs facultatifs rejetés"
+      createdFrom:
+        type: "string"
+        example: "2018-03-07"
+        description: "Date de réception de"
+      createdUntil:
+        type: "string"
+        example: "2018-03-07"
+        description: "Date de réception a"
+      type:
+        type: "string"
+        enum:
+          - "EH"
+          - "EN"
+          - "AV"
+      status:
+        type: "string"
+        enum:
+          - "OK"
+          - "NOK"
+      consultationID:
+        type: "string"
+        example: "avb4092-c5d2-47cc-a8e0-e6d759548ff2"
+        description: "Pour obtenir l'UUID de consultation."
+      reference:
+        type: "string"
+        example: "avb4092-c5d2-47cc-a8e0-e6d759548ff2"
+        description: "Champ de texte libre à l'usage des fabricants de PSW. Longueur maximale : 50 caractères"
+  Consultation:
+    type: "object"
+    properties:
+      year:
+        type: "integer"
+        example: 2020
+        description: "L'année des données de la consultation"
+      animalType:
+        type: "string"
+        description: "Le code de l'espèce tel qu'il a été reçu via le point final “/psw/getMasterData/species”. Assurez-vous également que la propriété “validForConsultations” est définie sur “true” pour l'espèce."
+        example: "1.5"
+      consultationPerYear:
+        type: "integer"
+        example: 1240
+        description: "Le nombre de consultations pour l'année en question"
+  CommunicationProtocolDuplicatePrescriptionsDTO:
+    type: "object"
+    allOf:
+      - $ref: "#/definitions/DuplicatePrescriptionReactivationResponseDTO"
+    properties:
+      prescriptionIDs:
+        type: array
+        items:
+          type: "string"
+        description: "Liste des numéros de prescription qui peuvent être réactivés"
+        example: ["avb4092-c5d2-47cc-a8e0-e6d759548ff2", "avb4092-c5d2-47cc-a8e0-e6d759548ff3", "avb4092-c5d2-47cc-a8e0-e6d759548ff4"]
+  DuplicatePrescriptionReactivationDTO:
+    type: "object"
+    properties:
+      uid:
+        type: "string"
+        example: "CHE-123.456.789"
+        description: "N° IDE du cabinet / de la clinique vétérinaire"
+      appendix:
+        type: "string"
+        description: "Complément"
+      prescriptionIDs:
+        type: array
+        items:
+          type: "string"
+        description: "La liste des numéros de prescription à réactiver."
+        example: ["avb4092-c5d2-47cc-a8e0-e6d759548ff2", "avb4092-c5d2-47cc-a8e0-e6d759548ff3", "avb4092-c5d2-47cc-a8e0-e6d759548ff4"]
+  DuplicatePrescriptionReactivationResponseDTO:
+    type: object
+    properties:
+      uuid:
+        type: string
+        format: uuid
+        example: "cd1e1f45-f804-4097-926a-267545aabd89"
+        description: "Unique key"
+      message:
+        $ref: '#/definitions/Message'
+      status:
+        type: string
+        enum: [OK, NOK]
+        example: "OK"
+      uid:
+        type: string
+        example: "CHE-123.456.789"
+        description: "N° IDE du cabinet / de la clinique vétérinaire"
+      appendix:
+        type: string
+        example: "Complément"
+        description: "Complément"
+  UidAndAppendixOnlyDTO:
+    type: "object"
+    properties:
+      uid:
+        type: "string"
+        example: "CHE-123.456.789"
+        description: "N° IDE du cabinet / de la clinique vétérinaire"
+      appendix:
+        type: "string"
+        description: "Complément"
+        example: "Complément"
+externalDocs:
+  description: "Information"
+  url: "https://www.blv.admin.ch/blv/fr/home/tiere/tierarzneimittel/antibiotika/isabv.html"

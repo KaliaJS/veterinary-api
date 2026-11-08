@@ -8,6 +8,7 @@ use App\Enums\StatutOrdonnance;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\OrdonnanceResource;
 use App\Models\Ordonnance;
+use App\Services\Isabv\Declarations;
 use App\Services\Numeroteur;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -71,13 +72,16 @@ class CycleOrdonnanceController extends Controller
 
             $ordonnance->update(['statut' => StatutOrdonnance::Cloturee]);
 
+            // SI ABV (08.11.2026) : une nouvelle prescription, déclarée comme la précédente sous un nouveau numéro
+            app(Declarations::class)->forRenewal($ordonnance, $renouvellement);
+
             // La demande du propriétaire, s'il y en avait une, est traitée.
             $ordonnance->demandesRenouvellement()->whereNull('traitee_le')->update(['traitee_le' => now()]);
 
             return $renouvellement;
         });
 
-        return new OrdonnanceResource($renouvellement->load(Ordonnance::relationsDocument()));
+        return new OrdonnanceResource($renouvellement->load([...Ordonnance::relationsDocument(), 'antibioticDeclarations']));
     }
 
     public function cloturer(Request $request, Ordonnance $ordonnance): OrdonnanceResource
@@ -92,6 +96,6 @@ class CycleOrdonnanceController extends Controller
         // La demande du propriétaire, s'il y en avait une, ne reste pas en attente pour toujours
         $ordonnance->demandesRenouvellement()->whereNull('traitee_le')->update(['traitee_le' => now()]);
 
-        return new OrdonnanceResource($ordonnance->load(Ordonnance::relationsDocument()));
+        return new OrdonnanceResource($ordonnance->load([...Ordonnance::relationsDocument(), 'antibioticDeclarations']));
     }
 }

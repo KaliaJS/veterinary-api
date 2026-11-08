@@ -18,6 +18,7 @@ use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -25,6 +26,12 @@ return Application::configure(basePath: dirname(__DIR__))
         api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        // Faux serveur SI ABV de l'OSAV (08.11.2026) : en local et dans les essais seulement
+        then: function (): void {
+            if (app()->environment(['local', 'testing'])) {
+                Route::prefix('fake-isabv/api/isabv')->group(base_path('routes/fake-isabv.php'));
+            }
+        },
     )
     // Temps réel (Reverb, 28.10.2026) : l'autorisation des canaux passe par
     // le jeton Sanctum, sous /api/v1 ; le contexte de clinique est facultatif

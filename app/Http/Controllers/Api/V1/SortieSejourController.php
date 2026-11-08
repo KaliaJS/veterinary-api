@@ -10,8 +10,10 @@ use App\Models\Facture;
 use App\Models\FactureLigne;
 use App\Models\Sejour;
 use App\Services\FactureSejour;
+use App\Services\Isabv\Declarations;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
@@ -80,6 +82,12 @@ class SortieSejourController extends Controller
         }
 
         $facture = $this->factureSejour->sortir($sejour, $request->user());
+        // SI ABV (08.11.2026) : les traitements jamais arrêtés disent leurs jours à la sortie
+        DB::transaction(function () use ($sejour): void {
+            foreach ($sejour->treatments()->get() as $treatment) {
+                app(Declarations::class)->treatmentStopped($treatment);
+            }
+        });
         Sejour::announce($sejour->id, $sejour->clinique_id);
 
         $resource = new SejourResource($sejour->load([

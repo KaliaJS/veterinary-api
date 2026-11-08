@@ -5,9 +5,11 @@ namespace App\Services\Site;
 use App\Enums\CategorieProduit;
 use App\Enums\ServiceClinique;
 use App\Models\Clinique;
+use App\Models\IsabvPreparation;
 use App\Models\Organisation;
 use App\Models\Produit;
 use App\Models\Stock;
+use App\Services\Isabv\PreparationResolver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -53,7 +55,18 @@ class PublicShop
             ->where('organisation_id', $organisation->id)
             ->where('est_boutique', true)
             ->where('est_sur_ordonnance', false)
-            ->where('est_stupefiant', false);
+            ->where('est_stupefiant', false)
+            // Un antibiotique de la liste de l'OSAV, relié à la main, ne se vend pas librement (SI ABV, 08.11.2026)
+            ->where(fn (Builder $q) => $q->whereNull('isabv_preparation_code')
+                ->orWhereNotIn('isabv_preparation_code', IsabvPreparation::query()->where('must_transfer', true)->select('code')))
+            // Ni par son code-barres
+            // (le code-barres lu sans espaces, comme le résolveur)
+            ->where(function (Builder $q): void {
+                $gtins = app(PreparationResolver::class)->declarableGtins();
+                if ($gtins !== []) {
+                    $q->whereNull('ean')->orWhereRaw("replace(ean, ' ', '') not in (".implode(',', array_fill(0, count($gtins), '?')).')', $gtins);
+                }
+            });
     }
 
     /** Le site montre sa page « Boutique » : une clinique l'a cochée et au moins un article est en vente. */

@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Str;
 
 /**
@@ -104,6 +105,16 @@ class Ordonnance extends Model
     public function lignes(): HasMany
     {
         return $this->hasMany(OrdonnanceLigne::class);
+    }
+
+    /**
+     * Ses déclarations SI ABV (08.11.2026), lues dans la clinique qui l'a établie.
+     *
+     * @return MorphMany<AntibioticDeclaration, $this>
+     */
+    public function antibioticDeclarations(): MorphMany
+    {
+        return $this->morphMany(AntibioticDeclaration::class, 'source')->withoutGlobalScope('clinique');
     }
 
     /**
