@@ -54,15 +54,18 @@ class StupefiantsIsolationTest extends TestCase
 
     public function test_le_journal_d_une_clinique_soeur_est_invisible(): void
     {
+        // Datés de maintenant : le registre montre l'année en cours, aussi un 1er janvier à 0 h 30 (HORLOGE=nouvel-an)
         MouvementStupefiant::factory()->create([
             'clinique_id' => $this->clinique->id,
             'produit_id' => $this->substance->id,
             'quantite' => 25,
+            'created_at' => now(),
         ]);
         MouvementStupefiant::factory()->create([
             'clinique_id' => $this->cliniqueSoeur->id,
             'produit_id' => $this->substance->id,
             'quantite' => 100,
+            'created_at' => now(),
         ]);
 
         $this->getJson('/api/v1/stupefiants/mouvements', $this->enTetes($this->jeton))

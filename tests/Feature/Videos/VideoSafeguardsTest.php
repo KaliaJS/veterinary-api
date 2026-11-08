@@ -192,6 +192,8 @@ class VideoSafeguardsTest extends TestCase
 
     public function test_au_bucket_chaque_adresse_ecrit_un_seul_fichier_du_dossier_pendant_15_minutes(): void
     {
+        // Le SDK d'AWS signe avec l'heure réelle : l'essai aussi, même quand la suite se joue à une autre heure (HORLOGE)
+        $this->travelBack();
         $this->freezeTime();
         config(['filesystems.disks.prive' => [
             'driver' => 's3', 'key' => 'essai', 'secret' => 'essai', 'region' => 'auto', 'bucket' => 'videos-essai',

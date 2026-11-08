@@ -23,7 +23,8 @@ class MouvementStupefiantFactory extends Factory
             'employe_id' => null,
             'quantite' => fake()->randomElement([10, 20, 50]),
             'motif' => 'Réception grossiste : lot '.fake()->bothify('??-####'),
-            'created_at' => fake()->dateTimeBetween('-30 days'),
+            // L'horloge de l'app (Carbon), pas celle de Faker : la suite se joue aussi à une autre heure (HORLOGE)
+            'created_at' => now()->subMinutes(fake()->numberBetween(0, 30 * 24 * 60)),
         ];
     }
 

@@ -197,6 +197,19 @@ class SejourTest extends TestCase
             ->assertJsonCount(2, 'data');
     }
 
+    /**
+     * L'heure de la feuille maintenant, en minutes depuis minuit à Zurich (08.11.2026) :
+     * un soin prévu à 10 h 30 ne se donne pas avant 8 h 30 (deux heures d'avance au plus),
+     * et la suite jouée tôt le matin échouait. Le soin des essais est dû maintenant : le jour
+     * du calendrier et la minute de Zurich (la feuille s'en déduit, de 6 h à 6 h).
+     */
+    private function maintenant(): int
+    {
+        $zurich = CarbonImmutable::now('Europe/Zurich');
+
+        return $zurich->hour * 60 + $zurich->minute;
+    }
+
     public function test_un_soin_fait_sort_le_stock_de_la_clinique_et_se_journalise(): void
     {
         $sejour = $this->sejour();
@@ -204,7 +217,7 @@ class SejourTest extends TestCase
         Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 5]);
 
         $soin = $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins", [
-            'prevu_a' => 630,
+            'prevu_a' => $this->maintenant(),
             'acte' => 'Méloxicam 0,1 mg/kg IV',
             'produit_id' => $produit->id,
         ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
@@ -228,7 +241,7 @@ class SejourTest extends TestCase
         $sejour = $this->sejour();
         $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
 
-        $soin = $sejour->soins()->create(['jour' => app(StaySheets::class)->todayIn('Europe/Zurich'), 'prevu_a' => 600, 'acte' => 'Antibiotique', 'produit_id' => $produit->id]);
+        $soin = $sejour->soins()->create(['jour' => CarbonImmutable::now('Europe/Zurich')->toDateString(), 'prevu_a' => $this->maintenant(), 'acte' => 'Antibiotique', 'produit_id' => $produit->id]);
 
         $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins/{$soin->id}/faire", [], $this->enTetes($this->jeton))
             ->assertOk()
@@ -244,7 +257,7 @@ class SejourTest extends TestCase
         $sejour = $this->sejour();
         $produit = Produit::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'est_stupefiant' => true]);
         Stock::factory()->create(['produit_id' => $produit->id, 'clinique_id' => $this->clinique->id, 'quantite' => 5]);
-        $soin = $sejour->soins()->create(['jour' => app(StaySheets::class)->todayIn('Europe/Zurich'), 'prevu_a' => 600, 'acte' => 'Méthadone 0,2 mg/kg IV', 'produit_id' => $produit->id]);
+        $soin = $sejour->soins()->create(['jour' => CarbonImmutable::now('Europe/Zurich')->toDateString(), 'prevu_a' => $this->maintenant(), 'acte' => 'Méthadone 0,2 mg/kg IV', 'produit_id' => $produit->id]);
 
         $this->postJson("/api/v1/hospitalisation/sejours/{$sejour->id}/soins/{$soin->id}/faire", [], $this->enTetes($this->jeton))
             ->assertOk()
