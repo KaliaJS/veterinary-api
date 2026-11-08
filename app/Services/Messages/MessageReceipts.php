@@ -46,7 +46,8 @@ final class MessageReceipts
     {
         $this->received(
             MessageClientele::query()->where('clinique_id', $cliniqueId)->where('auteur', 'proprietaire'),
-            fn (MessageClientele $m): array => ['utilisateur.'.$m->user_id, (int) $m->user_id],
+            // Un compte effacé : personne à prévenir
+            fn (MessageClientele $m): ?array => $m->user_id ? ['utilisateur.'.$m->user_id, (int) $m->user_id] : null,
         );
     }
 

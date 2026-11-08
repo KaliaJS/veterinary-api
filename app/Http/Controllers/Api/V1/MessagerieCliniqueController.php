@@ -7,13 +7,16 @@ use App\Enums\PushType;
 use App\Events\MessagesChangent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Messages\SendMessageMediaRequest;
+use App\Http\Resources\V1\Espace\AnimalProprietaireResource;
 use App\Mail\ReponseClinique;
 use App\Models\Client;
 use App\Models\MessageClientele;
 use App\Models\Organisation;
+use App\Models\Patient;
 use App\Models\PreferencesProprietaire;
 use App\Services\Messages\InternalMessaging;
 use App\Services\Messages\MessageMediaService;
+use App\Services\Messages\MessageMutes;
 use App\Services\Messages\MessageReceipts;
 use App\Services\Notifications\Push;
 use App\Support\TempsReel;
@@ -39,14 +42,17 @@ use Throwable;
  */
 class MessagerieCliniqueController extends Controller
 {
-    public function __construct(private InternalMessaging $internes, private MessageReceipts $receipts) {}
+    public function __construct(private InternalMessaging $internes, private MessageReceipts $receipts, private MessageMutes $mutes) {}
 
     /** Les fils de la clinique, de ses clients, de l'employé avec ses collègues, avec les autres cliniques : le plus récent d'abord. */
     public function index(): JsonResponse
     {
         // L'app de la clinique relit sa liste : les messages des clients lui sont distribués (08.11.2026)
         $this->receipts->clinicReceivedFromOwners((int) app(ContexteClinique::class)->cliniqueId());
+        // Le mode silencieux de chacun (08.11.2026) : la conversation ne compte plus dans la pastille du menu
+        $silence = $this->mutes->threadsOf((int) request()->user()?->id, app(ContexteClinique::class)->cliniqueId());
         $fils = collect([...$this->filsDesClients(), ...$this->internes->threads()])
+            ->map(fn (array $fil): array => [...$fil, 'muted' => isset($silence[$fil['cle']])])
             ->sortByDesc(fn (array $fil): string => (string) ($fil['dernier']['envoye_le'] ?? ''))->values();
 
         return response()->json(['data' => $fils]);
@@ -101,8 +107,9 @@ class MessagerieCliniqueController extends Controller
     /** Un fil : ses messages, ceux du propriétaire marqués lus. */
     public function fil(string $cle): JsonResponse
     {
+        $isMuted = $this->mutes->isMuted((int) request()->user()?->id, app(ContexteClinique::class)->cliniqueId(), $cle);
         if (in_array($cle[0], ['e', 'k'], true)) {
-            return response()->json(['data' => $this->internes->thread($cle)]);
+            return response()->json(['data' => [...$this->internes->thread($cle), 'muted' => $isMuted]]);
         }
         [$fiche, $userId, $lie] = $this->fiche($cle);
         // Lus : le propriétaire voit ses coches passer au bleu (08.11.2026)
@@ -119,8 +126,31 @@ class MessagerieCliniqueController extends Controller
             'client' => trim($fiche->prenom.' '.$fiche->nom),
             'client_id' => $fiche->id,
             'peut_repondre' => $lie,
+            // « Infos du client » (08.11.2026) : appeler, ses animaux, ses audios et vidéos, le silence
+            'tel' => $fiche->tel,
+            'animals' => $fiche->patientsParNom()->whereNull('decede_le')->get()->map(fn (Patient $p): array => [
+                'id' => $p->id,
+                'name' => $p->nom,
+                'detail' => implode(', ', array_filter([$p->race ?: $p->espece->libelle(), mb_strtolower($p->sexe->value), AnimalProprietaireResource::age($p->ne_le)])),
+            ])->all(),
+            'media_count' => $messages->filter(fn (MessageClientele $m): bool => $m->media !== null)->count(),
+            'muted' => $isMuted,
             'messages' => $messages->map(fn (MessageClientele $m): array => $this->message($m, $paie))->all(),
         ]]);
+    }
+
+    /** Le mode silencieux d'une conversation, pour la personne connectée (08.11.2026) */
+    public function silence(Request $request, string $cle): JsonResponse
+    {
+        $isMuted = (bool) $request->validate(['muted' => ['required', 'boolean']])['muted'];
+        // Un fil d'ici seulement : sa lecture refuse ce qui n'existe pas dans cette clinique
+        in_array($cle[0], ['e', 'k'], true) ? $this->internes->header($cle) : $this->fiche($cle);
+        $userId = (int) $request->user()?->id;
+        $this->mutes->set($userId, app(ContexteClinique::class)->cliniqueId(), $cle, $isMuted);
+        // Ses autres appareils déjà ouverts relisent la liste (la pastille du menu suit)
+        TempsReel::diffuser(fn () => MessagesChangent::dispatch('utilisateur.'.$userId));
+
+        return response()->json(['data' => ['cle' => $cle, 'muted' => $isMuted]]);
     }
 
     /** Répondre, ou ouvrir un fil avec un client qui a un compte. */

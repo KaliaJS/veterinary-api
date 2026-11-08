@@ -683,6 +683,8 @@ Route::prefix('v1')->group(function (): void {
             // « u12 » : le compte du client ; « c34 » : sa fiche (compte effacé). Jamais lié tel quel.
             // « e12 » : un collègue ; « k34 » : une autre clinique (01.11.2026)
             Route::get('{cle}', [MessagerieCliniqueController::class, 'fil'])->where('cle', '[ucek][0-9]+');
+            // Le mode silencieux d'une conversation, pour soi (08.11.2026)
+            Route::put('{cle}/silence', [MessagerieCliniqueController::class, 'silence'])->where('cle', '[ucek][0-9]+');
             Route::post('{cle}', [MessagerieCliniqueController::class, 'repondre'])->where('cle', '[ucek][0-9]+')->middleware('throttle:60,1,messages-clinique');
             // Messages audio et vidéo façon Telegram (07.11.2026), dans tous les fils où l'on écrit ;
             // la transcription « →A » par Deepgram, une fois par message

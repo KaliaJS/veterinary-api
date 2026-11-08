@@ -42,7 +42,7 @@ class InternalMessaging
     /** La clinique du contexte paie la transcription (lue une fois par requête) */
     private ?bool $clinicPays = null;
 
-    public function __construct(private ContexteClinique $contexte, private CalculateurPermissions $permissions, private MessageMediaService $media, private MessageReceipts $receipts) {}
+    public function __construct(private ContexteClinique $contexte, private CalculateurPermissions $permissions, private MessageMediaService $media, private MessageReceipts $receipts, private MessageMutes $mutes) {}
 
     /** @return list<array<string, mixed>> */
     public function threads(): array
@@ -60,11 +60,12 @@ class InternalMessaging
         if ($key[0] === 'e') {
             $colleague = $this->colleague((int) substr($key, 1));
             $me = $this->me();
-            $this->receipts->read($this->staffBetween($me, $colleague)->where('recipient_employee_id', $me->id), 'read_at', 'utilisateur.'.$colleague->user_id);
+            $this->receipts->read($this->staffBetween($me, $colleague)->where('recipient_employee_id', $me->id), 'read_at', $colleague->user_id > 0 ? 'utilisateur.'.$colleague->user_id : null);
             $messages = $this->staffBetween($me, $colleague)->with('sender', 'media')->orderBy('created_at')->orderBy('id')->get();
 
             return [
                 ...$this->staffHeader($colleague),
+                'media_count' => $messages->filter(fn (StaffMessage $m): bool => $m->media !== null)->count(),
                 'messages' => $messages->map(fn (StaffMessage $m): array => $this->staffMessage($m, $me))->all(),
             ];
         }
@@ -76,8 +77,19 @@ class InternalMessaging
 
         return [
             ...$this->clinicHeader($other),
+            'media_count' => $messages->filter(fn (ClinicMessage $m): bool => $m->media !== null)->count(),
             'messages' => $messages->map(fn (ClinicMessage $m): array => $this->clinicMessage($m, $mine, $other))->all(),
         ];
+    }
+
+    /**
+     * L'en-tête d'une conversation (sans ses messages) : 404 si elle n'existe pas ici.
+     *
+     * @return array<string, mixed>
+     */
+    public function header(string $key): array
+    {
+        return $key[0] === 'e' ? $this->staffHeader($this->colleague((int) substr($key, 1))) : $this->clinicHeader($this->otherClinic((int) substr($key, 1)));
     }
 
     /** @return array<string, mixed> */
@@ -127,7 +139,8 @@ class InternalMessaging
             foreach ([$me->user_id, $colleague->user_id] as $userId) {
                 TempsReel::diffuser(fn () => MessagesChangent::dispatch('utilisateur.'.$userId));
             }
-            Push::to([$colleague->user_id], PushType::TeamMessage, $me->nom, mb_strimwidth($message->body, 0, 120, '…'), '/clinique/messages');
+            // Sauf s'il a mis cette conversation en silence (08.11.2026)
+            Push::to($this->mutes->audible([(int) $colleague->user_id], null, 'e'.$me->id), PushType::TeamMessage, $me->nom, mb_strimwidth($message->body, 0, 120, '…'), '/clinique/messages');
 
             return $this->staffMessage($message->load('sender'), $me);
         }
@@ -147,7 +160,8 @@ class InternalMessaging
             TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$cliniqueId));
         }
         // Toute l'équipe de l'autre clinique qui lit les Messages (droit patients, comme pour y écrire)
-        Push::to(Push::staffOf($other->id, DomainePermission::Patients), PushType::TeamMessage, $mine->nom, mb_strimwidth($message->body, 0, 120, '…'), '/clinique/messages', except: $me->user_id);
+        // Sauf ceux qui ont mis cette conversation en silence (08.11.2026)
+        Push::to($this->mutes->audible(Push::staffOf($other->id, DomainePermission::Patients), $other->id, 'k'.$mine->id), PushType::TeamMessage, $mine->nom, mb_strimwidth($message->body, 0, 120, '…'), '/clinique/messages', except: $me->user_id);
 
         return $this->clinicMessage($message->load('author'), $mine, $other);
     }
@@ -246,7 +260,20 @@ class InternalMessaging
     /** @return array<string, mixed> */
     private function staffHeader(Employe $colleague): array
     {
-        return ['cle' => 'e'.$colleague->id, 'kind' => 'staff', 'name' => $colleague->nom, 'subtitle' => 'Collègue', 'user_id' => null, 'peut_repondre' => $this->canWriteTo($colleague)];
+        return [
+            'cle' => 'e'.$colleague->id, 'kind' => 'staff', 'name' => $colleague->nom, 'subtitle' => 'Collègue', 'user_id' => null, 'peut_repondre' => $this->canWriteTo($colleague),
+            // « Infos du collègue » (08.11.2026) : son rôle et ses cliniques ; son téléphone, un champ RH,
+            // seulement à qui a le droit Équipe (vérification du 08.11.2026), comme dans /equipe
+            'role' => implode(', ', array_filter([$colleague->role_libelle, $colleague->cliniques->pluck('nom')->implode(', ')])),
+            'tel' => $this->seesTeam() ? $colleague->tel : null,
+        ];
+    }
+
+    /** La personne connectée a le droit Équipe */
+    private function seesTeam(): bool
+    {
+        // Les permissions de la requête, chargées par le middleware de la clinique
+        return $this->contexte->permet(DomainePermission::Equipe);
     }
 
     /** @return array<string, mixed> */
@@ -255,6 +282,9 @@ class InternalMessaging
         return [
             'cle' => 'k'.$other->id, 'kind' => 'clinic', 'name' => $other->nom, 'subtitle' => $other->ville, 'user_id' => null,
             'peut_repondre' => $isOpen ?? Clinique::withoutGlobalScopes()->ouvertes()->whereKey($other->id)->exists(),
+            // « Infos de la clinique » (08.11.2026)
+            'tel' => $other->tel,
+            'address' => implode(', ', array_filter([$other->rue, trim($other->npa.' '.$other->ville)])),
         ];
     }
 

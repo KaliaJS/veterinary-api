@@ -11,6 +11,7 @@ use App\Models\InvitationEmploye;
 use App\Models\JetonApi;
 use App\Models\MessageClientele;
 use App\Models\MessageMedia;
+use App\Models\MessageMute;
 use App\Models\OrganisationFacture;
 use App\Models\ProductOrderSetting;
 use App\Models\SequenceNumerotation;
@@ -41,6 +42,7 @@ class ScopesModelesTest extends TestCase
         InvitationEmploye::class => 'Résolue explicitement dans l’organisation du jeton (InvitationEquipeController) ; lue sans contexte par le lien, au compte invité.',
         JetonApi::class => 'Jeton Sanctum : lu par le guard avant que le contexte existe, c’est lui qui le fonde.',
         MessageClientele::class => 'Fil clinique et propriétaire, lu depuis l’espace propriétaire par user_id (filtre explicite).',
+        MessageMute::class => 'Mode silencieux d’une personne (08.11.2026) : toujours lu et écrit par le compte du jeton (MessageMutes), la clinique n’étant qu’une partie de la clé du fil ; jamais résolu par une route.',
         MessageMedia::class => 'Fichier d’un message audio ou vidéo (07.11.2026), d’un fil de client, entre collègues ou entre cliniques : lu depuis l’espace par le compte du fil, côté clinique par la clinique ou l’employé du contexte (filtres explicites, MessageMediaController) ; la tâche de transcription et la purge le lisent hors contexte.',
         OrganisationFacture::class => 'Facture de la plateforme, résolue par l’organisation du jeton (facturesAbonnement) ; les webhooks la retrouvent par son paiement.',
         SequenceNumerotation::class => 'Compteur interne du Numeroteur, sous verrou, jamais exposé.',
