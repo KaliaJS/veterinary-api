@@ -158,6 +158,27 @@ class NeuroExamTest extends TestCase
         $this->assertSame(0, NeuroExam::count());
     }
 
+    /* 1re vérification du 09.11.2026 : le dos se modifie champ par champ, un booléen n'est pas un score */
+    public function test_le_dos_se_modifie_champ_par_champ(): void
+    {
+        $id = $this->postJson($this->uri(), $this->examenComplet(), $this->enTetes($this->jeton))->json('data.id');
+
+        $this->patchJson($this->uri($id), ['spine' => ['painful_regions' => ['thoracic', 'lumbar']]], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.spine.painful_regions', ['thoracic', 'lumbar'])
+            ->assertJsonPath('data.spine.cutaneous_trunci', 'cutoff')
+            ->assertJsonPath('data.spine.cutoff_at', 'L1');
+        $this->patchJson($this->uri($id), ['spine' => ['cutaneous_trunci' => 'normal']], $this->enTetes($this->jeton))
+            ->assertJsonPath('data.spine.cutoff_at', null)
+            ->assertJsonPath('data.spine.painful_regions', ['thoracic', 'lumbar']);
+    }
+
+    public function test_un_booleen_n_est_pas_un_score_de_demarche(): void
+    {
+        $this->postJson($this->uri(), ['gait_score' => true], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('gait_score');
+        $this->postJson($this->uri(), ['gait_score' => 0], $this->enTetes($this->jeton))->assertCreated()->assertJsonPath('data.gait_score', 0);
+    }
+
     public function test_un_examen_passe_se_relit_sans_se_modifier(): void
     {
         $id = $this->postJson($this->uri(), $this->examenComplet(), $this->enTetes($this->jeton))->json('data.id');

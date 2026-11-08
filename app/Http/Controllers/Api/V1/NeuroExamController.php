@@ -17,7 +17,7 @@ use Illuminate\Http\Response;
  * examens, du plus récent au plus ancien. Un examen se modifie et s'efface
  * le jour même, par l'organisation qui l'a fait ; ensuite il se relit
  * seulement. Une modification remplace chaque patte et chaque nerf envoyés
- * en entier, le dos s'il est envoyé ; le reste ne bouge pas.
+ * en entier, et chaque champ du dos envoyé ; le reste ne bouge pas.
  */
 class NeuroExamController extends Controller
 {
@@ -65,7 +65,7 @@ class NeuroExamController extends Controller
             $record->limbs = NeuroExam::normalizeLimbs([...NeuroExam::normalizeLimbs($record->limbs), ...$data['limbs']]);
         }
         if (isset($data['spine'])) {
-            $record->spine = NeuroExam::normalizeSpine($data['spine']);
+            $record->spine = NeuroExam::normalizeSpine([...NeuroExam::normalizeSpine($record->spine), ...$data['spine']]);
         }
         if (isset($data['cranial_nerves'])) {
             $record->cranial_nerves = NeuroExam::normalizeCranialNerves([...NeuroExam::normalizeCranialNerves($record->cranial_nerves), ...$data['cranial_nerves']]);

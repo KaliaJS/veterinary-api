@@ -20,7 +20,7 @@ class NeuroExamRequest extends FormRequest
     {
         $rules = [
             'mental_status' => ['nullable', Rule::in(NeuroExam::MENTAL_STATUSES)],
-            'gait_score' => ['nullable', 'integer', 'min:0', 'max:'.NeuroExam::GAIT_SCORE_MAX],
+            'gait_score' => ['nullable', 'integer', 'min:0', 'max:'.NeuroExam::GAIT_SCORE_MAX, fn (string $attribute, mixed $value, \Closure $fail) => is_bool($value) && $fail('Le score est un nombre de 0 à '.NeuroExam::GAIT_SCORE_MAX.'.')],
             'limbs' => ['sometimes', 'array'],
             'limbs.*' => ['array'],
             'limbs.*.motor' => ['nullable', Rule::in(NeuroExam::MOTOR)],

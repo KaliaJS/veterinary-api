@@ -137,6 +137,6 @@ class NeuroExam extends Model
     /** Le jour même et dans l'organisation qui l'a fait : l'examen se modifie encore */
     public function isEditableBy(?int $organisationId): bool
     {
-        return $this->day->isSameDay(aujourdhui()) && $organisationId !== null && $this->source_organisation_id === $organisationId;
+        return $this->day->isSameDay(aujourdhui()) && $organisationId !== null && (int) $this->source_organisation_id === $organisationId;
     }
 }
