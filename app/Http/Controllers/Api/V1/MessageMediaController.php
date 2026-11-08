@@ -36,6 +36,12 @@ class MessageMediaController extends Controller
         return MessageMediaService::response($this->media($media));
     }
 
+    /** La première image d'une vidéo (08.11.2026) */
+    public function poster(int $media): StreamedResponse
+    {
+        return MessageMediaService::response($this->media($media), isPoster: true);
+    }
+
     public function transcribe(int $media, ConsommationTranscription $consommation): JsonResponse
     {
         $contexte = app(ContexteClinique::class);

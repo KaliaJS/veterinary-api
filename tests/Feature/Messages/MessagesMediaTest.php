@@ -903,4 +903,60 @@ class MessagesMediaTest extends TestCase
 
         $this->assertSame($avant + 5000, $this->organisation->refresh()->stockageOctets());
     }
+
+    /** Un JPEG de la caméra, avec un bloc EXIF qui ne doit jamais être rangé */
+    private static function premiereImage(): UploadedFile
+    {
+        $im = imagecreatetruecolor(480, 480);
+        ob_start();
+        imagejpeg($im);
+        $jpg = (string) ob_get_clean();
+        $app1 = "Exif\0\0".'II*'."\0".pack('V', 8).pack('v', 0).pack('V', 0).'GPS 46.5N';
+
+        return UploadedFile::fake()->createWithContent('poster.jpg', substr($jpg, 0, 2)."\xFF\xE1".pack('n', strlen($app1) + 2).$app1.substr($jpg, 2));
+    }
+
+    public function test_une_video_part_avec_sa_premiere_image_rangee_sans_metadonnees_et_servie_a_ceux_du_fil(): void
+    {
+        $media = $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 9000, 'file' => $this->fichier('mp4', 9000), 'poster' => self::premiereImage()])
+            ->assertCreated()->assertJsonPath('data.media.has_poster', true)->json('data.media');
+
+        $poster = MessageMedia::query()->sole()->poster_path;
+        $this->assertNotNull($poster);
+        $this->assertStringNotContainsString('GPS 46.5N', Storage::disk('prive')->get($poster));
+        $this->get('/api/v1/messages/media/'.$media['id'].'/apercu', $this->enTetes($this->accueil))->assertOk()->assertHeader('Content-Type', 'image/jpeg');
+        $this->get('/api/v1/espace/messages/media/'.$media['id'].'/apercu', $this->enTetes($this->jetonProprietaire))->assertOk();
+        ['jeton' => $autre] = $this->proprietaireAvecJeton();
+        $this->get('/api/v1/espace/messages/media/'.$media['id'].'/apercu', $this->enTetes($autre))->assertNotFound();
+
+        // Effacé par le modèle : la vidéo et sa première image partent
+        $chemin = MessageMedia::query()->sole()->path;
+        MessageMedia::query()->sole()->message->delete();
+        Storage::disk('prive')->assertMissing([$chemin, $poster]);
+    }
+
+    public function test_une_image_illisible_n_empeche_pas_la_video_un_audio_n_a_pas_de_premiere_image(): void
+    {
+        $this->envoyerCommeClinique(['kind' => 'video', 'duration_ms' => 9000, 'file' => $this->fichier('mp4', 9000), 'poster' => UploadedFile::fake()->createWithContent('poster.jpg', 'pas une image')])
+            ->assertCreated()->assertJsonPath('data.media.has_poster', false);
+        $this->get('/api/v1/messages/media/'.MessageMedia::query()->sole()->id.'/apercu', $this->enTetes($this->accueil))->assertNotFound();
+
+        $this->envoyerCommeClinique(['poster' => self::premiereImage()])->assertUnprocessable()->assertJsonValidationErrors('poster');
+    }
+
+    public function test_un_compte_efface_emporte_aussi_la_premiere_image_de_ses_videos_et_la_purge_la_garde_tant_que_la_video_est_la(): void
+    {
+        $this->envoyerCommeProprietaire(['kind' => 'video', 'duration_ms' => 9000, 'file' => $this->fichier('mp4', 9000), 'poster' => self::premiereImage()])->assertCreated();
+        $media = MessageMedia::query()->sole();
+        foreach ([$media->path, $media->poster_path] as $chemin) {
+            touch(Storage::disk('prive')->path($chemin), now()->getTimestamp() - 7200);
+        }
+        $this->artisan('messages:purge-media')->expectsOutput('0 fichier(s) effacé(s).')->assertSuccessful();
+        Storage::disk('prive')->assertExists($media->poster_path);
+
+        $this->proprietaire->forceFill(['suppression_demandee_le' => now()->subDays(31)])->save();
+        $this->artisan('comptes:effacer')->assertSuccessful();
+        Storage::disk('prive')->assertMissing([$media->path, $media->poster_path]);
+        $this->assertNull($media->fresh()?->poster_path);
+    }
 }

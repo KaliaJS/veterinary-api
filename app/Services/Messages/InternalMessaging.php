@@ -106,11 +106,11 @@ class InternalMessaging
      * @param  array<int|string, float|int|string>  $peaks
      * @return array<string, mixed>
      */
-    public function sendMedia(string $key, UploadedFile $file, string $kind, int $durationMs, array $peaks): array
+    public function sendMedia(string $key, UploadedFile $file, string $kind, int $durationMs, array $peaks, ?UploadedFile $poster = null): array
     {
         return $this->deliver($key, 'file', fn (string $model, array $attributes, string $foreignKey): Model => $this->media->storeWith(
             fn (string $label): Model => $model::create([...$attributes, 'body' => $label]),
-            $foreignKey, $this->clinic()->id, $file, $kind, $durationMs, $peaks,
+            $foreignKey, $this->clinic()->id, $file, $kind, $durationMs, $peaks, $poster,
         ));
     }
 

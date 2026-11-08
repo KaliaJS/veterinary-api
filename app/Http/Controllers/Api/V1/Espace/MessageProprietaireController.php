@@ -102,7 +102,7 @@ class MessageProprietaireController extends Controller
             User::query()->whereKey($contexte->user()->id)->lockForUpdate()->first();
             $this->exigerQuota($contexte, (string) $request->validated('kind'), (int) $request->file('file')?->getSize());
 
-            return $media->store($colonnes, $request->file('file'), (string) $request->validated('kind'), $request->durationMs(), $request->validated('peaks'));
+            return $media->store($colonnes, $request->file('file'), (string) $request->validated('kind'), $request->durationMs(), $request->validated('peaks'), $request->file('poster'));
         });
         $this->annoncer($message);
 
@@ -162,6 +162,14 @@ class MessageProprietaireController extends Controller
         if ((int) $medias + (int) $siennes()->where('created_at', '>', now()->subDay())->sum('size_bytes') + $octets > (int) config('messages.media.owner_bytes_per_day')) {
             throw ValidationException::withMessages(['files' => '200 Mo d’envois par jour au plus : réessayez demain.']);
         }
+    }
+
+    /** La première image d'une vidéo de l'un de ses fils (08.11.2026) */
+    public function mediaPoster(int $media, ContexteProprietaire $contexte): StreamedResponse
+    {
+        $fichier = MessageMedia::query()->whereHas('message', fn ($q) => $q->where('user_id', $contexte->user()->id))->findOrFail($media);
+
+        return MessageMediaService::response($fichier, isPoster: true);
     }
 
     /** Le fichier d'un message audio ou vidéo de l'un de ses fils, sinon introuvable */

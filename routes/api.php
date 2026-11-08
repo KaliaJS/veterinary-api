@@ -467,6 +467,7 @@ Route::prefix('v1')->group(function (): void {
         // Messages audio et vidéo façon Telegram (07.11.2026) : envoyer, écouter
         Route::post('messages/media', [MessageProprietaireController::class, 'envoyerMedia'])->middleware('throttle:espace-messages');
         Route::get('messages/media/{media}', [MessageProprietaireController::class, 'media'])->whereNumber('media');
+        Route::get('messages/media/{media}/apercu', [MessageProprietaireController::class, 'mediaPoster'])->whereNumber('media');
         // Photos et PDF (08.11.2026) : envoyer, ouvrir, l'aperçu d'une photo
         Route::post('messages/pieces', [MessageProprietaireController::class, 'sendAttachments'])->middleware('throttle:espace-messages');
         Route::get('messages/pieces/{attachment}', [MessageProprietaireController::class, 'attachment'])->whereNumber('attachment');
@@ -695,6 +696,8 @@ Route::prefix('v1')->group(function (): void {
             // la transcription « →A » par Deepgram, une fois par message
             Route::post('{cle}/media', [MessagerieCliniqueController::class, 'repondreMedia'])->where('cle', '[uek][0-9]+')->middleware('throttle:60,1,messages-clinique');
             Route::get('media/{media}', [MessageMediaController::class, 'show'])->whereNumber('media');
+            // La première image d'une vidéo ronde (08.11.2026)
+            Route::get('media/{media}/apercu', [MessageMediaController::class, 'poster'])->whereNumber('media');
             // Photos et PDF (08.11.2026), dans tous les fils où l'on écrit ; dans le fil d'un client, aussi des documents de son dossier
             Route::post('{cle}/pieces', [MessagerieCliniqueController::class, 'replyWithAttachments'])->where('cle', '[uek][0-9]+')->middleware('throttle:60,1,messages-clinique');
             Route::get('pieces/{attachment}', [MessageAttachmentController::class, 'show'])->whereNumber('attachment');

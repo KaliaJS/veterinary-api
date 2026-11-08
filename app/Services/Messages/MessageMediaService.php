@@ -97,11 +97,11 @@ final class MessageMediaService
      * @param  array<string, mixed>  $message  les colonnes du message (clinique, compte, fiche, auteur…)
      * @param  array<int|string, float|int|string>  $peaks  l’onde validée (de 0 à 1)
      */
-    public function store(array $message, UploadedFile $file, string $kind, int $durationMs, array $peaks): MessageClientele
+    public function store(array $message, UploadedFile $file, string $kind, int $durationMs, array $peaks, ?UploadedFile $poster = null): MessageClientele
     {
         return $this->storeWith(
             fn (string $label): MessageClientele => MessageClientele::query()->create([...$message, 'texte' => $label]),
-            'message_clientele_id', (int) $message['clinique_id'], $file, $kind, $durationMs, $peaks,
+            'message_clientele_id', (int) $message['clinique_id'], $file, $kind, $durationMs, $peaks, $poster,
         );
     }
 
@@ -118,7 +118,7 @@ final class MessageMediaService
      * @param  array<int|string, float|int|string>  $peaks  l’onde validée (de 0 à 1)
      * @return TMessage
      */
-    public function storeWith(Closure $create, string $foreignKey, int $cliniqueId, UploadedFile $file, string $kind, int $durationMs, array $peaks): Model
+    public function storeWith(Closure $create, string $foreignKey, int $cliniqueId, UploadedFile $file, string $kind, int $durationMs, array $peaks, ?UploadedFile $poster = null): Model
     {
         $head = (string) @file_get_contents((string) $file->getRealPath(), false, null, 0, 64);
         $mime = self::mime($kind, $head) ?? throw new RuntimeException('Fichier non vérifié.');
@@ -126,15 +126,25 @@ final class MessageMediaService
         if ($path === false) {
             throw new RuntimeException('Le fichier du message n’a pas pu être rangé.');
         }
+        // La première image d'une vidéo (08.11.2026), réencodée ; illisible, la vidéo part sans elle
+        $posterPath = null;
+        $posterBytes = $kind === 'video' && $poster !== null ? MessageAttachmentService::smallJpeg((string) file_get_contents((string) $poster->getRealPath()), 480) : null;
+        if ($posterBytes !== null) {
+            $posterPath = 'messages/'.$cliniqueId.'/'.Str::uuid()->toString().'.jpg';
+            if (! Storage::disk('prive')->put($posterPath, $posterBytes)) {
+                $posterPath = null;
+            }
+        }
 
         try {
-            return DB::transaction(function () use ($create, $foreignKey, $kind, $path, $mime, $file, $durationMs, $peaks, $cliniqueId): Model {
+            return DB::transaction(function () use ($create, $foreignKey, $kind, $path, $posterPath, $mime, $file, $durationMs, $peaks, $cliniqueId): Model {
                 $created = $create(self::label($kind));
                 $created->setRelation('media', MessageMedia::query()->create([
                     $foreignKey => $created->getKey(),
                     'clinique_id' => $cliniqueId,
                     'kind' => $kind,
                     'path' => $path,
+                    'poster_path' => $posterPath,
                     'mime' => $mime,
                     'size_bytes' => (int) $file->getSize(),
                     'duration_ms' => $durationMs,
@@ -144,7 +154,7 @@ final class MessageMediaService
                 return $created;
             });
         } catch (Throwable $e) {
-            Storage::disk('prive')->delete($path);
+            Storage::disk('prive')->delete(array_values(array_filter([$path, $posterPath])));
             throw $e;
         }
     }
@@ -236,14 +246,16 @@ final class MessageMediaService
      * Le fichier servi : son type tel que reconnu à l'envoi, sans que le
      * navigateur le devine (`nosniff`) ; effacé avec le compte, il n'est plus là (410).
      */
-    public static function response(MessageMedia $media): StreamedResponse
+    public static function response(MessageMedia $media, bool $isPoster = false): StreamedResponse
     {
         if ($media->erased_at !== null || $media->path === null) {
             abort(410, 'Ce fichier a été effacé avec le compte de son auteur.');
         }
+        // La première image d'une vidéo (08.11.2026)
+        $path = $isPoster ? ($media->poster_path ?? abort(404)) : $media->path;
 
-        return Storage::disk('prive')->response($media->path, null, [
-            'Content-Type' => $media->mime,
+        return Storage::disk('prive')->response($path, null, [
+            'Content-Type' => $isPoster ? 'image/jpeg' : $media->mime,
             'Cache-Control' => 'private, max-age=86400',
             'X-Content-Type-Options' => 'nosniff',
         ]);
@@ -295,6 +307,8 @@ final class MessageMediaService
             'duration_ms' => $media->duration_ms,
             'peaks' => array_map(fn ($v): float => (float) $v, $media->peaks ?? []),
             'size_bytes' => $media->size_bytes,
+            // La première image d'une vidéo, à montrer avant la lecture (08.11.2026)
+            'has_poster' => $media->poster_path !== null && $media->erased_at === null,
             // Effacé avec le compte de son auteur : la bulle le dit
             'erased' => $media->erased_at !== null,
         ];

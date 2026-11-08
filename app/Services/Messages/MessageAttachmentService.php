@@ -260,6 +260,25 @@ final class MessageAttachmentService
         return $angle === 0 ? $image : (imagerotate($image, $angle, 0) ?: $image);
     }
 
+    /**
+     * Une petite image réencodée en JPEG, sans métadonnées (la première image
+     * d'une vidéo ronde, 08.11.2026) ; null si ce n'est pas une image lisible.
+     */
+    public static function smallJpeg(string $bytes, int $side): ?string
+    {
+        $head = substr($bytes, 0, 32);
+        if (! str_starts_with($head, "\xFF\xD8\xFF") && ! str_starts_with($head, "\x89PNG\r\n\x1A\n")) {
+            return null;
+        }
+        $size = @getimagesizefromstring($bytes);
+        if ($size === false || $size[0] * $size[1] > 4_000_000) {
+            return null;
+        }
+        $image = @imagecreatefromstring($bytes);
+
+        return $image === false ? null : self::encode(self::fit($image, $side), false);
+    }
+
     /** L'image réduite pour que son plus grand côté ne dépasse pas `$side` */
     private static function fit(GdImage $image, int $side): GdImage
     {

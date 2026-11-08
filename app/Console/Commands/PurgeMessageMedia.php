@@ -40,6 +40,7 @@ class PurgeMessageMedia extends Command
             // Les pièces jointes (08.11.2026) et leurs aperçus sont rangés sous messages/ aussi
             $kept = [
                 ...MessageMedia::query()->whereIn('path', $paths)->pluck('path')->all(),
+                ...MessageMedia::query()->whereIn('poster_path', $paths)->pluck('poster_path')->all(),
                 ...MessageAttachment::query()->whereIn('path', $paths)->pluck('path')->all(),
                 ...MessageAttachment::query()->whereIn('thumb_path', $paths)->pluck('thumb_path')->all(),
             ];

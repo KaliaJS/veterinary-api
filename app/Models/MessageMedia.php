@@ -32,7 +32,7 @@ class MessageMedia extends Model
     public const string STATUS_FAILED = 'failed';
 
     protected $fillable = [
-        'message_clientele_id', 'staff_message_id', 'clinic_message_id', 'clinique_id', 'kind', 'path', 'erased_at', 'mime', 'size_bytes', 'duration_ms', 'peaks',
+        'message_clientele_id', 'staff_message_id', 'clinic_message_id', 'clinique_id', 'kind', 'path', 'poster_path', 'erased_at', 'mime', 'size_bytes', 'duration_ms', 'peaks',
         'transcript_status', 'transcript', 'transcript_seconds', 'provider_seconds', 'provider_at', 'transcribed_at', 'transcript_organisation_id',
         'transcript_requested_by', 'transcript_request_id', 'transcript_attempts',
     ];
@@ -42,9 +42,10 @@ class MessageMedia extends Model
         // Données personnelles : le fichier part avec sa ligne, une fois la base
         // validée (jamais si elle annule) ; tout de suite hors transaction
         static::deleted(function (MessageMedia $media): void {
-            $path = $media->path;
-            if ($path !== null) {
-                DB::afterCommit(fn () => Storage::disk('prive')->delete($path));
+            // Le fichier et la première image d'une vidéo (08.11.2026)
+            $paths = array_values(array_filter([$media->path, $media->poster_path]));
+            if ($paths !== []) {
+                DB::afterCommit(fn () => Storage::disk('prive')->delete($paths));
             }
         });
     }

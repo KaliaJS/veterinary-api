@@ -33,6 +33,8 @@ class SendMessageMediaRequest extends FormRequest
             }],
             'duration_ms' => ['required', 'integer', 'min:'.(int) config('messages.media.min_ms'), 'max:'.($limits['max_seconds'] * 1000 + (int) config('messages.media.tolerance_ms'))],
             'peaks' => ['required', 'array', 'min:1', 'max:'.(int) config('messages.media.peaks_max')],
+            // La première image d'une vidéo (08.11.2026) : petite, et seulement pour une vidéo
+            'poster' => ['nullable', 'prohibited_unless:kind,video', 'file', 'max:300'],
             'peaks.*' => ['required', 'numeric', 'between:0,1'],
         ];
     }

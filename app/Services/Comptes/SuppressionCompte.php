@@ -267,9 +267,9 @@ class SuppressionCompte
             // partent avec le compte ; le texte du fil et la transcription restent
             $enregistrements = MessageMedia::query()->whereNull('erased_at')->whereNotNull('path')
                 ->whereHas('message', fn ($message) => $message->where('user_id', $user->id)->where('auteur', 'proprietaire'))
-                ->get(['id', 'path']);
-            array_push($fichiers, ...$enregistrements->pluck('path')->all());
-            MessageMedia::query()->whereKey($enregistrements->modelKeys())->update(['path' => null, 'erased_at' => now()]);
+                ->get(['id', 'path', 'poster_path']);
+            array_push($fichiers, ...$enregistrements->pluck('path')->all(), ...$enregistrements->pluck('poster_path')->filter()->all());
+            MessageMedia::query()->whereKey($enregistrements->modelKeys())->update(['path' => null, 'poster_path' => null, 'erased_at' => now()]);
             // Ses pièces jointes aussi (08.11.2026) : photos, aperçus et PDF partent, la légende reste
             $pieces = MessageAttachment::query()->whereNull('erased_at')->whereNotNull('path')
                 ->whereHas('message', fn ($message) => $message->where('user_id', $user->id)->where('auteur', 'proprietaire'))

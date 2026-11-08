@@ -180,10 +180,10 @@ class MessagerieCliniqueController extends Controller
     {
         // Collègues et autres cliniques aussi (décision de Jim, 07.11.2026)
         if (in_array($cle[0], ['e', 'k'], true)) {
-            return response()->json(['data' => $this->internes->sendMedia($cle, $request->file('file'), (string) $request->validated('kind'), $request->durationMs(), $request->validated('peaks'))], 201);
+            return response()->json(['data' => $this->internes->sendMedia($cle, $request->file('file'), (string) $request->validated('kind'), $request->durationMs(), $request->validated('peaks'), $request->file('poster'))], 201);
         }
         [$colonnes, $estPremier, $fiche] = $this->nouveauMessage($cle, 'file');
-        $message = $media->store($colonnes, $request->file('file'), (string) $request->validated('kind'), $request->durationMs(), $request->validated('peaks'));
+        $message = $media->store($colonnes, $request->file('file'), (string) $request->validated('kind'), $request->durationMs(), $request->validated('peaks'), $request->file('poster'));
         $this->publier($message, $fiche, $estPremier);
 
         return response()->json(['data' => $this->message($message->load('employe'))], 201);
