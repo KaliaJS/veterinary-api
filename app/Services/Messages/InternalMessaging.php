@@ -42,7 +42,7 @@ class InternalMessaging
     /** La clinique du contexte paie la transcription (lue une fois par requête) */
     private ?bool $clinicPays = null;
 
-    public function __construct(private ContexteClinique $contexte, private CalculateurPermissions $permissions, private MessageMediaService $media, private MessageReceipts $receipts, private MessageMutes $mutes) {}
+    public function __construct(private ContexteClinique $contexte, private CalculateurPermissions $permissions, private MessageMediaService $media, private MessageReceipts $receipts, private MessageMutes $mutes, private MessageAttachmentService $attachments) {}
 
     /** @return list<array<string, mixed>> */
     public function threads(): array
@@ -61,11 +61,11 @@ class InternalMessaging
             $colleague = $this->colleague((int) substr($key, 1));
             $me = $this->me();
             $this->receipts->read($this->staffBetween($me, $colleague)->where('recipient_employee_id', $me->id), 'read_at', $colleague->user_id > 0 ? 'utilisateur.'.$colleague->user_id : null);
-            $messages = $this->staffBetween($me, $colleague)->with('sender', 'media')->orderBy('created_at')->orderBy('id')->get();
+            $messages = $this->staffBetween($me, $colleague)->with('sender', 'media', 'attachments')->orderBy('created_at')->orderBy('id')->get();
 
             return [
                 ...$this->staffHeader($colleague),
-                'media_count' => $messages->filter(fn (StaffMessage $m): bool => $m->media !== null)->count(),
+                'media_count' => $messages->filter(fn (StaffMessage $m): bool => $m->media !== null)->count() + $messages->sum(fn (StaffMessage $m): int => $m->attachments->count()),
                 'messages' => $messages->map(fn (StaffMessage $m): array => $this->staffMessage($m, $me))->all(),
             ];
         }
@@ -73,11 +73,11 @@ class InternalMessaging
         $other = $this->otherClinic((int) substr($key, 1));
         $mine = $this->clinic();
         $this->receipts->read($this->clinicBetween($mine, $other)->where('recipient_clinic_id', $mine->id), 'read_at', 'clinique.'.$other->id);
-        $messages = $this->clinicBetween($mine, $other)->with('author', 'media')->orderBy('created_at')->orderBy('id')->get();
+        $messages = $this->clinicBetween($mine, $other)->with('author', 'media', 'attachments')->orderBy('created_at')->orderBy('id')->get();
 
         return [
             ...$this->clinicHeader($other),
-            'media_count' => $messages->filter(fn (ClinicMessage $m): bool => $m->media !== null)->count(),
+            'media_count' => $messages->filter(fn (ClinicMessage $m): bool => $m->media !== null)->count() + $messages->sum(fn (ClinicMessage $m): int => $m->attachments->count()),
             'messages' => $messages->map(fn (ClinicMessage $m): array => $this->clinicMessage($m, $mine, $other))->all(),
         ];
     }
@@ -111,6 +111,22 @@ class InternalMessaging
         return $this->deliver($key, 'file', fn (string $model, array $attributes, string $foreignKey): Model => $this->media->storeWith(
             fn (string $label): Model => $model::create([...$attributes, 'body' => $label]),
             $foreignKey, $this->clinic()->id, $file, $kind, $durationMs, $peaks,
+        ));
+    }
+
+    /**
+     * Des pièces jointes, photos et PDF (08.11.2026), aux mêmes conditions
+     * qu'un texte : lues par les deux collègues, ou par les équipes des deux
+     * cliniques, et par personne d'autre.
+     *
+     * @param  list<array{read: Closure(): string, name: string}>  $files
+     * @return array<string, mixed>
+     */
+    public function sendAttachments(string $key, array $files, ?string $caption): array
+    {
+        return $this->deliver($key, 'files', fn (string $model, array $attributes, string $foreignKey): Model => $this->attachments->storeWith(
+            fn (string $label): Model => $model::create([...$attributes, 'body' => $label]),
+            $foreignKey, $this->clinic()->id, $files, $caption,
         ));
     }
 
@@ -299,6 +315,7 @@ class InternalMessaging
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->read_at?->toIso8601String(),
             'status' => $m->sender_employee_id === $me->id ? MessageReceipts::status($m->delivered_at, $m->read_at) : null,
+            ...$this->attachmentsOf($m),
             'media' => $this->mediaOf($m),
         ];
     }
@@ -316,7 +333,23 @@ class InternalMessaging
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->read_at?->toIso8601String(),
             'status' => $m->sender_clinic_id === $mine->id ? MessageReceipts::status($m->delivered_at, $m->read_at) : null,
+            ...$this->attachmentsOf($m),
             'media' => $this->mediaOf($m),
+        ];
+    }
+
+    /**
+     * Les pièces jointes d'un message, et sa légende (08.11.2026)
+     *
+     * @return array{attachments: list<array<string, mixed>>, caption: ?string}
+     */
+    private function attachmentsOf(StaffMessage|ClinicMessage $m): array
+    {
+        $loaded = $m->relationLoaded('attachments');
+
+        return [
+            'attachments' => $loaded ? MessageAttachmentService::payload($m->attachments) : [],
+            'caption' => $loaded ? MessageAttachmentService::caption($m->body, $m->attachments) : null,
         ];
     }
 

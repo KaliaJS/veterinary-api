@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\MessageAttachment;
 use App\Models\MessageMedia;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
@@ -9,7 +10,8 @@ use League\Flysystem\FileAttributes;
 
 /**
  * Données personnelles (07.11.2026) : le fichier d'un message audio ou
- * vidéo s'efface avec son message. Effacé par le modèle, il part tout de
+ * vidéo s'efface avec son message, comme les pièces jointes et leurs
+ * aperçus (08.11.2026). Effacé par le modèle, il part tout de
  * suite (MessageMedia::booted). Effacé en cascade par la base (clinique,
  * organisation, employé, compte), il reste sur le disque : cette purge,
  * chaque nuit, efface tout fichier de `messages/` qu'aucun message ne
@@ -34,7 +36,13 @@ class PurgeMessageMedia extends Command
             ->map(fn (FileAttributes $file): string => $file->path());
 
         foreach ($files->chunk(500) as $chunk) {
-            $kept = MessageMedia::query()->whereIn('path', $chunk->values()->all())->pluck('path')->all();
+            $paths = $chunk->values()->all();
+            // Les pièces jointes (08.11.2026) et leurs aperçus sont rangés sous messages/ aussi
+            $kept = [
+                ...MessageMedia::query()->whereIn('path', $paths)->pluck('path')->all(),
+                ...MessageAttachment::query()->whereIn('path', $paths)->pluck('path')->all(),
+                ...MessageAttachment::query()->whereIn('thumb_path', $paths)->pluck('thumb_path')->all(),
+            ];
             $orphans = array_values(array_diff($chunk->values()->all(), $kept));
             if ($orphans !== []) {
                 $disk->delete($orphans);

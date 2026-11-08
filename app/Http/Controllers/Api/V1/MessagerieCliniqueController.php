@@ -6,15 +6,18 @@ use App\Auth\ContexteClinique;
 use App\Enums\PushType;
 use App\Events\MessagesChangent;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\V1\Messages\SendMessageAttachmentsRequest;
 use App\Http\Requests\V1\Messages\SendMessageMediaRequest;
 use App\Http\Resources\V1\Espace\AnimalProprietaireResource;
 use App\Mail\ReponseClinique;
 use App\Models\Client;
+use App\Models\Document;
 use App\Models\MessageClientele;
 use App\Models\Organisation;
 use App\Models\Patient;
 use App\Models\PreferencesProprietaire;
 use App\Services\Messages\InternalMessaging;
+use App\Services\Messages\MessageAttachmentService;
 use App\Services\Messages\MessageMediaService;
 use App\Services\Messages\MessageMutes;
 use App\Services\Messages\MessageReceipts;
@@ -24,6 +27,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Throwable;
 
@@ -114,7 +118,7 @@ class MessagerieCliniqueController extends Controller
         [$fiche, $userId, $lie] = $this->fiche($cle);
         // Lus : le propriétaire voit ses coches passer au bleu (08.11.2026)
         $this->receipts->read($this->messagesDu($cle, $fiche)->where('auteur', 'proprietaire'), 'lu_le', $userId !== null ? 'utilisateur.'.$userId : null, $userId);
-        $messages = $this->messagesDu($cle, $fiche)->with('employe', 'media')->orderBy('created_at')->orderBy('id')->get();
+        $messages = $this->messagesDu($cle, $fiche)->with('employe', 'media', 'attachments')->orderBy('created_at')->orderBy('id')->get();
         $paie = app(MessageMediaService::class)->clinicPays(Organisation::query()->find(app(ContexteClinique::class)->organisationId()));
 
         return response()->json(['data' => [
@@ -133,7 +137,8 @@ class MessagerieCliniqueController extends Controller
                 'name' => $p->nom,
                 'detail' => implode(', ', array_filter([$p->race ?: $p->espece->libelle(), mb_strtolower($p->sexe->value), AnimalProprietaireResource::age($p->ne_le)])),
             ])->all(),
-            'media_count' => $messages->filter(fn (MessageClientele $m): bool => $m->media !== null)->count(),
+            // Les audios, vidéos et pièces jointes du fil
+            'media_count' => $messages->filter(fn (MessageClientele $m): bool => $m->media !== null)->count() + $messages->sum(fn (MessageClientele $m): int => $m->attachments->count()),
             'muted' => $isMuted,
             'messages' => $messages->map(fn (MessageClientele $m): array => $this->message($m, $paie))->all(),
         ]]);
@@ -182,6 +187,64 @@ class MessagerieCliniqueController extends Controller
         $this->publier($message, $fiche, $estPremier);
 
         return response()->json(['data' => $this->message($message->load('employe'))], 201);
+    }
+
+    /**
+     * Des pièces jointes (08.11.2026) : photos et PDF, au client du fil, à un
+     * collègue ou à une autre clinique ; dans le fil d'un client, aussi des
+     * documents du dossier de ses animaux (copiés : le message garde ce qui
+     * a été envoyé, même si le document change ensuite).
+     */
+    public function replyWithAttachments(SendMessageAttachmentsRequest $request, string $cle, MessageAttachmentService $pieces): JsonResponse
+    {
+        $legende = $request->validated('texte');
+        if (in_array($cle[0], ['e', 'k'], true)) {
+            if ($request->documentIds() !== []) {
+                throw ValidationException::withMessages(['document_ids' => 'Un document du dossier s’envoie seulement au client.']);
+            }
+
+            return response()->json(['data' => $this->internes->sendAttachments($cle, $request->readers(), $legende)], 201);
+        }
+        [$colonnes, $estPremier, $fiche] = $this->nouveauMessage($cle, 'files');
+        $fichiers = [...$request->readers(), ...$this->recordDocuments($fiche, $request->documentIds(), $request)];
+        $message = $pieces->storeWith(
+            fn (string $texte): MessageClientele => MessageClientele::query()->create([...$colonnes, 'texte' => $texte]),
+            'message_clientele_id', (int) $colonnes['clinique_id'], $fichiers, $legende,
+        );
+        $this->publier($message, $fiche, $estPremier);
+
+        return response()->json(['data' => $this->message($message->load('employe'))], 201);
+    }
+
+    /**
+     * Les documents du dossier des animaux de ce client, à joindre ; un
+     * document d'un autre client, sans fichier, ou inconnu, est refusé.
+     *
+     * @param  list<int>  $ids
+     * @return list<array{read: \Closure(): string, name: string}>
+     */
+    private function recordDocuments(Client $fiche, array $ids, SendMessageAttachmentsRequest $request): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        // Un document dont le fichier manque sur le disque est refusé comme un document inconnu
+        $documents = Document::query()->whereKey($ids)->whereNotNull('chemin')
+            ->whereHas('patient', fn (Builder $patient) => $patient->where('client_id', $fiche->id))->get()
+            ->filter(fn (Document $d): bool => Storage::disk('prive')->exists((string) $d->chemin))->keyBy('id');
+        // Les documents comptent dans les 60 Mo du message, avec les fichiers envoyés
+        $total = array_sum(array_map(fn ($f): int => (int) $f->getSize(), $request->uploads()))
+            + $documents->sum(fn (Document $d): int => (int) Storage::disk('prive')->size((string) $d->chemin));
+        if ($total > SendMessageAttachmentsRequest::maxTotalBytes()) {
+            throw ValidationException::withMessages(['files' => SendMessageAttachmentsRequest::tooHeavy()]);
+        }
+
+        return array_map(function (int $id, int $i) use ($documents): array {
+            $document = $documents[$id] ?? throw ValidationException::withMessages(['document_ids.'.$i => 'Ce document n’est pas dans le dossier de ce client.']);
+            $chemin = (string) $document->chemin;
+
+            return ['read' => fn (): string => (string) Storage::disk('prive')->get($chemin), 'name' => $document->nom.'.'.pathinfo($chemin, PATHINFO_EXTENSION)];
+        }, $ids, array_keys($ids));
     }
 
     /**
@@ -283,6 +346,9 @@ class MessagerieCliniqueController extends Controller
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->lu_le?->toIso8601String(),
             'status' => $m->auteur === 'clinique' ? MessageReceipts::status($m->delivered_at, $m->lu_le) : null,
+            // Les pièces jointes, et la légende quand le texte n'est pas seulement ce qu'elles sont (08.11.2026)
+            'attachments' => $m->relationLoaded('attachments') ? MessageAttachmentService::payload($m->attachments) : [],
+            'caption' => $m->relationLoaded('attachments') ? MessageAttachmentService::caption($m->texte, $m->attachments) : null,
             'media' => $media ? MessageMediaService::forClinic($media, (bool) $paie) : null,
         ];
     }

@@ -10,6 +10,7 @@ use App\Models\Clinique;
 use App\Models\Document;
 use App\Models\Employe;
 use App\Models\FactureProprietaire;
+use App\Models\MessageAttachment;
 use App\Models\MessageClientele;
 use App\Models\MessageMedia;
 use App\Models\Patient;
@@ -269,6 +270,12 @@ class SuppressionCompte
                 ->get(['id', 'path']);
             array_push($fichiers, ...$enregistrements->pluck('path')->all());
             MessageMedia::query()->whereKey($enregistrements->modelKeys())->update(['path' => null, 'erased_at' => now()]);
+            // Ses pièces jointes aussi (08.11.2026) : photos, aperçus et PDF partent, la légende reste
+            $pieces = MessageAttachment::query()->whereNull('erased_at')->whereNotNull('path')
+                ->whereHas('message', fn ($message) => $message->where('user_id', $user->id)->where('auteur', 'proprietaire'))
+                ->get(['id', 'path', 'thumb_path']);
+            array_push($fichiers, ...$pieces->pluck('path')->all(), ...$pieces->pluck('thumb_path')->filter()->all());
+            MessageAttachment::query()->whereKey($pieces->modelKeys())->update(['path' => null, 'thumb_path' => null, 'erased_at' => now()]);
 
             // Les animaux qu'il gérait seul, sans clinique ; ceux d'une
             // clinique restent à la clinique (proprietaire_id vidé par la base).

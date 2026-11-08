@@ -56,4 +56,24 @@ return [
         'transcription_attempts' => 3,
     ],
 
+    /*
+     * Les pièces jointes (décisions de Jim, 08.11.2026) : photos et PDF, dix
+     * fichiers par message, 20 Mo chacun. Une photo est réduite à 2000 px de
+     * côté au plus (le navigateur le fait déjà, le serveur s'en assure) et
+     * réencodée sans ses métadonnées ; son aperçu fait 480 px.
+     */
+    'attachments' => [
+        'max_files' => 10,
+        'max_kb' => 20 * 1024,
+        // 60 Mo au plus par message (décision de Jim, 08.11.2026) : ce que le serveur accepte en une fois
+        'max_total_kb' => 60 * 1024,
+        'image_max_side' => 2000,
+        'thumb_side' => 480,
+        'jpeg_quality' => 85,
+        // Une image de plus de 60 mégapixels n'est pas décodée (une bombe de décompression)
+        'max_pixels' => 60_000_000,
+        // Un propriétaire envoie au plus 60 fichiers par heure ; les 200 Mo du jour comptent ensemble l'audio, la vidéo et les pièces jointes
+        'owner_files_per_hour' => 60,
+    ],
+
 ];

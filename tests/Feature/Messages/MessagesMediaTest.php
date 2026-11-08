@@ -574,7 +574,7 @@ class MessagesMediaTest extends TestCase
 
         // 200 Mo par jour, audio et vidéo ensemble
         MessageMedia::query()->latest('id')->firstOrFail()->update(['size_bytes' => 200 * 1024 * 1024 - 1000]);
-        $this->envoyerCommeProprietaire()->assertUnprocessable()->assertJsonPath('errors.file.0', '200 Mo d’enregistrements par jour au plus : réessayez demain.');
+        $this->envoyerCommeProprietaire()->assertUnprocessable()->assertJsonPath('errors.file.0', '200 Mo d’envois par jour au plus : réessayez demain.');
     }
 
     public function test_un_compte_qui_n_est_pas_client_de_l_organisation_ne_recoit_rien(): void
@@ -716,8 +716,10 @@ class MessagesMediaTest extends TestCase
         Storage::disk('prive')->assertExists($orphelin);
         // Un envoi en cours (fichier rangé, message pas encore écrit) n'est pas touché : seuls les fichiers de plus d'une heure
         Storage::disk('prive')->put('messages/'.$this->clinique->id.'/en-cours.webm', EnregistrementFactice::webm(3000));
+        // Les dates des fichiers suivent l'horloge de l'essai (la suite se joue aussi à une autre heure, HORLOGE)
+        touch(Storage::disk('prive')->path('messages/'.$this->clinique->id.'/en-cours.webm'), now()->getTimestamp());
         foreach ([$garde, $orphelin] as $chemin) {
-            touch(Storage::disk('prive')->path($chemin), time() - 7200);
+            touch(Storage::disk('prive')->path($chemin), now()->getTimestamp() - 7200);
         }
 
         $this->artisan('messages:purge-media')->expectsOutput('1 fichier(s) effacé(s).')->assertSuccessful();

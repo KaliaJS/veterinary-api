@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
@@ -19,7 +20,11 @@ class StaffMessage extends Model
     protected static function booted(): void
     {
         // Effacé par le modèle : son fichier audio ou vidéo part avec lui (la cascade de la base le laisserait)
-        static::deleting(fn (self $message) => $message->media()->first()?->delete());
+        static::deleting(function (self $message): void {
+            $message->media()->first()?->delete();
+            // Ses pièces jointes aussi (08.11.2026), une à une pour que leurs fichiers partent
+            $message->attachments()->get()->each->delete();
+        });
     }
 
     protected $fillable = ['organisation_id', 'sender_employee_id', 'recipient_employee_id', 'body', 'read_at', 'delivered_at'];
@@ -49,5 +54,12 @@ class StaffMessage extends Model
     public function media(): HasOne
     {
         return $this->hasOne(MessageMedia::class, 'staff_message_id');
+    }
+
+    /** Les pièces jointes, photos et PDF (08.11.2026), dans leur ordre
+     * @return HasMany<MessageAttachment, $this> */
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(MessageAttachment::class, 'staff_message_id')->orderBy('position')->orderBy('id');
     }
 }

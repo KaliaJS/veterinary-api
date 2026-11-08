@@ -6,11 +6,14 @@ use App\Auth\ContexteProprietaire;
 use App\Events\MessagesChangent;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Espace\EnvoyerMessageRequest;
+use App\Http\Requests\V1\Espace\SendOwnerMessageAttachmentsRequest;
 use App\Http\Requests\V1\Espace\SendOwnerMessageMediaRequest;
 use App\Models\Clinique;
+use App\Models\MessageAttachment;
 use App\Models\MessageClientele;
 use App\Models\MessageMedia;
 use App\Models\User;
+use App\Services\Messages\MessageAttachmentService;
 use App\Services\Messages\MessageMediaService;
 use App\Services\Messages\MessageReceipts;
 use App\Support\TempsReel;
@@ -49,7 +52,7 @@ class MessageProprietaireController extends Controller
             );
 
             $messages = MessageClientele::query()
-                ->with('employe', 'media')
+                ->with('employe', 'media', 'attachments')
                 ->where('user_id', $contexte->user()->id)
                 ->where('clinique_id', $clinique->id)
                 ->orderBy('created_at')
@@ -106,6 +109,61 @@ class MessageProprietaireController extends Controller
         return response()->json(['data' => $this->message($message)], 201);
     }
 
+    /**
+     * Des photos et des PDF à la clinique (08.11.2026), aux mêmes conditions
+     * qu'un texte, dans ses plafonds : le poids du jour (avec l'audio et la
+     * vidéo), et un nombre de fichiers par heure.
+     */
+    public function sendAttachments(SendOwnerMessageAttachmentsRequest $request, ContexteProprietaire $contexte, MessageAttachmentService $pieces): JsonResponse
+    {
+        $colonnes = $this->nouveauMessage((int) $request->validated('clinique_id'), $contexte);
+        $fichiers = $request->uploads();
+        $message = DB::transaction(function () use ($request, $contexte, $pieces, $colonnes, $fichiers): MessageClientele {
+            User::query()->whereKey($contexte->user()->id)->lockForUpdate()->first();
+            $this->requireAttachmentQuota($contexte, count($fichiers), (int) array_sum(array_map(fn ($f): int => (int) $f->getSize(), $fichiers)));
+
+            return $pieces->storeWith(
+                fn (string $texte): MessageClientele => MessageClientele::query()->create([...$colonnes, 'texte' => $texte]),
+                'message_clientele_id', (int) $colonnes['clinique_id'], $request->readers(), $request->validated('texte'),
+            );
+        });
+        $this->annoncer($message);
+
+        return response()->json(['data' => $this->message($message)], 201);
+    }
+
+    /** Une pièce jointe de l'un de ses fils (ou l'aperçu d'une photo), sinon introuvable */
+    public function attachment(int $attachment, ContexteProprietaire $contexte): StreamedResponse
+    {
+        return MessageAttachmentService::response($this->ownedAttachment($attachment, $contexte));
+    }
+
+    public function attachmentThumb(int $attachment, ContexteProprietaire $contexte): StreamedResponse
+    {
+        return MessageAttachmentService::response($this->ownedAttachment($attachment, $contexte), isThumb: true);
+    }
+
+    private function ownedAttachment(int $id, ContexteProprietaire $contexte): MessageAttachment
+    {
+        return MessageAttachment::query()->whereHas('message', fn ($q) => $q->where('user_id', $contexte->user()->id))->findOrFail($id);
+    }
+
+    /**
+     * Pièces jointes du propriétaire : 60 fichiers par heure au plus ; leur
+     * poids compte dans les 200 Mo du jour, avec l'audio et la vidéo.
+     */
+    private function requireAttachmentQuota(ContexteProprietaire $contexte, int $nombre, int $octets): void
+    {
+        $siennes = fn () => MessageAttachment::query()->whereHas('message', fn ($q) => $q->where('user_id', $contexte->user()->id)->where('auteur', 'proprietaire'));
+        if ($siennes()->where('created_at', '>', now()->subHour())->count() + $nombre > (int) config('messages.attachments.owner_files_per_hour')) {
+            throw ValidationException::withMessages(['files' => sprintf('%d fichiers par heure au plus : réessayez un peu plus tard.', (int) config('messages.attachments.owner_files_per_hour'))]);
+        }
+        $medias = MessageMedia::query()->whereHas('message', fn ($q) => $q->where('user_id', $contexte->user()->id)->where('auteur', 'proprietaire'))->where('created_at', '>', now()->subDay())->sum('size_bytes');
+        if ((int) $medias + (int) $siennes()->where('created_at', '>', now()->subDay())->sum('size_bytes') + $octets > (int) config('messages.media.owner_bytes_per_day')) {
+            throw ValidationException::withMessages(['files' => '200 Mo d’envois par jour au plus : réessayez demain.']);
+        }
+    }
+
     /** Le fichier d'un message audio ou vidéo de l'un de ses fils, sinon introuvable */
     public function media(int $media, ContexteProprietaire $contexte): StreamedResponse
     {
@@ -126,8 +184,10 @@ class MessageProprietaireController extends Controller
         if ($kind === 'video' && $siens()->where('kind', 'video')->where('created_at', '>', now()->subHour())->count() >= (int) config('messages.media.owner_videos_per_hour')) {
             throw ValidationException::withMessages(['file' => 'Dix vidéos par heure au plus : réessayez un peu plus tard.']);
         }
-        if ((int) $siens()->where('created_at', '>', now()->subDay())->sum('size_bytes') + $octets > (int) config('messages.media.owner_bytes_per_day')) {
-            throw ValidationException::withMessages(['file' => '200 Mo d’enregistrements par jour au plus : réessayez demain.']);
+        // Le poids du jour compte aussi les pièces jointes (vérification du 08.11.2026 : dans les deux sens)
+        $pieces = MessageAttachment::query()->whereHas('message', fn ($q) => $q->where('user_id', $contexte->user()->id)->where('auteur', 'proprietaire'))->where('created_at', '>', now()->subDay())->sum('size_bytes');
+        if ((int) $siens()->where('created_at', '>', now()->subDay())->sum('size_bytes') + (int) $pieces + $octets > (int) config('messages.media.owner_bytes_per_day')) {
+            throw ValidationException::withMessages(['file' => '200 Mo d’envois par jour au plus : réessayez demain.']);
         }
     }
 
@@ -221,6 +281,9 @@ class MessageProprietaireController extends Controller
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->lu_le?->toIso8601String(),
             'status' => $m->auteur === 'proprietaire' ? MessageReceipts::status($m->delivered_at, $m->lu_le) : null,
+            // Les pièces jointes et la légende (08.11.2026)
+            'attachments' => $m->relationLoaded('attachments') ? MessageAttachmentService::payload($m->attachments) : [],
+            'caption' => $m->relationLoaded('attachments') ? MessageAttachmentService::caption($m->texte, $m->attachments) : null,
             // Audio ou vidéo : le fichier, sa durée et son onde ; la transcription reste à la clinique
             'media' => $m->relationLoaded('media') && $m->media ? MessageMediaService::forOwner($m->media) : null,
         ];

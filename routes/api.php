@@ -102,6 +102,7 @@ use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
 use App\Http\Controllers\Api\V1\LocalityController;
 use App\Http\Controllers\Api\V1\LotController;
+use App\Http\Controllers\Api\V1\MessageAttachmentController;
 use App\Http\Controllers\Api\V1\MessageMediaController;
 use App\Http\Controllers\Api\V1\MessagerieCliniqueController;
 use App\Http\Controllers\Api\V1\MouvementStockController;
@@ -466,6 +467,10 @@ Route::prefix('v1')->group(function (): void {
         // Messages audio et vidéo façon Telegram (07.11.2026) : envoyer, écouter
         Route::post('messages/media', [MessageProprietaireController::class, 'envoyerMedia'])->middleware('throttle:espace-messages');
         Route::get('messages/media/{media}', [MessageProprietaireController::class, 'media'])->whereNumber('media');
+        // Photos et PDF (08.11.2026) : envoyer, ouvrir, l'aperçu d'une photo
+        Route::post('messages/pieces', [MessageProprietaireController::class, 'sendAttachments'])->middleware('throttle:espace-messages');
+        Route::get('messages/pieces/{attachment}', [MessageProprietaireController::class, 'attachment'])->whereNumber('attachment');
+        Route::get('messages/pieces/{attachment}/apercu', [MessageProprietaireController::class, 'attachmentThumb'])->whereNumber('attachment');
         Route::get('coordonnees', [CoordonneesProprietaireController::class, 'afficher']);
         Route::get('preferences', [ReglagesProprietaireController::class, 'preferences']);
         // « Terminer la configuration » du propriétaire (28.10.2026)
@@ -690,6 +695,10 @@ Route::prefix('v1')->group(function (): void {
             // la transcription « →A » par Deepgram, une fois par message
             Route::post('{cle}/media', [MessagerieCliniqueController::class, 'repondreMedia'])->where('cle', '[uek][0-9]+')->middleware('throttle:60,1,messages-clinique');
             Route::get('media/{media}', [MessageMediaController::class, 'show'])->whereNumber('media');
+            // Photos et PDF (08.11.2026), dans tous les fils où l'on écrit ; dans le fil d'un client, aussi des documents de son dossier
+            Route::post('{cle}/pieces', [MessagerieCliniqueController::class, 'replyWithAttachments'])->where('cle', '[uek][0-9]+')->middleware('throttle:60,1,messages-clinique');
+            Route::get('pieces/{attachment}', [MessageAttachmentController::class, 'show'])->whereNumber('attachment');
+            Route::get('pieces/{attachment}/apercu', [MessageAttachmentController::class, 'thumb'])->whereNumber('attachment');
             Route::post('media/{media}/transcription', [MessageMediaController::class, 'transcribe'])->whereNumber('media')->middleware('throttle:30,1,messages-transcription');
         });
         Route::put('rappels/reglages', [RappelsController::class, 'modifierReglages']);
