@@ -564,6 +564,14 @@ class SurgeryReportTest extends TestCase
         $this->assertContains('surgery_report', $kinds);
     }
 
+    public function test_une_intervention_d_avant_restee_au_reveil_reste_a_terminer_meme_rapport_valide(): void
+    {
+        $this->intervention->forceFill(['statut' => StatutIntervention::Reveil, 'prevu_le' => now()->subDays(2)])->save();
+        SurgeryReport::query()->create(['intervention_id' => $this->intervention->id, 'status' => 'validated', 'sections' => ['technique' => 'x'], 'validated_at' => now()]);
+        $kinds = collect($this->getJson('/api/v1/unfinished-work', $this->enTetes($this->jeton))->json('data.groups'))->pluck('kind')->all();
+        $this->assertContains('surgery_report', $kinds);
+    }
+
     private function dicter(): void
     {
         $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');

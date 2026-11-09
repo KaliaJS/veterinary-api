@@ -228,6 +228,10 @@ class UnfinishedWork
                 $isValidated = $surgery->report?->status === 'validated';
                 if ($this->count($isToday, $isValidated)) {
                     $this->add('surgery_report', $line);
+                } elseif (! $isToday && $surgery->statut === StatutIntervention::Reveil) {
+                    // Rapport validé mais intervention d'un jour d'avant jamais close : elle reste à terminer (13e vérification)
+                    $this->count(false, false);
+                    $this->add('surgery_report', $line);
                 }
             } elseif (! $isToday) {
                 // Jamais close : son rapport ne peut pas être fait, elle reste à terminer
