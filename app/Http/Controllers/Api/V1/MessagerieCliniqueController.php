@@ -342,6 +342,8 @@ class MessagerieCliniqueController extends Controller
             'auteur' => $m->auteur,
             'is_mine' => $m->auteur === 'clinique',
             'signature' => $m->auteur === 'clinique' ? $m->employe?->nom : null,
+            // Écrit par l'employé qui lit : sa bulle ne porte pas son nom, façon WhatsApp (09.11.2026)
+            'is_by_me' => $m->auteur === 'clinique' && $m->employe_id !== null && $m->employe_id === app(ContexteClinique::class)->employe()?->id,
             'texte' => $m->texte,
             'envoye_le' => $m->created_at?->toIso8601String(),
             'lu_le' => $m->lu_le?->toIso8601String(),

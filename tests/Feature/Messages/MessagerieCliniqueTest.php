@@ -90,6 +90,23 @@ class MessagerieCliniqueTest extends TestCase
         Event::assertDispatched(MessagesChangent::class, fn (MessagesChangent $e): bool => $e->broadcastOn()[0]->name === 'private-utilisateur.'.$this->proprietaire->id);
     }
 
+    /** Le nom sur les bulles façon WhatsApp (09.11.2026) : chaque employé sait quelles réponses sont les siennes, les autres portent le nom de leur auteur. */
+    public function test_chaque_employe_reconnait_ses_propres_reponses(): void
+    {
+        ['jeton' => $veto] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dr Anna Meyer'], 'asv');
+        $this->ecrireCommeProprietaire('Félix tousse depuis hier.');
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Passez cet après-midi.'], $this->enTetes($this->accueil))
+            ->assertCreated()->assertJsonPath('data.is_by_me', true);
+        $this->postJson("/api/v1/messages/u{$this->proprietaire->id}", ['texte' => 'Je le verrai à 16 h.'], $this->enTetes($veto))->assertCreated();
+
+        $vuParJulie = $this->getJson("/api/v1/messages/u{$this->proprietaire->id}", $this->enTetes($this->accueil))->assertOk()->json('data.messages');
+        $vuParAnna = $this->getJson("/api/v1/messages/u{$this->proprietaire->id}", $this->enTetes($veto))->assertOk()->json('data.messages');
+
+        $this->assertSame([false, true, false], array_column($vuParJulie, 'is_by_me'));
+        $this->assertSame([false, false, true], array_column($vuParAnna, 'is_by_me'));
+        $this->assertSame('Dr Anna Meyer', $vuParJulie[2]['signature']);
+    }
+
     /** Notification du téléphone (02.11.2026) : la réponse de la clinique arrive sur le téléphone du propriétaire, à lui seul. */
     public function test_un_message_de_la_clinique_previent_le_telephone_du_proprietaire(): void
     {

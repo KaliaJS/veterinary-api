@@ -72,13 +72,14 @@ class InternalMessaging
 
         $other = $this->otherClinic((int) substr($key, 1));
         $mine = $this->clinic();
+        $me = $this->contexte->employe();
         $this->receipts->read($this->clinicBetween($mine, $other)->where('recipient_clinic_id', $mine->id), 'read_at', 'clinique.'.$other->id);
         $messages = $this->clinicBetween($mine, $other)->with('author', 'media', 'attachments')->orderBy('created_at')->orderBy('id')->get();
 
         return [
             ...$this->clinicHeader($other),
             'media_count' => $messages->filter(fn (ClinicMessage $m): bool => $m->media !== null)->count() + $messages->sum(fn (ClinicMessage $m): int => $m->attachments->count()),
-            'messages' => $messages->map(fn (ClinicMessage $m): array => $this->clinicMessage($m, $mine, $other))->all(),
+            'messages' => $messages->map(fn (ClinicMessage $m): array => $this->clinicMessage($m, $mine, $other, $me))->all(),
         ];
     }
 
@@ -179,7 +180,7 @@ class InternalMessaging
         // Sauf ceux qui ont mis cette conversation en silence (08.11.2026)
         Push::to($this->mutes->audible(Push::staffOf($other->id, DomainePermission::Patients), $other->id, 'k'.$mine->id), PushType::TeamMessage, $mine->nom, mb_strimwidth($message->body, 0, 120, '…'), '/clinique/messages', except: $me->user_id);
 
-        return $this->clinicMessage($message->load('author'), $mine, $other);
+        return $this->clinicMessage($message->load('author'), $mine, $other, $me);
     }
 
     /**
@@ -310,6 +311,7 @@ class InternalMessaging
         return [
             'id' => 'e'.$m->id,
             'is_mine' => $m->sender_employee_id === $me->id,
+            'is_by_me' => $m->sender_employee_id === $me->id,
             'signature' => $m->sender?->nom,
             'texte' => $m->body,
             'envoye_le' => $m->created_at?->toIso8601String(),
@@ -321,13 +323,15 @@ class InternalMessaging
     }
 
     /** @return array<string, mixed> */
-    private function clinicMessage(ClinicMessage $m, Clinique $mine, Clinique $other): array
+    private function clinicMessage(ClinicMessage $m, Clinique $mine, Clinique $other, ?Employe $me): array
     {
         $clinic = $m->sender_clinic_id === $mine->id ? $mine : $other;
 
         return [
             'id' => 'k'.$m->id,
             'is_mine' => $m->sender_clinic_id === $mine->id,
+            // Écrit par l'employé qui lit : sa bulle ne porte pas son nom, façon WhatsApp (09.11.2026)
+            'is_by_me' => $me !== null && $m->author_employee_id === $me->id,
             'signature' => implode(', ', array_filter([$m->author?->nom, $clinic->nom])),
             'texte' => $m->body,
             'envoye_le' => $m->created_at?->toIso8601String(),

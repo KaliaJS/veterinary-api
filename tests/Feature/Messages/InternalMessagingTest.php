@@ -128,6 +128,11 @@ class InternalMessagingTest extends TestCase
         $this->getJson('/api/v1/messages/k'.$centre->id, $this->enTetes($lucieToken))->assertOk()
             ->assertJsonPath('data.messages.1.signature', 'Julie Perret, Centre vétérinaire de Morges')
             ->assertJsonPath('data.messages.1.is_mine', false)->assertJsonPath('data.messages.0.is_mine', true);
+        // Façon WhatsApp (09.11.2026) : le message d'Anne est de la clinique de Lucie, mais pas d'elle ; Anne s'y reconnaît
+        $this->getJson('/api/v1/messages/k'.$centre->id, $this->enTetes($lucieToken))
+            ->assertJsonPath('data.messages.0.is_by_me', false)->assertJsonPath('data.messages.1.is_by_me', false);
+        $this->getJson('/api/v1/messages/k'.$centre->id, $this->enTetes($this->anneToken))
+            ->assertJsonPath('data.messages.0.is_by_me', true)->assertJsonPath('data.messages.1.is_by_me', false);
 
         // Une clinique sœur ne lit pas le canal de Lausanne
         $this->assertSame([], $this->threads($this->marcToken));
