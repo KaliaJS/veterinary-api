@@ -16,8 +16,8 @@ use Illuminate\Support\Facades\Mail;
 use Throwable;
 
 /**
- * Un écrit du séjour part au propriétaire (rapport de la journée, 03.11.2026 ;
- * lettre de sortie, 09.11.2026) : un message de la clinique dans sa
+ * Un écrit part au propriétaire (rapport de la journée, 03.11.2026 ; lettre
+ * de sortie et partage du dossier, 09.11.2026) : un message de la clinique dans sa
  * messagerie, créé dans la transaction de l'envoi, puis l'annonce, la
  * notification et l'e-mail (s'il ne l'a pas coupé), après.
  */
@@ -36,9 +36,19 @@ final class OwnerMessages
      */
     public function create(Sejour $sejour, Client $client, string $text): array
     {
-        $first = ! MessageClientele::query()->where('clinique_id', $sejour->clinique_id)->where('user_id', $client->user_id)->exists();
+        return $this->createFor((int) $sejour->clinique_id, $client, $text);
+    }
+
+    /**
+     * Le message d'une clinique, hors séjour (le partage du dossier, 09.11.2026)
+     *
+     * @return array{0: MessageClientele, 1: bool}
+     */
+    public function createFor(int $cliniqueId, Client $client, string $text): array
+    {
+        $first = ! MessageClientele::query()->where('clinique_id', $cliniqueId)->where('user_id', $client->user_id)->exists();
         $message = MessageClientele::create([
-            'clinique_id' => $sejour->clinique_id,
+            'clinique_id' => $cliniqueId,
             'user_id' => $client->user_id,
             'client_id' => $client->id,
             'employe_id' => app(ContexteClinique::class)->employe()?->id,
@@ -52,10 +62,15 @@ final class OwnerMessages
     /** Après la transaction : les écrans, le téléphone et l'e-mail du propriétaire */
     public function notify(Sejour $sejour, Client $client, MessageClientele $message, string $text, bool $first): void
     {
+        $this->notifyFor((int) $sejour->clinique_id, $client, $message, $text, $first);
+    }
+
+    public function notifyFor(int $cliniqueId, Client $client, MessageClientele $message, string $text, bool $first): void
+    {
         $contexte = app(ContexteClinique::class);
         $userId = (int) $client->user_id;
         TempsReel::diffuser(fn () => MessagesChangent::dispatch('utilisateur.'.$userId, $userId));
-        TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$sejour->clinique_id, $userId));
+        TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$cliniqueId, $userId));
         Push::to([$userId], PushType::ClinicMessage, (string) $contexte->clinique()?->nom, mb_strimwidth($text, 0, 120, '…'), '/espace/messages');
         if ($client->user !== null && PreferencesProprietaire::query()->where('user_id', $userId)->value('reponses_clinique') !== false) {
             try {

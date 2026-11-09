@@ -151,6 +151,7 @@ use App\Http\Controllers\Api\V1\ProductVatRateController;
 use App\Http\Controllers\Api\V1\ProduitController;
 use App\Http\Controllers\Api\V1\ProfilVeterinaireController;
 use App\Http\Controllers\Api\V1\PublicConsentController;
+use App\Http\Controllers\Api\V1\PublicRecordShareController;
 use App\Http\Controllers\Api\V1\Purchasing\AutoBasketController;
 use App\Http\Controllers\Api\V1\Purchasing\ProductSourcesController;
 use App\Http\Controllers\Api\V1\Purchasing\SupplierController;
@@ -158,6 +159,7 @@ use App\Http\Controllers\Api\V1\RadioController;
 use App\Http\Controllers\Api\V1\RadioDossierController;
 use App\Http\Controllers\Api\V1\RadioPreviewController;
 use App\Http\Controllers\Api\V1\RappelsController;
+use App\Http\Controllers\Api\V1\RecordShareController;
 use App\Http\Controllers\Api\V1\ReferentielImagerieController;
 use App\Http\Controllers\Api\V1\ReferringVetController;
 use App\Http\Controllers\Api\V1\RegistreStupefiantController;
@@ -343,6 +345,14 @@ Route::prefix('v1')->group(function (): void {
                 Route::get('{name}', [VideoViewingController::class, 'media'])->name('videos.hls.media');
             });
         Route::get('certificates/{code}', [VideoViewingController::class, 'verify'])->middleware('throttle:30,1');
+        // Le lien de partage du dossier (09.11.2026), sans compte : la page, chaque pièce et ses fichiers, « Tout télécharger » compté
+        Route::prefix('record-shares/{token}')->where(['token' => '[A-Za-z0-9]{48}'])->withoutMiddleware('throttle:60,1')->middleware('throttle:240,1,record-share-public')->group(function (): void {
+            Route::get('/', [PublicRecordShareController::class, 'show']);
+            Route::get('items/{type}/{id}', [PublicRecordShareController::class, 'item'])->whereNumber('id');
+            Route::get('items/{type}/{id}/files/{n}', [PublicRecordShareController::class, 'file'])->whereNumber(['id', 'n']);
+            // Sa propre limite seulement : composé juste avant, le compte ne tombe pas sur celle de la page (4e vérification)
+            Route::post('downloads', [PublicRecordShareController::class, 'download'])->withoutMiddleware('throttle:240,1,record-share-public')->middleware('throttle:10,1,record-share-download');
+        });
         // Vérifier l'authenticité d'une ordonnance : numéro et code imprimés, ou le code QR (01.11.2026)
         Route::get('ordonnances/verifier', VerificationOrdonnanceController::class)->middleware('throttle:20,1,verification-ordonnance');
         // L'écran « Vidéos » sans compte, depuis l'accueil du site (31.10.2026, demande de Jim) : les vidéos
@@ -733,6 +743,17 @@ Route::prefix('v1')->group(function (): void {
         Route::get('patients/{patient}/documents', [DocumentController::class, 'index']);
         Route::post('patients/{patient}/documents', [DocumentController::class, 'store']);
         Route::get('patients/{patient}/documents/{document}/fichier', [DocumentController::class, 'fichier'])->whereNumber('document');
+
+        // Partager le dossier (09.11.2026) : les pièces d'une période, chacune imprimable et ses fichiers (l'export en PDF),
+        // les liens provisoires de l'animal (créer, lister avec leurs ouvertures, couper)
+        Route::middleware('can:patients')->group(function (): void {
+            Route::get('patients/{patient}/share-items', [RecordShareController::class, 'items']);
+            Route::get('patients/{patient}/share-items/{type}/{id}', [RecordShareController::class, 'item'])->whereNumber('id');
+            Route::get('patients/{patient}/share-items/{type}/{id}/files/{n}', [RecordShareController::class, 'file'])->whereNumber(['id', 'n']);
+            Route::get('patients/{patient}/shares', [RecordShareController::class, 'index']);
+            Route::post('patients/{patient}/shares', [RecordShareController::class, 'store'])->middleware('throttle:20,1,record-shares');
+            Route::post('record-shares/{share}/revoke', [RecordShareController::class, 'revoke'])->whereNumber('share');
+        });
 
         Route::get('patients/{patient}/releves-ophtalmologiques', [ReleveOphtalmologiqueController::class, 'index']);
         Route::post('patients/{patient}/releves-ophtalmologiques', [ReleveOphtalmologiqueController::class, 'store']);
