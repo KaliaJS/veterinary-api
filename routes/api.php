@@ -54,6 +54,7 @@ use App\Http\Controllers\Api\V1\DecompteAssuranceController;
 use App\Http\Controllers\Api\V1\DemandeRattachementController;
 use App\Http\Controllers\Api\V1\DemandeRendezVousController;
 use App\Http\Controllers\Api\V1\DevisController;
+use App\Http\Controllers\Api\V1\DischargeLetterController;
 use App\Http\Controllers\Api\V1\DisponibiliteController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\DomainePublicController;
@@ -1143,6 +1144,15 @@ Route::prefix('v1')->group(function (): void {
             Route::patch('sejours/{sejour}/feuilles/{jour}/rapport', [DailyReportController::class, 'update'])->where('jour', '\d{4}-\d{2}-\d{2}');
             Route::post('sejours/{sejour}/feuilles/{jour}/rapport/signer', [DailyReportController::class, 'sign'])->where('jour', '\d{4}-\d{2}-\d{2}');
             Route::post('sejours/{sejour}/feuilles/{jour}/rapport/envoyer', [DailyReportController::class, 'send'])->where('jour', '\d{4}-\d{2}-\d{2}');
+
+            // La lettre de sortie (09.11.2026) : consignes, brouillon de l'IA, signature, envoi ; la dictée des consignes
+            Route::get('sejours/{sejour}/letter', [DischargeLetterController::class, 'show']);
+            Route::patch('sejours/{sejour}/letter', [DischargeLetterController::class, 'update']);
+            Route::post('sejours/{sejour}/letter/draft', [DischargeLetterController::class, 'draft'])->middleware('throttle:transcription');
+            Route::post('sejours/{sejour}/letter/sign', [DischargeLetterController::class, 'sign']);
+            Route::post('sejours/{sejour}/letter/send', [DischargeLetterController::class, 'send']);
+            Route::get('sejours/{sejour}/enregistrement', [EnregistrementConsultationController::class, 'afficherDicteeSejour']);
+            Route::post('sejours/{sejour}/enregistrement', [EnregistrementConsultationController::class, 'demarrerDicteeSejour'])->middleware('throttle:transcription');
         });
 
         // Domaine laboratoire — rattaché au domaine patients (dossier

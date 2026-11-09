@@ -12,6 +12,7 @@ use App\Enums\TypeRendezVous;
 use App\Models\Analyse;
 use App\Models\AntibioticDeclaration;
 use App\Models\Clinique;
+use App\Models\DischargeLetter;
 use App\Models\Employe;
 use App\Models\ExamenImagerie;
 use App\Models\Intervention;
@@ -31,7 +32,7 @@ use Illuminate\Database\Eloquent\Builder;
  * feuille d'hospitalisation, le prélèvement, l'examen). Le pourcentage
  * compte ce qui vient d'aujourd'hui et qui est fait, sur ce qui vient
  * d'aujourd'hui plus tout ce qui reste des jours d'avant, sans limite
- * (choix de Jim). Neuf sortes :
+ * (choix de Jim). Dix sortes :
  * - compte rendu à rédiger : consultation, contrôle, urgence, fin de vie
  *   ou téléconsultation finie, sans compte rendu rédigé ;
  * - compte rendu à signer : rédigé, pas signé (seulement pour qui a le
@@ -43,6 +44,9 @@ use Illuminate\Database\Eloquent\Builder;
  *   ou urgence), y compris celles prévues plus tard dans la journée ;
  * - rapport d'hospitalisation : chaque jour d'un séjour dont il est le
  *   vétérinaire, tant que le rapport du jour n'est pas signé ;
+ * - lettre de sortie (09.11.2026) : un séjour dont il est le vétérinaire,
+ *   une fois l'animal sorti, tant que la lettre n'est pas signée (droit de
+ *   signer) ; les sorties d'avant la lettre ne comptent pas ;
  * - analyse à valider (droit de valider) et imagerie à interpréter (droit
  *   de signer), qu'il a prescrites ;
  * - rendez-vous resté ouvert : passé, ni fini ni non venu ;
@@ -61,7 +65,7 @@ class UnfinishedWork
     public const MAX_LINES = 100;
 
     /** Les sortes, dans l'ordre de la liste */
-    public const KINDS = ['report_to_write', 'report_to_sign', 'surgery_report', 'consent', 'stay_report', 'lab', 'imaging', 'open_appointment', 'antibiotic_declaration'];
+    public const KINDS = ['report_to_write', 'report_to_sign', 'surgery_report', 'consent', 'stay_report', 'discharge_letter', 'lab', 'imaging', 'open_appointment', 'antibiotic_declaration'];
 
     /** @var array<string, array{count: int, lines: list<array<string, mixed>>}> */
     private array $remaining = [];
@@ -100,6 +104,9 @@ class UnfinishedWork
         }
         if ($clinique->aService(ServiceClinique::Hospitalisation)) {
             $this->stays($employe);
+            if ($canSign) {
+                $this->dischargeLetters($employe);
+            }
         }
         if ($can(DomainePermission::ValiderAnalyses) && $clinique->aService(ServiceClinique::Laboratoire)) {
             $this->labs($employe);
@@ -297,6 +304,33 @@ class UnfinishedWork
                         'target' => ['type' => 'stay', 'id' => $stay->id, 'day' => $key],
                     ]);
                 }
+            }
+        }
+    }
+
+    /** La lettre de sortie de chaque séjour sorti, tant qu'elle n'est pas signée */
+    private function dischargeLetters(Employe $employe): void
+    {
+        $stays = Sejour::query()
+            ->where('veterinaire_id', $employe->id)
+            ->whereNotNull('sorti_le')
+            ->where('sorti_le', '>=', CarbonImmutable::parse(DischargeLetter::SINCE, $this->timezone)->utc())
+            ->with(['patient:id,nom', 'dischargeLetter:id,sejour_id,status'])
+            ->orderBy('sorti_le')
+            ->get();
+        foreach ($stays as $stay) {
+            $isToday = $stay->sorti_le >= $this->dayStart;
+            if ($this->count($isToday, $stay->dischargeLetter?->isSigned() ?? false)) {
+                $this->add('discharge_letter', [
+                    'id' => $stay->id,
+                    'patient' => $stay->patient?->nom,
+                    'label' => null,
+                    'box' => $stay->box,
+                    'at' => $stay->sorti_le->toIso8601String(),
+                    'letter_status' => $stay->dischargeLetter->status ?? 'empty',
+                    'is_earlier' => ! $isToday,
+                    'target' => ['type' => 'discharge_letter', 'id' => $stay->id],
+                ]);
             }
         }
     }

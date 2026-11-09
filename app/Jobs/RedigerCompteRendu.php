@@ -9,6 +9,7 @@ use App\Services\Bloc\SurgeryReportDrafts;
 use App\Services\Bloc\SurgeryReportSources;
 use App\Services\BudgetAnthropic;
 use App\Services\CompteurMensuel;
+use App\Services\Hospitalisation\DischargeLetters;
 use App\Services\Transcription\BrouillonSoap;
 use App\Services\Transcription\Redacteur;
 use App\Services\Transcription\RedactionImpossible;
@@ -72,6 +73,24 @@ final class RedigerCompteRendu implements ShouldQueue
                 EnregistrementConsultation::annoncer($enregistrement->id);
                 if ($intervention && SurgeryReportSources::isReportable($intervention)) {
                     app(SurgeryReportDrafts::class)->request($intervention, isDictation: true);
+                }
+            }
+
+            return;
+        }
+
+        // Dictée des consignes d'une lettre de sortie (09.11.2026) : de même,
+        // la dictée est prête et le brouillon de la lettre s'écrit
+        if ($enregistrement->sejour_id !== null) {
+            $pret = EnregistrementConsultation::withoutGlobalScopes()
+                ->whereKey($enregistrement->id)
+                ->where('statut', StatutEnregistrement::Transcription->value)
+                ->update(['statut' => StatutEnregistrement::Pret->value, 'erreur' => null, 'redige_le' => now()]);
+            $sejour = $enregistrement->sejour;
+            if ($pret === 1) {
+                EnregistrementConsultation::annoncer($enregistrement->id);
+                if ($sejour) {
+                    app(DischargeLetters::class)->request($sejour, isDictation: true);
                 }
             }
 

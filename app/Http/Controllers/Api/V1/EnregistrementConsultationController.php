@@ -10,10 +10,12 @@ use App\Http\Requests\V1\Transcription\TerminerEnregistrementRequest;
 use App\Http\Resources\V1\EnregistrementConsultationResource;
 use App\Jobs\RedigerCompteRendu;
 use App\Jobs\TranscrirePartie;
+use App\Models\DischargeLetter;
 use App\Models\EnregistrementConsultation;
 use App\Models\Intervention;
 use App\Models\Organisation;
 use App\Models\RendezVous;
+use App\Models\Sejour;
 use App\Services\Bloc\SurgeryReportSources;
 use App\Services\Transcription\ConsommationTranscription;
 use Illuminate\Database\Eloquent\Builder;
@@ -84,19 +86,43 @@ class EnregistrementConsultationController extends Controller
         return $this->ouvrir($request, 'intervention_id', $intervention->id);
     }
 
+    /** La dernière dictée des consignes de la lettre de sortie d'un séjour (09.11.2026). */
+    public function afficherDicteeSejour(Sejour $sejour): EnregistrementConsultationResource
+    {
+        $this->authorize('view', $sejour);
+
+        return new EnregistrementConsultationResource($this->dernierPour('sejour_id', $sejour->id) ?? abort(404));
+    }
+
     /**
-     * Une dictée de bloc s'ouvre sous le verrou de son intervention (9e
-     * vérification) : deux appareils qui commencent au même instant
-     * retrouvent la même dictée, jamais deux
+     * Le vétérinaire dicte les consignes de la lettre de sortie (09.11.2026),
+     * comme le rapport de bloc ; transcrite, la dictée nourrit son brouillon.
+     */
+    public function demarrerDicteeSejour(Request $request, Sejour $sejour): EnregistrementConsultationResource
+    {
+        $this->authorize('update', $sejour);
+        $this->authorize('create', EnregistrementConsultation::class);
+
+        return $this->ouvrir($request, 'sejour_id', $sejour->id);
+    }
+
+    /**
+     * Une dictée de bloc (ou de lettre de sortie) s'ouvre sous le verrou de
+     * son intervention (ou de son séjour) (9e vérification) : deux appareils
+     * qui commencent au même instant retrouvent la même dictée, jamais deux
      */
     private function ouvrir(Request $request, string $cible, int $id): EnregistrementConsultationResource
     {
-        if ($cible !== 'intervention_id') {
+        if ($cible === 'rendez_vous_id') {
             return $this->ouvrirSansVerrou($request, $cible, $id);
         }
 
         return DB::transaction(function () use ($request, $cible, $id): EnregistrementConsultationResource {
-            Intervention::withoutGlobalScopes()->whereKey($id)->lockForUpdate()->first();
+            ($cible === 'sejour_id' ? Sejour::withoutGlobalScopes() : Intervention::withoutGlobalScopes())->whereKey($id)->lockForUpdate()->first();
+            // Sous le même verrou que la signature : une lettre signée ne se dicte plus
+            if ($cible === 'sejour_id' && DischargeLetter::query()->where('sejour_id', $id)->where('status', 'signed')->exists()) {
+                throw ValidationException::withMessages(['enregistrement' => 'Cette lettre est signée : elle ne change plus.']);
+            }
 
             return $this->ouvrirSansVerrou($request, $cible, $id);
         });
@@ -121,7 +147,7 @@ class EnregistrementConsultationController extends Controller
         // Une dictée de bloc transcrite ne se rouvre pas pour la compléter
         // (5e vérification) : l'ajout est une dictée neuve, la première reste
         // telle quelle, et le brouillon les prend toutes, dans l'ordre
-        $isNewDictation = $cible === 'intervention_id' && $dernier?->statut === StatutEnregistrement::Pret;
+        $isNewDictation = $cible !== 'rendez_vous_id' && $dernier?->statut === StatutEnregistrement::Pret;
         if ($dernier && $dernier->statut !== StatutEnregistrement::Valide && ! $isNewDictation) {
             $dernier->forceFill([
                 'statut' => StatutEnregistrement::Enregistrement,
@@ -187,7 +213,14 @@ class EnregistrementConsultationController extends Controller
             throw ValidationException::withMessages(['enregistrement' => 'L’audio d’une partie n’est plus disponible : la transcription ne peut pas être relancée.']);
         }
 
-        $enregistrement->forceFill(['statut' => StatutEnregistrement::Transcription, 'erreur' => null])->save();
+        // Relue sous verrou : une lettre signée ou un rapport validé entre-temps a clos la dictée, elle ne repart pas
+        DB::transaction(function () use ($enregistrement): void {
+            $fresh = EnregistrementConsultation::withoutGlobalScopes()->whereKey($enregistrement->id)->lockForUpdate()->firstOrFail();
+            if ($fresh->statut !== StatutEnregistrement::Erreur) {
+                throw ValidationException::withMessages(['enregistrement' => 'Rien à relancer.']);
+            }
+            $enregistrement->forceFill(['statut' => StatutEnregistrement::Transcription, 'erreur' => null])->save();
+        });
         foreach ($enEchec as $partie) {
             $partie->forceFill(['statut' => StatutPartie::Recue])->save();
             TranscrirePartie::dispatch($partie->id);
@@ -243,7 +276,7 @@ class EnregistrementConsultationController extends Controller
             ->first();
     }
 
-    /** La dictée d'un rapport de bloc ne se termine, ne se relance ni ne s'abandonne qu'avec le droit Bloc */
+    /** Une dictée de bloc (droit Bloc) ou de lettre de sortie (droit Patients) ne se touche qu'avec son droit, depuis sa clinique */
     private function autoriserCible(EnregistrementConsultation $enregistrement): void
     {
         $enregistrement->autoriserDictee();

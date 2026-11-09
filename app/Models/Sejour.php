@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Séjour d'hospitalisation — PAR CLINIQUE (le box est un lit
@@ -109,6 +110,16 @@ class Sejour extends Model
     public function treatments(): HasMany
     {
         return $this->hasMany(StayTreatment::class)->orderBy('starts_at')->orderBy('id');
+    }
+
+    /**
+     * La lettre de sortie (09.11.2026).
+     *
+     * @return HasOne<DischargeLetter, $this>
+     */
+    public function dischargeLetter(): HasOne
+    {
+        return $this->hasOne(DischargeLetter::class);
     }
 
     /** @return HasMany<StaySheet, $this> */

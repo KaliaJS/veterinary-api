@@ -2,16 +2,10 @@
 
 namespace App\Services\Hospitalisation;
 
-use App\Auth\ContexteClinique;
 use App\Enums\PainScale;
-use App\Enums\PushType;
 use App\Enums\StatutSejour;
-use App\Events\MessagesChangent;
 use App\Jobs\DraftDailyReport;
-use App\Mail\ReponseClinique;
 use App\Models\Client;
-use App\Models\MessageClientele;
-use App\Models\PreferencesProprietaire;
 use App\Models\Sejour;
 use App\Models\SejourConstante;
 use App\Models\SejourSoin;
@@ -21,13 +15,10 @@ use App\Models\StaySheet;
 use App\Models\User;
 use App\Services\BudgetAnthropic;
 use App\Services\CompteurMensuel;
-use App\Services\Notifications\Push;
-use App\Support\TempsReel;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
-use Throwable;
 
 /**
  * Le rapport de la journée d'un animal hospitalisé (03.11.2026) : rédigé
@@ -158,10 +149,10 @@ final class DailyReports
         if ($client?->user_id === null) {
             throw ValidationException::withMessages(['report' => 'Ce propriétaire n’a pas de compte : il ne pourrait pas lire le rapport. Appelez-le.']);
         }
-        $contexte = app(ContexteClinique::class);
+        $messages = app(OwnerMessages::class);
 
         // Sous verrou : deux clics, deux postes, un seul envoi (03.11.2026)
-        [$message, $text, $first] = DB::transaction(function () use ($sejour, $sheet, $client, $contexte): array {
+        [$message, $text, $first] = DB::transaction(function () use ($sejour, $sheet, $client, $messages): array {
             $sheet = StaySheet::query()->whereKey($sheet->id)->lockForUpdate()->firstOrFail();
             if ($sheet->report_status !== StaySheet::REPORT_SIGNED) {
                 throw ValidationException::withMessages(['report' => 'Le rapport part au propriétaire une fois relu et signé.']);
@@ -176,31 +167,13 @@ final class DailyReports
             if ($additions !== []) {
                 $text .= "\n\nAjouté après la signature :\n".implode("\n", array_map(fn (array $a): string => '• '.$a['label'], $additions));
             }
-            $first = ! MessageClientele::query()->where('clinique_id', $sejour->clinique_id)->where('user_id', $client->user_id)->exists();
-            $message = MessageClientele::create([
-                'clinique_id' => $sejour->clinique_id,
-                'user_id' => $client->user_id,
-                'client_id' => $client->id,
-                'employe_id' => $contexte->employe()?->id,
-                'auteur' => 'clinique',
-                'texte' => $text,
-            ]);
+            [$message, $first] = $messages->create($sejour, $client, $text);
             $sheet->forceFill(['report_sent_at' => now()])->save();
 
             return [$message, $text, $first];
         });
 
-        $userId = (int) $client->user_id;
-        TempsReel::diffuser(fn () => MessagesChangent::dispatch('utilisateur.'.$userId, $userId));
-        TempsReel::diffuser(fn () => MessagesChangent::dispatch('clinique.'.$sejour->clinique_id, $userId));
-        Push::to([$userId], PushType::ClinicMessage, (string) $contexte->clinique()?->nom, mb_strimwidth($text, 0, 120, '…'), '/espace/messages');
-        if ($client->user !== null && PreferencesProprietaire::query()->where('user_id', $userId)->value('reponses_clinique') !== false) {
-            try {
-                Mail::to($client->user->email)->send(new ReponseClinique($message, $contexte->clinique(), $first));
-            } catch (Throwable $e) {
-                report($e);
-            }
-        }
+        $messages->notify($sejour, $client, $message, $text, $first);
         Sejour::announce($sejour->id, $sejour->clinique_id);
     }
 
@@ -341,7 +314,7 @@ final class DailyReports
     /** Le propriétaire qui a confié l'animal, figé à l'admission (décision de Jim, 03.11.2026) */
     private function owner(Sejour $sejour): ?Client
     {
-        return $sejour->client_id !== null ? Client::query()->find($sejour->client_id) : $sejour->patient?->client;
+        return app(OwnerMessages::class)->owner($sejour);
     }
 
     private function isEmpty(Sejour $sejour, string $day): bool

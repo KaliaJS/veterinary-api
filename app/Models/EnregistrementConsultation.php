@@ -48,14 +48,14 @@ class EnregistrementConsultation extends Model
             $enregistrement = self::withoutGlobalScopes()->find($id);
             if ($enregistrement !== null) {
                 EnregistrementMisAJour::dispatch('clinique.'.$enregistrement->clinique_id, [
-                    'id' => $enregistrement->id, 'rendez_vous_id' => $enregistrement->rendez_vous_id, 'intervention_id' => $enregistrement->intervention_id, 'statut' => $enregistrement->statut->value,
+                    'id' => $enregistrement->id, 'rendez_vous_id' => $enregistrement->rendez_vous_id, 'intervention_id' => $enregistrement->intervention_id, 'sejour_id' => $enregistrement->sejour_id, 'statut' => $enregistrement->statut->value,
                 ]);
             }
         });
     }
 
     protected $fillable = [
-        'organisation_id', 'clinique_id', 'rendez_vous_id', 'intervention_id', 'user_id', 'statut', 'erreur',
+        'organisation_id', 'clinique_id', 'rendez_vous_id', 'intervention_id', 'sejour_id', 'user_id', 'statut', 'erreur',
         'parties_attendues', 'brouillon', 'redige_le', 'valide_le', 'redactions',
     ];
 
@@ -90,6 +90,16 @@ class EnregistrementConsultation extends Model
     public function intervention(): BelongsTo
     {
         return $this->belongsTo(Intervention::class)->withoutGlobalScopes();
+    }
+
+    /**
+     * La dictée des consignes d'une lettre de sortie (09.11.2026), à la place d'un rendez-vous
+     *
+     * @return BelongsTo<Sejour, $this>
+     */
+    public function sejour(): BelongsTo
+    {
+        return $this->belongsTo(Sejour::class)->withoutGlobalScopes();
     }
 
     /** @return BelongsTo<User, $this> */
@@ -128,6 +138,13 @@ class EnregistrementConsultation extends Model
      */
     public function autoriserDictee(): void
     {
+        // La dictée d'une lettre de sortie (09.11.2026) : droit Patients, depuis la clinique du séjour
+        if ($this->sejour_id !== null) {
+            Gate::authorize(DomainePermission::Patients->value);
+            abort_unless(Sejour::query()->whereKey($this->sejour_id)->exists(), 404);
+
+            return;
+        }
         if ($this->intervention_id === null) {
             return;
         }
