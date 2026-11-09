@@ -49,7 +49,7 @@ class BoutiquePaiementController extends Controller
         return FactureResource::collection(Facture::query()
             ->where('clinique_id', app(ContexteClinique::class)->cliniqueId())
             ->where('vente_comptoir', true)->where('statut', StatutFacture::Due)
-            ->with(['lignes', 'prescriptions', 'decompte'])->latest('id')->limit(20)->get());
+            ->with(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name'])->latest('id')->limit(20)->get());
     }
 
     /** L'état d'une vente, relu quand un geste est refusé (payée à la caisse entre-temps, annulée). */
@@ -58,7 +58,7 @@ class BoutiquePaiementController extends Controller
         $this->authorize('create', CommandeBoutique::class);
         $this->venteDuComptoir($facture);
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     public function terminaux(): JsonResponse
@@ -116,7 +116,7 @@ class BoutiquePaiementController extends Controller
         $this->sansTentativeEnCours($vente);
         $encaissement->encaisser($vente, MoyenPaiement::Especes, $request->user());
 
-        return new FactureResource($vente->refresh()->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($vente->refresh()->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     /**
@@ -138,12 +138,16 @@ class BoutiquePaiementController extends Controller
             if ($tenue->statut === StatutFacture::Payee) {
                 throw ValidationException::withMessages(['vente' => 'Cette vente vient d’être payée : elle ne s’annule plus.']);
             }
+            // Un règlement reçu, même annulé depuis (09.11.2026) : elle ne s'annule plus, le journal le garde
+            if ($tenue->aRecuUnReglement()) {
+                throw ValidationException::withMessages(['vente' => 'Cette vente a reçu un paiement : elle ne s’annule plus.']);
+            }
             $tenue->forceFill(['statut' => StatutFacture::Annulee, 'annulee_le' => $tenue->annulee_le ?? now()])->save();
 
             return $tenue;
         });
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     private function venteDuComptoir(Facture $facture): Facture
@@ -202,7 +206,7 @@ class BoutiquePaiementController extends Controller
     {
         $paiement->load('terminal');
         if ($paiement->statut === StatutPaiement::Reussi) {
-            $paiement->load(['facture.lignes', 'facture.prescriptions', 'facture.decompte']);
+            $paiement->load(['facture.lignes', 'facture.prescriptions', 'facture.decompte', 'facture.settlements.reversal', 'facture.settlements.recordedBy:id,name']);
         }
 
         return new PaiementResource($paiement);

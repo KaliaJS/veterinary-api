@@ -37,8 +37,14 @@ class ClotureCaisseResource extends JsonResource
             // Ajouté au nouveau fond depuis le coffre (plus que compté)
             'apport_coffre' => max(0.0, round((float) $this->depot + (float) $this->nouveau_fond - (float) $this->especes_comptees, 2)),
             'note' => $this->note,
-            'nombre_factures' => $this->whenCounted('factures'),
-            'facture_ids' => $this->whenLoaded('factures', fn () => $this->factures->pluck('id')),
+            // Les factures dont un règlement est dans ce Z (09.11.2026) ; un Z d'avant n'a que ses factures
+            'nombre_factures' => $this->when(
+                array_key_exists('factures_count', $this->resource->getAttributes()) || array_key_exists('factures_reglees_count', $this->resource->getAttributes()),
+                fn (): int => max((int) ($this->factures_count ?? 0), (int) ($this->factures_reglees_count ?? 0)),
+            ),
+            'facture_ids' => $this->whenLoaded('factures', fn () => $this->factures->pluck('id')
+                ->merge($this->relationLoaded('settlements') ? $this->settlements->pluck('facture_id') : [])
+                ->unique()->values()),
         ];
     }
 }

@@ -17,6 +17,7 @@ use App\Models\RendezVous;
 use App\Models\User;
 use App\Paiements\ErreurPaiement;
 use App\Services\Alertes\DestinatairesAlertes;
+use App\Services\Facturation\Settlements;
 use App\Services\MutationRendezVous;
 use App\Services\Notifications\Push;
 use App\Services\TraitementDemande;
@@ -396,6 +397,8 @@ class AcomptesRendezVous
     {
         $demande->update(['acompte_rembourse_le' => now(), 'acompte_rembourse_centimes' => $centimes]);
         $this->drapeauAcompte($demande);
+        // Déjà facturé : le rendu est un règlement négatif de la facture (09.11.2026)
+        app(Settlements::class)->syncDeposit($demande);
     }
 
     /** Le rendez-vous perd son drapeau « acompte » quand plus rien n'est en jeu. */

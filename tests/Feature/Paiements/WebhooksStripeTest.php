@@ -16,6 +16,7 @@ use App\Models\Societe;
 use App\Models\TerminalPaiement;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
+use App\Services\Facturation\Settlements;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
@@ -229,6 +230,8 @@ class WebhooksStripeTest extends TestCase
         // L'acompte payé en ligne est déduit : le paiement du reste n'est pas un écart, il encaisse
         $apresAcompte = $this->factureDue(120);
         $apresAcompte->update(['acompte' => 30]);
+        // Posé après la création : son règlement « acompte » aussi (09.11.2026)
+        app(Settlements::class)->recordDeposit($apresAcompte);
         $reste = $this->payerParTerminal($apresAcompte);
         $this->assertSame(9000, $this->stripe->intentions[$reste->stripe_payment_intent_id]['centimes']);
         $this->stripe->conclure($reste->stripe_payment_intent_id, 'succeeded');

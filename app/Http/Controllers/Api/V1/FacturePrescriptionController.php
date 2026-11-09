@@ -36,6 +36,6 @@ class FacturePrescriptionController extends Controller
             'mode' => ModePrescription::Pharmacie,
         ]);
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 }

@@ -177,7 +177,7 @@ class AlertesClinique
                 'warn',
                 $this->compte($factures->count(), 'acompte rendu après la facture', 'acomptes rendus après la facture'),
                 $this->noms($factures->map(fn (Facture $f) => 'facture '.$f->numero.' ('.$this->chf((int) round((float) $f->acompte * 100)).' déduits, '
-                    .$this->chf((int) round(($f->rendezVous?->demandeEnLigne?->acompteRetenu() ?? 0) * 100)).' encore encaissés)')).'. La facture déduit plus que ce qui reste : corrigez-la pour que le client paie la différence.',
+                    .$this->chf((int) round(($f->rendezVous?->demandeEnLigne?->acompteRetenu() ?? 0) * 100)).' encore encaissés)')).'. Le rendu est inscrit sur la facture (règlement négatif, 09.11.2026) : elle est de nouveau à payer de la différence, encaissez-la sans corriger la facture.',
                 'facturation',
             );
         }
@@ -222,7 +222,9 @@ class AlertesClinique
                 'rembourses:'.$this->empreinte($rembourses->map(fn (Paiement $p) => (string) $p->id)),
                 'warn',
                 $this->compte($rembourses->count(), 'paiement remboursé', 'paiements remboursés'),
-                $this->noms($rembourses->map(fn (Paiement $p) => $this->paiement($p))).'. La facture reste payée : corrigez-la si besoin.',
+                // Rendu chez Stripe : inscrit sur la facture, de nouveau à payer ; rendu aussitôt parce
+                // qu'en trop : la facture n'a jamais compté ce paiement (vérification du 09.11.2026)
+                $this->noms($rembourses->map(fn (Paiement $p) => $this->rendu($p))).'.',
                 'facturation',
             );
         }
@@ -430,6 +432,20 @@ class AlertesClinique
         $numero = preg_match('/^lot\b/i', $lot->numero_lot) ? $lot->numero_lot : 'lot '.$lot->numero_lot;
 
         return ($lot->produit->nom ?? 'Produit').', '.$numero.' ('.$lot->peremption_le->format('m.Y').')';
+    }
+
+    /** Un paiement remboursé, et ce que devient sa facture */
+    private function rendu(Paiement $paiement): string
+    {
+        $erreur = (string) $paiement->erreur;
+        $chezStripe = str_starts_with($erreur, 'Remboursé') || str_starts_with($erreur, 'Litige perdu');
+        if (! $chezStripe) {
+            return $this->paiement($paiement).' rendu au client, payé en trop : la facture ne le compte pas';
+        }
+        // En partie : le montant rendu, lu dans la note du paiement
+        $montant = preg_match('/^Remboursé en partie : (CHF [^.]+\.\d{2})/u', $erreur, $m) === 1 ? $m[1] : $this->chf((int) round((float) $paiement->montant * 100));
+
+        return 'facture '.($paiement->facture->numero ?? '?').' ('.$montant.' rendus) : inscrit sur la facture, de nouveau à payer de ce montant';
     }
 
     private function paiement(Paiement $paiement): string

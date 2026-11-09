@@ -6,6 +6,7 @@ use App\Enums\MoyenPaiement;
 use App\Models\Clinique;
 use App\Models\Facture;
 use App\Models\FactureLigne;
+use App\Services\Facturation\Settlements;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -41,6 +42,8 @@ class JournalFacturesTest extends TestCase
             'payee_le' => $payeeLe ? CarbonImmutable::parse($payeeLe, 'UTC') : null,
         ]);
         FactureLigne::factory()->create(['facture_id' => $facture->id, 'quantite' => 1, 'prix_chf' => $montant]);
+
+        app(Settlements::class)->recordExistingPayment($facture);
 
         return $facture;
     }

@@ -88,7 +88,7 @@ interface PasserellePaiement
      * Vérifie la signature d'un webhook (de la plateforme ou des comptes
      * des sociétés) et renvoie l'événement, avec le compte qui l'a émis.
      *
-     * @return array{id: string, type: string, objet: array<string, mixed>, compte: ?string}
+     * @return array{id: string, type: string, objet: array<string, mixed>, compte: ?string, created?: ?int}
      */
     public function lireEvenement(string $corps, string $signature): array;
 

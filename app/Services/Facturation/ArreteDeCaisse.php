@@ -3,11 +3,10 @@
 namespace App\Services\Facturation;
 
 use App\Enums\MoyenPaiement;
-use App\Enums\StatutFacture;
+use App\Enums\SettlementMethod;
 use App\Models\Clinique;
 use App\Models\ClotureCaisse;
-use App\Models\Facture;
-use Illuminate\Database\Eloquent\Builder;
+use App\Models\Settlement;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -27,47 +26,49 @@ class ArreteDeCaisse
     public const FOND_PREMIER_JOUR = 200.0;
 
     /**
-     * Factures payées de la clinique qu'aucune clôture ne couvre encore.
+     * Les règlements de caisse (carte, TWINT, espèces) de la clinique
+     * qu'aucune clôture ne couvre encore (09.11.2026 : le Z compte les
+     * règlements, plus les factures). Une annulation faite après une
+     * clôture y entre, en négatif, au Z suivant. Ni l'acompte en ligne ni
+     * un virement ne passent par la caisse.
      *
-     * @return Collection<int, Facture>
+     * @return Collection<int, Settlement>
      */
-    public function factures(Clinique $clinique, bool $verrouiller = false): Collection
+    public function reglements(Clinique $clinique, bool $verrouiller = false): Collection
     {
-        $requete = Facture::query()
-            ->where('statut', StatutFacture::Payee)
-            ->whereNull('cloture_caisse_id')
+        $requete = Settlement::query()
+            ->withoutGlobalScopes()
             ->where('clinique_id', $clinique->id)
-            // Un virement (QR-facture) n'est jamais passé par la caisse
-            ->where(fn (Builder $requete) => $requete->whereNull('moyen_paiement')->orWhere('moyen_paiement', '!=', MoyenPaiement::Virement->value))
-            ->with(['lignes', 'encaisseePar'])
-            // Une carte ou un TWINT payé au terminal : une seule requête pour toutes les factures
-            ->withExists(['paiements as preuve_terminal' => fn ($paiements) => $paiements->whereIn('statut', Facture::preuvesDeTerminal())]);
+            ->whereNull('cloture_caisse_id')
+            ->whereIn('method', SettlementMethod::cashDeskValues())
+            ->with(['recordedBy'])
+            ->orderBy('id');
 
         return ($verrouiller ? $requete->lockForUpdate() : $requete)->get();
     }
 
     /**
-     * @param  Collection<int, Facture>  $factures
+     * @param  Collection<int, Settlement>  $reglements
      * @param  array<int|string, int|string>|null  $comptage  nombre de billets ou pièces par coupure (centimes)
      * @return array{encaissements: int, moyens: array<string, array{montant: float, nombre: int, sans_terminal: int, saisies_par: list<string>}>, total: float, fond: float, fond_impose: bool, especes_theoriques: float, coupures: list<array{centimes: int, nombre: int, montant: float}>, especes_comptees: float, ecart: float, nouveau_fond: float, depot: float, depot_suggere: float, sans_terminal: int, mode_integre: bool, motif_justification: ?string, motifs_justification: list<string>, justification_requise: bool, alerte_depot: ?string, non_ventile: float, apport_coffre: float}
      */
-    public function calculer(Clinique $clinique, Collection $factures, ?float $fondSaisi, ?array $comptage, ?float $especesComptees, ?float $nouveauFond, ?float $depot): array
+    public function calculer(Clinique $clinique, Collection $reglements, ?float $fondSaisi, ?array $comptage, ?float $especesComptees, ?float $nouveauFond, ?float $depot): array
     {
         $modeIntegre = $clinique->encaisseAvecVeterinary();
 
         $moyens = [];
         foreach (MoyenPaiement::deCaisse() as $moyen) {
-            $liste = $factures->filter(fn (Facture $facture): bool => $facture->moyen_paiement === $moyen);
-            // Une carte ou un TWINT sans preuve du terminal : saisi à la main
+            $liste = $reglements->filter(fn (Settlement $s): bool => $s->method->value === $moyen->value);
+            // Une carte ou un TWINT reçu sans le terminal : saisi à la main (une annulation n'en est pas un)
             $sansTerminal = $moyen === MoyenPaiement::Especes ? collect() : $liste->filter(
-                fn (Facture $facture): bool => ! $facture->getAttribute('preuve_terminal')
+                fn (Settlement $s): bool => $s->paiement_id === null && (float) $s->amount > 0
             );
             $moyens[$moyen->value] = [
-                // Ce qui est passé à la caisse : l'acompte en ligne n'y est pas
-                'montant' => round((float) $liste->sum(fn (Facture $facture): float => $facture->resteAPayer()), 2),
+                // Ce qui est passé à la caisse, annulations et remboursements déduits
+                'montant' => round((float) $liste->sum(fn (Settlement $s): float => (float) $s->amount), 2),
                 'nombre' => $liste->count(),
                 'sans_terminal' => $sansTerminal->count(),
-                'saisies_par' => $sansTerminal->map(fn (Facture $facture): ?string => $facture->encaisseePar?->name)->filter()->unique()->values()->all(),
+                'saisies_par' => $sansTerminal->map(fn (Settlement $s): ?string => $s->recordedBy?->name)->filter()->unique()->values()->all(),
             ];
         }
         $especes = $moyens[MoyenPaiement::Especes->value]['montant'];
@@ -111,7 +112,7 @@ class ArreteDeCaisse
         ]));
 
         return [
-            'encaissements' => $factures->count(),
+            'encaissements' => $reglements->count(),
             'moyens' => $moyens,
             'total' => round(array_sum(array_column($moyens, 'montant')), 2),
             'fond' => $fond,

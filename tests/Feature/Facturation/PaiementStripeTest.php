@@ -3,6 +3,7 @@
 namespace Tests\Feature\Facturation;
 
 use App\Auth\RolesParDefaut;
+use App\Enums\SettlementMethod;
 use App\Enums\StatutFacture;
 use App\Mail\PaiementConteste;
 use App\Models\Clinique;
@@ -10,9 +11,11 @@ use App\Models\Facture;
 use App\Models\FactureLigne;
 use App\Models\Paiement;
 use App\Models\Role;
+use App\Models\Settlement;
 use App\Models\TerminalPaiement;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
+use App\Services\Facturation\Settlements;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Testing\TestResponse;
@@ -216,18 +219,37 @@ class PaiementStripeTest extends TestCase
         $this->assertSame(1, (int) $ligne->refresh()->quantite);
     }
 
-    public function test_un_paiement_qui_ne_correspond_plus_au_reste_est_rendu_et_la_facture_reste_due(): void
+    /** R13 (09.11.2026) : plus grand que le reste du moment (un autre paiement est arrivé pendant l'attente), rendu sans règlement. */
+    public function test_un_paiement_plus_grand_que_le_reste_du_moment_est_rendu_et_la_facture_reste_due(): void
     {
         $facture = $this->factureDue(50);
         $paiement = Paiement::query()->findOrFail($this->payerParTerminal($facture));
-        // La facture a changé par un autre chemin pendant l'attente
-        FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => 420, 'quantite' => 1]);
+        // 20 francs reçus par un autre chemin pendant l'attente : il n'en reste que 30
+        app(Settlements::class)->record($facture, SettlementMethod::Especes, 20);
 
         $this->webhook($this->evenement('evt_ecart', 'payment_intent.succeeded', ['id' => $paiement->stripe_payment_intent_id, 'status' => 'succeeded']))->assertNoContent();
 
         $this->assertSame(StatutFacture::Due, $facture->refresh()->statut);
         $this->assertSame('rembourse', $paiement->refresh()->statut->value);
         $this->assertSame([$paiement->stripe_payment_intent_id], $this->stripe->remboursements);
+        $this->assertSame(0, Settlement::query()->where('paiement_id', $paiement->id)->count());
+        $this->assertSame(30.0, $facture->refresh()->load('lignes')->resteAPayer());
+    }
+
+    /** R12 (09.11.2026) : plus petit que le reste (la facture a grandi pendant l'attente), il est réglé tel quel, la facture reste due du reste. */
+    public function test_un_paiement_plus_petit_que_le_reste_du_moment_est_regle_tel_quel(): void
+    {
+        $facture = $this->factureDue(50);
+        $paiement = Paiement::query()->findOrFail($this->payerParTerminal($facture));
+        FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => 420, 'quantite' => 1]);
+
+        $this->webhook($this->evenement('evt_moins', 'payment_intent.succeeded', ['id' => $paiement->stripe_payment_intent_id, 'status' => 'succeeded']))->assertNoContent();
+
+        $this->assertSame('reussi', $paiement->refresh()->statut->value);
+        $this->assertSame([], $this->stripe->remboursements);
+        $this->assertSame(StatutFacture::Due, $facture->refresh()->statut);
+        $this->assertSame([50.0], Settlement::query()->where('paiement_id', $paiement->id)->pluck('amount')->map(fn ($m) => (float) $m)->all());
+        $this->assertSame(420.0, $facture->load('lignes')->resteAPayer());
     }
 
     public function test_l_encaissement_en_especes_annule_le_paiement_en_cours_et_un_paiement_tardif_est_rendu(): void
@@ -268,8 +290,12 @@ class PaiementStripeTest extends TestCase
         $this->assertSame(['1 paiement remboursé'], collect($this->getJson('/api/v1/alertes', $this->enTetes($this->jeton))->json('data.alertes'))->where('type', 'paiement')->pluck('titre')->values()->all());
         $this->webhook($this->evenement('evt_r2', 'charge.refunded', ['payment_intent' => $rendu->stripe_payment_intent_id, 'refunded' => true, 'amount_refunded' => 12000]))->assertNoContent();
         $this->assertSame('rembourse', $rendu->refresh()->statut->value);
-        // La facture reste payée, et payée par Stripe
-        $this->assertSame(StatutFacture::Payee, $rendu->facture->refresh()->statut);
+        // R19 (09.11.2026) : chaque rendu est une ligne négative, la facture redevient due de ce qui est rendu
+        $this->assertSame(StatutFacture::Due, $rendu->facture->refresh()->statut);
+        $this->assertSame([120.0, -20.0, -100.0], Settlement::query()->where('paiement_id', $rendu->id)->orderBy('id')->pluck('amount')->map(fn ($m) => (float) $m)->all());
+        // Rejoué, rien de plus
+        $this->webhook($this->evenement('evt_r2_bis', 'charge.refunded', ['payment_intent' => $rendu->stripe_payment_intent_id, 'refunded' => true, 'amount_refunded' => 12000]))->assertNoContent();
+        $this->assertSame(3, Settlement::query()->where('paiement_id', $rendu->id)->count());
 
         // Contesté : en litige, et la facturation est prévenue tout de suite
         $this->webhook($this->evenement('evt_l1', 'charge.dispute.created', [
@@ -288,6 +314,9 @@ class PaiementStripeTest extends TestCase
         $this->webhook($this->evenement('evt_l3', 'charge.dispute.created', ['payment_intent' => $conteste->stripe_payment_intent_id]))->assertNoContent();
         $this->webhook($this->evenement('evt_l4', 'charge.dispute.closed', ['payment_intent' => $conteste->stripe_payment_intent_id, 'status' => 'lost']))->assertNoContent();
         $this->assertSame('rembourse', $conteste->refresh()->statut->value);
+        // R20 (09.11.2026) : perdu, une ligne négative du montant, la facture redevient due ; gagné avant, rien
+        $this->assertSame([80.0, -80.0], Settlement::query()->where('paiement_id', $conteste->id)->orderBy('id')->pluck('amount')->map(fn ($m) => (float) $m)->all());
+        $this->assertSame(StatutFacture::Due, $conteste->facture->refresh()->statut);
 
         // Une demande d'information de la banque, close sans retrait : réussi
         $demandeInfo = Paiement::query()->findOrFail($this->payerParTerminal($this->factureDue(40)));

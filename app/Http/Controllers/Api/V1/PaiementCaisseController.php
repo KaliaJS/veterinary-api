@@ -34,9 +34,11 @@ class PaiementCaisseController extends Controller
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
 
+        // Paiement partiel (09.11.2026) : sans montant, le reste
+        $montant = $request->filled('montant') ? (float) $request->validated('montant') : null;
         $paiement = $this->sansErreurStripe(fn () => $request->validated('moyen') === 'tpe'
-            ? $this->paiements->parTerminal($facture, $this->terminal($request->integer('terminal_id')), $request->user())
-            : $this->paiements->parTwint($facture, $request->user()));
+            ? $this->paiements->parTerminal($facture, $this->terminal($request->integer('terminal_id')), $request->user(), $montant)
+            : $this->paiements->parTwint($facture, $request->user(), $montant));
 
         return $this->ressource($paiement);
     }
@@ -82,7 +84,7 @@ class PaiementCaisseController extends Controller
         $paiement->load('terminal');
 
         if ($paiement->statut === StatutPaiement::Reussi) {
-            $paiement->load(['facture.lignes', 'facture.prescriptions', 'facture.decompte']);
+            $paiement->load(['facture.lignes', 'facture.prescriptions', 'facture.decompte', 'facture.settlements.reversal', 'facture.settlements.recordedBy:id,name']);
         }
 
         return new PaiementResource($paiement);

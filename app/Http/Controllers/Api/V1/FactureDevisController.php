@@ -46,7 +46,7 @@ class FactureDevisController extends Controller
             return $this->creation->acompteDeDevis($devis, $request->user());
         });
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     public function finale(Request $request, Devis $devis): FactureResource
@@ -63,7 +63,7 @@ class FactureDevisController extends Controller
             return $this->creation->finaleDeDevis($devis, $request->user());
         });
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     /** Le devis relu sous verrou, accepté. */

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Auth\ContexteProprietaire;
 use App\Enums\CanalDevis;
+use App\Enums\SettlementMethod;
 use App\Enums\StatutDevis;
 use App\Enums\StatutFacture;
 use App\Enums\StatutOrdonnance;
@@ -101,7 +102,7 @@ class DocumentsProprietaire
         }
 
         return Facture::withoutGlobalScopes()
-            ->with(['lignes', 'clinique.societe', 'client'])
+            ->with(['lignes', 'clinique.societe', 'client', 'settlements'])
             ->whereIn('client_id', $clientIds)
             // Une vente du comptoir annulée n'a jamais rien dû
             ->where('statut', '!=', StatutFacture::Annulee)
@@ -132,6 +133,8 @@ class DocumentsProprietaire
                         'total_ttc' => round($f->totalTtc(), 2),
                         // L'acompte payé en ligne, déduit comme sur la facture de la caisse
                         'acompte' => (float) $f->acompte,
+                        // Déjà réglé à la caisse ou par virement, hors acompte (paiement partiel, 09.11.2026)
+                        'deja_regle' => round($f->montantRegle() - (float) $f->settlements->where('method', SettlementMethod::Acompte)->sum('amount'), 2),
                         'reste_a_payer' => $f->resteAPayer(),
                         // La section paiement de la QR-facture suisse, tant qu'il reste à payer (01.11.2026)
                         'qr_facture' => QrFacture::pour($f),

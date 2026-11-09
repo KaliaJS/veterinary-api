@@ -98,7 +98,7 @@ class SortieSejourController extends Controller
         ]));
 
         if (Gate::allows('facturation')) {
-            $resource->additional(['facture' => new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']))]);
+            $resource->additional(['facture' => new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']))]);
         }
 
         return $resource;

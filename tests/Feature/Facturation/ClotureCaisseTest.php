@@ -9,6 +9,8 @@ use App\Models\ClotureCaisse;
 use App\Models\Facture;
 use App\Models\FactureLigne;
 use App\Models\Paiement;
+use App\Models\Settlement;
+use App\Services\Facturation\Settlements;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -56,6 +58,8 @@ class ClotureCaisseTest extends TestCase
             ]);
         }
 
+        app(Settlements::class)->recordExistingPayment($facture);
+
         return $facture;
     }
 
@@ -65,7 +69,10 @@ class ClotureCaisseTest extends TestCase
         $especes = $this->facturePayee(MoyenPaiement::Especes, 45);
         $due = Facture::factory()->create(['clinique_id' => $this->clinique->id]);
         $dejaCouverte = $this->facturePayee(MoyenPaiement::Tpe, 60);
-        $dejaCouverte->update(['cloture_caisse_id' => ClotureCaisse::factory()->create(['clinique_id' => $this->clinique->id, 'nouveau_fond' => 200])->id]);
+        $couverte = ClotureCaisse::factory()->create(['clinique_id' => $this->clinique->id, 'nouveau_fond' => 200])->id;
+        $dejaCouverte->update(['cloture_caisse_id' => $couverte]);
+        // Le Z compte les règlements (09.11.2026) : c'est le sien qui est couvert
+        Settlement::query()->where('facture_id', $dejaCouverte->id)->update(['cloture_caisse_id' => $couverte]);
 
         $reponse = $this->postJson('/api/v1/facturation/clotures-caisse', [
             'fond' => 200,

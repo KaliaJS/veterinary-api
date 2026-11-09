@@ -10,7 +10,9 @@ use App\Http\Resources\V1\FactureResource;
 use App\Models\Facture;
 use App\Paiements\ErreurPaiement;
 use App\Services\EncaissementFacture;
+use App\Services\Facturation\Settlements;
 use App\Services\Paiements\PaiementsCaisse;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -44,8 +46,28 @@ class EncaissementController extends Controller
             $this->assurerHorsComptoir($facture, 'Une vente du comptoir se paie sur place, pas par virement.');
         }
 
+        // Paiement partiel (09.11.2026) : jamais pour une vente du comptoir, qui se paie en entier
+        $montant = $request->filled('montant') ? round((float) $request->validated('montant'), 2) : null;
+        if ($montant !== null && $facture->vente_comptoir && abs($montant - $facture->resteAPayer()) >= 0.005) {
+            throw ValidationException::withMessages(['montant' => 'Une vente du comptoir se paie en entier.']);
+        }
+
+        // Le jour d'arrivée et la référence ne se disent que pour un virement ; jamais un jour à venir
+        $recuLe = null;
+        if ($request->filled('recu_le') || $request->filled('reference')) {
+            if ($moyen !== MoyenPaiement::Virement) {
+                throw ValidationException::withMessages(['recu_le' => 'La date d’arrivée et la référence ne se donnent que pour un virement.']);
+            }
+        }
+        if ($request->filled('recu_le')) {
+            $recuLe = CarbonImmutable::parse((string) $request->validated('recu_le'));
+            if ($recuLe->toDateString() > aujourdhui()->toDateString()) {
+                throw ValidationException::withMessages(['recu_le' => 'Un virement ne peut pas arriver dans le futur.']);
+            }
+        }
+
         if ($moyen === MoyenPaiement::Especes && $request->filled('montant_recu')) {
-            if ((float) $request->validated('montant_recu') < $facture->resteAPayer()) {
+            if ((float) $request->validated('montant_recu') < ($montant ?? $facture->resteAPayer())) {
                 throw ValidationException::withMessages([
                     'montant_recu' => 'Montant reçu insuffisant.',
                 ]);
@@ -61,9 +83,28 @@ class EncaissementController extends Controller
             }
         }
 
-        $this->encaissement->encaisser($facture, $moyen, $request->user());
+        $this->encaissement->encaisser($facture, $moyen, $request->user(), $montant, $recuLe, $request->validated('reference'));
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
+    }
+
+    /**
+     * Annule un règlement saisi par erreur : une ligne négative, avec le
+     * motif ; rien ne s'efface (décision de Jim, 09.11.2026).
+     */
+    public function annulerReglement(Request $request, Facture $facture, int $settlement, Settlements $settlements): FactureResource
+    {
+        $this->authorize('update', $facture);
+        $this->assurerCliniqueDEmission($facture);
+        $reason = $request->validate(
+            ['motif' => ['required', 'string', 'min:3', 'max:300']],
+            ['motif.required' => 'Dites pourquoi ce règlement est annulé.', 'motif.min' => 'Dites pourquoi ce règlement est annulé.'],
+        )['motif'];
+        $ligne = $facture->settlements()->whereKey($settlement)->firstOrFail();
+
+        $settlements->reverse($facture, $ligne, $reason, $request->user());
+
+        return new FactureResource($facture->refresh()->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     public function payerPlusTard(Request $request, Facture $facture): FactureResource
@@ -75,6 +116,6 @@ class EncaissementController extends Controller
 
         $this->encaissement->payerPlusTard($facture, $request->user());
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 }

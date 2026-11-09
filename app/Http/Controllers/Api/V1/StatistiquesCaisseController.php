@@ -3,10 +3,11 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
-use App\Enums\MoyenPaiement;
+use App\Enums\SettlementMethod;
 use App\Enums\StatutFacture;
 use App\Http\Controllers\Controller;
 use App\Models\Facture;
+use App\Models\Settlement;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -25,26 +26,20 @@ class StatistiquesCaisseController extends Controller
         $contexte = app(ContexteClinique::class);
         $fuseau = $contexte->clinique()->fuseau_horaire ?? 'Europe/Zurich';
 
-        $duJour = Facture::query()
-            ->where('statut', StatutFacture::Payee)
-            ->whereBetween('payee_le', [
-                now($fuseau)->startOfDay()->utc(),
-                now($fuseau)->endOfDay()->utc(),
-            ])
-            ->with('lignes')
+        // L'encaissé du jour : les règlements reçus ce jour (09.11.2026), paiements
+        // partiels compris, annulations et remboursements déduits
+        $duJour = Settlement::query()
+            ->whereDate('received_on', now($fuseau)->toDateString())
             ->get();
 
-        $totalPar = fn (MoyenPaiement $moyen): float => round(
-            (float) $duJour
-                ->filter(fn (Facture $facture): bool => $facture->moyen_paiement === $moyen)
-                // Ce qui est passé à la caisse : l'acompte en ligne n'y est pas
-                ->sum(fn (Facture $facture): float => $facture->resteAPayer()),
+        $totalPar = fn (SettlementMethod $moyen): float => round(
+            (float) $duJour->filter(fn (Settlement $s): bool => $s->method === $moyen)->sum(fn (Settlement $s): float => (float) $s->amount),
             2,
         );
 
         $enAttente = Facture::query()
             ->where('statut', StatutFacture::Due)
-            ->with('lignes')
+            ->with(['lignes', 'settlements'])
             ->get();
 
         $duMois = Facture::query()
@@ -58,15 +53,16 @@ class StatistiquesCaisseController extends Controller
 
         return response()->json(['data' => [
             'du_jour' => [
-                'nombre' => $duJour->count(),
-                'tpe' => $totalPar(MoyenPaiement::Tpe),
-                'twint' => $totalPar(MoyenPaiement::Twint),
-                'especes' => $totalPar(MoyenPaiement::Especes),
+                // Les factures qui ont reçu un paiement ce jour
+                'nombre' => $duJour->filter(fn (Settlement $s): bool => (float) $s->amount > 0)->pluck('facture_id')->unique()->count(),
+                'tpe' => $totalPar(SettlementMethod::Tpe),
+                'twint' => $totalPar(SettlementMethod::Twint),
+                'especes' => $totalPar(SettlementMethod::Especes),
                 // QR-factures payées par virement, hors caisse
-                'virement' => $totalPar(MoyenPaiement::Virement),
-                // Acomptes payés en ligne à la réservation, déduits des factures du jour
-                'acomptes' => round((float) $duJour->sum(fn (Facture $facture): float => (float) $facture->acompte), 2),
-                'total' => round((float) $duJour->sum(fn (Facture $facture): float => $facture->totalTtc()), 2),
+                'virement' => $totalPar(SettlementMethod::Virement),
+                // Acomptes payés en ligne ce jour-là, une fois sur une facture (datés de leur paiement)
+                'acomptes' => $totalPar(SettlementMethod::Acompte),
+                'total' => round((float) $duJour->sum(fn (Settlement $s): float => (float) $s->amount), 2),
             ],
             'en_attente' => [
                 'nombre' => $enAttente->count(),

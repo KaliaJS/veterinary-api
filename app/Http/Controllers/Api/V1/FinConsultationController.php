@@ -219,7 +219,7 @@ class FinConsultationController extends Controller
         $complements = [];
 
         if (Gate::allows('facturation')) {
-            $complements['facture'] = new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+            $complements['facture'] = new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
         }
 
         if ($ordonnance !== null && Gate::allows('patients')) {

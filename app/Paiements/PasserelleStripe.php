@@ -204,6 +204,8 @@ class PasserelleStripe implements PasserellePaiement
             'type' => $evenement->type,
             'objet' => $evenement->data->object->toArray(),
             'compte' => $evenement->account ?? null,
+            // L'heure de l'événement chez Stripe (un remboursement se date d'elle, 09.11.2026)
+            'created' => $evenement->created ?? null,
         ];
     }
 

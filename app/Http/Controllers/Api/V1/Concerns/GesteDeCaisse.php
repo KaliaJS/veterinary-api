@@ -32,6 +32,17 @@ trait GesteDeCaisse
         }
     }
 
+    /**
+     * Payée en partie (09.11.2026) : ses lignes ne changent plus, le reste
+     * se calcule sur ce qui a été encaissé. Annuler d'abord le règlement.
+     */
+    protected function assurerSansReglement(Facture $facture, string $message = 'Cette facture est déjà payée en partie : annulez d’abord son règlement pour la modifier.'): void
+    {
+        if ($facture->estPayeeEnPartie()) {
+            throw ValidationException::withMessages(['facture' => $message]);
+        }
+    }
+
     /** Le ticket du comptoir se paie ou s'annule depuis la boutique (28.10.2026). */
     protected function assurerHorsComptoir(Facture $facture, string $message): void
     {

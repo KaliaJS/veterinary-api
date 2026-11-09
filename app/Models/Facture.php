@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\Espece;
 use App\Enums\MoyenPaiement;
+use App\Enums\SettlementMethod;
 use App\Enums\StatutFacture;
 use App\Enums\StatutPaiement;
 use App\Enums\TypeLigneFacture;
@@ -11,6 +12,7 @@ use App\Enums\VatContext;
 use App\Enums\VatRate;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use App\Services\Facturation\PatientDebts;
+use App\Services\Facturation\Settlements;
 use App\Support\DocumentHeader;
 use App\Support\VatBreakdown;
 use Database\Factories\FactureFactory;
@@ -57,6 +59,12 @@ class Facture extends Model
             if (! isset($facture->getAttributes()['issuer'])) {
                 $facture->issuer = DocumentHeader::issuer(Clinique::withoutGlobalScopes()->with('societe')->find($facture->clinique_id));
                 $facture->recipient = DocumentHeader::recipient($facture->client_id === null ? null : Client::withoutGlobalScopes()->find($facture->client_id));
+            }
+        });
+        // L'acompte payé en ligne à la réservation est son premier règlement, daté de son paiement (09.11.2026)
+        static::created(function (Facture $facture): void {
+            if ((float) $facture->acompte > 0) {
+                app(Settlements::class)->recordDeposit($facture);
             }
         });
         // Émise, payée, annulée, passée à un autre animal : la dette de l'animal suit (03.11.2026)
@@ -183,10 +191,47 @@ class Facture extends Model
         return round((float) $lignes->sum(fn (FactureLigne $ligne): float => $ligne->quantite * (float) $ligne->prix_chf), 2);
     }
 
-    /** Ce qui reste à encaisser : le total moins l'acompte payé en ligne à la réservation. */
+    /**
+     * Ses règlements (09.11.2026) : paiements reçus, acompte en ligne,
+     * annulations et remboursements (négatifs), dans l'ordre.
+     *
+     * @return HasMany<Settlement, $this>
+     */
+    public function settlements(): HasMany
+    {
+        return $this->hasMany(Settlement::class)->withoutGlobalScopes()->orderBy('received_on')->orderBy('id');
+    }
+
+    /** Ce qui est réglé : la somme de ses règlements, acompte en ligne compris. */
+    public function montantRegle(): float
+    {
+        $lignes = $this->relationLoaded('settlements') ? $this->settlements : $this->settlements()->get();
+
+        return round((float) $lignes->sum(fn (Settlement $s): float => (float) $s->amount), 2);
+    }
+
+    /** Ce qui reste à encaisser : le total moins ses règlements (l'acompte payé en ligne en est un, 09.11.2026). */
     public function resteAPayer(): float
     {
-        return max(0.0, round($this->totalTtc() - (float) $this->acompte, 2));
+        return max(0.0, round($this->totalTtc() - $this->montantRegle(), 2));
+    }
+
+    /**
+     * A reçu au moins un paiement (caisse ou virement), même annulé depuis :
+     * le journal le garde, la facture ne s'efface ni ne s'annule plus
+     * (vérification du 09.11.2026).
+     */
+    public function aRecuUnReglement(): bool
+    {
+        return $this->settlements()->where('method', '!=', SettlementMethod::Acompte->value)->exists();
+    }
+
+    /** Due avec déjà un paiement reçu à la caisse ou par virement (pas seulement l'acompte en ligne). */
+    public function estPayeeEnPartie(): bool
+    {
+        $lignes = $this->relationLoaded('settlements') ? $this->settlements : $this->settlements()->get();
+
+        return $this->estDue() && round((float) $lignes->filter(fn (Settlement $s): bool => $s->method !== SettlementMethod::Acompte)->sum(fn (Settlement $s): float => (float) $s->amount), 2) > 0;
     }
 
     /**

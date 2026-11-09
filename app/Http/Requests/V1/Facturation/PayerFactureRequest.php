@@ -14,6 +14,8 @@ class PayerFactureRequest extends FormRequest
         return [
             'moyen' => ['required', Rule::in(['tpe', 'twint'])],
             'terminal_id' => ['required_if:moyen,tpe', 'nullable', 'integer'],
+            // Paiement partiel (09.11.2026) : sans montant, le reste
+            'montant' => ['sometimes', 'nullable', 'numeric', 'min:0.01', 'max:999999'],
         ];
     }
 

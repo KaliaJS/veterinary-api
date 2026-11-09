@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
-use App\Enums\MoyenPaiement;
+use App\Enums\SettlementMethod;
 use App\Enums\StatutFacture;
 use App\Enums\TypeLigneFacture;
 use App\Enums\VatContext;
@@ -58,7 +58,7 @@ class FactureController extends Controller
         $motif = $this->searchPattern($request);
 
         $factures = Facture::query()
-            ->with(['lignes', 'decompte', 'encaisseePar:id,name'])
+            ->with(['lignes', 'decompte', 'encaisseePar:id,name', 'settlements.reversal', 'settlements.recordedBy:id,name'])
             // Encaissée par Stripe (terminal, TWINT) : total vérifié, rien à rapprocher
             ->withExists(['paiements as paye_par_stripe' => fn (Builder $requete) => $requete->whereIn('statut', Facture::preuvesDeTerminal())])
             ->when($request->enum('statut', StatutFacture::class), fn (Builder $requete, StatutFacture $statut) => $requete->where('statut', $statut))
@@ -70,15 +70,14 @@ class FactureController extends Controller
             ->when($request->date('du'), fn (Builder $requete, $du) => $requete->where('emise_le', '>=', minuitLocal($du)))
             // « au » compris, comme le registre : jusqu'à minuit le soir de ce jour, heure de la clinique
             ->when($request->date('au'), fn (Builder $requete, $au) => $requete->where('emise_le', '<', minuitLocal($au)->addDay()))
+            // Celles dont un règlement de caisse attend la clôture (09.11.2026 : le Z compte les règlements)
             ->when($request->boolean('a_cloturer'), fn (Builder $requete) => $requete
-                ->where('statut', StatutFacture::Payee)
-                ->whereNull('cloture_caisse_id')
                 ->where('clinique_id', app(ContexteClinique::class)->cliniqueId())
-                ->where(fn (Builder $q) => $q->whereNull('moyen_paiement')->orWhere('moyen_paiement', '!=', MoyenPaiement::Virement->value)))
-            // À régler (onglet du dossier, 07.11.2026) : due, et il reste quelque chose après l'acompte
+                ->whereHas('settlements', fn (Builder $q) => $q->whereNull('cloture_caisse_id')->whereIn('method', SettlementMethod::cashDeskValues())))
+            // À régler (onglet du dossier, 07.11.2026) : due, et il reste quelque chose après ses règlements (acompte compris)
             ->when($request->boolean('a_regler'), fn (Builder $requete) => $requete
                 ->where('statut', StatutFacture::Due)
-                ->whereRaw(self::SQL_TOTAL.' - factures.acompte > 0'))
+                ->whereRaw(self::SQL_TOTAL.' - coalesce((select sum(st.amount) from settlements st where st.facture_id = factures.id), 0) > 0'))
             // Le numéro, les lignes, l'animal et le propriétaire écrits sur la facture
             ->when($motif !== null, fn (Builder $requete) => $requete->where(fn (Builder $clause) => $clause
                 ->tap(fn (Builder $c) => $this->whereLikeAny($c, ['factures.numero', "coalesce(factures.patient_name, '')", "coalesce(factures.owner_name, '')"], $motif))
@@ -144,7 +143,7 @@ class FactureController extends Controller
 
         $facture = $creation->nouvelle($attributs, $lignes, $request->user());
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     public function show(Facture $facture): FactureResource
@@ -152,7 +151,7 @@ class FactureController extends Controller
         $this->authorize('view', $facture);
 
         // Avec l'en-tête de la clinique qui l'a émise (PDF d'une clinique sœur)
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'clinique.societe', 'client', 'encaisseePar:id,name']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'clinique.societe', 'client', 'encaisseePar:id,name', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     /**
@@ -212,6 +211,7 @@ class FactureController extends Controller
         }
 
         $estDansLaFenetre = $facture->estDue()
+            && ! $facture->aRecuUnReglement()
             && $facture->cloture_caisse_id === null
             && $facture->decompte()->doesntExist()
             && $facture->cree_par_id === $request->user()->id

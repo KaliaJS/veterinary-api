@@ -5,6 +5,7 @@ namespace App\Http\Resources\V1;
 use App\Models\Facture;
 use App\Models\FactureLigne;
 use App\Models\FacturePrescription;
+use App\Models\Settlement;
 use App\Support\DocumentHeader;
 use App\Support\QrFacture;
 use Illuminate\Http\Request;
@@ -57,6 +58,24 @@ class FactureResource extends JsonResource
             // Acompte payé en ligne à la réservation, et ce qui reste à encaisser
             'acompte' => (float) $this->acompte,
             'reste_a_payer' => $this->whenLoaded('lignes', fn (): float => $this->resteAPayer()),
+            // Ses règlements (09.11.2026) : ce qui est réglé, payée en partie, et chaque ligne
+            'montant_regle' => $this->montantRegle(),
+            'payee_en_partie' => $this->estPayeeEnPartie(),
+            'reglements' => $this->whenLoaded('settlements', fn () => $this->settlements->map(fn (Settlement $s): array => [
+                'id' => $s->id,
+                'moyen' => $s->method->value,
+                'libelle_moyen' => $s->method->label(),
+                'montant' => (float) $s->amount,
+                'recu_le' => $s->received_on->toDateString(),
+                'reference' => $s->reference,
+                'motif' => $s->reason,
+                'annule_id' => $s->reverses_id,
+                'par_stripe' => $s->paiement_id !== null,
+                'saisi_par' => $s->relationLoaded('recordedBy') ? $s->recordedBy?->name : null,
+                'saisi_le' => $s->created_at,
+                // Annulable à la main (ni Stripe, ni acompte, ni déjà annulé)
+                'annulable' => $s->isReversible(),
+            ])->values()),
             'montant_tva' => $this->whenLoaded('lignes', fn (): float => $this->montantTva()),
             'total_ht' => $this->whenLoaded('lignes', fn (): float => $this->totalHt()),
             // Le taux de toutes les lignes, ou null quand elles en ont plusieurs

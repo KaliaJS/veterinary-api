@@ -172,7 +172,7 @@ class ClientHistoryController extends Controller
         }
 
         return Facture::withoutGlobalScopes()
-            ->with('lignes')
+            ->with(['lignes', 'settlements'])
             ->where('client_id', $client->id)
             ->where('statut', '!=', StatutFacture::Annulee)
             ->when($avant, fn ($q) => $q->where('emise_le', '<=', $avant))

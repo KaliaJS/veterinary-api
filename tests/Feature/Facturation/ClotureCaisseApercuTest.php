@@ -9,7 +9,9 @@ use App\Models\ClotureCaisse;
 use App\Models\Facture;
 use App\Models\FactureLigne;
 use App\Models\Paiement;
+use App\Models\Settlement;
 use App\Models\User;
+use App\Services\Facturation\Settlements;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
@@ -49,6 +51,8 @@ class ClotureCaisseApercuTest extends TestCase
                 'stripe_payment_intent_id' => 'pi_'.$facture->id, 'statut' => StatutPaiement::Reussi, 'reussi_le' => now(),
             ]);
         }
+
+        app(Settlements::class)->recordExistingPayment($facture);
 
         return $facture;
     }
@@ -90,7 +94,10 @@ class ClotureCaisseApercuTest extends TestCase
     public function test_l_apercu_compte_tous_les_encaissements_au_dela_de_cent(): void
     {
         Facture::factory()->payee(MoyenPaiement::Especes)->count(101)->create(['clinique_id' => $this->clinique->id, 'payee_le' => now()])
-            ->each(fn (Facture $facture) => FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => 1]));
+            ->each(function (Facture $facture): void {
+                FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => 1]);
+                app(Settlements::class)->recordExistingPayment($facture);
+            });
 
         $this->apercu()->assertOk()->assertJsonPath('data.encaissements', 101)->assertJsonPath('data.moyens.cash.montant', 101);
     }
@@ -123,6 +130,8 @@ class ClotureCaisseApercuTest extends TestCase
         $facture = $this->facturePayee(MoyenPaiement::Tpe, 85, aLaMain: true);
         $auteur = User::factory()->create(['name' => 'Léa Fontaine']);
         $facture->update(['encaissee_par_id' => $auteur->id]);
+        // Qui a saisi : celui du règlement (09.11.2026)
+        Settlement::query()->where('facture_id', $facture->id)->update(['recorded_by_id' => $auteur->id]);
 
         $this->apercu()
             ->assertJsonPath('data.moyens.tpe.sans_terminal', 1)
@@ -236,8 +245,12 @@ class ClotureCaisseApercuTest extends TestCase
     {
         $terminal = $this->facturePayee(MoyenPaiement::Tpe, 85);
         $main = $this->facturePayee(MoyenPaiement::Tpe, 40, aLaMain: true);
-        $terminal->update(['encaissee_par_id' => User::factory()->create(['name' => 'Au Terminal'])->id]);
-        $main->update(['encaissee_par_id' => User::factory()->create(['name' => 'À La Main'])->id]);
+        // Qui a saisi : celui du règlement (09.11.2026)
+        foreach ([[$terminal, 'Au Terminal'], [$main, 'À La Main']] as [$facture, $nom]) {
+            $auteur = User::factory()->create(['name' => $nom])->id;
+            $facture->update(['encaissee_par_id' => $auteur]);
+            Settlement::query()->where('facture_id', $facture->id)->update(['recorded_by_id' => $auteur]);
+        }
 
         $this->apercu()->assertJsonPath('data.moyens.tpe.saisies_par', ['À La Main']);
     }

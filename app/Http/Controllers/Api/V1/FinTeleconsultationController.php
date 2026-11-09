@@ -98,7 +98,7 @@ class FinTeleconsultationController extends Controller
         $resource = new SessionTeleconsultationResource($session->load(SessionTeleconsultationController::relations()));
 
         if ($facture !== null && Gate::allows('facturation')) {
-            $resource->additional(['facture' => new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']))]);
+            $resource->additional(['facture' => new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']))]);
         }
 
         return $resource;

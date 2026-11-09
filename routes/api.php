@@ -87,6 +87,7 @@ use App\Http\Controllers\Api\V1\FactureController;
 use App\Http\Controllers\Api\V1\FactureDevisController;
 use App\Http\Controllers\Api\V1\FactureLigneController;
 use App\Http\Controllers\Api\V1\FacturePrescriptionController;
+use App\Http\Controllers\Api\V1\FacturesOuvertesController;
 use App\Http\Controllers\Api\V1\FinConsultationController;
 use App\Http\Controllers\Api\V1\FinTeleconsultationController;
 use App\Http\Controllers\Api\V1\GardeWeekendController;
@@ -907,6 +908,7 @@ Route::prefix('v1')->group(function (): void {
 
             Route::get('factures', [FactureController::class, 'index']);
             Route::get('factures/journal', JournalFacturesController::class);
+            Route::get('factures/ouvertes', FacturesOuvertesController::class);
             Route::post('factures', [FactureController::class, 'store']);
             Route::get('factures/{facture}', [FactureController::class, 'show']);
             Route::delete('factures/{facture}', [FactureController::class, 'destroy']);
@@ -916,6 +918,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('factures/{facture}/prescriptions', [FacturePrescriptionController::class, 'store']);
             Route::post('factures/{facture}/encaisser', [EncaissementController::class, 'encaisser'])->middleware('throttle:stripe');
             Route::post('factures/{facture}/payer-plus-tard', [EncaissementController::class, 'payerPlusTard']);
+            Route::post('factures/{facture}/reglements/{settlement}/annuler', [EncaissementController::class, 'annulerReglement'])->whereNumber('settlement');
             // Vente du comptoir restée due : la caisse peut aussi l'annuler (28.10.2026)
             Route::post('ventes/{facture}/annuler', [BoutiquePaiementController::class, 'annuler'])->middleware('throttle:stripe');
 

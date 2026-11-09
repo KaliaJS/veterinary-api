@@ -13,6 +13,7 @@ use App\Paiements\ErreurPaiement;
 use App\Services\EncaissementFacture;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Paiements de caisse par Stripe (docs/data-model.md §6) : carte sur le
@@ -39,23 +40,24 @@ class PaiementsCaisse
      * carte. Après un refus, la MÊME intention est représentée (règle
      * Stripe contre les doubles débits) tant que le montant n'a pas changé.
      */
-    public function parTerminal(Facture $facture, TerminalPaiement $terminal, ?User $auteur): Paiement
+    public function parTerminal(Facture $facture, TerminalPaiement $terminal, ?User $auteur, ?float $montant = null): Paiement
     {
         $passerelle = $this->comptes->passerellePour($facture->clinique_id, pourEncaisser: true);
-        $paiement = $this->tentativeARejouer($facture, $terminal);
+        $montant = $this->montant($facture, $montant);
+        $paiement = $this->tentativeARejouer($facture, $terminal, $montant);
 
         if (! $paiement) {
             $this->abandonnerEnCours($facture);
 
             $intention = $passerelle->creerIntentionTerminal(
-                $this->centimes($facture),
+                $this->centimes($montant),
                 $this->metadonnees($facture, MoyenPaiement::Tpe),
                 $this->cle($facture),
-                ComptesPaiement::commissionTerminal($this->centimes($facture)),
+                ComptesPaiement::commissionTerminal($this->centimes($montant)),
             );
 
             // Enregistré AVANT d'envoyer au lecteur : un webhook rapide le retrouve
-            $paiement = $this->creer($facture, MoyenPaiement::Tpe, $intention['id'], $auteur, [
+            $paiement = $this->creer($facture, MoyenPaiement::Tpe, $intention['id'], $auteur, $montant, [
                 'terminal_paiement_id' => $terminal->id,
             ]);
         }
@@ -73,20 +75,21 @@ class PaiementsCaisse
     }
 
     /** Intention TWINT : l'URL de la page TWINT devient le QR que scanne le client. */
-    public function parTwint(Facture $facture, ?User $auteur): Paiement
+    public function parTwint(Facture $facture, ?User $auteur, ?float $montant = null): Paiement
     {
         $passerelle = $this->comptes->passerellePour($facture->clinique_id, pourEncaisser: true);
+        $montant = $this->montant($facture, $montant);
         $this->abandonnerEnCours($facture);
 
         $intention = $passerelle->creerIntentionTwint(
-            $this->centimes($facture),
+            $this->centimes($montant),
             $this->metadonnees($facture, MoyenPaiement::Twint),
             rtrim((string) config('app.frontend_url'), '/').'/paiement-termine',
             $this->cle($facture),
-            ComptesPaiement::commissionTwint($this->centimes($facture)),
+            ComptesPaiement::commissionTwint($this->centimes($montant)),
         );
 
-        $paiement = $this->creer($facture, MoyenPaiement::Twint, $intention['id'], $auteur, [
+        $paiement = $this->creer($facture, MoyenPaiement::Twint, $intention['id'], $auteur, $montant, [
             'url_twint' => $intention['url'],
         ]);
 
@@ -185,15 +188,16 @@ class PaiementsCaisse
             return;
         }
 
-        // Le montant payé n'est pas le reste de la facture (elle a changé
-        // pendant la tentative) : rendu, la facture reste à encaisser
-        if (abs((float) $paiement->montant - $facture->loadMissing('lignes')->resteAPayer()) >= 0.005) {
-            $this->rendre($paiement, 'Montant différent de la facture', 'ce paiement a été remboursé, encaissez à nouveau.');
+        // Plus que le reste du moment (la facture a changé, un autre paiement
+        // est arrivé pendant la tentative) : rendu, rien n'est réglé ; un
+        // paiement partiel plus petit que le reste est réglé tel quel (09.11.2026)
+        if ((float) $paiement->montant > $facture->loadMissing('lignes')->resteAPayer() + 0.005) {
+            $this->rendre($paiement, 'Montant plus grand que le reste de la facture', 'ce paiement a été remboursé, encaissez à nouveau.');
 
             return;
         }
 
-        $this->dansLaClinique($paiement, fn () => $this->encaissement->encaisser($facture, $paiement->moyen, $paiement->user));
+        $this->dansLaClinique($paiement, fn () => $this->encaissement->encaisser($facture, $paiement->moyen, $paiement->user, (float) $paiement->montant, null, null, $paiement));
     }
 
     /**
@@ -226,7 +230,7 @@ class PaiementsCaisse
      * Carte refusée juste avant, même montant : l'intention attend encore
      * une carte, on la représente sur le terminal choisi.
      */
-    private function tentativeARejouer(Facture $facture, TerminalPaiement $terminal): ?Paiement
+    private function tentativeARejouer(Facture $facture, TerminalPaiement $terminal, float $montant): ?Paiement
     {
         $echec = $facture->paiements()
             ->where('moyen', MoyenPaiement::Tpe)
@@ -234,7 +238,7 @@ class PaiementsCaisse
             ->latest('id')
             ->first();
 
-        if (! $echec || (float) $echec->montant !== $facture->loadMissing('lignes')->resteAPayer()
+        if (! $echec || abs((float) $echec->montant - $montant) >= 0.005
             || $facture->paiements()->where('id', '>', $echec->id)->exists()) {
             return null;
         }
@@ -273,13 +277,13 @@ class PaiementsCaisse
     }
 
     /** @param  array<string, mixed>  $champs */
-    private function creer(Facture $facture, MoyenPaiement $moyen, string $intentionId, ?User $auteur, array $champs): Paiement
+    private function creer(Facture $facture, MoyenPaiement $moyen, string $intentionId, ?User $auteur, float $montant, array $champs): Paiement
     {
         return Paiement::create([
             'facture_id' => $facture->id,
             'clinique_id' => $facture->clinique_id,
             'moyen' => $moyen,
-            'montant' => $facture->resteAPayer(),
+            'montant' => $montant,
             'stripe_payment_intent_id' => $intentionId,
             // Le compte qui reçoit : gardé pour le suivi et les remboursements
             'stripe_compte_id' => $this->comptes->compteDe($facture->clinique_id),
@@ -331,10 +335,29 @@ class PaiementsCaisse
         }
     }
 
-    private function centimes(Facture $facture): int
+    private function centimes(float $montant): int
     {
-        // Le reste : l'acompte payé en ligne à la réservation est déjà encaissé
-        return (int) round($facture->loadMissing('lignes')->resteAPayer() * 100);
+        return (int) round($montant * 100);
+    }
+
+    /**
+     * Ce que le client paie : le reste (l'acompte en ligne et les paiements
+     * déjà reçus déduits), ou un montant plus petit (paiement partiel,
+     * 09.11.2026) ; jamais plus, jamais rien.
+     */
+    private function montant(Facture $facture, ?float $montant): float
+    {
+        $facture->unsetRelation('settlements');
+        $reste = $facture->loadMissing('lignes')->resteAPayer();
+        $montant = round($montant ?? $reste, 2);
+        if ($montant <= 0 || $montant > $reste + 0.005) {
+            throw ValidationException::withMessages(['montant' => $reste > 0 ? 'Le montant doit être plus grand que zéro, et au plus le reste à payer ('.chf($reste).').' : 'Il ne reste rien à payer sur cette facture.']);
+        }
+        if ($facture->vente_comptoir && abs($montant - $reste) >= 0.005) {
+            throw ValidationException::withMessages(['montant' => 'Une vente du comptoir se paie en entier.']);
+        }
+
+        return $montant;
     }
 
     /** @return array<string, string> */

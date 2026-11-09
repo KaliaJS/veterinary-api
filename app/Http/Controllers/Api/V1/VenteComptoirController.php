@@ -71,7 +71,7 @@ class VenteComptoirController extends Controller
             return $this->encaissement->encaisser($facture, $moyen, $request->user());
         });
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     /**

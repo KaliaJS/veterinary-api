@@ -11,6 +11,7 @@ use App\Http\Requests\V1\Facturation\EnregistrerClotureCaisseRequest;
 use App\Http\Resources\V1\ClotureCaisseResource;
 use App\Models\ClotureCaisse;
 use App\Models\Facture;
+use App\Models\Settlement;
 use App\Services\Facturation\ArreteDeCaisse;
 use App\Services\Numeroteur;
 use Illuminate\Http\JsonResponse;
@@ -48,7 +49,7 @@ class ClotureCaisseController extends Controller
 
         return response()->json(['data' => $this->arrete->calculer(
             $clinique,
-            $this->arrete->factures($clinique),
+            $this->arrete->reglements($clinique),
             isset($donnees['fond']) ? (float) $donnees['fond'] : null,
             $donnees['comptage'] ?? [],
             null,
@@ -63,6 +64,9 @@ class ClotureCaisseController extends Controller
 
         $clotures = ClotureCaisse::query()
             ->withCount('factures')
+            ->addSelect(['factures_reglees_count' => Settlement::query()->withoutGlobalScopes()
+                ->selectRaw('count(distinct facture_id)')
+                ->whereColumn('settlements.cloture_caisse_id', 'clotures_caisse.id')])
             ->latest('arretee_le')
             ->latest('id')
             ->with(['user.employes', 'clinique.societe'])
@@ -75,7 +79,7 @@ class ClotureCaisseController extends Controller
     {
         $this->authorize('viewAny', ClotureCaisse::class);
 
-        return new ClotureCaisseResource($cloture->load(['factures', 'user.employes', 'clinique.societe'])->loadCount('factures'));
+        return new ClotureCaisseResource($cloture->load(['factures', 'settlements', 'user.employes', 'clinique.societe'])->loadCount('factures')->loadCount(['settlements as factures_reglees_count' => fn ($q) => $q->select(DB::raw('count(distinct facture_id)'))]));
     }
 
     public function store(EnregistrerClotureCaisseRequest $request): ClotureCaisseResource
@@ -88,7 +92,7 @@ class ClotureCaisseController extends Controller
         // Tout sous verrou : deux clôtures en même temps ne prennent jamais
         // les mêmes factures, et le fond suit la clôture précédente
         $cloture = DB::transaction(function () use ($request, $donnees, $clinique): ClotureCaisse {
-            $aClorer = $this->arrete->factures($clinique, verrouiller: true);
+            $aClorer = $this->arrete->reglements($clinique, verrouiller: true);
 
             if ($aClorer->isEmpty()) {
                 throw ValidationException::withMessages([
@@ -159,11 +163,13 @@ class ClotureCaisseController extends Controller
                 'nouveau_fond' => $arrete['nouveau_fond'],
                 'note' => $note === '' ? null : $note,
             ]);
-            Facture::whereIn('id', $aClorer->pluck('id'))->update(['cloture_caisse_id' => $cloture->id]);
+            Settlement::query()->withoutGlobalScopes()->whereIn('id', $aClorer->pluck('id'))->update(['cloture_caisse_id' => $cloture->id]);
+            // La facture garde la première clôture où elle est passée (liste des Z, suppression refusée)
+            Facture::whereIn('id', $aClorer->pluck('facture_id')->unique())->whereNull('cloture_caisse_id')->update(['cloture_caisse_id' => $cloture->id]);
 
             return $cloture;
         });
 
-        return new ClotureCaisseResource($cloture->load(['factures', 'user.employes', 'clinique.societe'])->loadCount('factures'));
+        return new ClotureCaisseResource($cloture->load(['factures', 'settlements', 'user.employes', 'clinique.societe'])->loadCount('factures')->loadCount(['settlements as factures_reglees_count' => fn ($q) => $q->select(DB::raw('count(distinct facture_id)'))]));
     }
 }

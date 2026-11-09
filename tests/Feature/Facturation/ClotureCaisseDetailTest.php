@@ -10,6 +10,7 @@ use App\Models\Employe;
 use App\Models\Facture;
 use App\Models\FactureLigne;
 use App\Models\Role;
+use App\Services\Facturation\Settlements;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -43,6 +44,8 @@ class ClotureCaisseDetailTest extends TestCase
     {
         $facture = Facture::factory()->payee($moyen)->create(['clinique_id' => $this->clinique->id, 'payee_le' => now()]);
         FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => $montant]);
+
+        app(Settlements::class)->recordExistingPayment($facture);
 
         return $facture;
     }

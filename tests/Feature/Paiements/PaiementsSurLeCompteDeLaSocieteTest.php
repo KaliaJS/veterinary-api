@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Paiements;
 
+use App\Enums\SettlementMethod;
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
 use App\Models\EvenementStripe;
@@ -15,6 +16,7 @@ use App\Models\Societe;
 use App\Models\TerminalPaiement;
 use App\Paiements\ErreurPaiement;
 use App\Paiements\PasserellePaiement;
+use App\Services\Facturation\Settlements;
 use App\Services\Paiements\AcomptesRendezVous;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -98,8 +100,8 @@ class PaiementsSurLeCompteDeLaSocieteTest extends TestCase
     {
         $facture = $this->factureDue(120);
         $paiement = Paiement::query()->findOrFail($this->payer($facture, 'tpe')->json('data.id'));
-        // La facture a changé pendant l'attente : ce paiement ne la solde plus
-        FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => 30, 'quantite' => 1]);
+        // 30 francs reçus par un autre chemin pendant l'attente : ce paiement dépasse le reste (R13, 09.11.2026)
+        app(Settlements::class)->record($facture, SettlementMethod::Especes, 30);
 
         $this->stripe->conclure($paiement->stripe_payment_intent_id, 'succeeded');
         $this->webhook('evt_1', 'payment_intent.succeeded', ['id' => $paiement->stripe_payment_intent_id, 'status' => 'succeeded'])->assertNoContent();
@@ -113,13 +115,13 @@ class PaiementsSurLeCompteDeLaSocieteTest extends TestCase
             'centimes' => 12000,
             'cle' => 'rendu-'.$paiement->id,
         ]], $this->stripe->rendus);
-        $this->assertSame('Montant différent de la facture : ce paiement a été remboursé, encaissez à nouveau.', $paiement->refresh()->erreur);
+        $this->assertSame('Montant plus grand que le reste de la facture : ce paiement a été remboursé, encaissez à nouveau.', $paiement->refresh()->erreur);
         $this->assertSame('due', $facture->refresh()->statut->value);
         $this->assertAucunMouvementSurLaPlateforme();
 
-        // La facture s'encaisse ensuite à son nouveau montant
+        // La facture s'encaisse ensuite pour son reste (120 moins les 30 reçus)
         $nouveau = Paiement::query()->findOrFail($this->payer($facture, 'tpe')->assertCreated()->json('data.id'));
-        $this->assertSame(15000, $this->stripe->intentions[$nouveau->stripe_payment_intent_id]['centimes']);
+        $this->assertSame(9000, $this->stripe->intentions[$nouveau->stripe_payment_intent_id]['centimes']);
     }
 
     public function test_un_remboursement_refuse_par_stripe_laisse_le_paiement_a_rembourser(): void
@@ -127,7 +129,7 @@ class PaiementsSurLeCompteDeLaSocieteTest extends TestCase
         Exceptions::fake();
         $facture = $this->factureDue(120);
         $paiement = Paiement::query()->findOrFail($this->payer($facture, 'tpe')->json('data.id'));
-        FactureLigne::factory()->create(['facture_id' => $facture->id, 'prix_chf' => 30, 'quantite' => 1]);
+        app(Settlements::class)->record($facture, SettlementMethod::Especes, 30);
         $this->stripe->erreurs['rembourser'] = new ErreurPaiement(ErreurPaiement::GENERIQUE, 'balance_insufficient');
 
         $this->stripe->conclure($paiement->stripe_payment_intent_id, 'succeeded');
@@ -139,7 +141,7 @@ class PaiementsSurLeCompteDeLaSocieteTest extends TestCase
         Exceptions::assertReported(fn (ErreurPaiement $e) => $e->codeStripe === 'balance_insufficient');
         $paiement->refresh();
         $this->assertSame('reussi', $paiement->statut->value);
-        $this->assertSame('À rembourser : montant différent de la facture, le remboursement automatique a échoué.', $paiement->erreur);
+        $this->assertSame('À rembourser : montant plus grand que le reste de la facture, le remboursement automatique a échoué.', $paiement->erreur);
         // La facture n'est pas encaissée pour autant
         $this->assertSame('due', $facture->refresh()->statut->value);
 

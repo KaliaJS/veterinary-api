@@ -10,6 +10,7 @@ use App\Models\Clinique;
 use App\Models\Facture;
 use App\Models\FactureLigne;
 use App\Models\LignePlanning;
+use App\Models\Settlement;
 use App\Services\Planning\PlanningOccupancy;
 use App\Support\WallClock;
 use Carbon\CarbonImmutable;
@@ -36,7 +37,7 @@ use Illuminate\Support\Collection;
  * de requêtes ne dépend ni de la longueur de la période ni du nombre de
  * factures.
  *
- * @phpstan-type PaidInvoice array{clinic: string, lane: string, species: string, method: string, total: float, deposit: float, cashed: float, day: string}
+ * @phpstan-type PaidInvoice array{clinic: string, lane: string, species: string, method: string, total: float, deposit: float, split: array<string, float>, day: string}
  * @phpstan-type DueInvoice array{issued_at: string, id: int, number: string, owner_name: string|null, patient_name: string|null, clinic_id: int, lane: int|null, issued_on: string, age_days: int, amount: float}
  * @phpstan-type Totals array{revenue: float, count: int, clinic: array<string, array{revenue: float, count: int}>, lane: array<string, array{revenue: float, count: int}>, species: array<string, array{revenue: float, count: int}>, method: array<string, array{revenue: float, count: int}>, payments: array<string, float>}
  * @phpstan-type SlotTotals array{revenue: float, count: int, payments: array<string, float>}
@@ -53,6 +54,9 @@ class CashStatistics
 
     /** Les moyens de la répartition de l'encaissé, l'acompte en ligne à la fin */
     private const array PAYMENT_KEYS = ['tpe', 'twint', 'cash', 'virement', 'deposit'];
+
+    /** Les moyens des règlements répartis (l'acompte en ligne se compte à part) */
+    private const array SETTLED_KEYS = ['tpe', 'twint', 'cash', 'virement'];
 
     private const int TOP_ACTS = 10;
 
@@ -264,7 +268,15 @@ class CashStatistics
         $perSlot = array_map(fn (): array => ['revenue' => 0.0, 'count' => 0, 'payments' => array_fill_keys(self::PAYMENT_KEYS, 0.0)], $slots);
         $lanes = [];
 
-        $rows = $this->inChunks($this->invoicesWithTotal(['factures.id', 'factures.clinique_id', 'factures.ligne_planning_id', 'factures.species', 'factures.moyen_paiement', 'factures.acompte', 'factures.payee_le'])
+        // Ce que chaque moyen a réglé (09.11.2026) : une facture payée en plusieurs fois ou par plusieurs moyens se répartit
+        $paid = $this->invoicesWithTotal(['factures.id', 'factures.clinique_id', 'factures.ligne_planning_id', 'factures.species', 'factures.moyen_paiement', 'factures.acompte', 'factures.payee_le']);
+        foreach ([...self::SETTLED_KEYS, 'acompte'] as $method) {
+            $paid->addSelect(['settled_'.$method => Settlement::query()->withoutGlobalScopes()
+                ->selectRaw('coalesce(sum(amount), 0)')
+                ->whereColumn('settlements.facture_id', 'factures.id')
+                ->where('method', $method)]);
+        }
+        $rows = $this->inChunks($paid
             ->where('statut', StatutFacture::Payee)
             ->where('payee_le', '>=', $this->startOf($from))
             ->where('payee_le', '<', $this->startOf($to->addDay())));
@@ -292,18 +304,26 @@ class CashStatistics
     private function paidInvoice(object $row): array
     {
         $total = round((float) $row->lines_total, 2);
-        // Un acompte plus grand que la facture n'en paie que le total (vérification du 06.11.2026)
-        $deposit = min(max(0.0, round((float) $row->acompte, 2)), max(0.0, $total));
+        // L'acompte gardé, lu dans ses règlements (rendu, il ne compte plus, vérification du 09.11.2026) ;
+        // plus grand que la facture, il n'en paie que le total (vérification du 06.11.2026)
+        $deposit = min(max(0.0, round((float) ($row->settled_acompte ?? 0), 2)), max(0.0, $total));
+
+        // Chaque moyen, net de ses annulations ; la facture compte au moyen qui en a réglé le plus
+        $split = [];
+        foreach (self::SETTLED_KEYS as $method) {
+            $split[$method] = max(0.0, round((float) ($row->{'settled_'.$method} ?? 0), 2));
+        }
+        $main = array_sum($split) > 0 ? (string) array_search(max($split), $split, true) : null;
 
         return [
             'clinic' => (string) $row->clinique_id,
             'lane' => $row->ligne_planning_id === null ? 'none' : (string) $row->ligne_planning_id,
             'species' => $row->species === null ? 'none' : (string) $row->species,
-            'method' => $row->moyen_paiement === null ? 'none' : (string) $row->moyen_paiement,
+            'method' => $main ?? ($row->moyen_paiement === null ? 'none' : (string) $row->moyen_paiement),
             'total' => $total,
             'deposit' => $deposit,
-            // Ce qui est passé à la caisse : le total moins la part payée par l'acompte en ligne
-            'cashed' => round($total - $deposit, 2),
+            // Ce que chaque moyen a réglé (sans l'acompte en ligne)
+            'split' => $split,
             'day' => (string) $this->localDay((string) $row->payee_le),
         ];
     }
@@ -351,14 +371,18 @@ class CashStatistics
         $todayN = CarbonImmutable::parse($today->toDateString());
 
         $rows = $this->inChunks($this->invoicesWithTotal(['factures.id', 'factures.numero', 'factures.owner_name', 'factures.patient_name', 'factures.clinique_id', 'factures.ligne_planning_id', 'factures.acompte', 'factures.emise_le'])
+            // Ce qui est déjà réglé (acompte en ligne et paiements partiels, 09.11.2026)
+            ->addSelect(['settled_total' => Settlement::query()->withoutGlobalScopes()
+                ->selectRaw('coalesce(sum(amount), 0)')
+                ->whereColumn('settlements.facture_id', 'factures.id')])
             ->where('statut', StatutFacture::Due));
         // Les plus anciennes (émission, puis numéro d'ordre), triées de temps en temps pour rester peu nombreuses
         $oldest = fn (array $a, array $b): int => [$a['issued_at'], $a['id']] <=> [$b['issued_at'], $b['id']];
 
         foreach ($rows as $row) {
             $issuedOn = (string) $this->localDay((string) $row->emise_le);
-            // Ce qui reste à payer : l'acompte en ligne est déjà là
-            $amount = max(0.0, round((float) $row->lines_total - (float) $row->acompte, 2));
+            // Ce qui reste à payer : ses règlements (acompte en ligne compris) déduits
+            $amount = max(0.0, round((float) $row->lines_total - (float) $row->settled_total, 2));
             $age = (int) CarbonImmutable::parse($issuedOn)->diffInDays($todayN);
             $bucket = $age < 30 ? 'under_30' : ($age < 60 ? 'from_30_to_59' : 'over_60');
             $out['total'] += $amount;
@@ -453,9 +477,8 @@ class CashStatistics
      */
     private function addPayments(array &$payments, array $invoice): void
     {
-        $method = isset($payments[$invoice['method']]) && $invoice['method'] !== 'deposit' ? $invoice['method'] : null;
-        if ($method !== null) {
-            $payments[$method] += $invoice['cashed'];
+        foreach ($invoice['split'] as $method => $amount) {
+            $payments[$method] += $amount;
         }
         $payments['deposit'] += $invoice['deposit'];
     }

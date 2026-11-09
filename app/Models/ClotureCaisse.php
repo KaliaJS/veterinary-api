@@ -60,4 +60,15 @@ class ClotureCaisse extends Model
     {
         return $this->hasMany(Facture::class);
     }
+
+    /**
+     * Les règlements qu'elle couvre (09.11.2026) : une facture payée en deux
+     * fois passe dans deux clôtures.
+     *
+     * @return HasMany<Settlement, $this>
+     */
+    public function settlements(): HasMany
+    {
+        return $this->hasMany(Settlement::class)->withoutGlobalScopes();
+    }
 }

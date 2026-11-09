@@ -14,6 +14,7 @@ use App\Models\Facture;
 use App\Models\FactureLigne;
 use App\Models\LignePlanning;
 use App\Models\RendezVous;
+use App\Services\Facturation\Settlements;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -61,6 +62,8 @@ class CashStatisticsTest extends TestCase
             ...$attributs,
         ]);
         FactureLigne::factory()->create(['facture_id' => $facture->id, 'quantite' => 1, 'prix_chf' => $montant, 'type' => TypeLigneFacture::Acte, 'libelle' => 'Consultation']);
+
+        app(Settlements::class)->recordExistingPayment($facture);
 
         return $facture;
     }

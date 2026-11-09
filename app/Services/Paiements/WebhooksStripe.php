@@ -11,6 +11,7 @@ use App\Models\Paiement;
 use App\Paiements\RefusCarte;
 use App\Services\Abonnements\AbonnementSaas;
 use App\Services\Alertes\DestinatairesAlertes;
+use App\Services\Facturation\Settlements;
 use App\Services\Inscription\VerificationIdentite;
 use App\Services\Videos\VideoPurchases;
 use Carbon\CarbonImmutable;
@@ -36,9 +37,10 @@ class WebhooksStripe
         private ComptesPaiement $comptes,
         private DestinatairesAlertes $destinataires,
         private VerificationIdentite $identite,
+        private Settlements $settlements,
     ) {}
 
-    /** @param  array{id: string, type: string, objet: array<string, mixed>, compte?: ?string}  $evenement */
+    /** @param  array{id: string, type: string, objet: array<string, mixed>, compte?: ?string, created?: ?int}  $evenement */
     public function traiter(array $evenement): void
     {
         $nouveau = EvenementStripe::query()->insertOrIgnore([
@@ -59,9 +61,9 @@ class WebhooksStripe
                 'payment_intent.payment_failed' => $this->intention($objet, 'requires_payment_method', $evenement['compte'] ?? null),
                 'payment_intent.canceled' => $this->intention($objet, 'canceled', $evenement['compte'] ?? null),
                 // Remboursement et litige faits chez Stripe (composant intégré, banque du client)
-                'charge.refunded' => $this->rembourse($objet, $evenement['compte'] ?? null),
+                'charge.refunded' => $this->rembourse($objet, $evenement['compte'] ?? null, $evenement['created'] ?? null),
                 'charge.dispute.created' => $this->litige($objet, $evenement['compte'] ?? null, ouvert: true),
-                'charge.dispute.closed' => $this->litige($objet, $evenement['compte'] ?? null, ouvert: false),
+                'charge.dispute.closed' => $this->litige($objet, $evenement['compte'] ?? null, ouvert: false, survenu: $evenement['created'] ?? null),
                 'terminal.reader.action_failed' => $this->echecLecteur($objet, $evenement['compte'] ?? null),
                 // Carte remplacée par la banque, mise à jour par Stripe
                 'payment_method.automatically_updated' => $this->abonnements->surCarteMiseAJour($objet),
@@ -154,13 +156,14 @@ class WebhooksStripe
 
     /**
      * Remboursé chez Stripe : en entier, le paiement passe « remboursé » ;
-     * en partie, la somme rendue est notée. La facture reste payée (un
-     * geste commercial, une erreur de saisie) : l'alerte de la caisse le
-     * signale à qui tient la facturation.
+     * en partie, la somme rendue est notée. Depuis le 09.11.2026 (décision
+     * de Jim), le rendu est un règlement négatif daté du remboursement : la
+     * facture redevient due de ce montant ; l'alerte de la caisse le signale
+     * à qui tient la facturation.
      *
      * @param  array<string, mixed>  $charge
      */
-    private function rembourse(array $charge, ?string $compte): void
+    private function rembourse(array $charge, ?string $compte, mixed $survenu = null): void
     {
         $paiement = $this->paiementDuCompte($charge['payment_intent'] ?? null, $compte);
         if (! $paiement) {
@@ -173,6 +176,12 @@ class WebhooksStripe
         $paiement->update(($charge['refunded'] ?? false)
             ? ['statut' => StatutPaiement::Rembourse, 'erreur' => 'Remboursé ('.$rendu.').']
             : ['erreur' => 'Remboursé en partie : '.$rendu.'.']);
+        // Daté du remboursement chez Stripe, pas du jour où l'événement arrive (un renvoi après
+        // minuit) : la liste des remboursements si elle est là, sinon l'heure de l'événement
+        // (Stripe ne la joint plus depuis l'API 2022-11-15 ; vérification du 09.11.2026)
+        $rendus = array_filter(array_column($charge['refunds']['data'] ?? [], 'created'));
+        $quand = $rendus !== [] ? max($rendus) : (is_numeric($survenu) ? (int) $survenu : null);
+        $this->settlements->syncStripeRefund($paiement, (int) ($charge['amount_refunded'] ?? 0), 'Remboursé chez Stripe', $quand === null ? null : CarbonImmutable::createFromTimestamp($quand));
     }
 
     /**
@@ -181,7 +190,7 @@ class WebhooksStripe
      *
      * @param  array<string, mixed>  $litige
      */
-    private function litige(array $litige, ?string $compte, bool $ouvert): void
+    private function litige(array $litige, ?string $compte, bool $ouvert, mixed $survenu = null): void
     {
         $paiement = $this->paiementDuCompte($litige['payment_intent'] ?? null, $compte);
         if (! $paiement) {
@@ -199,9 +208,14 @@ class WebhooksStripe
         }
 
         // Gagné, ou simple demande d'information close sans retrait d'argent
-        $paiement->update(in_array($litige['status'] ?? null, ['won', 'warning_closed'], true)
+        $gagne = in_array($litige['status'] ?? null, ['won', 'warning_closed'], true);
+        $paiement->update($gagne
             ? ['statut' => StatutPaiement::Reussi, 'erreur' => null]
             : ['statut' => StatutPaiement::Rembourse, 'erreur' => 'Litige perdu : le montant a été rendu au titulaire de la carte.']);
+        // Perdu : l'argent est reparti, la facture redevient due (09.11.2026)
+        if (! $gagne) {
+            $this->settlements->syncStripeRefund($paiement, (int) round((float) $paiement->montant * 100), 'Litige perdu', is_numeric($survenu) ? CarbonImmutable::createFromTimestamp((int) $survenu) : null);
+        }
     }
 
     /**

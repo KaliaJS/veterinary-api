@@ -47,6 +47,7 @@ class FactureLigneController extends Controller
         $this->sansPaiementEnCours($facture);
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
+        $this->assurerSansReglement($facture);
 
         $donnees = $request->validated();
 
@@ -110,7 +111,7 @@ class FactureLigneController extends Controller
             ]);
         });
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     public function update(ModifierLigneFactureRequest $request, Facture $facture, int $ligne): FactureResource
@@ -123,7 +124,7 @@ class FactureLigneController extends Controller
             $this->changerContexte($facture, $ligne, VatContext::from($request->validated('vat_context')));
         }
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     /**
@@ -138,6 +139,7 @@ class FactureLigneController extends Controller
         $this->sansPaiementEnCours($facture);
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
+        $this->assurerSansReglement($facture);
 
         $ligne = $facture->lignes()->findOrFail($id);
         if (! $ligne->isArticle()) {
@@ -206,7 +208,7 @@ class FactureLigneController extends Controller
             }
         });
 
-        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte']));
+        return new FactureResource($facture->load(['lignes', 'prescriptions', 'decompte', 'settlements.reversal', 'settlements.recordedBy:id,name']));
     }
 
     /**
@@ -223,6 +225,7 @@ class FactureLigneController extends Controller
         $this->sansPaiementEnCours($facture);
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
+        $this->assurerSansReglement($facture);
 
         $ligne = $facture->lignes()->with('produit')->findOrFail($id);
 

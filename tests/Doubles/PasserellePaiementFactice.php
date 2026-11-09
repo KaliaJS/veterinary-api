@@ -243,7 +243,7 @@ class PasserellePaiementFactice implements PasserellePaiement
 
         $evenement = json_decode($corps, true);
 
-        return ['id' => $evenement['id'], 'type' => $evenement['type'], 'objet' => $evenement['data']['object'], 'compte' => $evenement['account'] ?? null];
+        return ['id' => $evenement['id'], 'type' => $evenement['type'], 'objet' => $evenement['data']['object'], 'compte' => $evenement['account'] ?? null, 'created' => $evenement['created'] ?? null];
     }
 
     /** Au niveau de la plateforme, comme la vraie passerelle (jamais d'en-tête Stripe-Account). */
