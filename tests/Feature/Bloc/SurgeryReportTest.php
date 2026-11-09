@@ -555,6 +555,15 @@ class SurgeryReportTest extends TestCase
         Event::assertDispatched(InterventionUpdated::class);
     }
 
+    /* ————— 12e vérification (09.11.2026) ————— */
+
+    public function test_a_terminer_compte_aussi_le_rapport_d_une_intervention_au_reveil(): void
+    {
+        $this->intervention->forceFill(['statut' => StatutIntervention::Reveil, 'prevu_le' => now()])->save();
+        $kinds = collect($this->getJson('/api/v1/unfinished-work', $this->enTetes($this->jeton))->json('data.groups'))->pluck('kind')->all();
+        $this->assertContains('surgery_report', $kinds);
+    }
+
     private function dicter(): void
     {
         $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');

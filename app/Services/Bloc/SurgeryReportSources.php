@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Collection;
  * Les sources du rapport de bloc, numérotées (09.11.2026) : E, ce que
  * l'écran du bloc sait (l'intervention, le déroulé, chaque ligne du
  * protocole anesthésique, la checklist) ; N, chaque ligne non vide de la
- * note opératoire ; D, chaque passage de la dernière dictée transcrite.
+ * note opératoire ; D, chaque passage des dictées transcrites, dans l'ordre.
  * L'IA ne cite que ces numéros.
  */
 final class SurgeryReportSources

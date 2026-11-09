@@ -223,7 +223,8 @@ class UnfinishedWork
                 // Close ou non : le rapport se rédige dans sa fenêtre, une intervention jamais close se termine au bloc
                 'status' => $surgery->statut->value,
             ];
-            if ($surgery->statut === StatutIntervention::Fini) {
+            // Au réveil ou finie, le rapport se rédige : compté jusqu'à sa validation (12e vérification)
+            if (in_array($surgery->statut, [StatutIntervention::Reveil, StatutIntervention::Fini], true)) {
                 $isValidated = $surgery->report?->status === 'validated';
                 if ($this->count($isToday, $isValidated)) {
                     $this->add('surgery_report', $line);
