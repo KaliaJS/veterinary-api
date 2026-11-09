@@ -48,14 +48,14 @@ class EnregistrementConsultation extends Model
             $enregistrement = self::withoutGlobalScopes()->find($id);
             if ($enregistrement !== null) {
                 EnregistrementMisAJour::dispatch('clinique.'.$enregistrement->clinique_id, [
-                    'id' => $enregistrement->id, 'rendez_vous_id' => $enregistrement->rendez_vous_id, 'intervention_id' => $enregistrement->intervention_id, 'sejour_id' => $enregistrement->sejour_id, 'statut' => $enregistrement->statut->value,
+                    'id' => $enregistrement->id, 'rendez_vous_id' => $enregistrement->rendez_vous_id, 'intervention_id' => $enregistrement->intervention_id, 'sejour_id' => $enregistrement->sejour_id, 'referral_letter_id' => $enregistrement->referral_letter_id, 'statut' => $enregistrement->statut->value,
                 ]);
             }
         });
     }
 
     protected $fillable = [
-        'organisation_id', 'clinique_id', 'rendez_vous_id', 'intervention_id', 'sejour_id', 'user_id', 'statut', 'erreur',
+        'organisation_id', 'clinique_id', 'rendez_vous_id', 'intervention_id', 'sejour_id', 'referral_letter_id', 'user_id', 'statut', 'erreur',
         'parties_attendues', 'brouillon', 'redige_le', 'valide_le', 'redactions',
     ];
 
@@ -102,6 +102,16 @@ class EnregistrementConsultation extends Model
         return $this->belongsTo(Sejour::class)->withoutGlobalScopes();
     }
 
+    /**
+     * La dictée du motif et de la question d'une lettre de référence (09.11.2026)
+     *
+     * @return BelongsTo<ReferralLetter, $this>
+     */
+    public function referralLetter(): BelongsTo
+    {
+        return $this->belongsTo(ReferralLetter::class)->withoutGlobalScopes();
+    }
+
     /** @return BelongsTo<User, $this> */
     public function user(): BelongsTo
     {
@@ -138,6 +148,13 @@ class EnregistrementConsultation extends Model
      */
     public function autoriserDictee(): void
     {
+        // La dictée d'une lettre de référence (09.11.2026) : droit Patients, depuis la clinique de la lettre
+        if ($this->referral_letter_id !== null) {
+            Gate::authorize(DomainePermission::Patients->value);
+            abort_unless(ReferralLetter::query()->whereKey($this->referral_letter_id)->exists(), 404);
+
+            return;
+        }
         // La dictée d'une lettre de sortie (09.11.2026) : droit Patients, depuis la clinique du séjour
         if ($this->sejour_id !== null) {
             Gate::authorize(DomainePermission::Patients->value);

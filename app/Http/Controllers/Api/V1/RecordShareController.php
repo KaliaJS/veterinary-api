@@ -4,23 +4,16 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
 use App\Http\Controllers\Controller;
-use App\Mail\RecordShareLink;
-use App\Models\Client;
 use App\Models\Patient;
 use App\Models\RecordShare;
 use App\Models\RecordShareEvent;
-use App\Services\Hospitalisation\OwnerMessages;
 use App\Services\Patients\RecordShareItems;
+use App\Services\Patients\RecordShares;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
-use Throwable;
 
 /**
  * Partager le dossier médical (demande de Jim, 09.11.2026), côté clinique :
@@ -32,6 +25,12 @@ use Throwable;
  */
 class RecordShareController extends Controller
 {
+    /** Les refus dits en français, sous leur champ */
+    private const MESSAGES = [
+        'recipient_email.email' => 'Cette adresse e-mail n’est pas valable.',
+        'recipient_email.max' => 'Cette adresse e-mail est trop longue.',
+    ];
+
     public function items(Request $request, Patient $patient, RecordShareItems $items): JsonResponse
     {
         $this->authorize('view', $patient);
@@ -69,7 +68,7 @@ class RecordShareController extends Controller
         return response()->json(['data' => $shares->map(fn (RecordShare $s) => self::present($s))->values()]);
     }
 
-    public function store(Request $request, Patient $patient, RecordShareItems $items, OwnerMessages $messages): JsonResponse
+    public function store(Request $request, Patient $patient, RecordShares $shares): JsonResponse
     {
         $this->authorize('update', $patient);
         $data = $request->validate([
@@ -81,53 +80,11 @@ class RecordShareController extends Controller
             'visit_notes' => ['sometimes', 'boolean'],
             'from' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'to' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
-        ]);
+        ], self::MESSAGES);
 
-        // Seulement des pièces de cet animal, partageables aujourd'hui
-        $allowed = collect($items->candidates($patient, null, null))->flatMap(fn (array $g) => array_map(fn (array $i) => $i['type'].':'.$i['id'], $g['items']))->flip();
-        $chosen = collect($data['items'])->map(fn (array $i) => ['type' => $i['type'], 'id' => (int) $i['id']])->unique(fn (array $i) => $i['type'].':'.$i['id'])->values();
-        if ($chosen->contains(fn (array $i) => ! $allowed->has($i['type'].':'.$i['id']))) {
-            throw ValidationException::withMessages(['items' => 'Une pièce n’est pas de ce dossier, ou ne peut pas être partagée.']);
-        }
+        $created = $shares->create($patient, $data['items'], (int) $data['days'], $data['recipient_email'] ?? null, (bool) ($data['visit_notes'] ?? false), $data['from'] ?? null, $data['to'] ?? null, $request->user()?->name);
 
-        // Le plafond des ouvertures : 8 lectures complètes (pièces et fichiers), au moins 300
-        $files = $chosen->sum(fn (array $i) => $items->fileCount($patient, $i['type'], $i['id']));
-        $openingsMax = max(RecordShare::MIN_OPENINGS, RecordShare::OPENINGS_READINGS * ($chosen->count() + $files));
-
-        $token = Str::random(48);
-        $employe = app(ContexteClinique::class)->employe();
-        $share = RecordShare::query()->create([
-            'organisation_id' => $patient->organisation_id,
-            'patient_id' => $patient->id,
-            'kind' => 'link',
-            'token_hash' => RecordShare::hash($token),
-            'recipient_email' => $data['recipient_email'] ?? null,
-            'items' => $chosen->all(),
-            'include_visit_notes' => (bool) ($data['visit_notes'] ?? false),
-            'period_from' => $data['from'] ?? null,
-            'period_to' => $data['to'] ?? null,
-            'expires_at' => now()->addDays((int) $data['days']),
-            'openings_max' => $openingsMax,
-            'created_by_id' => $employe?->id,
-            'created_by_name' => $employe->nom ?? $request->user()?->name,
-        ]);
-        $url = self::url($token);
-        $clinique = app(ContexteClinique::class)->clinique();
-
-        // L'e-mail qui n'a pas pu partir est dit à l'écran : le lien reste, à copier
-        $isEmailSent = null;
-        if ($share->recipient_email !== null && $clinique !== null) {
-            try {
-                Mail::to($share->recipient_email)->send(new RecordShareLink($share, $clinique, $patient, $url));
-                $isEmailSent = true;
-            } catch (Throwable $e) {
-                report($e);
-                $isEmailSent = false;
-            }
-        }
-        $this->tellOwner($patient, $share, $messages);
-
-        return response()->json(['data' => [...self::present($share->load(['events', 'clinique'])), 'url' => $url, 'is_email_sent' => $isEmailSent]], 201);
+        return response()->json(['data' => [...self::present($created['share']->load(['events', 'clinique'])), 'url' => $created['url'], 'is_email_sent' => $created['is_email_sent']]], 201);
     }
 
     /** Couper un lien : depuis toute clinique de l'organisation qui tient le dossier de l'animal */
@@ -141,26 +98,6 @@ class RecordShareController extends Controller
         }
 
         return response()->json(['data' => self::present($share->load(['events', 'clinique']))]);
-    }
-
-    /** Le propriétaire qui a un compte apprend, dans ses messages, avec qui le dossier est partagé */
-    private function tellOwner(Patient $patient, RecordShare $share, OwnerMessages $messages): void
-    {
-        $client = $patient->client_id ? Client::query()->find($patient->client_id) : null;
-        if ($client?->user_id === null) {
-            return;
-        }
-        $until = $share->expiryDay();
-        $text = 'Le dossier de '.$patient->nom.' a été partagé par '.($share->created_by_name ?: 'la clinique')
-            .($share->recipient_email ? ' avec '.$share->recipient_email : ' par un lien provisoire')
-            .', jusqu’au '.$until.'.';
-        [$message, $first] = DB::transaction(fn () => $messages->createFor((int) $share->clinique_id, $client, $text));
-        $messages->notifyFor((int) $share->clinique_id, $client, $message, $text, $first);
-    }
-
-    public static function url(string $token): string
-    {
-        return rtrim((string) config('app.frontend_url'), '/').'/share/'.$token;
     }
 
     /** @return array<string, mixed> */

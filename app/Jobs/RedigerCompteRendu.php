@@ -5,11 +5,13 @@ namespace App\Jobs;
 use App\Enums\StatutEnregistrement;
 use App\Models\EnregistrementConsultation;
 use App\Models\PartieEnregistrement;
+use App\Models\ReferralLetter;
 use App\Services\Bloc\SurgeryReportDrafts;
 use App\Services\Bloc\SurgeryReportSources;
 use App\Services\BudgetAnthropic;
 use App\Services\CompteurMensuel;
 use App\Services\Hospitalisation\DischargeLetters;
+use App\Services\Referrals\ReferralLetters;
 use App\Services\Transcription\BrouillonSoap;
 use App\Services\Transcription\Redacteur;
 use App\Services\Transcription\RedactionImpossible;
@@ -73,6 +75,25 @@ final class RedigerCompteRendu implements ShouldQueue
                 EnregistrementConsultation::annoncer($enregistrement->id);
                 if ($intervention && SurgeryReportSources::isReportable($intervention)) {
                     app(SurgeryReportDrafts::class)->request($intervention, isDictation: true);
+                }
+            }
+
+            return;
+        }
+
+        // Dictée du motif et de la question d'une lettre de référence (09.11.2026) : de même
+        if ($enregistrement->referral_letter_id !== null) {
+            $pret = EnregistrementConsultation::withoutGlobalScopes()
+                ->whereKey($enregistrement->id)
+                ->where('statut', StatutEnregistrement::Transcription->value)
+                ->update(['statut' => StatutEnregistrement::Pret->value, 'erreur' => null, 'redige_le' => now()]);
+            $letter = $enregistrement->referralLetter;
+            if ($pret === 1) {
+                EnregistrementConsultation::annoncer($enregistrement->id);
+                if ($letter) {
+                    // Une dictée transcrite est une source de plus : le brouillon d'avant ne l'a pas lue
+                    ReferralLetter::withoutGlobalScopes()->whereKey($letter->id)->where('status', '!=', 'signed')->update(['sources_changed_at' => now()]);
+                    app(ReferralLetters::class)->request($letter, isDictation: true);
                 }
             }
 

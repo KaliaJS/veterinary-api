@@ -27,6 +27,8 @@ use App\Services\Hospitalisation\DischargeLetterWriter;
 use App\Services\Hospitalisation\DischargeLetterWriterClaude;
 use App\Services\Notifications\CanalApns;
 use App\Services\Notifications\DirectApns;
+use App\Services\Referrals\ReferralLetterWriter;
+use App\Services\Referrals\ReferralLetterWriterClaude;
 use App\Services\Transcription\Redacteur;
 use App\Services\Transcription\RedacteurClaude;
 use App\Services\Transcription\Transcripteur;
@@ -105,6 +107,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(DailyReportWriter::class, DailyReportWriterClaude::class);
         $this->app->bind(SurgeryReportWriter::class, SurgeryReportWriterClaude::class);
         $this->app->bind(DischargeLetterWriter::class, DischargeLetterWriterClaude::class);
+        $this->app->bind(ReferralLetterWriter::class, ReferralLetterWriterClaude::class);
         $this->app->bind(Suggesteur::class, SuggesteurClaude::class);
 
         // Domaines personnalisés des sites : fournisseur choisi par configuration

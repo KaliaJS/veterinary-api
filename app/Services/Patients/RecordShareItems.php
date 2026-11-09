@@ -15,6 +15,7 @@ use App\Models\ExamenImagerie;
 use App\Models\Ordonnance;
 use App\Models\OrdonnanceLigne;
 use App\Models\Patient;
+use App\Models\ReferralLetter;
 use App\Models\RendezVous;
 use App\Models\Sejour;
 use App\Models\StaySheet;
@@ -22,6 +23,7 @@ use App\Models\SurgeryReport;
 use App\Models\Vaccination;
 use App\Models\Visite;
 use App\Services\Hospitalisation\DischargeLetters;
+use App\Services\Referrals\ReferralLetters;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -55,9 +57,10 @@ final class RecordShareItems
         'vaccines' => ['label' => 'Carnet de vaccination', 'types' => ['vaccines']],
         'prescription' => ['label' => 'Ordonnances', 'types' => ['prescription']],
         'document' => ['label' => 'Documents ajoutés au dossier', 'types' => ['document']],
+        'referral_letter' => ['label' => 'Lettres de référence', 'types' => ['referral_letter']],
     ];
 
-    public const TYPES = ['consultation', 'visit', 'lab', 'imaging', 'surgery', 'stay_report', 'discharge_letter', 'vaccines', 'prescription', 'document'];
+    public const TYPES = ['consultation', 'visit', 'lab', 'imaging', 'surgery', 'stay_report', 'discharge_letter', 'vaccines', 'prescription', 'document', 'referral_letter'];
 
     private const APPOINTMENT_LABELS = [
         'consult' => 'Consultation', 'vaccin' => 'Vaccination', 'chir' => 'Chirurgie', 'ctrl' => 'Contrôle', 'imagerie' => 'Imagerie',
@@ -80,7 +83,7 @@ final class RecordShareItems
         $all = collect([
             ...$this->consultations($patient), ...$this->visits($patient), ...$this->labs($patient), ...$this->imaging($patient),
             ...$this->surgeries($patient), ...$this->stayReports($patient), ...$this->dischargeLetters($patient),
-            ...$this->vaccines($patient, $asOf), ...$this->prescriptions($patient), ...$this->documents($patient),
+            ...$this->vaccines($patient, $asOf), ...$this->prescriptions($patient), ...$this->documents($patient), ...$this->referralLetters($patient),
         ])->filter(fn (array $x) => ($from === null || $x['date'] >= $from) && ($to === null || $x['date'] <= $to));
 
         $out = [];
@@ -122,6 +125,7 @@ final class RecordShareItems
             'vaccines' => $id === $patient->id ? $this->vaccinesPrintable($patient, $asOf) : null,
             'prescription' => $this->prescriptionPrintable($patient, $id),
             'document' => $this->documentPrintable($patient, $id),
+            'referral_letter' => $this->referralLetterPrintable($patient, $id),
             default => null,
         };
     }
@@ -523,6 +527,41 @@ final class RecordShareItems
         ]);
     }
 
+    /** @return Builder<ReferralLetter> */
+    private function referralQuery(Patient $patient)
+    {
+        return ReferralLetter::withoutGlobalScopes()
+            ->where('organisation_id', $patient->organisation_id)
+            ->where('patient_id', $patient->id)
+            ->where('status', 'signed');
+    }
+
+    private function referralTitle(ReferralLetter $l): string
+    {
+        return 'Lettre de référence'.($l->recipient_name ? ' à '.$l->recipient_name : '');
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function referralLetters(Patient $patient): array
+    {
+        return $this->referralQuery($patient)->get()->map(fn (ReferralLetter $l) => [
+            'type' => 'referral_letter', 'id' => $l->id, 'date' => $this->localDay($l->signed_at, $l->clinique_id),
+            'title' => $this->referralTitle($l), 'subtitle' => implode(' · ', array_filter([$l->signed_by_name, $this->clinicName($l->clinique_id)])),
+        ])->all();
+    }
+
+    /** @return array<string, mixed>|null */
+    private function referralLetterPrintable(Patient $patient, int $id): ?array
+    {
+        $letter = $this->referralQuery($patient)->find($id);
+        if (! $letter) {
+            return null;
+        }
+        $sections = array_map(fn (array $b) => ['label' => $b['title'], 'text' => implode("\n", $b['lines'])], app(ReferralLetters::class)->blocks($letter));
+
+        return $this->doc('referral_letter', $letter->id, $this->localDay($letter->signed_at, $letter->clinique_id), $this->referralTitle($letter), $letter->clinique_id, $letter->signed_by_name, $sections);
+    }
+
     /** @return HasMany<Document, Patient> */
     private function documentQuery(Patient $patient)
     {
@@ -532,7 +571,8 @@ final class RecordShareItems
     /** @return list<array<string, mixed>> */
     private function documents(Patient $patient): array
     {
-        return $this->documentQuery($patient)->whereNotNull('chemin')->get()->map(fn (Document $d) => [
+        // La lettre de référence rangée en document : déjà parmi les lettres de référence, jamais deux fois
+        return $this->documentQuery($patient)->whereNotNull('chemin')->where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'lettre_reference'))->get()->map(fn (Document $d) => [
             'type' => 'document', 'id' => $d->id, 'date' => $d->etabli_le->toDateString(),
             'title' => (string) $d->nom, 'subtitle' => (string) ($d->type ?: 'Document'),
         ])->all();

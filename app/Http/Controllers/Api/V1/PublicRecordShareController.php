@@ -36,11 +36,11 @@ class PublicRecordShareController extends Controller
         }
         $clinique = Clinique::withoutGlobalScopes()->find($share->clinique_id);
         $chosen = collect($share->items ?? [])->map(fn (array $i) => $i['type'].':'.$i['id'])->flip();
-        // La liste comme les pièces : telle qu'au partage
+        // La liste comme les pièces : telle qu'au partage ; une lettre de référence en tête
         $list = collect($items->candidates($patient, null, null, $share->created_at))
             ->flatMap(fn (array $g) => $g['items'])
             ->filter(fn (array $i) => $chosen->has($i['type'].':'.$i['id']))
-            ->sortByDesc(fn (array $i) => $i['date'].sprintf('%010d', $i['id']))
+            ->sortByDesc(fn (array $i) => ($i['type'] === 'referral_letter' ? '1' : '0').$i['date'].sprintf('%010d', $i['id']))
             ->values();
 
         return response()->json(['data' => [

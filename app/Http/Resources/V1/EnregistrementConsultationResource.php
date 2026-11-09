@@ -31,6 +31,7 @@ class EnregistrementConsultationResource extends JsonResource
             'rendez_vous_id' => $this->rendez_vous_id,
             'intervention_id' => $this->intervention_id,
             'sejour_id' => $this->sejour_id,
+            'referral_letter_id' => $this->referral_letter_id,
             'statut' => $this->statut->value,
             'erreur' => $this->erreur,
             'parties_attendues' => $this->parties_attendues,

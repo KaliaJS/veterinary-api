@@ -14,6 +14,7 @@ use App\Models\DischargeLetter;
 use App\Models\EnregistrementConsultation;
 use App\Models\Intervention;
 use App\Models\Organisation;
+use App\Models\ReferralLetter;
 use App\Models\RendezVous;
 use App\Models\Sejour;
 use App\Services\Bloc\SurgeryReportSources;
@@ -106,6 +107,23 @@ class EnregistrementConsultationController extends Controller
         return $this->ouvrir($request, 'sejour_id', $sejour->id);
     }
 
+    /** La dernière dictée du motif et de la question d'une lettre de référence (09.11.2026). */
+    public function afficherDicteeReference(ReferralLetter $letter): EnregistrementConsultationResource
+    {
+        $this->authorize('view', $letter->patient ?? abort(404));
+
+        return new EnregistrementConsultationResource($this->dernierPour('referral_letter_id', $letter->id) ?? abort(404));
+    }
+
+    /** Le vétérinaire dicte le motif et la question d'une lettre de référence (09.11.2026) */
+    public function demarrerDicteeReference(Request $request, ReferralLetter $letter): EnregistrementConsultationResource
+    {
+        $this->authorize('update', $letter->patient ?? abort(404));
+        $this->authorize('create', EnregistrementConsultation::class);
+
+        return $this->ouvrir($request, 'referral_letter_id', $letter->id);
+    }
+
     /**
      * Une dictée de bloc (ou de lettre de sortie) s'ouvre sous le verrou de
      * son intervention (ou de son séjour) (9e vérification) : deux appareils
@@ -118,7 +136,16 @@ class EnregistrementConsultationController extends Controller
         }
 
         return DB::transaction(function () use ($request, $cible, $id): EnregistrementConsultationResource {
-            ($cible === 'sejour_id' ? Sejour::withoutGlobalScopes() : Intervention::withoutGlobalScopes())->whereKey($id)->lockForUpdate()->first();
+            $locked = match ($cible) {
+                'sejour_id' => Sejour::withoutGlobalScopes(),
+                'referral_letter_id' => ReferralLetter::withoutGlobalScopes(),
+                default => Intervention::withoutGlobalScopes(),
+            };
+            $locked->whereKey($id)->lockForUpdate()->first();
+            // Sous le même verrou que la signature : une lettre de référence signée ne se dicte plus
+            if ($cible === 'referral_letter_id' && ReferralLetter::withoutGlobalScopes()->whereKey($id)->where('status', 'signed')->exists()) {
+                throw ValidationException::withMessages(['enregistrement' => 'Cette lettre est signée : elle ne change plus.']);
+            }
             // Sous le même verrou que la signature : une lettre signée ne se dicte plus
             if ($cible === 'sejour_id' && DischargeLetter::query()->where('sejour_id', $id)->where('status', 'signed')->exists()) {
                 throw ValidationException::withMessages(['enregistrement' => 'Cette lettre est signée : elle ne change plus.']);

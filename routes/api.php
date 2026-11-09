@@ -161,6 +161,7 @@ use App\Http\Controllers\Api\V1\RadioPreviewController;
 use App\Http\Controllers\Api\V1\RappelsController;
 use App\Http\Controllers\Api\V1\RecordShareController;
 use App\Http\Controllers\Api\V1\ReferentielImagerieController;
+use App\Http\Controllers\Api\V1\ReferralLetterController;
 use App\Http\Controllers\Api\V1\ReferringVetController;
 use App\Http\Controllers\Api\V1\RegistreStupefiantController;
 use App\Http\Controllers\Api\V1\ReleveDentaireController;
@@ -753,6 +754,19 @@ Route::prefix('v1')->group(function (): void {
             Route::get('patients/{patient}/shares', [RecordShareController::class, 'index']);
             Route::post('patients/{patient}/shares', [RecordShareController::class, 'store'])->middleware('throttle:20,1,record-shares');
             Route::post('record-shares/{share}/revoke', [RecordShareController::class, 'revoke'])->whereNumber('share');
+
+            // La lettre de référence (09.11.2026) : pièces, destinataire, notes, brouillon de l'IA, signature, lien ; la dictée des notes
+            Route::get('patients/{patient}/referral-letters', [ReferralLetterController::class, 'index']);
+            Route::post('patients/{patient}/referral-letters', [ReferralLetterController::class, 'store']);
+            Route::prefix('referral-letters/{letter}')->whereNumber('letter')->group(function (): void {
+                Route::get('/', [ReferralLetterController::class, 'show']);
+                Route::patch('/', [ReferralLetterController::class, 'update']);
+                Route::post('draft', [ReferralLetterController::class, 'draft'])->middleware('throttle:transcription');
+                Route::post('sign', [ReferralLetterController::class, 'sign']);
+                Route::post('link', [ReferralLetterController::class, 'link'])->middleware('throttle:20,1,record-shares');
+                Route::get('enregistrement', [EnregistrementConsultationController::class, 'afficherDicteeReference']);
+                Route::post('enregistrement', [EnregistrementConsultationController::class, 'demarrerDicteeReference'])->middleware('throttle:transcription');
+            });
         });
 
         Route::get('patients/{patient}/releves-ophtalmologiques', [ReleveOphtalmologiqueController::class, 'index']);
