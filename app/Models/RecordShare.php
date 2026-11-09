@@ -29,9 +29,17 @@ class RecordShare extends Model
     /** Téléchargements complets permis par clinique et par mois, par l'ensemble de ses liens */
     public const MAX_DOWNLOADS_PER_CLINIC_MONTH = 50;
 
+    /**
+     * Ouvertures de pièces ou de fichiers permises par lien (choix de Jim,
+     * 09.11.2026) : au moins 300, et 8 lectures complètes d'un gros dossier
+     */
+    public const MIN_OPENINGS = 300;
+
+    public const OPENINGS_READINGS = 8;
+
     protected $fillable = [
         'organisation_id', 'clinique_id', 'patient_id', 'kind', 'token_hash', 'recipient_email', 'items', 'include_visit_notes',
-        'period_from', 'period_to', 'expires_at', 'created_by_id', 'created_by_name', 'revoked_at', 'revoked_by_name', 'full_downloads',
+        'period_from', 'period_to', 'expires_at', 'created_by_id', 'created_by_name', 'revoked_at', 'revoked_by_name', 'full_downloads', 'openings', 'openings_max',
     ];
 
     protected function casts(): array
@@ -44,6 +52,8 @@ class RecordShare extends Model
             'expires_at' => 'datetime',
             'revoked_at' => 'datetime',
             'full_downloads' => 'integer',
+            'openings' => 'integer',
+            'openings_max' => 'integer',
         ];
     }
 

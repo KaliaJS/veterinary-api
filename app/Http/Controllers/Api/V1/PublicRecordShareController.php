@@ -67,6 +67,7 @@ class PublicRecordShareController extends Controller
     {
         $share = $this->share($token);
         abort_unless($share->includes($type, $id), 404);
+        $this->countOpening($share);
 
         // Les notes des visites si le vétérinaire l'a choisi ; rien de ce qui s'est ajouté après le partage
         $options = ['visit_notes' => $share->include_visit_notes, 'as_of' => $share->created_at];
@@ -78,7 +79,9 @@ class PublicRecordShareController extends Controller
     {
         $share = $this->share($token);
         abort_unless($share->includes($type, $id), 404);
+        // Compté seulement pour un fichier qui existe
         $file = $items->file($share->patient ?? abort(404), $type, $id, $n) ?? abort(404);
+        $this->countOpening($share);
 
         return Storage::disk('prive')->download($file['path'], $file['name'], ['Content-Type' => $file['mime'], 'Cache-Control' => 'private, no-store']);
     }
@@ -96,10 +99,10 @@ class PublicRecordShareController extends Controller
             Clinique::withoutGlobalScopes()->whereKey($share->clinique_id)->lockForUpdate()->first();
             $locked = RecordShare::withoutGlobalScopes()->whereKey($share->id)->lockForUpdate()->firstOrFail();
             if ($locked->full_downloads >= RecordShare::MAX_DOWNLOADS_PER_LINK) {
-                abort(429, 'Ce lien a déjà servi à '.RecordShare::MAX_DOWNLOADS_PER_LINK.' téléchargements complets. Ouvrez les pièces une à une, ou demandez un nouveau lien à la clinique.');
+                abort(429, 'Ce lien a déjà servi à '.RecordShare::MAX_DOWNLOADS_PER_LINK.' téléchargements complets. Demandez un nouveau lien à la clinique.');
             }
             if ($this->clinicDownloadsThisMonth($locked) >= RecordShare::MAX_DOWNLOADS_PER_CLINIC_MONTH) {
-                abort(429, 'La clinique a atteint ses téléchargements complets du mois. Ouvrez les pièces une à une, ou réessayez le mois prochain.');
+                abort(429, 'La clinique a atteint ses téléchargements complets du mois. Réessayez le mois prochain, ou demandez à la clinique de vous envoyer le dossier.');
             }
             $locked->forceFill(['full_downloads' => $locked->full_downloads + 1])->save();
             RecordShareEvent::query()->create(['record_share_id' => $locked->id, 'kind' => 'downloaded', 'at' => now()]);
@@ -108,6 +111,17 @@ class PublicRecordShareController extends Controller
         });
 
         return response()->json(['data' => ['downloads_left' => $left]]);
+    }
+
+    /**
+     * Chaque pièce ou fichier ouvert compte, « Tout télécharger » compris,
+     * jusqu'au plafond du lien (choix de Jim, 09.11.2026). Refusé en 403 :
+     * pas un « trop de requêtes » que la page attendrait pour rien.
+     */
+    private function countOpening(RecordShare $share): void
+    {
+        $counted = RecordShare::withoutGlobalScopes()->whereKey($share->id)->whereColumn('openings', '<', 'openings_max')->increment('openings');
+        abort_if($counted === 0, 403, 'Ce lien a atteint son nombre d’ouvertures. Demandez un nouveau lien à la clinique.');
     }
 
     private function share(string $token): RecordShare

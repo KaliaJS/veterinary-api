@@ -155,6 +155,16 @@ final class RecordShareItems
         return null;
     }
 
+    /** Le nombre de fichiers d'une pièce (clichés d'un examen, fichier d'un document) */
+    public function fileCount(Patient $patient, string $type, int $id): int
+    {
+        return match ($type) {
+            'imaging' => (int) $this->imagingQuery($patient)->whereKey($id)->withCount('cliches')->value('cliches_count'),
+            'document' => 1,
+            default => 0,
+        };
+    }
+
     /* ————— Les sortes ————— */
 
     /** @return Collection<int, int> */

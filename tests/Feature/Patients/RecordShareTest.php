@@ -404,4 +404,31 @@ class RecordShareTest extends TestCase
     {
         $this->getJson("/api/v1/patients/{$this->patient->id}/share-items?from=2026-11-09&to=2026-05-09", $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('to');
     }
+
+    /* ————— Plafond des ouvertures (choix de Jim, 09.11.2026) ————— */
+
+    public function test_un_lien_permet_au_plus_300_ouvertures_de_pieces_ou_de_fichiers(): void
+    {
+        [$token, $share] = $this->share([['type' => 'document', 'id' => $this->document->id]]);
+        $this->assertSame(300, $share->openings_max);
+        $this->getJson("/api/v1/public/record-shares/{$token}/items/document/{$this->document->id}")->assertOk();
+        $this->get("/api/v1/public/record-shares/{$token}/items/document/{$this->document->id}/files/0")->assertOk();
+        $this->assertSame(2, $share->fresh()->openings);
+        $share->forceFill(['openings' => 300])->save();
+        $this->getJson("/api/v1/public/record-shares/{$token}/items/document/{$this->document->id}")->assertForbidden()->assertJsonPath('message', 'Ce lien a atteint son nombre d’ouvertures. Demandez un nouveau lien à la clinique.');
+        $this->get("/api/v1/public/record-shares/{$token}/items/document/{$this->document->id}/files/0", ['Accept' => 'application/json'])->assertForbidden();
+        // La page elle-même s'ouvre encore, et dit la suite
+        $this->getJson("/api/v1/public/record-shares/{$token}")->assertOk();
+    }
+
+    public function test_un_gros_dossier_permet_huit_lectures_completes(): void
+    {
+        foreach (range(2, 50) as $n) {
+            ClicheDicom::query()->create(['examen_imagerie_id' => $this->imaging->id, 'sop_instance_uid' => '1.2.'.($n + 10), 'study_instance_uid' => '1.2', 'series_instance_uid' => '1.2.9', 'nom_fichier' => "c{$n}.dcm", 'chemin' => 'radios/1.dcm', 'taille_octets' => 11]);
+        }
+        [, $share] = $this->share([['type' => 'imaging', 'id' => $this->imaging->id], ['type' => 'document', 'id' => $this->document->id]]);
+        // 2 pièces, 50 clichés et 1 fichier : 8 × 53
+        $this->assertSame(424, $share->openings_max);
+        $this->getJson("/api/v1/patients/{$this->patient->id}/shares", $this->enTetes($this->jeton))->assertJsonPath('data.0.openings_max', 424);
+    }
 }

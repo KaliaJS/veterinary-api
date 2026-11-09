@@ -90,6 +90,10 @@ class RecordShareController extends Controller
             throw ValidationException::withMessages(['items' => 'Une pièce n’est pas de ce dossier, ou ne peut pas être partagée.']);
         }
 
+        // Le plafond des ouvertures : 8 lectures complètes (pièces et fichiers), au moins 300
+        $files = $chosen->sum(fn (array $i) => $items->fileCount($patient, $i['type'], $i['id']));
+        $openingsMax = max(RecordShare::MIN_OPENINGS, RecordShare::OPENINGS_READINGS * ($chosen->count() + $files));
+
         $token = Str::random(48);
         $employe = app(ContexteClinique::class)->employe();
         $share = RecordShare::query()->create([
@@ -103,6 +107,7 @@ class RecordShareController extends Controller
             'period_from' => $data['from'] ?? null,
             'period_to' => $data['to'] ?? null,
             'expires_at' => now()->addDays((int) $data['days']),
+            'openings_max' => $openingsMax,
             'created_by_id' => $employe?->id,
             'created_by_name' => $employe->nom ?? $request->user()?->name,
         ]);
@@ -179,6 +184,8 @@ class RecordShareController extends Controller
             'is_active' => $share->isActive(),
             'full_downloads' => $share->full_downloads,
             'downloads_max' => RecordShare::MAX_DOWNLOADS_PER_LINK,
+            'openings' => $share->openings,
+            'openings_max' => $share->openings_max,
             'opened_at' => $events->firstWhere('kind', 'opened')?->at?->toIso8601String(),
             'last_opened_at' => $events->where('kind', 'opened')->last()?->at?->toIso8601String(),
             'downloaded_at' => $events->where('kind', 'downloaded')->map(fn (RecordShareEvent $e) => $e->at->toIso8601String())->values()->all(),
