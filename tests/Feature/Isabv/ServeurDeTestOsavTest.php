@@ -10,7 +10,9 @@ use App\Models\Clinique;
 use App\Models\IsabvConnection;
 use App\Services\Isabv\ImportMasterData;
 use App\Services\Isabv\IsabvClient;
+use GuzzleHttp\HandlerStack;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -38,6 +40,9 @@ class ServeurDeTestOsavTest extends TestCase
 
     private Clinique $clinique;
 
+    /** @var array<string, string> */
+    private static array $masterData = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -46,7 +51,17 @@ class ServeurDeTestOsavTest extends TestCase
         }
         Http::preventStrayRequests(false);
         config(['services.isabv.url' => config('services.isabv.test.url'), 'services.isabv.master_data_url' => config('services.isabv.test.url').'/psw/getMasterData']);
-        // Les données de base du serveur de test : la tâche relit les règles avant d'envoyer
+        // Les données de base du serveur de test : la tâche relit les règles avant d'envoyer.
+        // Lues une fois par classe, rejouées ensuite ; le reste part au vrai serveur
+        Http::fake(function (Request $request) {
+            $name = Str::after($request->url(), '/psw/getMasterData/');
+            if ($name === $request->url()) {
+                return null;
+            }
+            self::$masterData[$name] ??= Http::withOptions(['handler' => HandlerStack::create()])->timeout(60)->get($request->url())->body();
+
+            return Http::response(self::$masterData[$name]);
+        });
         app(ImportMasterData::class)->run(true);
         $this->clinique = Clinique::factory()->create(['nom' => 'Clinique Meteora (essai)', 'rue' => 'Rue du Test 1', 'npa' => '1700', 'ville' => 'Fribourg']);
         $this->clinique->societe->update(['ide' => (string) config('services.isabv.test.uid')]);
