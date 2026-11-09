@@ -86,7 +86,25 @@ class EnregistrementConsultationController extends Controller
         return $this->ouvrir($request, 'intervention_id', $intervention->id);
     }
 
+    /**
+     * Une dictée de bloc s'ouvre sous le verrou de son intervention (9e
+     * vérification) : deux appareils qui commencent au même instant
+     * retrouvent la même dictée, jamais deux
+     */
     private function ouvrir(Request $request, string $cible, int $id): EnregistrementConsultationResource
+    {
+        if ($cible !== 'intervention_id') {
+            return $this->ouvrirSansVerrou($request, $cible, $id);
+        }
+
+        return DB::transaction(function () use ($request, $cible, $id): EnregistrementConsultationResource {
+            Intervention::withoutGlobalScopes()->whereKey($id)->lockForUpdate()->first();
+
+            return $this->ouvrirSansVerrou($request, $cible, $id);
+        });
+    }
+
+    private function ouvrirSansVerrou(Request $request, string $cible, int $id): EnregistrementConsultationResource
     {
         $dernier = $this->dernierPour($cible, $id);
 
