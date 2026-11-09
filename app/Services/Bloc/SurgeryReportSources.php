@@ -9,6 +9,7 @@ use App\Models\Intervention;
 use App\Models\InterventionChecklistPoint;
 use App\Models\InterventionTransition;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Les sources du rapport de bloc, numérotées (09.11.2026) : E, ce que
@@ -80,7 +81,7 @@ final class SurgeryReportSources
 
         $d = 0;
         foreach ($this->dictation($intervention) as $segment) {
-            $sources[] = ['id' => 'D'.(++$d), 'kind' => 'dictation', 'label' => $segment['label'], 'text' => $segment['text']];
+            $sources[] = ['id' => 'D'.(++$d), 'kind' => 'dictation', 'label' => $segment['label'], 'text' => $segment['text'], 'recording_id' => $segment['recording_id']];
         }
 
         return $sources;
@@ -91,16 +92,11 @@ final class SurgeryReportSources
      * rapport), dans l'ordre : compléter une dictée en ajoute une neuve
      * (5e vérification)
      *
-     * @return list<array{label: string, text: string}>
+     * @return list<array{label: string, text: string, recording_id: int}>
      */
     private function dictation(Intervention $intervention): array
     {
-        $recordings = EnregistrementConsultation::withoutGlobalScopes()
-            ->where('intervention_id', $intervention->id)
-            ->whereIn('statut', [StatutEnregistrement::Pret->value, StatutEnregistrement::Valide->value])
-            ->orderBy('id')
-            ->with('parties')
-            ->get();
+        $recordings = self::recordings($intervention->id);
         $isManyRecordings = $recordings->count() > 1;
 
         $out = [];
@@ -114,12 +110,27 @@ final class SurgeryReportSources
                     }
                     $seconds = (int) ($segment['debut'] ?? 0);
                     $prefix = ($isManyRecordings ? 'Dictée '.($index + 1).', ' : '').($isManyParts ? 'partie '.$part->numero.', ' : '');
-                    $out[] = ['label' => ucfirst($prefix.sprintf('%d:%02d', intdiv($seconds, 60), $seconds % 60)), 'text' => $text];
+                    $out[] = ['label' => ucfirst($prefix.sprintf('%d:%02d', intdiv($seconds, 60), $seconds % 60)), 'text' => $text, 'recording_id' => $recording->id];
                 }
             }
         }
 
         return $out;
+    }
+
+    /**
+     * Les dictées transcrites d'une intervention, dans l'ordre
+     *
+     * @return Collection<int, EnregistrementConsultation>
+     */
+    public static function recordings(int $interventionId): Collection
+    {
+        return EnregistrementConsultation::withoutGlobalScopes()
+            ->where('intervention_id', $interventionId)
+            ->whereIn('statut', [StatutEnregistrement::Pret->value, StatutEnregistrement::Valide->value])
+            ->orderBy('id')
+            ->with('parties')
+            ->get();
     }
 
     /** Une intervention se rapporte une fois finie, ou au réveil */

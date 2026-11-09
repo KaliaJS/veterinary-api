@@ -528,6 +528,22 @@ class SurgeryReportTest extends TestCase
         Queue::assertPushed(WriteSurgeryReport::class, fn ($job) => $job->delay !== null);
     }
 
+    /* ————— 6e vérification (09.11.2026) ————— */
+
+    public function test_le_rapport_sert_toutes_les_dictees_et_le_brouillon_dit_lesquelles_il_a_prises(): void
+    {
+        $this->dicter();
+        $first = EnregistrementConsultation::withoutGlobalScopes()->where('intervention_id', $this->intervention->id)->value('id');
+        // Une 2e dictée dont la rédaction est refusée (plafond atteint)
+        SurgeryReport::query()->update(['writings' => 3]);
+        $this->dicter();
+
+        $data = $this->getJson($this->uri(), $this->enTetes($this->jeton))->assertOk()->json('data');
+        $this->assertCount(2, $data['dictations']);
+        $this->assertSame('Il boite depuis trois jours, surtout le matin.', $data['dictations'][1]['segments'][0]['texte']);
+        $this->assertSame([$first], array_values(array_unique(array_column(array_filter($data['draft']['sources'], fn ($s) => $s['kind'] === 'dictation'), 'recording_id'))));
+    }
+
     private function dicter(): void
     {
         $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');

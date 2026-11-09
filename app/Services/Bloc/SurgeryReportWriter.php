@@ -11,7 +11,7 @@ namespace App\Services\Bloc;
 interface SurgeryReportWriter
 {
     /**
-     * @param  list<array{id: string, kind: string, label: string, text: string}>  $sources
+     * @param  list<array{id: string, kind: string, label: string, text: string, recording_id?: int}>  $sources
      * @param  array<string, string>  $context
      * @return array{sections: array<string, list<array{text: string, sources: list<string>}>>, doubts: list<array{section: string, passage: string, heard: string, reason: string}>}
      */

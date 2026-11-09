@@ -2,8 +2,10 @@
 
 namespace App\Http\Resources\V1;
 
+use App\Models\EnregistrementConsultation;
 use App\Models\SurgeryReport;
 use App\Models\SurgeryReportComplement;
+use App\Services\Bloc\SurgeryReportSources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -35,6 +37,13 @@ class SurgeryReportResource extends JsonResource
             'written_at' => $this->written_at?->toIso8601String(),
             'validated_at' => $this->validated_at?->toIso8601String(),
             'validated_by_name' => $this->validated_by_name,
+            // Toutes les dictées transcrites (6e vérification) : la fenêtre montre
+            // celles que le brouillon n'a pas encore prises (draft.sources.*.recording_id)
+            'dictations' => SurgeryReportSources::recordings($this->intervention_id)->map(fn (EnregistrementConsultation $r) => [
+                'id' => $r->id,
+                'redige_le' => $r->redige_le?->toIso8601String(),
+                'segments' => self::segments($r),
+            ])->values(),
             'complements' => $this->complements->map(fn (SurgeryReportComplement $c) => [
                 'id' => $c->id,
                 'text' => $c->text,
@@ -42,5 +51,22 @@ class SurgeryReportResource extends JsonResource
                 'at' => $c->created_at?->toIso8601String(),
             ])->values(),
         ];
+    }
+
+    /**
+     * Les passages d'une dictée, toutes parties à la suite
+     *
+     * @return list<array{debut: float, texte: string}>
+     */
+    private static function segments(EnregistrementConsultation $recording): array
+    {
+        $out = [];
+        foreach ($recording->parties as $part) {
+            foreach ($part->segments ?? [] as $segment) {
+                $out[] = ['debut' => (float) ($segment['debut'] ?? 0), 'texte' => (string) ($segment['texte'] ?? '')];
+            }
+        }
+
+        return $out;
     }
 }
