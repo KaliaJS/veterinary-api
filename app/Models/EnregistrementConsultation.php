@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\DomainePermission;
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
 use App\Events\EnregistrementMisAJour;
@@ -10,6 +11,7 @@ use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Enregistrement d'une consultation (19.10.2026) : une ou plusieurs parties
@@ -118,6 +120,22 @@ class EnregistrementConsultation extends Model
     }
 
     /** Dossier des fichiers audio de l'enregistrement, sur le disque privé. */
+    /**
+     * La dictée d'un rapport de bloc ne se touche qu'avec le droit Bloc, et
+     * seulement depuis la clinique de son intervention : l'enregistrement est
+     * borné à l'organisation, une clinique sœur aurait sinon pu l'abandonner
+     * (16e vérification). Sans intervention, rien à ajouter.
+     */
+    public function autoriserDictee(): void
+    {
+        if ($this->intervention_id === null) {
+            return;
+        }
+        Gate::authorize(DomainePermission::Bloc->value);
+        // Le scope clinique de l'intervention décide : ailleurs, 404 comme pour l'intervention
+        abort_unless(Intervention::query()->whereKey($this->intervention_id)->exists(), 404);
+    }
+
     public function dossierAudio(): string
     {
         return 'transcriptions/'.$this->id;

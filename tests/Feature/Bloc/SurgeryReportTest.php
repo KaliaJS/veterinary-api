@@ -595,6 +595,44 @@ class SurgeryReportTest extends TestCase
         $this->assertSame($before + 1, CompteurMensuel::valeur('anthropic:redactions'));
     }
 
+    /* ————— 16e vérification (09.11.2026) ————— */
+
+    public function test_un_doute_garde_son_passage_quand_les_tirets_sont_retires(): void
+    {
+        $sources = [['id' => 'N1', 'kind' => 'note', 'label' => 'Note', 'text' => 'Monocryl 3-0']];
+        $raw = [
+            'sections' => ['technique' => [
+                ['text' => 'Fermeture au Monocryl 3–0.', 'sources' => ['N1']],
+                ['text' => 'Infiltration à 1,5–2 %.', 'sources' => ['N1']],
+            ]],
+            'doubts' => [
+                ['section' => 'technique', 'passage' => 'Monocryl 3–0', 'heard' => 'trois–zéro', 'reason' => 'Taille du fil mal entendue'],
+                ['section' => 'technique', 'passage' => '1,5–2 %', 'heard' => '', 'reason' => 'Concentration à confirmer'],
+            ],
+        ];
+        $doubts = app(SurgeryReportDrafts::class)->clean($raw, $sources)['doubts'];
+        $this->assertSame(['Monocryl 3-0', '1,5 à 2 %'], array_column($doubts, 'passage'));
+        $this->assertSame('trois, zéro', $doubts[0]['heard']);
+    }
+
+    public function test_une_clinique_soeur_ne_touche_pas_a_la_dictee(): void
+    {
+        $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');
+        app(ContexteClinique::class)->oublier();
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        ['jeton' => $autre] = $this->employeAvecJeton($soeur);
+        $entetes = [...$this->enTetes($autre), 'Accept' => 'application/json'];
+
+        $this->post("/api/v1/enregistrements/{$id}/parties/1", [
+            'morceau' => 0, 'morceaux' => 1, 'format' => 'audio/mp4',
+            'fichier' => UploadedFile::fake()->createWithContent('morceau', TranscripteurFactice::ENTETE.'AA'),
+        ], $entetes)->assertNotFound();
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 1], $entetes)->assertNotFound();
+        $this->postJson("/api/v1/enregistrements/{$id}/relancer", [], $entetes)->assertNotFound();
+        $this->deleteJson("/api/v1/enregistrements/{$id}", [], $entetes)->assertNotFound();
+        $this->assertSame(StatutEnregistrement::Enregistrement, EnregistrementConsultation::query()->findOrFail($id)->statut);
+    }
+
     private function dicter(): void
     {
         $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');

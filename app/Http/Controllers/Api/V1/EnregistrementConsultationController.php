@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
-use App\Enums\DomainePermission;
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
 use App\Http\Controllers\Controller;
@@ -21,7 +20,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
@@ -248,9 +246,7 @@ class EnregistrementConsultationController extends Controller
     /** La dictée d'un rapport de bloc ne se termine, ne se relance ni ne s'abandonne qu'avec le droit Bloc */
     private function autoriserCible(EnregistrementConsultation $enregistrement): void
     {
-        if ($enregistrement->intervention_id !== null) {
-            Gate::authorize(DomainePermission::Bloc->value);
-        }
+        $enregistrement->autoriserDictee();
     }
 
     private function organisation(): Organisation

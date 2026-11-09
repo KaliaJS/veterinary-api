@@ -124,8 +124,9 @@ final class SurgeryReportDrafts
         $doubts = collect(is_array($raw['doubts'] ?? null) ? $raw['doubts'] : [])
             ->map(fn ($d) => [
                 'section' => (string) ($d['section'] ?? ''),
-                'passage' => trim((string) ($d['passage'] ?? '')),
-                'heard' => trim((string) ($d['heard'] ?? '')),
+                // Passage sans tirets comme la phrase, sinon « 3–0 » ne s'y retrouve plus (16e vérification)
+                'passage' => self::undash(trim((string) ($d['passage'] ?? ''))),
+                'heard' => self::undash(trim((string) ($d['heard'] ?? ''))),
                 'reason' => self::undash(trim((string) ($d['reason'] ?? ''))),
             ])
             ->filter(function (array $d) use ($sections): bool {
