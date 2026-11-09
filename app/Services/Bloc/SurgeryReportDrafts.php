@@ -24,7 +24,7 @@ final class SurgeryReportDrafts
      * Demande un brouillon ; rend la raison d'un refus ('validated',
      * 'writing', 'writings', 'budget'), ou null quand la rédaction part.
      */
-    public function request(Intervention $intervention, bool $isDictation = false): ?string
+    public function request(Intervention $intervention, bool $isDictation = false, int $delaySeconds = 0): ?string
     {
         $refusal = DB::transaction(function () use ($intervention, $isDictation): ?string {
             self::ensure($intervention);
@@ -46,7 +46,8 @@ final class SurgeryReportDrafts
             if ($refusal !== null) {
                 return $refusal;
             }
-            $report->forceFill(['status' => 'writing', 'error' => null, 'writings' => $report->writings + 1])->save();
+            // Une rédaction qui part prend aussi ce qu'une dictée en attente apportait
+            $report->forceFill(['status' => 'writing', 'error' => null, 'writings' => $report->writings + 1, 'is_redraft_pending' => false])->save();
 
             return null;
         });
@@ -57,7 +58,7 @@ final class SurgeryReportDrafts
         // Comptée au budget du mois où elle part, comme les comptes rendus ;
         // la tâche part avant l'annonce (une annonce ne bloque jamais rien)
         CompteurMensuel::ajouter('anthropic:redactions', 1);
-        WriteSurgeryReport::dispatch($intervention->id);
+        WriteSurgeryReport::dispatch($intervention->id)->delay($delaySeconds > 0 ? now()->addSeconds($delaySeconds) : null);
         SurgeryReport::announce($intervention);
 
         return null;

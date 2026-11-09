@@ -76,10 +76,24 @@ class SurgeryReportController extends Controller
             if ($report->status === 'writing') {
                 throw ValidationException::withMessages(['report' => self::REFUSALS['writing']]);
             }
+            // Corrigées : un nouveau brouillon ne les réécrit plus ; une rubrique
+            // remise au texte exact du brouillon (« Remplacer ») redevient non touchée
+            $edited = $report->edited_sections ?? [];
+            $editedAt = $report->edited_at ?? [];
+            foreach ($data['sections'] as $key => $text) {
+                $draftText = SurgeryReportDrafts::text(is_array($report->draft['sections'][$key] ?? null) ? $report->draft['sections'][$key] : []);
+                if ($report->draft !== null && trim((string) $text) === $draftText) {
+                    $edited = array_values(array_diff($edited, [$key]));
+                    unset($editedAt[$key]);
+                } else {
+                    $edited = array_values(array_unique([...$edited, $key]));
+                    $editedAt[$key] = now()->toIso8601String();
+                }
+            }
             $report->forceFill([
                 'sections' => SurgeryReport::normalizeSections([...SurgeryReport::normalizeSections($report->sections), ...$data['sections']]),
-                // Corrigées : un nouveau brouillon ne les réécrit plus
-                'edited_sections' => array_values(array_unique([...($report->edited_sections ?? []), ...array_keys($data['sections'])])),
+                'edited_sections' => $edited,
+                'edited_at' => $editedAt,
                 'status' => $report->status === 'empty' ? 'draft' : $report->status,
             ])->save();
 

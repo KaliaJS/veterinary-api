@@ -424,6 +424,40 @@ class SurgeryReportTest extends TestCase
         ], [...$this->enTetes($autre), 'Accept' => 'application/json'])->assertForbidden();
     }
 
+    /* ————— 3e vérification (09.11.2026) ————— */
+
+    public function test_remplacer_par_le_texte_du_brouillon_rend_la_rubrique_non_touchee(): void
+    {
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton));
+        $this->patchJson($this->uri(), ['sections' => ['technique' => 'Abord préscrotal.']], $this->enTetes($this->jeton))
+            ->assertJsonPath('data.edited_sections', ['technique'])
+            ->assertJsonPath('data.edited_at.technique', fn ($at) => is_string($at));
+        $this->patchJson($this->uri(), ['sections' => ['technique' => 'Abord préscrotal, technique fermée.']], $this->enTetes($this->jeton))
+            ->assertJsonPath('data.edited_sections', []);
+    }
+
+    public function test_une_redaction_echouee_oublie_la_dictee_en_attente(): void
+    {
+        SurgeryReport::query()->create(['intervention_id' => $this->intervention->id, 'status' => 'writing', 'writings' => 1, 'is_redraft_pending' => true]);
+        $this->writer->error = SurgeryReportWriterFake::refusal();
+        (new WriteSurgeryReport($this->intervention->id))->handle($this->writer, app(SurgeryReportSources::class), app(SurgeryReportDrafts::class));
+        $report = SurgeryReport::first();
+        $this->assertSame('failed', $report->status);
+        $this->assertFalse($report->is_redraft_pending);
+        $this->assertSame(1, $report->writings);
+    }
+
+    public function test_une_dictee_bloquee_en_transcription_s_abandonne_et_la_validation_repart(): void
+    {
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton));
+        $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');
+        // Deux parties annoncées, aucune envoyée (téléphone éteint)
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 2], $this->enTetes($this->jeton))->assertOk();
+        $this->postJson($this->uri('/validate'), [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
+        $this->postJson($this->uri('/validate'), [], $this->enTetes($this->jeton))->assertOk();
+    }
+
     private function dicter(): void
     {
         $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');

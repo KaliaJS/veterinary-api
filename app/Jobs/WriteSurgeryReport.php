@@ -80,7 +80,8 @@ final class WriteSurgeryReport implements ShouldQueue
         // Une dictée arrivée pendant cette rédaction : un nouveau brouillon la prend (2e vérification)
         $isPending = SurgeryReport::query()->where('intervention_id', $this->interventionId)->where('is_redraft_pending', true)->update(['is_redraft_pending' => false]);
         if ($isPending === 1) {
-            $drafts->request($intervention);
+            // Après la fin de celle-ci (son verrou WithoutOverlapping), jamais comptée comme un nouvel essai
+            $drafts->request($intervention, delaySeconds: 5);
         }
     }
 
@@ -92,7 +93,7 @@ final class WriteSurgeryReport implements ShouldQueue
     private function markFailed(): void
     {
         $failed = SurgeryReport::query()->where('intervention_id', $this->interventionId)->where('status', 'writing')
-            ->update(['status' => 'failed', 'error' => 'writer']);
+            ->update(['status' => 'failed', 'error' => 'writer', 'is_redraft_pending' => false]);
         $intervention = Intervention::withoutGlobalScopes()->find($this->interventionId);
         if ($failed === 1 && $intervention) {
             SurgeryReport::announce($intervention);

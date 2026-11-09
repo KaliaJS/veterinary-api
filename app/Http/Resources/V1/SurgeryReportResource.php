@@ -30,6 +30,7 @@ class SurgeryReportResource extends JsonResource
             'draft' => $this->draft,
             'sections' => SurgeryReport::normalizeSections($this->sections),
             'edited_sections' => array_values($this->edited_sections ?? []),
+            'edited_at' => (object) ($this->edited_at ?? []),
             'section_labels' => SurgeryReport::SECTION_LABELS,
             'written_at' => $this->written_at?->toIso8601String(),
             'validated_at' => $this->validated_at?->toIso8601String(),
