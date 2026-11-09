@@ -22,6 +22,7 @@ use App\Services\Bloc\SurgeryReportDrafts;
 use App\Services\Bloc\SurgeryReportSources;
 use App\Services\Bloc\SurgeryReportWriter;
 use App\Services\Bloc\SurgeryReportWriterClaude;
+use App\Services\CompteurMensuel;
 use App\Services\Transcription\Transcripteur;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Broadcasting\Factory as BroadcastFactory;
@@ -583,6 +584,15 @@ class SurgeryReportTest extends TestCase
             'fichier' => UploadedFile::fake()->createWithContent('morceau', ''),
         ], [...$this->enTetes($this->jeton), 'Accept' => 'application/json'])->assertUnprocessable();
         $this->assertSame(0, PartieEnregistrement::query()->where('enregistrement_consultation_id', $id)->count());
+    }
+
+    /* ————— 15e vérification (09.11.2026) ————— */
+
+    public function test_chaque_redaction_compte_dans_le_budget_du_mois(): void
+    {
+        $before = CompteurMensuel::valeur('anthropic:redactions');
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton))->assertAccepted();
+        $this->assertSame($before + 1, CompteurMensuel::valeur('anthropic:redactions'));
     }
 
     private function dicter(): void
