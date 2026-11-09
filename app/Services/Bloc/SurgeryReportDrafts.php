@@ -149,6 +149,8 @@ final class SurgeryReportDrafts
     /** Un tiret entre deux nombres est un intervalle (« 1,5–2 % » : « 1,5 à 2 % ») ; ailleurs, une virgule */
     public static function undash(string $text): string
     {
+        // Une taille de fil (« 3–0 ») reste une taille : « 3-0 »
+        $text = (string) preg_replace('/\b(\d{1,2})\s*[–—]\s*0\b/u', '$1-0', $text);
         $text = (string) preg_replace('/(\d)\s*[–—]\s*(\d)/u', '$1 à $2', $text);
 
         return str_replace([' — ', ' – ', '—', '–'], [', ', ', ', ', ', ', '], $text);

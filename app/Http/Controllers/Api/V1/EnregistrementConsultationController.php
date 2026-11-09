@@ -202,6 +202,19 @@ class EnregistrementConsultationController extends Controller
                 throw $valide;
             }
 
+            // Une dictée de bloc rouverte pour la compléter (09.11.2026, 4e
+            // vérification) : seul l'ajout s'abandonne ; ce qui était déjà
+            // transcrit reste, et la dictée redevient prête
+            $transcrites = $verrouille->intervention_id !== null
+                ? $verrouille->parties()->where('statut', StatutPartie::Transcrite->value)->count()
+                : 0;
+            if ($transcrites > 0) {
+                $verrouille->parties()->where('statut', '!=', StatutPartie::Transcrite->value)->delete();
+                $verrouille->forceFill(['statut' => StatutEnregistrement::Pret, 'erreur' => null, 'parties_attendues' => $transcrites])->save();
+
+                return;
+            }
+
             $verrouille->parties()->update(['segments' => null, 'fichier' => null]);
             $verrouille->forceFill(['statut' => StatutEnregistrement::Abandonne, 'erreur' => null, 'brouillon' => null])->save();
         });

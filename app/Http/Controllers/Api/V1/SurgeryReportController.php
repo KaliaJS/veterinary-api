@@ -99,6 +99,8 @@ class SurgeryReportController extends Controller
 
             return $report;
         });
+        // Les autres écrans relisent la correction (4e vérification)
+        SurgeryReport::announce($intervention);
 
         return new SurgeryReportResource($report->load('complements'));
     }

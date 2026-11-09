@@ -7,6 +7,7 @@ use App\Enums\DomainePermission;
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutIntervention;
 use App\Events\EnregistrementMisAJour;
+use App\Events\InterventionUpdated;
 use App\Jobs\WriteSurgeryReport;
 use App\Models\Client;
 use App\Models\Clinique;
@@ -26,6 +27,7 @@ use Illuminate\Contracts\Broadcasting\Factory as BroadcastFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\SurgeryReportWriterFake;
@@ -456,6 +458,51 @@ class SurgeryReportTest extends TestCase
         $this->postJson($this->uri('/validate'), [], $this->enTetes($this->jeton))->assertUnprocessable();
         $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
         $this->postJson($this->uri('/validate'), [], $this->enTetes($this->jeton))->assertOk();
+    }
+
+    /* ————— 4e vérification (09.11.2026) ————— */
+
+    public function test_une_correction_est_annoncee_aux_autres_ecrans(): void
+    {
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton));
+        Event::fake([InterventionUpdated::class]);
+        $this->patchJson($this->uri(), ['sections' => ['complications' => 'Aucune.']], $this->enTetes($this->jeton))->assertOk();
+        Event::assertDispatched(InterventionUpdated::class, fn ($e) => $e->intervention->id === $this->intervention->id);
+    }
+
+    public function test_abandonner_un_ajout_garde_la_dictee_deja_transcrite(): void
+    {
+        $this->dicter();
+        $id = EnregistrementConsultation::withoutGlobalScopes()->where('intervention_id', $this->intervention->id)->value('id');
+        // Rouverte pour compléter, puis l'ajout abandonné
+        $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.statut', 'enregistrement');
+        $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
+
+        $this->assertSame(StatutEnregistrement::Pret, EnregistrementConsultation::withoutGlobalScopes()->find($id)->statut);
+        SurgeryReport::query()->update(['writings' => 0]);
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton))->assertAccepted();
+        $this->assertSame(['D1', 'D2'], collect(collect($this->writer->calls)->last())->where('kind', 'dictation')->pluck('id')->values()->all());
+    }
+
+    public function test_une_taille_de_fil_reste_une_taille(): void
+    {
+        $this->assertSame('Monocryl 3-0, peau en 2-0, isoflurane 1,5 à 2 %.', SurgeryReportDrafts::undash('Monocryl 3–0, peau en 2–0, isoflurane 1,5–2 %.'));
+    }
+
+    public function test_une_redaction_qui_part_efface_la_dictee_en_attente(): void
+    {
+        SurgeryReport::query()->create(['intervention_id' => $this->intervention->id, 'status' => 'draft', 'writings' => 1, 'is_redraft_pending' => true]);
+        Queue::fake();
+        app(SurgeryReportDrafts::class)->request($this->intervention);
+        $this->assertFalse(SurgeryReport::first()->is_redraft_pending);
+    }
+
+    public function test_la_relance_apres_une_dictee_attend_la_fin_de_la_redaction_en_cours(): void
+    {
+        SurgeryReport::query()->create(['intervention_id' => $this->intervention->id, 'status' => 'writing', 'writings' => 1, 'is_redraft_pending' => true]);
+        Queue::fake();
+        (new WriteSurgeryReport($this->intervention->id))->handle($this->writer, app(SurgeryReportSources::class), app(SurgeryReportDrafts::class));
+        Queue::assertPushed(WriteSurgeryReport::class, fn ($job) => $job->delay !== null);
     }
 
     private function dicter(): void
