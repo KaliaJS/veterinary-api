@@ -72,6 +72,8 @@ class Produit extends Model
         'shop_description',
         // La préparation SI ABV choisie à la main (08.11.2026)
         'isabv_preparation_code',
+        // Délais d'attente, pour les animaux de rente (jours ; 09.11.2026)
+        'withdrawal_milk_days', 'withdrawal_meat_days', 'withdrawal_eggs_days',
     ];
 
     protected function casts(): array

@@ -51,6 +51,8 @@ class ProduitResource extends JsonResource
             'peremption' => $this->peremptionAffichee(),
             'fournisseur' => $this->fournisseur,
             'ean' => $this->ean,
+            // Délais d'attente pour les animaux de rente (jours), proposés dans le journal des traitements
+            'withdrawal' => ['milk' => $this->withdrawal_milk_days, 'meat' => $this->withdrawal_meat_days, 'eggs' => $this->withdrawal_eggs_days],
             'atc_code' => $this->atc_code,
             // Les principes actifs du catalogue, par le code-barres (allergies, 03.11.2026)
             'substances' => $this->resource->catalogueSubstances(),

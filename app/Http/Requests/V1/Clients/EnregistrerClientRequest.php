@@ -34,6 +34,7 @@ class EnregistrerClientRequest extends FormRequest
             'localite' => ['nullable', 'string', 'max:255'],
             'holding_number' => ['nullable', 'string', 'max:32', new NumeroBdta],
             'holding_address' => ['nullable', 'string', 'max:255'],
+            'is_farm' => ['sometimes', 'boolean'],
             'emergency_contact' => ['nullable', 'string', 'max:255'],
             'emergency_phone' => ['nullable', 'string', 'max:255'],
             // Case cochée par la clinique à la demande du client (28.10.2026)

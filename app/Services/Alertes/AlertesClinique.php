@@ -16,6 +16,7 @@ use App\Models\DemandeRendezVous;
 use App\Models\Facture;
 use App\Models\IsabvConnection;
 use App\Models\Lot;
+use App\Models\MedvetAgreement;
 use App\Models\Organisation;
 use App\Models\Paiement;
 use App\Models\ProductOrderSetting;
@@ -54,6 +55,7 @@ class AlertesClinique
     {
         return [
             ...($antibiotique ? $this->antibiotiques($clinique) : []),
+            ...($antibiotique ? $this->conventionsMedvet($clinique) : []),
             ...($paiement ? $this->paiements($clinique) : []),
             ...($stock ? $this->stock($clinique) : []),
             ...($consommation && $clinique->societe?->organisation ? $this->consommation($clinique->societe->organisation) : []),
@@ -395,6 +397,44 @@ class AlertesClinique
         }
 
         return $alertes;
+    }
+
+    /**
+     * Les conventions Médvét en cours dont les visites d'exploitation
+     * prennent du retard sur l'année (annexe 1 ch. 2 : le nombre minimal,
+     * réparti sur l'année), pour qui prescrit (09.11.2026).
+     *
+     * @return list<Alerte>
+     */
+    public function conventionsMedvet(Clinique $clinique): array
+    {
+        $organisation = $clinique->societe?->organisation_id;
+        if ($organisation === null) {
+            return [];
+        }
+        $jour = aujourdhui($clinique)->toDateString();
+        $retards = MedvetAgreement::query()->withoutGlobalScopes()->where('organisation_id', $organisation)
+            // En cours, ou finies depuis moins de trois mois (une dernière année manquée se dit encore)
+            ->where('starts_on', '<=', $jour)->where('ends_on', '>=', CarbonImmutable::parse($jour)->subMonths(3)->toDateString())
+            ->with(['client' => fn ($q) => $q->withoutGlobalScopes(), 'visits' => fn ($q) => $q->withoutGlobalScopes()->select(['id', 'medvet_agreement_id', 'visited_on'])])->get()
+            ->filter(fn (MedvetAgreement $c): bool => $c->lastDay()->addMonths(3)->toDateString() >= $jour)
+            ->map(fn (MedvetAgreement $c): array => [$c, $c->yearStatus($jour)])
+            // En retard cette année (ou sa dernière année, finie, manquée), ou des visites manquées l'année passée (dit pendant trois mois)
+            ->filter(fn (array $p): bool => ($p[0]->isActiveOn($jour) ? $p[1]['behind'] : $p[1]['done'] < $p[1]['required'])
+                || (($p[1]['previous']['missed'] ?? false) && CarbonImmutable::parse($p[1]['from'])->addMonths(3)->toDateString() >= $jour))->values();
+        if ($retards->isEmpty()) {
+            return [];
+        }
+
+        return [$this->alerte(
+            TypeAlerte::Medvet,
+            'retard:'.$this->empreinte($retards->map(fn (array $p): string => $p[0]->id.'-'.$p[1]['done'].'-'.$p[1]['expected'])),
+            'warn',
+            $this->compte($retards->count(), 'convention Médvét en retard de visites', 'conventions Médvét en retard de visites'),
+            $this->noms($retards->map(fn (array $p): string => ($p[0]->client->nom_affiche ?? 'exploitation').' ('.$p[1]['done'].' visite'.($p[1]['done'] > 1 ? 's' : '').' sur '.$p[1]['required'].' cette année'
+                .(($p[1]['previous']['missed'] ?? false) ? ', '.$p[1]['previous']['done'].' sur '.$p[1]['previous']['required'].' l’année passée' : '').')')).'. Annexe 1 de l’OMédV : au moins le nombre de visites de la catégorie, réparties sur l’année.',
+            'proprietaires',
+        )];
     }
 
     /** @return Alerte */

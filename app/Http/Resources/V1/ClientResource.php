@@ -39,6 +39,8 @@ class ClientResource extends JsonResource
             // L'unité d'élevage (SI ABV, 08.11.2026)
             'holding_number' => $this->holding_number,
             'holding_address' => $this->holding_address,
+            // Une exploitation d'animaux de rente : l'onglet Exploitation (09.11.2026)
+            'is_farm' => (bool) $this->is_farm,
             'a_un_compte' => $this->user_id !== null,
             // Le compte, pour lui écrire depuis sa fiche (messagerie, 28.10.2026)
             'compte_id' => $this->user_id,

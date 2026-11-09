@@ -27,6 +27,7 @@ class ModifierClientRequest extends FormRequest
             // L'unité d'élevage d'un détenteur d'animaux de rente (SI ABV, 08.11.2026)
             'holding_number' => ['sometimes', 'nullable', 'string', 'max:32', new NumeroBdta],
             'holding_address' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'is_farm' => ['sometimes', 'boolean'],
             // Case cochée par la clinique à la demande d'un client sans compte (28.10.2026)
             'rappels_sms' => ['sometimes', 'boolean'],
             // Fenêtre propriétaire (03.11.2026) : contact d'urgence, note de l'accueil,

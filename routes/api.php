@@ -84,6 +84,7 @@ use App\Http\Controllers\Api\V1\Espace\SuppressionCompteController;
 use App\Http\Controllers\Api\V1\Espace\VerificationEmailController;
 use App\Http\Controllers\Api\V1\Espace\VeterinairePublicController;
 use App\Http\Controllers\Api\V1\ExamenImagerieController;
+use App\Http\Controllers\Api\V1\ExploitationController;
 use App\Http\Controllers\Api\V1\FactureController;
 use App\Http\Controllers\Api\V1\FactureDevisController;
 use App\Http\Controllers\Api\V1\FactureLigneController;
@@ -669,6 +670,21 @@ Route::prefix('v1')->group(function (): void {
         Route::apiResource('clients', ClientController::class)->except('destroy');
         // L'historique d'un propriétaire sur un fil (fenêtre propriétaire, 03.11.2026)
         Route::get('clients/{client}/historique', ClientHistoryController::class);
+        // L'exploitation d'animaux de rente : groupes, animal par sa marque auriculaire, visites, ventes, remises (09.11.2026)
+        Route::middleware('can:patients')->prefix('clients/{client}/exploitation')->group(function (): void {
+            Route::get('/', [ExploitationController::class, 'show']);
+            Route::post('groupes', [ExploitationController::class, 'storeHerd']);
+            Route::patch('groupes/{herd}', [ExploitationController::class, 'updateHerd'])->whereNumber('herd');
+            Route::post('groupes/{herd}/archiver', [ExploitationController::class, 'archiveHerd'])->whereNumber('herd');
+            Route::post('groupes/{herd}/animaux', [ExploitationController::class, 'storeAnimal'])->whereNumber('herd');
+            Route::post('visites', [ExploitationController::class, 'storeVisit']);
+            Route::post('ventes', [ExploitationController::class, 'storeSale']);
+            Route::get('livraisons', [ExploitationController::class, 'deliveries']);
+            Route::post('journal', [ExploitationController::class, 'storeEntry']);
+            Route::post('conventions', [ExploitationController::class, 'storeAgreement']);
+            Route::post('conventions/{agreement}/resilier', [ExploitationController::class, 'terminateAgreement'])->whereNumber('agreement');
+            Route::post('stocks', [ExploitationController::class, 'storeStockMovement']);
+        });
         // L'invitation dans l'espace : la renvoyer (nouveau lien) ou l'annuler (03.11.2026)
         Route::post('clients/{client}/invitation', [ClientSpaceInvitationController::class, 'store'])->middleware(['can:patients', 'throttle:30,1,invitation-espace']);
         Route::delete('clients/{client}/invitation', [ClientSpaceInvitationController::class, 'destroy'])->middleware('can:patients');
@@ -1110,6 +1126,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('produits/{produit}', [ProduitController::class, 'show']);
             // Le code ATC d'un article existant (mise en garde des allergies, 03.11.2026)
             Route::patch('produits/{produit}/atc', [ProduitController::class, 'updateAtc']);
+            Route::patch('produits/{produit}/delais-attente', [ProduitController::class, 'updateWithdrawal']);
             // Ce que contient une unité (médicaments à la dose, 03.11.2026)
             Route::patch('produits/{produit}/contenance', [ProductContentController::class, 'update']);
             // Le taux de TVA à la vente d'un article, et la proposition par famille (03.11.2026)

@@ -17,4 +17,6 @@ enum TypeAlerte: string
     case Paiement = 'paiement';
     /** Déclarations SI ABV proches de leur échéance du 20, ou en retard (08.11.2026) : dans l'app seulement */
     case Antibiotique = 'isabv';
+    // Conventions Médvét dont les visites prennent du retard (09.11.2026)
+    case Medvet = 'medvet';
 }

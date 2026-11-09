@@ -47,6 +47,8 @@ class ClientController extends Controller
             })
             // Le client d'un numéro, quelle que soit son écriture (« 079 123 45 67 »,
             // « +41 79 123 45 67 », « 0041791234567 ») : un mobile déjà connu (03.11.2026)
+            // Les exploitations d'animaux de rente (09.11.2026)
+            ->when($request->boolean('exploitation'), fn (Builder $requete) => $requete->where('is_farm', true))
             ->when($request->string('tel')->isNotEmpty(), fn (Builder $requete) => $requete
                 ->where('phone_e164', Telephone::international($request->string('tel')->toString()) ?? '-'))
             ->when(

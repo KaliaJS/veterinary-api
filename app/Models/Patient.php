@@ -47,6 +47,8 @@ class Patient extends Model
         'a_allergies', 'traitement_en_cours', 'rappels_coupes',
         'aggression_triggers', 'needs_muzzle', 'allergens', 'allergy_note',
         'amicus_declare_le', 'client_depuis',
+        // Un animal de rente soigné seul : son groupe et sa marque auriculaire (09.11.2026)
+        'herd_id', 'ear_tag',
         // Le poids de forme saisi par le vétérinaire (03.11.2026)
         'healthy_weight_min_kg', 'healthy_weight_max_kg',
         // La robe (une description que le vétérinaire constate, hors identité réservable) et le vétérinaire référent (06.11.2026)

@@ -153,6 +153,16 @@ class ProduitController extends Controller
         return new ProduitResource($produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint']));
     }
 
+    /** Les délais d'attente d'un article pour les animaux de rente (jours ; 09.11.2026), proposés dans le journal des traitements. */
+    public function updateWithdrawal(Request $request, Produit $produit): ProduitResource
+    {
+        $this->authorize('update', $produit);
+        $regle = ['present', 'nullable', 'integer', 'min:0', 'max:3650'];
+        $produit->update($request->validate(['withdrawal_milk_days' => $regle, 'withdrawal_meat_days' => $regle, 'withdrawal_eggs_days' => $regle]));
+
+        return new ProduitResource($produit->load(['stocks' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'vetpoint']));
+    }
+
     /** Référence interne « ART-0025 » — séquentielle dans l'organisation. */
     private function prochaineReference(): string
     {

@@ -49,6 +49,10 @@ class EnregistrerProduitRequest extends FormRequest
             'peremption' => $this->reglesPeremption(),
             'fournisseur' => ['nullable', 'string', 'max:255'],
             'ean' => ['nullable', 'string', 'max:20'],
+            // Délais d'attente pour les animaux de rente, en jours (09.11.2026)
+            'withdrawal_milk_days' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:3650'],
+            'withdrawal_meat_days' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:3650'],
+            'withdrawal_eggs_days' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:3650'],
             // Code ATC ou ATCvet (03.11.2026) : la famille du médicament, pour la mise en garde des allergies
             'atc_code' => ['nullable', 'string', 'max:12', 'regex:'.AtcCode::PATTERN],
             'quantite_initiale' => ['sometimes', 'integer', 'min:0', 'max:99999'],

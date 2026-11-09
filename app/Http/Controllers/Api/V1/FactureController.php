@@ -12,6 +12,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Facturation\EnregistrerFactureRequest;
 use App\Http\Resources\V1\FactureResource;
 use App\Models\Facture;
+use App\Models\FarmStockMovement;
 use App\Models\Patient;
 use App\Models\Produit;
 use App\Models\Sejour;
@@ -208,6 +209,10 @@ class FactureController extends Controller
         // Un paiement Stripe attend le client : il serait encaissé sans facture
         if ($facture->aUnPaiementEnCours()) {
             throw ValidationException::withMessages(['paiements' => 'Un paiement est en cours sur cette facture : annulez-le d’abord.']);
+        }
+
+        if (FarmStockMovement::query()->withoutGlobalScopes()->where('facture_id', $facture->id)->exists()) {
+            throw ValidationException::withMessages(['facture' => 'Cette facture est une remise à titre de stocks, inscrite au registre de l’exploitation : elle ne se supprime plus.']);
         }
 
         $estDansLaFenetre = $facture->estDue()

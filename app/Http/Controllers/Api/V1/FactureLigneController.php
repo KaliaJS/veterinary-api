@@ -49,6 +49,7 @@ class FactureLigneController extends Controller
         $this->assurerFactureDue($facture);
         $this->assurerSansReglement($facture);
         $this->assurerMoisOuvert($facture);
+        $this->assurerSansStockExploitation($facture);
 
         $donnees = $request->validated();
 
@@ -142,6 +143,7 @@ class FactureLigneController extends Controller
         $this->assurerFactureDue($facture);
         $this->assurerSansReglement($facture);
         $this->assurerMoisOuvert($facture);
+        $this->assurerSansStockExploitation($facture);
 
         $ligne = $facture->lignes()->findOrFail($id);
         if (! $ligne->isArticle()) {
@@ -229,6 +231,7 @@ class FactureLigneController extends Controller
         $this->assurerFactureDue($facture);
         $this->assurerSansReglement($facture);
         $this->assurerMoisOuvert($facture);
+        $this->assurerSansStockExploitation($facture);
 
         $ligne = $facture->lignes()->with('produit')->findOrFail($id);
 

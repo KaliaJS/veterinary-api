@@ -28,7 +28,7 @@ class Client extends Model
         // Fenêtre propriétaire (03.11.2026)
         'rappels_email', 'emergency_contact', 'emergency_phone', 'note', 'muted_reminders', 'language', 'accepts_news', 'photo_consent_at',
         // L'unité d'élevage d'un détenteur d'animaux de rente, pour le SI ABV (08.11.2026)
-        'holding_number', 'holding_address',
+        'holding_number', 'holding_address', 'is_farm',
     ];
 
     /** Un animal, un seul compte (02.11.2026) : la fiche ne prend pas un compte autre que celui de ses animaux */
@@ -60,6 +60,7 @@ class Client extends Model
     {
         return [
             'civilite' => Civilite::class,
+            'is_farm' => 'boolean',
             'rappels_email' => 'boolean',
             'rappels_sms' => 'boolean',
             'muted_reminders' => 'array',

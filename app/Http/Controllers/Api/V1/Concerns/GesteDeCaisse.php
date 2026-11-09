@@ -7,6 +7,7 @@ use App\Enums\StatutFacture;
 use App\Models\AccountingLock;
 use App\Models\Clinique;
 use App\Models\Facture;
+use App\Models\FarmStockMovement;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -51,6 +52,18 @@ trait GesteDeCaisse
         $zone = Clinique::query()->withoutGlobalScopes()->whereKey($facture->clinique_id)->value('fuseau_horaire') ?: 'Europe/Zurich';
         if (AccountingLock::isLocked($facture->clinique_id, $facture->emise_le->setTimezone($zone)->toDateString())) {
             throw ValidationException::withMessages(['facture' => 'Cette facture est d’un mois remis à la fiduciaire : elle ne se modifie plus.']);
+        }
+    }
+
+    /**
+     * Une remise à titre de stocks inscrite au registre de l'exploitation
+     * (art. 28 al. 2, 10.11.2026) : ses lignes ne changent plus, le registre
+     * et la vérification des antimicrobiens resteraient faux.
+     */
+    protected function assurerSansStockExploitation(Facture $facture): void
+    {
+        if (FarmStockMovement::query()->withoutGlobalScopes()->where('facture_id', $facture->id)->exists()) {
+            throw ValidationException::withMessages(['facture' => 'Cette facture est une remise à titre de stocks, inscrite au registre de l’exploitation : elle ne se modifie plus.']);
         }
     }
 
