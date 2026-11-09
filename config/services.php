@@ -124,6 +124,9 @@ return [
         // par rédaction, et rédactions au plus par feuille
         'cout_rapport_usd' => (float) env('ANTHROPIC_COUT_RAPPORT_USD', 0.05),
         'rapports_max' => (int) env('ANTHROPIC_RAPPORTS_MAX', 5),
+        // Découpe d'un gros PDF reçu (09.11.2026) : Claude Haiku 4.5, peu coûteux ; coût estimé par tranche de 50 pages
+        'modele_decoupe' => env('ANTHROPIC_MODELE_DECOUPE', 'claude-haiku-4-5-20251001'),
+        'cout_decoupe_usd' => (float) env('ANTHROPIC_COUT_DECOUPE_USD', 0.05),
     ],
 
     // Captcha des formulaires publics (demande de rendez-vous sans compte)

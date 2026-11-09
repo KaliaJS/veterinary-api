@@ -25,6 +25,10 @@ use App\Services\Hospitalisation\DailyReportWriter;
 use App\Services\Hospitalisation\DailyReportWriterClaude;
 use App\Services\Hospitalisation\DischargeLetterWriter;
 use App\Services\Hospitalisation\DischargeLetterWriterClaude;
+use App\Services\Imports\RecordSplitter;
+use App\Services\Imports\RecordSplitterClaude;
+use App\Services\Labs\LabSummaryWriter;
+use App\Services\Labs\LabSummaryWriterClaude;
 use App\Services\Notifications\CanalApns;
 use App\Services\Notifications\DirectApns;
 use App\Services\Referrals\ReferralLetterWriter;
@@ -108,6 +112,10 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(SurgeryReportWriter::class, SurgeryReportWriterClaude::class);
         $this->app->bind(DischargeLetterWriter::class, DischargeLetterWriterClaude::class);
         $this->app->bind(ReferralLetterWriter::class, ReferralLetterWriterClaude::class);
+        // La découpe d'un gros PDF reçu (09.11.2026) : Claude Haiku 4.5
+        $this->app->bind(RecordSplitter::class, RecordSplitterClaude::class);
+        // Le résumé d'une analyse (09.11.2026)
+        $this->app->bind(LabSummaryWriter::class, LabSummaryWriterClaude::class);
         $this->app->bind(Suggesteur::class, SuggesteurClaude::class);
 
         // Domaines personnalisés des sites : fournisseur choisi par configuration

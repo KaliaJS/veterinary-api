@@ -34,10 +34,13 @@ final class BudgetAnthropic
         // Rapports de la journée d'hospitalisation (03.11.2026)
         // Une rédaction compte une fois, même quand elle réessaie
         $rapports = CompteurMensuel::valeur('anthropic:rapports');
+        // Découpes d'un gros PDF reçu (09.11.2026)
+        $decoupes = CompteurMensuel::valeur('anthropic:decoupes') + CompteurMensuel::valeur('anthropic:essais:decoupe');
 
         return $redactions * (float) config('services.anthropic.cout_redaction_usd')
             + $suggestions * (float) config('services.anthropic.cout_suggestion_usd')
-            + $rapports * (float) config('services.anthropic.cout_rapport_usd', 0.05);
+            + $rapports * (float) config('services.anthropic.cout_rapport_usd', 0.05)
+            + $decoupes * (float) config('services.anthropic.cout_decoupe_usd', 0.05);
     }
 
     /**

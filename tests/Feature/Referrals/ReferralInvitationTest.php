@@ -13,6 +13,7 @@ use App\Models\Employe;
 use App\Models\Patient;
 use App\Models\ReferralInvitation;
 use App\Models\ReferralLetter;
+use App\Models\ReferralReturn;
 use App\Models\RendezVous;
 use App\Models\User;
 use App\Services\Referrals\ReferralLetterWriter;
@@ -378,6 +379,84 @@ class ReferralInvitationTest extends TestCase
 
             return true;
         });
+    }
+
+    public function test_le_retour_envoyer_au_veterinaire_referent_fait_arriver_son_compte_rendu_signe_au_dossier_de_l_animal(): void
+    {
+        [$id, $rocky] = $this->acceptedAndLinked();
+        // Chez le confrère : son compte rendu signé de la consultation de référence
+        $visit = RendezVous::factory()->pourPatient($rocky)->create(['clinique_id' => $this->bern->id, 'reason' => 'Avis orthopédique', 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        CompteRendu::factory()->create(['rendez_vous_id' => $visit->id, 'signe_le' => now()->addHours(2), 's' => 'Tiroir franc.', 'o' => 'Rupture du LCCr gauche.', 'a' => '', 'p' => 'TPLO le 20.11.']);
+        $draft = RendezVous::factory()->pourPatient($rocky)->create(['clinique_id' => $this->bern->id, 'starts_at' => now()->addHours(3), 'ends_at' => now()->addHours(4)]);
+        app(ContexteClinique::class)->oublier();
+        $this->travel(3)->hours();
+
+        $candidates = $this->as($this->kellerJeton, 'GET', "/api/v1/referral-invitations/{$id}/return-candidates")->assertOk()->json('data');
+        $this->assertSame(now()->setTimezone('Europe/Zurich')->subHours(3)->toDateString(), $candidates['since']);
+        $this->assertContains($visit->id, collect($candidates['groups'])->flatMap(fn ($g) => $g['items'])->where('type', 'consultation')->pluck('id')->all());
+        // Seulement des pièces signées de son animal
+        $this->as($this->kellerJeton, 'POST', "/api/v1/referral-invitations/{$id}/returns", ['items' => [['type' => 'consultation', 'id' => $draft->id]]])->assertUnprocessable();
+        $this->as($this->kellerJeton, 'POST', "/api/v1/referral-invitations/{$id}/returns", ['items' => [['type' => 'consultation', 'id' => $this->consultation->id]]])->assertUnprocessable();
+        $this->as($this->kellerJeton, 'POST', "/api/v1/referral-invitations/{$id}/returns", ['items' => [['type' => 'consultation', 'id' => $visit->id]], 'note' => 'Opération prévue le 20.11.'])
+            ->assertCreated()->assertJsonPath('data.0.items_count', 1)->assertJsonPath('data.0.from.by', 'Dr Marc Keller');
+
+        // À la clinique qui a référé : dans le dossier de son animal, lu sans copie
+        $received = $this->as($this->jeton, 'GET', "/api/v1/patients/{$this->patient->id}/referral-returns")->assertOk()->json('data.0');
+        $this->assertSame('Vetsuisse Bern', $received['from']['clinic']);
+        $this->assertSame('Opération prévue le 20.11.', $received['note']);
+        $this->assertSame([['consultation', $visit->id]], array_map(fn ($i) => [$i['type'], $i['id']], $received['items']));
+        $this->as($this->jeton, 'GET', "/api/v1/referral-returns/{$received['id']}/items/consultation/{$visit->id}")->assertOk()->assertJsonPath('data.sections.1.text', 'Rupture du LCCr gauche.');
+        $this->as($this->jeton, 'POST', "/api/v1/referral-returns/{$received['id']}/open")->assertOk();
+        $this->as($this->kellerJeton, 'GET', "/api/v1/referral-invitations/{$id}/returns")->assertJsonPath('data.0.opened_at', now()->toIso8601String());
+        // Rien n'est copié : seule la lettre de référence signée est rangée chez la clinique qui a référé
+        $this->assertSame(['lettre_reference'], $this->patient->documents()->pluck('type')->all());
+        // Personne d'autre : ni le confrère lui-même par ce chemin, ni une autre organisation
+        $this->as($this->kellerJeton, 'GET', "/api/v1/referral-returns/{$received['id']}/items/consultation/{$visit->id}")->assertNotFound();
+        $stranger = Clinique::factory()->create();
+        ['jeton' => $strangerJeton] = $this->employeAvecJeton($stranger);
+        $this->as($strangerJeton, 'GET', "/api/v1/referral-invitations/{$id}/return-candidates")->assertNotFound();
+        $this->as($strangerJeton, 'POST', "/api/v1/referral-invitations/{$id}/returns", ['items' => [['type' => 'consultation', 'id' => $visit->id]]])->assertNotFound();
+        $this->as($strangerJeton, 'GET', "/api/v1/referral-returns/{$received['id']}/items/consultation/{$visit->id}")->assertNotFound();
+    }
+
+    public function test_verification_du_retour_les_gardes(): void
+    {
+        [$id, $rocky] = $this->acceptedAndLinked();
+        $visit = RendezVous::factory()->pourPatient($rocky)->create(['clinique_id' => $this->bern->id, 'starts_at' => now()->addHour(), 'ends_at' => now()->addHours(2)]);
+        CompteRendu::factory()->create(['rendez_vous_id' => $visit->id, 'signe_le' => now()->addHours(2)]);
+        $other = RendezVous::factory()->pourPatient($rocky)->create(['clinique_id' => $this->bern->id, 'starts_at' => now()->addHours(3), 'ends_at' => now()->addHours(4)]);
+        CompteRendu::factory()->create(['rendez_vous_id' => $other->id, 'signe_le' => now()->addHours(4)]);
+        // Une clinique sœur du confrère (même organisation) renvoie aussi
+        $sister = Clinique::factory()->create(['societe_id' => $this->bern->societe_id]);
+        ['jeton' => $sisterJeton] = $this->employeAvecJeton($sister, ['nom' => 'Dre Iris Gerber']);
+        app(ContexteClinique::class)->oublier();
+        $this->travel(5)->hours();
+        // La lettre de référence ne se renvoie pas
+        $this->as($sisterJeton, 'POST', "/api/v1/referral-invitations/{$id}/returns", ['items' => [['type' => 'referral_letter', 'id' => 1]]])->assertUnprocessable();
+        $this->assertNotContains('referral_letter', array_column($this->as($sisterJeton, 'GET', "/api/v1/referral-invitations/{$id}/return-candidates")->json('data.groups'), 'key'));
+        $sent = $this->as($sisterJeton, 'POST', "/api/v1/referral-invitations/{$id}/returns", ['items' => [['type' => 'consultation', 'id' => $visit->id]]])->assertCreated()->json('data.0');
+        // Seule la pièce renvoyée se lit, pas le reste du dossier du confrère
+        $this->as($this->jeton, 'GET', "/api/v1/referral-returns/{$sent['id']}/items/consultation/{$visit->id}")->assertOk();
+        $this->as($this->jeton, 'GET', "/api/v1/referral-returns/{$sent['id']}/items/consultation/{$other->id}")->assertNotFound();
+        // Le confrère coupe son retour : plus rien ne se lit
+        $this->as($this->kellerJeton, 'POST', "/api/v1/referral-invitations/{$id}/returns/{$sent['id']}/revoke")->assertOk()->assertJsonPath('data.0.revoked_at', now()->toIso8601String());
+        $this->as($this->jeton, 'GET', "/api/v1/referral-returns/{$sent['id']}/items/consultation/{$visit->id}")->assertNotFound();
+        $this->as($this->jeton, 'GET', "/api/v1/patients/{$this->patient->id}/referral-returns")->assertJsonCount(0, 'data');
+        // La lettre coupée par la clinique qui a référé : plus de nouveau retour, mais il garde la main sur ceux envoyés
+        $again = $this->as($this->kellerJeton, 'POST', "/api/v1/referral-invitations/{$id}/returns", ['items' => [['type' => 'consultation', 'id' => $other->id]]])->assertCreated()->json('data.0');
+        $this->as($this->jeton, 'POST', "/api/v1/referral-invitations/{$id}/revoke")->assertOk();
+        $this->as($this->kellerJeton, 'POST', "/api/v1/referral-invitations/{$id}/returns", ['items' => [['type' => 'consultation', 'id' => $visit->id]]])->assertNotFound();
+        $this->as($this->kellerJeton, 'GET', "/api/v1/referral-invitations/{$id}/returns")->assertOk()->assertJsonCount(2, 'data');
+        $this->as($this->kellerJeton, 'POST', "/api/v1/referral-invitations/{$id}/returns/{$again['id']}/revoke")->assertOk();
+        $this->as($this->jeton, 'GET', "/api/v1/referral-returns/{$again['id']}/items/consultation/{$other->id}")->assertNotFound();
+        // Un retour d'une autre lettre ne se coupe pas par celle-ci
+        [$id2, $rocky2] = $this->acceptedAndLinked();
+        $visit2 = RendezVous::factory()->pourPatient($rocky2)->create(['clinique_id' => $this->bern->id, 'starts_at' => now()->subHours(2), 'ends_at' => now()->subHour()]);
+        CompteRendu::factory()->create(['rendez_vous_id' => $visit2->id, 'signe_le' => now()->subHour()]);
+        app(ContexteClinique::class)->oublier();
+        $other = $this->as($this->kellerJeton, 'POST', "/api/v1/referral-invitations/{$id2}/returns", ['items' => [['type' => 'consultation', 'id' => $visit2->id]]])->assertCreated()->json('data.0');
+        $this->as($this->kellerJeton, 'POST', "/api/v1/referral-invitations/{$id}/returns/{$other['id']}/revoke")->assertNotFound();
+        $this->assertNull(ReferralReturn::query()->findOrFail($other['id'])->revoked_at);
     }
 
     /** @return array{0: int, 1: Patient, 2: ReferralLetter} */

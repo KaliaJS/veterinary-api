@@ -35,6 +35,8 @@ Schedule::command('isabv:send-consultations')->dailyAt('06:00')->timezone('Europ
 // Tuée en pleine course (déploiement) : son verrou tombe au bout de 50 minutes,
 // la suivante repart à l'heure pleine, pas 24 h plus tard ; deux passages qui
 // se croisent sont sans danger, chaque abonné est relu sous son verrou (26.10.2026)
+// Les pages provisoires des découpes de PDF restées en route (09.11.2026)
+Schedule::command('imports:purger')->dailyAt('03:30')->timezone('Europe/Zurich')->withoutOverlapping(30)->onOneServer();
 Schedule::command('abonnements:renouveler')->hourly()->withoutOverlapping(50)->onOneServer();
 // Paiements restés sans réponse de Stripe : renvoyés tels quels (26.10.2026) ;
 // tuée en pleine course, au plus 2 minutes sans vérification (27.10.2026)

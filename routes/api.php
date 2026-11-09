@@ -102,6 +102,7 @@ use App\Http\Controllers\Api\V1\Isabv\IsabvConnectionController;
 use App\Http\Controllers\Api\V1\Isabv\IsabvReferenceController;
 use App\Http\Controllers\Api\V1\Isabv\ProductPreparationController;
 use App\Http\Controllers\Api\V1\JournalFacturesController;
+use App\Http\Controllers\Api\V1\LabSummaryController;
 use App\Http\Controllers\Api\V1\LicenciementEmployeController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
 use App\Http\Controllers\Api\V1\ListeAttenteController;
@@ -159,10 +160,12 @@ use App\Http\Controllers\Api\V1\RadioController;
 use App\Http\Controllers\Api\V1\RadioDossierController;
 use App\Http\Controllers\Api\V1\RadioPreviewController;
 use App\Http\Controllers\Api\V1\RappelsController;
+use App\Http\Controllers\Api\V1\RecordImportController;
 use App\Http\Controllers\Api\V1\RecordShareController;
 use App\Http\Controllers\Api\V1\ReferentielImagerieController;
 use App\Http\Controllers\Api\V1\ReferralInvitationController;
 use App\Http\Controllers\Api\V1\ReferralLetterController;
+use App\Http\Controllers\Api\V1\ReferralReturnController;
 use App\Http\Controllers\Api\V1\ReferringVetController;
 use App\Http\Controllers\Api\V1\RegistreStupefiantController;
 use App\Http\Controllers\Api\V1\ReleveDentaireController;
@@ -783,6 +786,22 @@ Route::prefix('v1')->group(function (): void {
                 Route::post('revoke', [ReferralInvitationController::class, 'revoke']);
                 Route::get('items/{type}/{item}', [ReferralInvitationController::class, 'item'])->whereNumber('item');
                 Route::get('items/{type}/{item}/files/{n}', [ReferralInvitationController::class, 'file'])->whereNumber(['item', 'n']);
+                // Le retour au vétérinaire référent, depuis le dossier de l'animal référé
+                Route::get('return-candidates', [ReferralReturnController::class, 'candidates']);
+                Route::get('returns', [ReferralReturnController::class, 'sent']);
+                Route::post('returns', [ReferralReturnController::class, 'store'])->middleware('throttle:20,1,referral-returns');
+                Route::post('returns/{return}/revoke', [ReferralReturnController::class, 'revoke'])->whereNumber('return');
+            });
+            // Importer un gros PDF reçu et le découper (étape 3) : la découpe proposée par Claude Haiku 4.5
+            Route::post('patients/{patient}/record-imports', [RecordImportController::class, 'store'])->middleware('throttle:10,1,record-imports');
+            Route::get('record-imports/{import}', [RecordImportController::class, 'show'])->whereNumber('import');
+            Route::post('record-imports/{import}/done', [RecordImportController::class, 'done'])->whereNumber('import');
+            // Côté clinique qui a référé : les retours reçus, lus sans copie
+            Route::get('patients/{patient}/referral-returns', [ReferralReturnController::class, 'forPatient']);
+            Route::prefix('referral-returns/{return}')->whereNumber('return')->group(function (): void {
+                Route::post('open', [ReferralReturnController::class, 'open']);
+                Route::get('items/{type}/{item}', [ReferralReturnController::class, 'item'])->whereNumber('item');
+                Route::get('items/{type}/{item}/files/{n}', [ReferralReturnController::class, 'file'])->whereNumber(['item', 'n']);
             });
         });
 
@@ -1223,6 +1242,12 @@ Route::prefix('v1')->group(function (): void {
 
             Route::post('analyses/{analyse}/avancer', CycleAnalyseController::class);
             Route::put('analyses/{analyse}/resultats', ResultatAnalyseController::class);
+            // Le résumé d'une analyse validée par l'IA (09.11.2026)
+            Route::get('analyses/{analyse}/summary', [LabSummaryController::class, 'show']);
+            Route::patch('analyses/{analyse}/summary', [LabSummaryController::class, 'update']);
+            Route::post('analyses/{analyse}/summary/draft', [LabSummaryController::class, 'draft'])->middleware('throttle:transcription');
+            Route::post('analyses/{analyse}/summary/sign', [LabSummaryController::class, 'sign']);
+            Route::post('analyses/{analyse}/summary/send', [LabSummaryController::class, 'send']);
         });
 
         // Domaine imagerie — rattaché au domaine patients (dossier
