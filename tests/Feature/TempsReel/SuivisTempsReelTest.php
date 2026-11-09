@@ -65,7 +65,7 @@ class SuivisTempsReelTest extends TestCase
         $enregistrement->forceFill(['statut' => StatutEnregistrement::Pret])->save();
 
         Event::assertDispatched(EnregistrementMisAJour::class, fn (EnregistrementMisAJour $e): bool => $e->broadcastOn()[0]->name === 'private-clinique.'.$this->clinique->id
-            && $e->broadcastWith() === ['id' => $enregistrement->id, 'rendez_vous_id' => $rendezVous->id, 'statut' => StatutEnregistrement::Pret->value]);
+            && $e->broadcastWith() === ['id' => $enregistrement->id, 'rendez_vous_id' => $rendezVous->id, 'intervention_id' => null, 'statut' => StatutEnregistrement::Pret->value]);
     }
 
     public function test_un_diagnostic_rendu_est_diffuse_court_a_la_clinique(): void

@@ -21,6 +21,7 @@ use App\Models\RendezVous;
 use App\Models\Role;
 use App\Models\Sejour;
 use App\Models\StaySheet;
+use App\Models\SurgeryReport;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
@@ -131,8 +132,10 @@ class UnfinishedWorkTest extends TestCase
 
     public function test_un_rapport_de_bloc_vide_est_compte(): void
     {
-        $this->surgery('2026-11-08 08:00', StatutIntervention::Fini, ['note_operatoire' => null, 'consent_method' => 'oral', 'consentement_signe_le' => now()]);
-        $this->surgery('2026-11-08 10:00', StatutIntervention::Fini, ['note_operatoire' => 'Castration sans complication.', 'consent_method' => 'oral', 'consentement_signe_le' => now()]);
+        // Depuis le 09.11.2026 (IA pour le rapport de bloc, choix de Jim) : seul un rapport validé boucle l'intervention, une note ne suffit plus
+        $this->surgery('2026-11-08 08:00', StatutIntervention::Fini, ['note_operatoire' => 'Castration sans complication.', 'consent_method' => 'oral', 'consentement_signe_le' => now()]);
+        $done = $this->surgery('2026-11-08 10:00', StatutIntervention::Fini, ['note_operatoire' => 'Castration sans complication.', 'consent_method' => 'oral', 'consentement_signe_le' => now()]);
+        SurgeryReport::query()->create(['intervention_id' => $done->id, 'status' => 'validated', 'sections' => ['technique' => 'Castration sans complication.'], 'validated_at' => now()]);
 
         $groups = $this->groupsOf($this->fetch());
 

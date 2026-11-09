@@ -136,6 +136,16 @@ class Intervention extends Model
         return $this->belongsTo(Document::class, 'consentement_document_id');
     }
 
+    /**
+     * Le rapport de bloc (09.11.2026) ; absent tant que rien n'a été rédigé
+     *
+     * @return HasOne<SurgeryReport, $this>
+     */
+    public function report(): HasOne
+    {
+        return $this->hasOne(SurgeryReport::class);
+    }
+
     /** @return HasMany<InterventionChecklistPoint, $this> */
     public function checklist(): HasMany
     {

@@ -14,6 +14,8 @@ use App\Paiements\PasserelleIdentiteStripe;
 use App\Paiements\PasserellePaiement;
 use App\Paiements\PasserelleStripe;
 use App\Queue\EchecsMasques;
+use App\Services\Bloc\SurgeryReportWriter;
+use App\Services\Bloc\SurgeryReportWriterClaude;
 use App\Services\Diagnostic\Suggesteur;
 use App\Services\Diagnostic\SuggesteurClaude;
 use App\Services\Domaines\FournisseurCloudflare;
@@ -99,6 +101,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(Transcripteur::class, TranscripteurDeepgram::class);
         $this->app->bind(Redacteur::class, RedacteurClaude::class);
         $this->app->bind(DailyReportWriter::class, DailyReportWriterClaude::class);
+        $this->app->bind(SurgeryReportWriter::class, SurgeryReportWriterClaude::class);
         $this->app->bind(Suggesteur::class, SuggesteurClaude::class);
 
         // Domaines personnalisés des sites : fournisseur choisi par configuration

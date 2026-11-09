@@ -11,6 +11,7 @@ use App\Http\Resources\V1\EnregistrementConsultationResource;
 use App\Jobs\RedigerCompteRendu;
 use App\Jobs\TranscrirePartie;
 use App\Models\EnregistrementConsultation;
+use App\Models\Intervention;
 use App\Models\Organisation;
 use App\Models\RendezVous;
 use App\Services\Transcription\ConsommationTranscription;
@@ -39,7 +40,7 @@ class EnregistrementConsultationController extends Controller
         $this->authorize('viewAny', EnregistrementConsultation::class);
 
         return new EnregistrementConsultationResource(
-            $this->dernier($this->rendezVousDeLOrganisation($rendezVous)) ?? abort(404),
+            $this->dernierPour('rendez_vous_id', $this->rendezVousDeLOrganisation($rendezVous)->id) ?? abort(404),
         );
     }
 
@@ -53,8 +54,35 @@ class EnregistrementConsultationController extends Controller
     {
         $this->authorize('create', EnregistrementConsultation::class);
 
-        $rendezVous = $this->rendezVousDeLOrganisation($rendezVous);
-        $dernier = $this->dernier($rendezVous);
+        return $this->ouvrir($request, 'rendez_vous_id', $this->rendezVousDeLOrganisation($rendezVous)->id);
+    }
+
+    /** La dernière dictée du rapport de bloc d'une intervention (09.11.2026). */
+    public function afficherDictee(Intervention $intervention): EnregistrementConsultationResource
+    {
+        $this->authorize('view', $intervention);
+
+        return new EnregistrementConsultationResource($this->dernierPour('intervention_id', $intervention->id) ?? abort(404));
+    }
+
+    /**
+     * Le chirurgien dicte le rapport de bloc (09.11.2026), comme une
+     * consultation ; transcrite, la dictée nourrit le brouillon du rapport.
+     */
+    public function demarrerDictee(Request $request, Intervention $intervention): EnregistrementConsultationResource
+    {
+        $this->authorize('update', $intervention);
+        $this->authorize('create', EnregistrementConsultation::class);
+        if ($intervention->report?->isValidated()) {
+            throw ValidationException::withMessages(['enregistrement' => 'Ce rapport est validé : ajoutez un complément.']);
+        }
+
+        return $this->ouvrir($request, 'intervention_id', $intervention->id);
+    }
+
+    private function ouvrir(Request $request, string $cible, int $id): EnregistrementConsultationResource
+    {
+        $dernier = $this->dernierPour($cible, $id);
 
         if ($dernier?->statut === StatutEnregistrement::Enregistrement) {
             return new EnregistrementConsultationResource($dernier);
@@ -82,7 +110,7 @@ class EnregistrementConsultationController extends Controller
 
         $enregistrement = EnregistrementConsultation::query()->create([
             'clinique_id' => app(ContexteClinique::class)->cliniqueId(),
-            'rendez_vous_id' => $rendezVous->id,
+            $cible => $id,
             'user_id' => $request->user()->id,
         ]);
 
@@ -175,10 +203,10 @@ class EnregistrementConsultationController extends Controller
         return response()->noContent();
     }
 
-    private function dernier(RendezVous $rendezVous): ?EnregistrementConsultation
+    private function dernierPour(string $cible, int $id): ?EnregistrementConsultation
     {
         return EnregistrementConsultation::query()
-            ->where('rendez_vous_id', $rendezVous->id)
+            ->where($cible, $id)
             // Un abandonné ne se reprend pas : le suivant repart d'une fiche neuve
             ->where('statut', '!=', StatutEnregistrement::Abandonne->value)
             ->latest('id')

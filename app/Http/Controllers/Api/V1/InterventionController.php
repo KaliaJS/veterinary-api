@@ -113,6 +113,8 @@ class InterventionController extends Controller
             'transitions',
             'latestConsentRequest',
             'consentCollector',
+            // L'état du rapport de bloc seulement (09.11.2026), sans son texte
+            'report:id,intervention_id,status',
         ];
     }
 }

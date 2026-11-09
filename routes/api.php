@@ -190,6 +190,7 @@ use App\Http\Controllers\Api\V1\Stocks\StockWatchController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubstanceStupefiantController;
 use App\Http\Controllers\Api\V1\SuggestionDiagnostiqueController;
+use App\Http\Controllers\Api\V1\SurgeryReportController;
 use App\Http\Controllers\Api\V1\TerminalPaiementController;
 use App\Http\Controllers\Api\V1\TrameImagerieController;
 use App\Http\Controllers\Api\V1\TranscriptionController;
@@ -1197,6 +1198,14 @@ Route::prefix('v1')->group(function (): void {
             Route::patch('interventions/{intervention}', [InterventionController::class, 'update']);
 
             Route::post('interventions/{intervention}/avancer', CycleInterventionController::class);
+            // Rapport de bloc (C, 09.11.2026) : brouillon de l'IA depuis l'écran, les notes et la dictée ; validé, figé
+            Route::get('interventions/{intervention}/report', [SurgeryReportController::class, 'show']);
+            Route::patch('interventions/{intervention}/report', [SurgeryReportController::class, 'update']);
+            Route::post('interventions/{intervention}/report/draft', [SurgeryReportController::class, 'draft'])->middleware('throttle:transcription');
+            Route::post('interventions/{intervention}/report/validate', [SurgeryReportController::class, 'validateReport']);
+            Route::post('interventions/{intervention}/report/complements', [SurgeryReportController::class, 'complement']);
+            Route::get('interventions/{intervention}/enregistrement', [EnregistrementConsultationController::class, 'afficherDictee']);
+            Route::post('interventions/{intervention}/enregistrement', [EnregistrementConsultationController::class, 'demarrerDictee'])->middleware('throttle:transcription');
             Route::post('interventions/{intervention}/checklist', [ChecklistInterventionController::class, 'ajouter']);
             Route::put('interventions/{intervention}/checklist/{code}', [ChecklistInterventionController::class, 'cocher']);
             Route::delete('interventions/{intervention}/checklist/{code}', [ChecklistInterventionController::class, 'retirer']);

@@ -46,14 +46,14 @@ class EnregistrementConsultation extends Model
             $enregistrement = self::withoutGlobalScopes()->find($id);
             if ($enregistrement !== null) {
                 EnregistrementMisAJour::dispatch('clinique.'.$enregistrement->clinique_id, [
-                    'id' => $enregistrement->id, 'rendez_vous_id' => $enregistrement->rendez_vous_id, 'statut' => $enregistrement->statut->value,
+                    'id' => $enregistrement->id, 'rendez_vous_id' => $enregistrement->rendez_vous_id, 'intervention_id' => $enregistrement->intervention_id, 'statut' => $enregistrement->statut->value,
                 ]);
             }
         });
     }
 
     protected $fillable = [
-        'organisation_id', 'clinique_id', 'rendez_vous_id', 'user_id', 'statut', 'erreur',
+        'organisation_id', 'clinique_id', 'rendez_vous_id', 'intervention_id', 'user_id', 'statut', 'erreur',
         'parties_attendues', 'brouillon', 'redige_le', 'valide_le', 'redactions',
     ];
 
@@ -81,6 +81,13 @@ class EnregistrementConsultation extends Model
     public function rendezVous(): BelongsTo
     {
         return $this->belongsTo(RendezVous::class, 'rendez_vous_id')->withoutGlobalScope('clinique');
+    }
+
+    /** La dictée d'un rapport de bloc (09.11.2026), à la place d'un rendez-vous */
+    /** @return BelongsTo<Intervention, $this> */
+    public function intervention(): BelongsTo
+    {
+        return $this->belongsTo(Intervention::class)->withoutGlobalScopes();
     }
 
     /** @return BelongsTo<User, $this> */

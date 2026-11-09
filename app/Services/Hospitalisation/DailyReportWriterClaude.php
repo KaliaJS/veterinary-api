@@ -2,6 +2,7 @@
 
 namespace App\Services\Hospitalisation;
 
+use App\Services\Bloc\SurgeryReportDrafts;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -59,6 +60,7 @@ TXT;
         }
 
         // Jamais de tiret de ponctuation dans un texte affiché (règle de Jim)
-        return trim(str_replace([' — ', ' – ', '—', '–'], [', ', ', ', ', ', ', '], $text));
+        // Un tiret entre deux nombres est un intervalle (« 1,5–2 % » : « 1,5 à 2 % »)
+        return trim(SurgeryReportDrafts::undash($text));
     }
 }

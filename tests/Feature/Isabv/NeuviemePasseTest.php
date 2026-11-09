@@ -51,6 +51,8 @@ class NeuviemePasseTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // À midi : la nuit, la prise de 08:00 serait « prévue plus tard » (plus de 2 h en avance) et refusée
+        $this->travelTo(now('Europe/Zurich')->setTime(12, 0));
         config(['services.isabv.url' => self::URL]);
         Queue::fake();
         $this->donneesDeBaseSiAbv();

@@ -202,11 +202,12 @@ class UnfinishedWork
             ->where('chirurgien_id', $employe->id)
             ->where('prevu_le', '<', $this->dayEnd)
             ->where(fn (Builder $q) => $q->where('prevu_le', '>=', $this->dayStart)
-                ->orWhere(fn (Builder $q) => $q->where('statut', StatutIntervention::Fini)->where(fn (Builder $q) => $q->whereNull('note_operatoire')->orWhere('note_operatoire', '')))
+                // Rapport de bloc pas encore validé (09.11.2026 : la note seule ne suffit plus)
+                ->orWhere(fn (Builder $q) => $q->where('statut', StatutIntervention::Fini)->whereDoesntHave('report', fn (Builder $r) => $r->where('status', 'validated')))
                 ->orWhere(fn (Builder $q) => $q->whereNull('consentement_signe_le')->whereNull('consent_method'))
                 // Un jour d'avant, jamais close (prévue, en cours, au réveil)
                 ->orWhere('statut', '!=', StatutIntervention::Fini))
-            ->with('patient:id,nom')
+            ->with(['patient:id,nom', 'report:id,intervention_id,status'])
             ->orderBy('prevu_le')
             ->get();
         foreach ($surgeries as $surgery) {
@@ -220,8 +221,8 @@ class UnfinishedWork
                 'target' => ['type' => 'surgery', 'id' => $surgery->id],
             ];
             if ($surgery->statut === StatutIntervention::Fini) {
-                $hasNote = trim((string) $surgery->note_operatoire) !== '';
-                if ($this->count($isToday, $hasNote)) {
+                $isValidated = $surgery->report?->status === 'validated';
+                if ($this->count($isToday, $isValidated)) {
                     $this->add('surgery_report', $line);
                 }
             } elseif (! $isToday) {

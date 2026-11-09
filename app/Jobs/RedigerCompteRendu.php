@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\StatutEnregistrement;
 use App\Models\EnregistrementConsultation;
 use App\Models\PartieEnregistrement;
+use App\Services\Bloc\SurgeryReportDrafts;
 use App\Services\BudgetAnthropic;
 use App\Services\CompteurMensuel;
 use App\Services\Transcription\BrouillonSoap;
@@ -54,6 +55,25 @@ final class RedigerCompteRendu implements ShouldQueue
     {
         $enregistrement->refresh();
         if ($enregistrement->statut !== StatutEnregistrement::Transcription || ! $enregistrement->partiesTranscrites()) {
+            return;
+        }
+
+        // Dictée d'un rapport de bloc (09.11.2026) : pas de brouillon SOAP ;
+        // la dictée est prête et le brouillon du rapport s'écrit (son budget
+        // et son plafond le bornent)
+        if ($enregistrement->intervention_id !== null) {
+            $pret = EnregistrementConsultation::withoutGlobalScopes()
+                ->whereKey($enregistrement->id)
+                ->where('statut', StatutEnregistrement::Transcription->value)
+                ->update(['statut' => StatutEnregistrement::Pret->value, 'erreur' => null, 'redige_le' => now()]);
+            $intervention = $enregistrement->intervention;
+            if ($pret === 1) {
+                EnregistrementConsultation::annoncer($enregistrement->id);
+                if ($intervention) {
+                    app(SurgeryReportDrafts::class)->request($intervention);
+                }
+            }
+
             return;
         }
 

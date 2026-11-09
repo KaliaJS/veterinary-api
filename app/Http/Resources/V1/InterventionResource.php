@@ -32,6 +32,8 @@ class InterventionResource extends JsonResource
             'statut' => $this->statut,
             'protocole_anesthesique' => $this->protocole_anesthesique,
             'note_operatoire' => $this->note_operatoire,
+            // Le rapport de bloc (09.11.2026) : empty, writing, draft, failed, validated
+            'report_status' => $this->whenLoaded('report', fn () => $this->report->status ?? 'empty', 'empty'),
             'incision_a' => $this->incision_a,
             'consentement_signe_le' => $this->consentement_signe_le,
             'consentement_document_id' => $this->consentement_document_id,
