@@ -6,6 +6,7 @@ use App\Enums\DeclarationStatus;
 use App\Models\AntibioticDeclaration;
 use App\Models\IsabvConnection;
 use App\Models\StayTreatment;
+use App\Services\Isabv\DeclarationRules;
 use App\Services\Isabv\Declarations;
 use App\Services\Isabv\DeclarationXml;
 use App\Services\Isabv\IsabvClient;
@@ -124,6 +125,13 @@ final class SendAntibioticDeclaration implements ShouldBeUnique, ShouldQueue
                 return;
             }
         } else {
+            // Prête avant une règle plus stricte (n° BDTA contrôlé depuis le 09.11.2026) : elle redevient à compléter
+            if (app(DeclarationRules::class)->missing($declaration) !== []) {
+                AntibioticDeclaration::withoutGlobalScopes()->whereKey($declaration->id)->where('status', DeclarationStatus::Ready)
+                    ->update(['status' => DeclarationStatus::ToComplete, 'updated_at' => now()]);
+
+                return;
+            }
             // Le token d'abord : refusé ou l'OSAV injoignable, rien n'est pris et elle reste modifiable
             $client->jwt();
             // Prise d'abord, d'un coup : dès lors elle ne se modifie plus (Declarations::update refuse),

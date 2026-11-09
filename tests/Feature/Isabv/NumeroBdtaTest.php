@@ -4,12 +4,14 @@ namespace Tests\Feature\Isabv;
 
 use App\Enums\DeclarationStatus;
 use App\Enums\IsabvForm;
+use App\Jobs\SendAntibioticDeclaration;
 use App\Models\AntibioticDeclaration;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Services\Isabv\DeclarationRules;
 use App\Services\Isabv\DeclarationXml;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Concerns\PrepareLeSiAbv;
@@ -66,6 +68,37 @@ class NumeroBdtaTest extends TestCase
         $this->patchJson('/api/v1/clients/'.$client->id, ['holding_number' => '1234565'], $this->admin())->assertOk();
         $this->patchJson('/api/v1/clients/'.$client->id, ['holding_number' => '123 456 5'], $this->admin())->assertOk();
         $this->patchJson('/api/v1/clients/'.$client->id, ['holding_number' => '0001236'], $this->admin())->assertOk();
+    }
+
+    public function test_la_creation_d_un_detenteur_refuse_un_numero_bdta_au_chiffre_de_controle_faux(): void
+    {
+        $before = Client::query()->withoutGlobalScopes()->count();
+
+        $this->postJson('/api/v1/clients', ['prenom' => 'Lena', 'nom' => 'Rochat', 'holding_number' => '1234567'], $this->admin())
+            ->assertUnprocessable()->assertJsonValidationErrors('holding_number');
+        $this->assertSame($before, Client::query()->withoutGlobalScopes()->count());
+
+        $this->postJson('/api/v1/clients', ['prenom' => 'Lena', 'nom' => 'Rochat', 'holding_number' => '1234565'], $this->admin())->assertCreated();
+    }
+
+    public function test_un_numero_bdta_saisi_avec_des_tirets_est_accepte(): void
+    {
+        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
+
+        $this->patchJson('/api/v1/clients/'.$client->id, ['holding_number' => '123-456-5'], $this->admin())->assertOk();
+        $this->patchJson('/api/v1/clients/'.$client->id, ['holding_number' => '123-456-7'], $this->admin())->assertUnprocessable();
+    }
+
+    public function test_une_declaration_prete_au_numero_bdta_faux_ne_part_pas_et_redevient_a_completer(): void
+    {
+        Http::fake();
+        $declaration = $this->declarationEn('1234567');
+        $declaration->forceFill(['status' => DeclarationStatus::Ready])->save();
+
+        (new SendAntibioticDeclaration($declaration->id))->handle();
+
+        Http::assertNothingSent();
+        $this->assertSame(DeclarationStatus::ToComplete, $declaration->fresh()->status);
     }
 
     public function test_une_declaration_au_numero_bdta_faux_reste_a_completer(): void
