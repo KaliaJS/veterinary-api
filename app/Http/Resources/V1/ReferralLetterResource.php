@@ -3,9 +3,11 @@
 namespace App\Http\Resources\V1;
 
 use App\Enums\DomainePermission;
+use App\Http\Controllers\Api\V1\ReferralInvitationController;
 use App\Models\EnregistrementConsultation;
 use App\Models\RecordShare;
 use App\Models\RecordShareEvent;
+use App\Models\ReferralInvitation;
 use App\Models\ReferralLetter;
 use App\Services\Referrals\ReferralLetters;
 use App\Services\Referrals\ReferralLetterSources;
@@ -75,6 +77,9 @@ class ReferralLetterResource extends JsonResource
                 'opened_at' => $share->events->firstWhere('kind', 'opened')?->at?->toIso8601String(),
                 'downloaded_at' => $share->events->where('kind', 'downloaded')->map(fn (RecordShareEvent $e) => $e->at->toIso8601String())->values()->all(),
             ] : null,
+            // Envoi C : où en est chaque invitation (envoyée, lue, acceptée, refusée, coupée)
+            'invitations' => ReferralInvitation::query()->where('referral_letter_id', $this->id)->with('targetClinique')->latest('id')->get()
+                ->map(fn (ReferralInvitation $i) => ReferralInvitationController::forSender($i))->values(),
             'dictations' => ReferralLetterSources::recordings((int) $this->id)->map(fn (EnregistrementConsultation $r) => [
                 'id' => $r->id,
                 'redige_le' => $r->redige_le?->toIso8601String(),

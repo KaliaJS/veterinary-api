@@ -10,6 +10,7 @@ use App\Http\Resources\V1\PatientResource;
 use App\Models\Client;
 use App\Models\Patient;
 use App\Models\Pesee;
+use App\Models\ReferralInvitation;
 use App\Models\Vaccination;
 use App\Rules\NumeroPuce;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,7 +22,8 @@ use Illuminate\Support\Carbon;
  * Patients — niveau ORGANISATION comme les clients (scope global
  * organisation, partagés entre les cliniques du jeton). Jamais de
  * suppression de fiche. Filtres et tris de l'écran Patients :
- * `filtre` tous|chien|chat|nac|alertes|rappels, `tri` nom|proprietaire|
+ * `filtre` tous|chien|chat|nac|alertes|rappels|referes (référés par une
+ * autre clinique dans Veterinary, 09.11.2026), `tri` nom|proprietaire|
  * alertes|rappels|visite|poids et `sens` asc|desc (16.10.2026 : tri par
  * clic sur les en-têtes de colonnes),
  * `q` sur nom, race, puce et propriétaire ; `meta.facettes` porte les
@@ -47,6 +49,8 @@ class PatientController extends Controller
                     ->where('est_agressif', true)
                     ->orWhere('a_allergies', true)
                     ->orWhere('dette', '>', 0)),
+                // Les patients référés par une autre clinique dans Veterinary (envoi C, 09.11.2026)
+                'referes' => $requete->whereIn('patients.id', ReferralInvitation::query()->select('target_patient_id')->where('status', 'accepted')->whereNotNull('target_patient_id')),
                 'rappels' => $requete->whereHas(
                     'vaccinations',
                     fn (Builder $vaccination) => $vaccination->nonRenouvelees()->where('echeance_le', '<=', $this->horizonRappels()),
@@ -135,6 +139,7 @@ class PatientController extends Controller
                 $compte('patients.espece not in (?, ?)').' as nac',
                 $compte('patients.est_agressif = 1 or patients.a_allergies = 1 or patients.dette > 0').' as alertes',
                 $compte('exists (select 1 from vaccinations where vaccinations.patient_id = patients.id and vaccinations.echeance_le <= ? and '.Vaccination::SQL_NON_RENOUVELEE.')').' as rappels',
+                $compte("exists (select 1 from referral_invitations where referral_invitations.target_patient_id = patients.id and referral_invitations.status = 'accepted')").' as referes',
             ]), [
                 Espece::Chien->value,
                 Espece::Chat->value,
@@ -152,6 +157,7 @@ class PatientController extends Controller
             'nac' => (int) ($ligne->nac ?? 0),
             'alertes' => (int) ($ligne->alertes ?? 0),
             'rappels' => (int) ($ligne->rappels ?? 0),
+            'referes' => (int) ($ligne->referes ?? 0),
         ];
     }
 

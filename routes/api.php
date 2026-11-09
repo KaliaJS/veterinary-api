@@ -161,6 +161,7 @@ use App\Http\Controllers\Api\V1\RadioPreviewController;
 use App\Http\Controllers\Api\V1\RappelsController;
 use App\Http\Controllers\Api\V1\RecordShareController;
 use App\Http\Controllers\Api\V1\ReferentielImagerieController;
+use App\Http\Controllers\Api\V1\ReferralInvitationController;
 use App\Http\Controllers\Api\V1\ReferralLetterController;
 use App\Http\Controllers\Api\V1\ReferringVetController;
 use App\Http\Controllers\Api\V1\RegistreStupefiantController;
@@ -766,6 +767,22 @@ Route::prefix('v1')->group(function (): void {
                 Route::post('link', [ReferralLetterController::class, 'link'])->middleware('throttle:20,1,record-shares');
                 Route::get('enregistrement', [EnregistrementConsultationController::class, 'afficherDicteeReference']);
                 Route::post('enregistrement', [EnregistrementConsultationController::class, 'demarrerDicteeReference'])->middleware('throttle:transcription');
+                // Envoi C : dans Veterinary, à un vétérinaire ou à une clinique
+                Route::post('invitations', [ReferralInvitationController::class, 'store'])->middleware('throttle:20,1,referral-invitations');
+            });
+            // L'annuaire de l'envoi C ; côté destinataire : ses invitations, accepter, choisir l'animal, refuser ; la lettre et les pièces d'un patient référé
+            Route::get('referral-directory', [ReferralInvitationController::class, 'directory'])->middleware('throttle:60,1,referral-directory');
+            Route::get('referral-invitations', [ReferralInvitationController::class, 'index']);
+            Route::get('patients/{patient}/referrals', [ReferralInvitationController::class, 'forPatient']);
+            Route::prefix('referral-invitations/{invitation}')->whereNumber('invitation')->group(function (): void {
+                Route::get('/', [ReferralInvitationController::class, 'show']);
+                Route::post('open', [ReferralInvitationController::class, 'open']);
+                Route::post('accept', [ReferralInvitationController::class, 'accept']);
+                Route::post('link', [ReferralInvitationController::class, 'link']);
+                Route::post('refuse', [ReferralInvitationController::class, 'refuse']);
+                Route::post('revoke', [ReferralInvitationController::class, 'revoke']);
+                Route::get('items/{type}/{item}', [ReferralInvitationController::class, 'item'])->whereNumber('item');
+                Route::get('items/{type}/{item}/files/{n}', [ReferralInvitationController::class, 'file'])->whereNumber(['item', 'n']);
             });
         });
 

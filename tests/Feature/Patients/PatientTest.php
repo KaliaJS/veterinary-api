@@ -205,7 +205,7 @@ class PatientTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('meta.facettes', [
-                'tous' => 4, 'chien' => 2, 'chat' => 1, 'nac' => 1, 'alertes' => 3, 'rappels' => 1,
+                'tous' => 4, 'chien' => 2, 'chat' => 1, 'nac' => 1, 'alertes' => 3, 'rappels' => 1, 'referes' => 0,
             ]);
 
         // … mais suivent la recherche.

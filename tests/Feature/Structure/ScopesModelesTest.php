@@ -15,6 +15,7 @@ use App\Models\MessageMedia;
 use App\Models\MessageMute;
 use App\Models\OrganisationFacture;
 use App\Models\ProductOrderSetting;
+use App\Models\ReferralInvitation;
 use App\Models\SequenceNumerotation;
 use App\Models\Societe;
 use App\Models\Video;
@@ -46,6 +47,7 @@ class ScopesModelesTest extends TestCase
         MessageMute::class => 'Mode silencieux d’une personne (08.11.2026) : toujours lu et écrit par le compte du jeton (MessageMutes), la clinique n’étant qu’une partie de la clé du fil ; jamais résolu par une route.',
         MessageAttachment::class => 'Pièce jointe d’un message (08.11.2026), d’un fil de client, entre collègues ou entre cliniques : lue depuis l’espace par le compte du fil, côté clinique par la clinique ou l’employé du contexte (filtres explicites, MessageAttachmentController) ; la purge la lit hors contexte.',
         MessageMedia::class => 'Fichier d’un message audio ou vidéo (07.11.2026), d’un fil de client, entre collègues ou entre cliniques : lu depuis l’espace par le compte du fil, côté clinique par la clinique ou l’employé du contexte (filtres explicites, MessageMediaController) ; la tâche de transcription et la purge le lisent hors contexte.',
+        ReferralInvitation::class => 'Lettre de référence envoyée dans Veterinary (09.11.2026) : elle traverse les organisations ; lue côté destinataire par son compte ou sa clinique (forRecipient, canAnswer), côté clinique qui réfère par l’organisation du contexte, et ses pièces par l’animal référé de l’organisation du contexte (filtres explicites, ReferralInvitationController).',
         OrganisationFacture::class => 'Facture de la plateforme, résolue par l’organisation du jeton (facturesAbonnement) ; les webhooks la retrouvent par son paiement.',
         SequenceNumerotation::class => 'Compteur interne du Numeroteur, sous verrou, jamais exposé.',
         ProductOrderSetting::class => 'Commande automatique d’un article par clinique (04.11.2026) : toujours lue et écrite avec sa clinique explicite (la clinique ouverte, ou celle dont le stock bouge, une clinique sœur comprise), jamais résolue par une route.',
