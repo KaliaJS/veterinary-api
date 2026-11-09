@@ -3,6 +3,7 @@
 namespace App\Http\Resources\V1;
 
 use App\Models\Societe;
+use App\Support\PlanComptable;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -22,6 +23,9 @@ class SocieteResource extends JsonResource
             // Le compte de la QR-facture (01.11.2026)
             'iban' => $this->iban,
             'nombre_cliniques' => $this->whenCounted('cliniques'),
+            // Comptes et codes TVA de l'export comptable, ceux du plan PME par défaut (09.11.2026)
+            'plan_comptable' => PlanComptable::pour($this->resource),
+            'plan_comptable_defaut' => PlanComptable::pour(null),
         ];
     }
 }

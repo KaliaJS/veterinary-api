@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\V1\Concerns;
 
 use App\Auth\ContexteClinique;
 use App\Enums\StatutFacture;
+use App\Models\AccountingLock;
+use App\Models\Clinique;
 use App\Models\Facture;
 use Illuminate\Validation\ValidationException;
 
@@ -40,6 +42,15 @@ trait GesteDeCaisse
     {
         if ($facture->estPayeeEnPartie()) {
             throw ValidationException::withMessages(['facture' => $message]);
+        }
+    }
+
+    /** Émise dans un mois remis à la fiduciaire (09.11.2026) : ses lignes ne changent plus. */
+    protected function assurerMoisOuvert(Facture $facture): void
+    {
+        $zone = Clinique::query()->withoutGlobalScopes()->whereKey($facture->clinique_id)->value('fuseau_horaire') ?: 'Europe/Zurich';
+        if (AccountingLock::isLocked($facture->clinique_id, $facture->emise_le->setTimezone($zone)->toDateString())) {
+            throw ValidationException::withMessages(['facture' => 'Cette facture est d’un mois remis à la fiduciaire : elle ne se modifie plus.']);
         }
     }
 

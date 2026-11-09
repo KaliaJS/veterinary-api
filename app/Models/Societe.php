@@ -25,6 +25,7 @@ class Societe extends Model
     protected $fillable = [
         'organisation_id', 'nom', 'ide', 'assujettie_tva', 'iban',
         'stripe_compte_id', 'paiements_actifs', 'virements_actifs', 'paiements_a_completer', 'paiements_maj_le',
+        'plan_comptable',
     ];
 
     protected function casts(): array
@@ -35,6 +36,8 @@ class Societe extends Model
             'virements_actifs' => 'boolean',
             'paiements_a_completer' => 'boolean',
             'paiements_maj_le' => 'datetime',
+            // Comptes et codes TVA de l'export comptable (09.11.2026), sinon le plan PME
+            'plan_comptable' => 'array',
         ];
     }
 

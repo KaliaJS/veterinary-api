@@ -5,6 +5,7 @@ namespace App\Services\Facturation;
 use App\Enums\MoyenPaiement;
 use App\Enums\SettlementMethod;
 use App\Enums\StatutFacture;
+use App\Models\AccountingLock;
 use App\Models\Clinique;
 use App\Models\DemandeRendezVous;
 use App\Models\Facture;
@@ -35,6 +36,10 @@ class Settlements
     public function record(Facture $facture, SettlementMethod $method, float $amount, ?CarbonImmutable $receivedOn = null, ?User $by = null, ?string $reference = null, ?Paiement $paiement = null): Settlement
     {
         $clinique = $this->clinique($facture);
+        // Un mois remis à la fiduciaire ne reçoit plus de règlement daté en lui (09.11.2026)
+        if ($receivedOn !== null && AccountingLock::isLocked($facture->clinique_id, $receivedOn->toDateString())) {
+            throw ValidationException::withMessages(['recu_le' => 'Ce mois est remis à la fiduciaire : datez le virement d’un mois encore ouvert, ou faites rouvrir le mois.']);
+        }
         $settlement = $this->create($facture, [
             'method' => $method,
             'amount' => round($amount, 2),
@@ -152,10 +157,12 @@ class Settlements
     {
         $demande = $this->demandeOf($facture);
         $paye = $demande->acompte_paye_le ?? $facture->emise_le ?? now();
+        [$jour, $note] = $this->jourOuvert($facture, CarbonImmutable::parse($paye)->setTimezone($this->zone($facture))->toDateString(), 'Acompte payé');
         $this->create($facture, [
             'method' => SettlementMethod::Acompte,
             'amount' => round((float) $facture->acompte, 2),
-            'received_on' => CarbonImmutable::parse($paye)->setTimezone($this->zone($facture))->toDateString(),
+            'received_on' => $jour,
+            'reason' => $note,
         ]);
     }
 
@@ -216,13 +223,16 @@ class Settlements
             if ($ecart < 0.005) {
                 return;
             }
+            // Le jour du remboursement chez Stripe, à l'heure de la clinique ; sinon aujourd'hui ; dans un mois remis à la fiduciaire, aujourd'hui avec une note
+            [$jour, $note] = $refundedAt !== null
+                ? $this->jourOuvert($facture, $refundedAt->setTimezone($this->zone($facture))->toDateString(), $reason)
+                : [aujourdhui($this->clinique($facture))->toDateString(), null];
             $ligne = $this->create($facture, [
                 'method' => $recu->first()->method,
                 'amount' => -$ecart,
-                // Le jour du remboursement chez Stripe, à l'heure de la clinique ; sinon aujourd'hui
-                'received_on' => $refundedAt !== null ? $refundedAt->setTimezone($this->zone($facture))->toDateString() : aujourdhui($this->clinique($facture))->toDateString(),
+                'received_on' => $jour,
                 'paiement_id' => $paiement->id,
-                'reason' => $reason,
+                'reason' => $note ?? $reason,
             ]);
             $this->apply($facture, $ligne);
         });
@@ -263,6 +273,21 @@ class Settlements
             ->keys();
 
         return $moyens->count() === 1 ? (string) $moyens->first() : null;
+    }
+
+    /**
+     * Un jour qui tomberait dans un mois remis à la fiduciaire devient
+     * aujourd'hui, avec une note qui dit le vrai jour (09.11.2026).
+     *
+     * @return array{0: string, 1: string|null}
+     */
+    private function jourOuvert(Facture $facture, string $jour, string $quoi): array
+    {
+        if (! AccountingLock::isLocked($facture->clinique_id, $jour)) {
+            return [$jour, null];
+        }
+
+        return [aujourdhui($this->clinique($facture))->toDateString(), $quoi.' le '.CarbonImmutable::parse($jour)->format('d.m.Y').', mois remis à la fiduciaire'];
     }
 
     /** Reçu aujourd'hui : maintenant ; un autre jour : midi de ce jour à la clinique. */

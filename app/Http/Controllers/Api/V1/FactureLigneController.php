@@ -48,6 +48,7 @@ class FactureLigneController extends Controller
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
         $this->assurerSansReglement($facture);
+        $this->assurerMoisOuvert($facture);
 
         $donnees = $request->validated();
 
@@ -140,6 +141,7 @@ class FactureLigneController extends Controller
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
         $this->assurerSansReglement($facture);
+        $this->assurerMoisOuvert($facture);
 
         $ligne = $facture->lignes()->findOrFail($id);
         if (! $ligne->isArticle()) {
@@ -226,6 +228,7 @@ class FactureLigneController extends Controller
         $this->assurerCliniqueDEmission($facture);
         $this->assurerFactureDue($facture);
         $this->assurerSansReglement($facture);
+        $this->assurerMoisOuvert($facture);
 
         $ligne = $facture->lignes()->with('produit')->findOrFail($id);
 

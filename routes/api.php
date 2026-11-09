@@ -58,6 +58,7 @@ use App\Http\Controllers\Api\V1\DischargeLetterController;
 use App\Http\Controllers\Api\V1\DisponibiliteController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\DomainePublicController;
+use App\Http\Controllers\Api\V1\EcrituresComptablesController;
 use App\Http\Controllers\Api\V1\EncaissementController;
 use App\Http\Controllers\Api\V1\EnregistrementConsultationController;
 use App\Http\Controllers\Api\V1\EntrainementImagerieController;
@@ -909,6 +910,10 @@ Route::prefix('v1')->group(function (): void {
             Route::get('factures', [FactureController::class, 'index']);
             Route::get('factures/journal', JournalFacturesController::class);
             Route::get('factures/ouvertes', FacturesOuvertesController::class);
+            // L'export comptable d'un mois, et le mois remis à la fiduciaire (09.11.2026)
+            Route::get('ecritures', [EcrituresComptablesController::class, 'index']);
+            Route::post('ecritures/{mois}/verrou', [EcrituresComptablesController::class, 'verrouiller']);
+            Route::delete('ecritures/{mois}/verrou', [EcrituresComptablesController::class, 'rouvrir']);
             Route::post('factures', [FactureController::class, 'store']);
             Route::get('factures/{facture}', [FactureController::class, 'show']);
             Route::delete('factures/{facture}', [FactureController::class, 'destroy']);
