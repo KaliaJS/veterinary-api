@@ -231,7 +231,7 @@ class ReglagesEtConsultationsTest extends TestCase
         $this->getJson('/api/v1/patients/'.$vache->id, $this->admin())->assertJsonPath('data.isabv_species_default', '2.1');
         $this->patchJson('/api/v1/patients/'.$vache->id, ['isabv_species' => '2.1.5'], $this->admin())->assertOk()->assertJsonPath('data.isabv_species', '2.1.5');
         $this->patchJson('/api/v1/patients/'.$vache->id, ['isabv_species' => '9.9'], $this->admin())->assertUnprocessable();
-        $this->patchJson('/api/v1/clients/'.$client->id, ['holding_number' => '1234567', 'holding_address' => 'Alpage du Moléson, 1663 Gruyères'], $this->admin())
-            ->assertOk()->assertJsonPath('data.holding_number', '1234567')->assertJsonPath('data.holding_address', 'Alpage du Moléson, 1663 Gruyères');
+        $this->patchJson('/api/v1/clients/'.$client->id, ['holding_number' => '1234565', 'holding_address' => 'Alpage du Moléson, 1663 Gruyères'], $this->admin())
+            ->assertOk()->assertJsonPath('data.holding_number', '1234565')->assertJsonPath('data.holding_address', 'Alpage du Moléson, 1663 Gruyères');
     }
 }

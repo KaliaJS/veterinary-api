@@ -7,6 +7,7 @@ use App\Models\AntibioticDeclaration;
 use App\Models\AntibioticDeclarationLine;
 use App\Models\IsabvCode;
 use App\Models\IsabvPreparation;
+use App\Rules\NumeroBdta;
 use Illuminate\Support\Collection;
 
 /**
@@ -49,6 +50,8 @@ class DeclarationRules
         if ($form->isLivestock()) {
             if (trim((string) $declaration->holding_number) === '') {
                 $missing[] = 'le n° BDTA de l’unité d’élevage';
+            } elseif (! NumeroBdta::isValid((string) $declaration->holding_number)) {
+                $missing[] = 'un n° BDTA juste : 7 chiffres, le dernier est un chiffre de contrôle';
             }
             if (trim((string) $declaration->holding_address) === '') {
                 $missing[] = 'l’adresse de l’exploitation';

@@ -5,6 +5,7 @@ namespace App\Http\Requests\V1\Clients;
 use App\Enums\Civilite;
 use App\Models\Client;
 use App\Rules\AdresseSansAccent;
+use App\Rules\NumeroBdta;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -31,7 +32,7 @@ class EnregistrerClientRequest extends FormRequest
             'rue' => ['nullable', 'string', 'max:255'],
             'npa' => ['nullable', 'digits:4'],
             'localite' => ['nullable', 'string', 'max:255'],
-            'holding_number' => ['nullable', 'string', 'max:32'],
+            'holding_number' => ['nullable', 'string', 'max:32', new NumeroBdta],
             'holding_address' => ['nullable', 'string', 'max:255'],
             'emergency_contact' => ['nullable', 'string', 'max:255'],
             'emergency_phone' => ['nullable', 'string', 'max:255'],

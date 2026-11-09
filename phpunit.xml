@@ -12,6 +12,12 @@
             <directory>tests/Feature</directory>
         </testsuite>
     </testsuites>
+    <!-- Le vrai serveur de test de l'OSAV : seulement sur demande, option group serveur-osav -->
+    <groups>
+        <exclude>
+            <group>serveur-osav</group>
+        </exclude>
+    </groups>
     <source>
         <include>
             <directory>app</directory>

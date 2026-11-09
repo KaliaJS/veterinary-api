@@ -5,6 +5,7 @@ namespace App\Services\Isabv;
 use App\Enums\IsabvForm;
 use App\Models\AntibioticDeclaration;
 use App\Models\Clinique;
+use App\Rules\NumeroBdta;
 use DOMDocument;
 use DOMElement;
 use LibXMLError;
@@ -43,7 +44,7 @@ class DeclarationXml
         if ($form === IsabvForm::StockSupply || $form === IsabvForm::ZooLab) {
             $line = $lines->first();
             if ($form === IsabvForm::StockSupply) {
-                $add($root, 'tvd', $declaration->holding_number);
+                $add($root, 'tvd', NumeroBdta::digits((string) $declaration->holding_number));
             }
             $add($root, 'address', $declaration->holding_address);
             $add($root, 'preparationID', $line?->preparation_code);
@@ -65,7 +66,7 @@ class DeclarationXml
 
         $add($root, 'identification', $declaration->identification);
         if ($form === IsabvForm::LivestockTreatment) {
-            $add($root, 'tvd', $declaration->holding_number);
+            $add($root, 'tvd', NumeroBdta::digits((string) $declaration->holding_number));
             $add($root, 'address', $declaration->holding_address);
         } else {
             $add($root, 'postcode', $declaration->postcode);

@@ -195,11 +195,11 @@ class SuitesDeLaVerificationTest extends TestCase
 
     public function test_un_traitement_oral_de_groupe_se_dit_saisi_sur_le_site_de_l_osav(): void
     {
-        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'holding_number' => '7654321', 'rue' => 'Porcherie', 'npa' => '1630', 'localite' => 'Bulle']);
+        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'holding_number' => '7654329', 'rue' => 'Porcherie', 'npa' => '1630', 'localite' => 'Bulle']);
         $porc = Patient::factory()->for($client)->create(['espece' => 'PO', 'race' => null, 'isabv_species' => '2.2.3']);
         $declaration = AntibioticDeclaration::withoutGlobalScopes()->create(['clinique_id' => $this->clinique->id, 'recipe_number' => (string) Str::uuid(), 'form' => IsabvForm::LivestockTreatment,
             'status' => DeclarationStatus::ToComplete, 'patient_id' => $porc->id, 'visit_on' => aujourdhui(), 'species_code' => '2.2.3', 'diagnosis_key' => '5.1', 'animals_count' => 30,
-            'holding_number' => '7654321', 'holding_address' => 'Porcherie, 1630 Bulle']);
+            'holding_number' => '7654329', 'holding_address' => 'Porcherie, 1630 Bulle']);
         $line = $declaration->lines()->create(['preparation_code' => '12345-01', 'route_code' => null, 'dose_1' => 1, 'frequency_1' => '6', 'days_1' => 3, 'total_quantity' => 90, 'given_quantity' => 90]);
 
         // Sans voie, un groupe ne dit pas s'il est oral : elle se demande

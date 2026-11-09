@@ -239,8 +239,8 @@ class EnvoiALOsavTest extends TestCase
         $base = ['clinique_id' => $this->clinique->id, 'status' => DeclarationStatus::Ready, 'visit_on' => '2026-11-08'];
         $cases = [
             [IsabvForm::CompanionTreatment, ['species_code' => '1.5', 'weight_kg' => 12.5, 'diagnosis_key' => '3', 'is_antibiogram_done' => true]],
-            [IsabvForm::LivestockTreatment, ['species_code' => '2.1.5', 'diagnosis_key' => '2.1', 'holding_number' => '1234567', 'holding_address' => 'Ferme du Moulin, 1630 Bulle', 'animals_count' => 3, 'animals_total' => 40]],
-            [IsabvForm::StockSupply, ['species_code' => '2.1.5', 'diagnosis_key' => '2.1', 'holding_number' => '1234567', 'holding_address' => 'Ferme du Moulin, 1630 Bulle', 'animals_count' => 4, 'av_treatment_days' => 5]],
+            [IsabvForm::LivestockTreatment, ['species_code' => '2.1.5', 'diagnosis_key' => '2.1', 'holding_number' => '1234565', 'holding_address' => 'Ferme du Moulin, 1630 Bulle', 'animals_count' => 3, 'animals_total' => 40]],
+            [IsabvForm::StockSupply, ['species_code' => '2.1.5', 'diagnosis_key' => '2.1', 'holding_number' => '1234565', 'holding_address' => 'Ferme du Moulin, 1630 Bulle', 'animals_count' => 4, 'av_treatment_days' => 5]],
             [IsabvForm::ZooLab, ['species_code' => '5.2.1', 'holding_address' => 'Zoo de la Garenne, 1261 Le Vaud']],
         ];
         foreach ($cases as [$form, $attributs]) {

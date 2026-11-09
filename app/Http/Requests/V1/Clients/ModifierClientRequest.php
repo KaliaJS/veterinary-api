@@ -5,6 +5,7 @@ namespace App\Http\Requests\V1\Clients;
 use App\Enums\Civilite;
 use App\Models\PreferencesProprietaire;
 use App\Rules\AdresseSansAccent;
+use App\Rules\NumeroBdta;
 use App\Services\Clients\OwnerPreferences;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -24,7 +25,7 @@ class ModifierClientRequest extends FormRequest
             'npa' => ['sometimes', 'nullable', 'digits:4'],
             'localite' => ['sometimes', 'nullable', 'string', 'max:255'],
             // L'unité d'élevage d'un détenteur d'animaux de rente (SI ABV, 08.11.2026)
-            'holding_number' => ['sometimes', 'nullable', 'string', 'max:32'],
+            'holding_number' => ['sometimes', 'nullable', 'string', 'max:32', new NumeroBdta],
             'holding_address' => ['sometimes', 'nullable', 'string', 'max:255'],
             // Case cochée par la clinique à la demande d'un client sans compte (28.10.2026)
             'rappels_sms' => ['sometimes', 'boolean'],

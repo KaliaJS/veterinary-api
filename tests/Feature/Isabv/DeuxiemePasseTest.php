@@ -125,10 +125,10 @@ class DeuxiemePasseTest extends TestCase
 
         $this->corriger($declaration, ['isabv' => ['holding_number' => null, 'holding_address' => null]])->assertOk()
             ->assertJsonPath('data.status', 'to_complete')->assertJsonFragment(['l’adresse de l’exploitation']);
-        $client->update(['holding_number' => '1234567', 'holding_address' => 'Alpage du Moléson, 1663 Gruyères']);
+        $client->update(['holding_number' => '1234565', 'holding_address' => 'Alpage du Moléson, 1663 Gruyères']);
 
         $this->corriger($declaration, ['isabv' => ['holding_number' => null, 'holding_address' => null]])->assertOk()
-            ->assertJsonPath('data.holding_address', 'Alpage du Moléson, 1663 Gruyères')->assertJsonPath('data.holding_number', '1234567')->assertJsonPath('data.status', 'ready');
+            ->assertJsonPath('data.holding_address', 'Alpage du Moléson, 1663 Gruyères')->assertJsonPath('data.holding_number', '1234565')->assertJsonPath('data.status', 'ready');
     }
 
     public function test_un_renouvellement_pendant_une_correction_ne_declare_qu_une_fois(): void

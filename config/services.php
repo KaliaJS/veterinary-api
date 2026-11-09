@@ -52,6 +52,14 @@ return [
         'master_data_url' => env('ISABV_MASTER_DATA_URL', 'https://www.isabv.blv.admin.ch/api/isabv/psw/getMasterData'),
         // L'application web SI ABV, celle où les cliniques s'inscrivent (page de l'OSAV, 08.11.2026)
         'web_url' => 'https://www.isabvapp.blv.admin.ch/home',
+        // Le cabinet de test que l'OSAV a ouvert pour Meteora (09.11.2026), pour
+        // tests/Feature/Isabv/ServeurDeTestOsavTest.php ; le token reste dans le .env local
+        'test' => [
+            'url' => env('ISABV_TEST_URL', 'https://www.isabv-a.blv.admin.ch/api/isabv'),
+            'uid' => env('ISABV_TEST_UID'),
+            'appendix' => env('ISABV_TEST_APPENDIX'),
+            'token' => env('ISABV_TEST_TOKEN'),
+        ],
     ],
 
     'stripe' => [

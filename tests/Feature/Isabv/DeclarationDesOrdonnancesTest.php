@@ -226,7 +226,7 @@ class DeclarationDesOrdonnancesTest extends TestCase
 
     public function test_animal_de_rente_un_traitement_individuel_en_porte_bdta_adresse_et_categorie(): void
     {
-        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'rue' => 'Ferme du Moulin', 'npa' => '1630', 'localite' => 'Bulle', 'holding_number' => '1234567']);
+        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'rue' => 'Ferme du Moulin', 'npa' => '1630', 'localite' => 'Bulle', 'holding_number' => '1234565']);
         $vache = Patient::factory()->for($client)->create(['espece' => 'BV', 'race' => null, 'nom' => 'Marguerite']);
         $produit = $this->medicament('44444-02', 'Pénicilline intramammaire');
 
@@ -235,7 +235,7 @@ class DeclarationDesOrdonnancesTest extends TestCase
         $this->assertSame('EN', $data['antibiotic_declarations'][0]['form']);
         $this->assertSame('to_complete', $data['antibiotic_declarations'][0]['status']);
         $declaration = AntibioticDeclaration::withoutGlobalScopes()->sole();
-        $this->assertSame('1234567', $declaration->holding_number);
+        $this->assertSame('1234565', $declaration->holding_number);
         $this->assertSame('Ferme du Moulin, 1630 Bulle', $declaration->holding_address);
         $this->assertNull($declaration->weight_kg);
 
@@ -249,7 +249,7 @@ class DeclarationDesOrdonnancesTest extends TestCase
 
     public function test_remise_a_titre_de_stocks_deux_des_trois_et_une_declaration_par_preparation(): void
     {
-        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'rue' => 'Ferme du Moulin', 'npa' => '1630', 'localite' => 'Bulle', 'holding_number' => '1234567']);
+        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'rue' => 'Ferme du Moulin', 'npa' => '1630', 'localite' => 'Bulle', 'holding_number' => '1234565']);
         $vache = Patient::factory()->for($client)->create(['espece' => 'BV', 'race' => null, 'isabv_species' => '2.1.5']);
         $a = $this->medicament('44444-02', 'Pénicilline intramammaire');
         $b = $this->medicament('12345-01', 'Amoxicilline');
@@ -270,7 +270,7 @@ class DeclarationDesOrdonnancesTest extends TestCase
 
     public function test_un_traitement_oral_d_un_groupe_de_rente_se_saisit_dans_l_application_web(): void
     {
-        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'rue' => 'Porcherie', 'npa' => '1630', 'localite' => 'Bulle', 'holding_number' => '7654321']);
+        $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'rue' => 'Porcherie', 'npa' => '1630', 'localite' => 'Bulle', 'holding_number' => '7654329']);
         $porc = Patient::factory()->for($client)->create(['espece' => 'PO', 'race' => null, 'isabv_species' => '2.2.3']);
 
         // 21 porcs par voie orale : plus que le groupe de l'OMédV (20 porcs)
