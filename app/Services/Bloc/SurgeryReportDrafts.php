@@ -52,6 +52,11 @@ final class SurgeryReportDrafts
             return null;
         });
         if ($refusal !== null) {
+            // Plafond ou budget : les écrans le disent (et montrent la dictée qui attend) (7e vérification)
+            if ($refusal === 'writings' || $refusal === 'budget') {
+                SurgeryReport::announce($intervention);
+            }
+
             return $refusal;
         }
 

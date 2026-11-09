@@ -544,6 +544,17 @@ class SurgeryReportTest extends TestCase
         $this->assertSame([$first], array_values(array_unique(array_column(array_filter($data['draft']['sources'], fn ($s) => $s['kind'] === 'dictation'), 'recording_id'))));
     }
 
+    /* ————— 7e vérification (09.11.2026) ————— */
+
+    public function test_une_redaction_refusee_par_le_plafond_est_annoncee(): void
+    {
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton));
+        SurgeryReport::query()->update(['writings' => 3]);
+        Event::fake([InterventionUpdated::class]);
+        app(SurgeryReportDrafts::class)->request($this->intervention, isDictation: true);
+        Event::assertDispatched(InterventionUpdated::class);
+    }
+
     private function dicter(): void
     {
         $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');
