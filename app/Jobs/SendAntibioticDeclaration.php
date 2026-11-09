@@ -125,11 +125,19 @@ final class SendAntibioticDeclaration implements ShouldBeUnique, ShouldQueue
                 return;
             }
         } else {
-            // Prête avant une règle plus stricte (n° BDTA contrôlé depuis le 09.11.2026) : elle redevient à compléter
-            if (app(DeclarationRules::class)->missing($declaration) !== []) {
-                AntibioticDeclaration::withoutGlobalScopes()->whereKey($declaration->id)->where('status', DeclarationStatus::Ready)
-                    ->update(['status' => DeclarationStatus::ToComplete, 'updated_at' => now()]);
+            // Prête, mais une règle n'est plus remplie (n° BDTA contrôlé depuis le 09.11.2026, préparation
+            // retirée de la liste de l'OSAV) : elle redevient à compléter. Relue sous verrou : une correction
+            // enregistrée au même instant n'est jamais écrasée
+            $isStale = DB::transaction(function () use ($declaration): bool {
+                $current = AntibioticDeclaration::withoutGlobalScopes()->with('lines')->whereKey($declaration->id)->lockForUpdate()->first();
+                if ($current?->status !== DeclarationStatus::Ready || $current->is_outcome_unknown || app(DeclarationRules::class)->missing($current) === []) {
+                    return false;
+                }
+                $current->forceFill(['status' => DeclarationStatus::ToComplete])->save();
 
+                return true;
+            });
+            if ($isStale) {
                 return;
             }
             // Le token d'abord : refusé ou l'OSAV injoignable, rien n'est pris et elle reste modifiable

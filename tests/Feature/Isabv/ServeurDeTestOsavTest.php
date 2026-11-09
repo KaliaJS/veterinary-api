@@ -8,6 +8,7 @@ use App\Jobs\SendAntibioticDeclaration;
 use App\Models\AntibioticDeclaration;
 use App\Models\Clinique;
 use App\Models\IsabvConnection;
+use App\Services\Isabv\ImportMasterData;
 use App\Services\Isabv\IsabvClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
@@ -44,7 +45,9 @@ class ServeurDeTestOsavTest extends TestCase
             $this->markTestSkipped('Cabinet de test SI ABV non donné (ISABV_TEST_TOKEN).');
         }
         Http::preventStrayRequests(false);
-        config(['services.isabv.url' => config('services.isabv.test.url')]);
+        config(['services.isabv.url' => config('services.isabv.test.url'), 'services.isabv.master_data_url' => config('services.isabv.test.url').'/psw/getMasterData']);
+        // Les données de base du serveur de test : la tâche relit les règles avant d'envoyer
+        app(ImportMasterData::class)->run(true);
         $this->clinique = Clinique::factory()->create(['nom' => 'Clinique Meteora (essai)', 'rue' => 'Rue du Test 1', 'npa' => '1700', 'ville' => 'Fribourg']);
         $this->clinique->societe->update(['ide' => (string) config('services.isabv.test.uid')]);
         IsabvConnection::withoutGlobalScopes()->create([
