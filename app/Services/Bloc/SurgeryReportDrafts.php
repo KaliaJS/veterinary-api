@@ -2,12 +2,12 @@
 
 namespace App\Services\Bloc;
 
-use App\Events\InterventionUpdated;
 use App\Jobs\WriteSurgeryReport;
 use App\Models\Intervention;
 use App\Models\SurgeryReport;
 use App\Services\BudgetAnthropic;
 use App\Services\CompteurMensuel;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -27,7 +27,7 @@ final class SurgeryReportDrafts
     public function request(Intervention $intervention): ?string
     {
         $refusal = DB::transaction(function () use ($intervention): ?string {
-            SurgeryReport::query()->firstOrCreate(['intervention_id' => $intervention->id]);
+            self::ensure($intervention);
             $report = SurgeryReport::query()->where('intervention_id', $intervention->id)->lockForUpdate()->firstOrFail();
             $refusal = match (true) {
                 $report->isValidated() => 'validated',
@@ -50,12 +50,47 @@ final class SurgeryReportDrafts
             return $refusal;
         }
 
-        // Comptée au budget du mois où elle part, comme les comptes rendus
+        // Comptée au budget du mois où elle part, comme les comptes rendus ;
+        // la tâche part avant l'annonce (une annonce ne bloque jamais rien)
         CompteurMensuel::ajouter('anthropic:redactions', 1);
-        InterventionUpdated::dispatch($intervention);
         WriteSurgeryReport::dispatch($intervention->id);
+        SurgeryReport::announce($intervention);
 
         return null;
+    }
+
+    /** Le rapport existe (deux premières demandes en même temps : une seule ligne) */
+    public static function ensure(Intervention $intervention): void
+    {
+        try {
+            SurgeryReport::query()->firstOrCreate(['intervention_id' => $intervention->id]);
+        } catch (UniqueConstraintViolationException) {
+            // Créé à l'instant par une autre requête
+        }
+    }
+
+    /**
+     * Les rubriques après un nouveau brouillon (1re vérification) : une
+     * rubrique corrigée par le vétérinaire garde son texte ; seules celles
+     * qu'il n'a pas touchées (telles que le brouillon précédent les avait
+     * écrites, ou vides) prennent le nouveau texte.
+     *
+     * @param  array<string, mixed>|null  $current
+     * @param  array<string, mixed>|null  $previousDraft
+     * @param  array<string, list<array{text: string, sources: list<string>}>>  $newSections
+     * @return array<string, string>
+     */
+    public static function merge(?array $current, ?array $previousDraft, array $newSections): array
+    {
+        $current = SurgeryReport::normalizeSections($current);
+        $out = [];
+        foreach (SurgeryReport::SECTIONS as $key) {
+            $before = self::text(is_array($previousDraft['sections'][$key] ?? null) ? $previousDraft['sections'][$key] : []);
+            $isUntouched = $current[$key] === '' || $current[$key] === $before;
+            $out[$key] = $isUntouched ? self::text($newSections[$key] ?? []) : $current[$key];
+        }
+
+        return $out;
     }
 
     /**

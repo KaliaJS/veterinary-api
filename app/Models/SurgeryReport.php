@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Events\InterventionUpdated;
+use App\Support\TempsReel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -54,6 +56,16 @@ class SurgeryReport extends Model
     public function complements(): HasMany
     {
         return $this->hasMany(SurgeryReportComplement::class)->orderBy('id');
+    }
+
+    /**
+     * Le rapport a changé : la clinique le sait par Reverb, après la
+     * transaction, sans jamais faire échouer le geste si Reverb est en panne
+     * (1re vérification du 09.11.2026)
+     */
+    public static function announce(Intervention $intervention): void
+    {
+        TempsReel::diffuser(fn () => InterventionUpdated::dispatch($intervention));
     }
 
     public function isValidated(): bool

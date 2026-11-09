@@ -8,7 +8,6 @@ use App\Enums\StatutEnregistrement;
 use App\Enums\StatutIntervention;
 use App\Models\Client;
 use App\Models\Clinique;
-use App\Models\Employe;
 use App\Models\EnregistrementConsultation;
 use App\Models\Intervention;
 use App\Models\Patient;
@@ -18,6 +17,8 @@ use App\Models\SurgeryReport;
 use App\Services\Bloc\SurgeryReportWriter;
 use App\Services\Bloc\SurgeryReportWriterClaude;
 use App\Services\Transcription\Transcripteur;
+use Illuminate\Broadcasting\BroadcastException;
+use Illuminate\Contracts\Broadcasting\Factory as BroadcastFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -42,8 +43,6 @@ class SurgeryReportTest extends TestCase
 
     private Clinique $clinique;
 
-    private Employe $chirurgien;
-
     private string $jeton;
 
     private Intervention $intervention;
@@ -60,7 +59,7 @@ class SurgeryReportTest extends TestCase
         $this->clinique = Clinique::factory()->create();
         $organisation = $this->clinique->societe->organisation;
         $organisation->forceFill(['stripe_client_id' => 'cus_1', 'stripe_moyen_paiement_id' => 'pm_1', 'statut_abonnement' => 'actif'])->save();
-        ['employe' => $this->chirurgien, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dre Anna Meyer']);
+        ['employe' => $chirurgien, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique, ['nom' => 'Dre Anna Meyer']);
         $patient = Patient::factory()->for(Client::factory()->create(['organisation_id' => $organisation->id]))->create(['nom' => 'Filou']);
         $salle = Salle::factory()->bloc()->create(['clinique_id' => $this->clinique->id, 'nom' => 'Salle 1']);
 
@@ -69,7 +68,7 @@ class SurgeryReportTest extends TestCase
             'patient_id' => $patient->id,
             'salle_id' => $salle->id,
             'salle_nom' => 'Salle 1',
-            'chirurgien_id' => $this->chirurgien->id,
+            'chirurgien_id' => $chirurgien->id,
             'procedure' => 'Orchiectomie',
             'prevu_le' => now()->subHours(2),
             'duree_minutes' => 45,
@@ -286,6 +285,94 @@ class SurgeryReportTest extends TestCase
         $this->assertStringContainsString('N\'invente rien et n\'interprète rien', $instructions);
         $this->assertStringContainsString('Une phrase sans source n\'existe pas', $instructions);
         $this->assertStringContainsString('reste vide', $instructions);
+    }
+
+    /* ————— 1re vérification (09.11.2026) ————— */
+
+    public function test_reverb_injoignable_ne_bloque_jamais_le_rapport(): void
+    {
+        $broadcast = $this->mock(BroadcastFactory::class);
+        $broadcast->shouldReceive('queue')->andThrow(new BroadcastException('Reverb injoignable'));
+
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton))->assertAccepted();
+        $this->getJson($this->uri(), $this->enTetes($this->jeton))->assertJsonPath('data.status', 'draft');
+        $this->postJson($this->uri('/validate'), [], $this->enTetes($this->jeton))->assertOk();
+        $this->postJson($this->uri('/complements'), ['text' => 'Ajout.'], $this->enTetes($this->jeton))->assertCreated();
+    }
+
+    public function test_un_nouveau_brouillon_garde_les_corrections_du_veterinaire(): void
+    {
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton));
+        $this->patchJson($this->uri(), ['sections' => ['complications' => 'Aucune.', 'aftercare' => 'Collerette pendant 14 jours.']], $this->enTetes($this->jeton));
+
+        $this->writer->result['sections']['intervention'] = [['text' => 'Orchiectomie chez Filou.', 'sources' => ['E1']]];
+        $this->writer->result['sections']['aftercare'] = [['text' => 'Collerette pendant 10 jours, contrôle à J10.', 'sources' => ['N2']]];
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton))->assertAccepted();
+
+        $this->getJson($this->uri(), $this->enTetes($this->jeton))
+            // Corrigées : gardées
+            ->assertJsonPath('data.sections.complications', 'Aucune.')
+            ->assertJsonPath('data.sections.aftercare', 'Collerette pendant 14 jours.')
+            // Non touchée : le nouveau texte
+            ->assertJsonPath('data.sections.intervention', 'Orchiectomie chez Filou.');
+    }
+
+    public function test_une_dictee_finie_apres_des_corrections_ne_les_remplace_pas(): void
+    {
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton));
+        $this->patchJson($this->uri(), ['sections' => ['complications' => 'Aucune.']], $this->enTetes($this->jeton));
+        $this->dicter();
+
+        $this->assertCount(2, $this->writer->calls);
+        $this->getJson($this->uri(), $this->enTetes($this->jeton))->assertJsonPath('data.sections.complications', 'Aucune.');
+    }
+
+    public function test_avant_le_reveil_ni_correction_ni_validation_ni_dictee(): void
+    {
+        $this->intervention->forceFill(['statut' => StatutIntervention::Cours])->save();
+        $this->patchJson($this->uri(), ['sections' => ['complications' => 'x']], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->postJson($this->uri('/validate'), [], $this->enTetes($this->jeton))->assertUnprocessable();
+        $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->assertUnprocessable();
+    }
+
+    public function test_pas_de_validation_pendant_une_dictee(): void
+    {
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton));
+        $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->assertCreated();
+        $this->postJson($this->uri('/validate'), [], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('report');
+    }
+
+    public function test_la_dictee_d_un_rapport_de_bloc_ne_se_termine_qu_avec_le_droit_bloc(): void
+    {
+        $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');
+        ['employe' => $sansBloc, 'jeton' => $autre] = $this->employeAvecJeton($this->clinique);
+        $role = Role::withoutGlobalScopes()->create([
+            'organisation_id' => $sansBloc->organisation_id,
+            'nom' => 'Accueil',
+            'domaines' => array_values(array_filter(DomainePermission::cases(), fn (DomainePermission $d) => $d !== DomainePermission::Bloc)),
+        ]);
+        $sansBloc->forceFill(['role_id' => $role->id])->save();
+
+        $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($autre))->assertForbidden();
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 1], $this->enTetes($autre))->assertForbidden();
+    }
+
+    public function test_les_lignes_d_a_terminer_disent_si_l_intervention_est_close(): void
+    {
+        $line = collect($this->getJson('/api/v1/unfinished-work', $this->enTetes($this->jeton))->json('data.groups'))->firstWhere('kind', 'surgery_report')['lines'][0];
+        $this->assertSame('fini', $line['status']);
+    }
+
+    private function dicter(): void
+    {
+        $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');
+        $this->post("/api/v1/enregistrements/{$id}/parties/1", [
+            'morceau' => 0, 'morceaux' => 1, 'format' => 'audio/mp4',
+            'fichier' => UploadedFile::fake()->createWithContent('morceau', TranscripteurFactice::ENTETE.'AA'),
+        ], [...$this->enTetes($this->jeton), 'Accept' => 'application/json'])->assertOk();
+        $this->postJson("/api/v1/enregistrements/{$id}/terminer", ['parties' => 1], $this->enTetes($this->jeton))->assertOk();
     }
 
     public function test_une_autre_organisation_ne_voit_rien(): void

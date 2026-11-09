@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Events\InterventionUpdated;
 use App\Models\Intervention;
 use App\Models\SurgeryReport;
 use App\Services\Bloc\SurgeryReportDrafts;
@@ -67,15 +66,16 @@ final class WriteSurgeryReport implements ShouldQueue
             if ($report?->status !== 'writing') {
                 return;
             }
+            // Les corrections du vétérinaire restent ; seules les rubriques non touchées prennent le nouveau texte
             $report->forceFill([
                 'status' => 'draft',
                 'error' => null,
+                'sections' => SurgeryReportDrafts::merge($report->sections, $report->draft, $draft['sections']),
                 'draft' => $draft,
-                'sections' => SurgeryReport::normalizeSections(array_map(fn (array $lines) => SurgeryReportDrafts::text($lines), $draft['sections'])),
                 'written_at' => now(),
             ])->save();
         });
-        InterventionUpdated::dispatch($intervention);
+        SurgeryReport::announce($intervention);
     }
 
     public function failed(?Throwable $error): void
@@ -89,7 +89,7 @@ final class WriteSurgeryReport implements ShouldQueue
             ->update(['status' => 'failed', 'error' => 'writer']);
         $intervention = Intervention::withoutGlobalScopes()->find($this->interventionId);
         if ($failed === 1 && $intervention) {
-            InterventionUpdated::dispatch($intervention);
+            SurgeryReport::announce($intervention);
         }
     }
 

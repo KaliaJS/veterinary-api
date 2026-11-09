@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api\V1;
 use App\Auth\ContexteClinique;
 use App\Enums\DomainePermission;
 use App\Enums\StatutEnregistrement;
-use App\Events\InterventionUpdated;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\V1\SurgeryReportResource;
 use App\Models\EnregistrementConsultation;
@@ -45,9 +44,7 @@ class SurgeryReportController extends Controller
     public function draft(Intervention $intervention, SurgeryReportDrafts $drafts): JsonResponse
     {
         $this->authorize('update', $intervention);
-        if (! SurgeryReportSources::isReportable($intervention)) {
-            throw ValidationException::withMessages(['report' => 'Le rapport se rédige une fois l’intervention au réveil ou finie.']);
-        }
+        $this->ensureReportable($intervention);
 
         $refusal = $drafts->request($intervention);
         if ($refusal !== null) {
@@ -64,13 +61,14 @@ class SurgeryReportController extends Controller
             'sections' => ['required', 'array'],
             'sections.*' => ['nullable', 'string', 'max:10000'],
         ]);
+        $this->ensureReportable($intervention);
         $unknown = array_diff(array_keys($data['sections']), SurgeryReport::SECTIONS);
         if ($unknown !== []) {
             throw ValidationException::withMessages(['sections' => 'Rubrique inconnue : '.implode(', ', $unknown).'.']);
         }
 
         $report = DB::transaction(function () use ($intervention, $data): SurgeryReport {
-            SurgeryReport::query()->firstOrCreate(['intervention_id' => $intervention->id]);
+            SurgeryReportDrafts::ensure($intervention);
             $report = SurgeryReport::query()->where('intervention_id', $intervention->id)->lockForUpdate()->firstOrFail();
             if ($report->isValidated()) {
                 throw ValidationException::withMessages(['report' => self::REFUSALS['validated']]);
@@ -94,6 +92,14 @@ class SurgeryReportController extends Controller
         $this->authorize('update', $intervention);
         Gate::authorize(DomainePermission::SignerComptesRendus->value);
 
+        $this->ensureReportable($intervention);
+        $dictating = EnregistrementConsultation::withoutGlobalScopes()->where('intervention_id', $intervention->id)
+            ->whereIn('statut', [StatutEnregistrement::Enregistrement->value, StatutEnregistrement::Transcription->value, StatutEnregistrement::Redaction->value])
+            ->exists();
+        if ($dictating) {
+            throw ValidationException::withMessages(['report' => 'Une dictée est en cours : terminez-la, ou attendez sa transcription, avant de valider.']);
+        }
+
         $report = DB::transaction(function () use ($intervention, $request): SurgeryReport {
             $report = SurgeryReport::query()->where('intervention_id', $intervention->id)->lockForUpdate()->first();
             if ($report?->isValidated()) {
@@ -115,12 +121,12 @@ class SurgeryReportController extends Controller
             ])->save();
             // La dictée est rattachée au rapport validé : une nouvelle repart d'une fiche neuve
             EnregistrementConsultation::withoutGlobalScopes()->where('intervention_id', $intervention->id)
-                ->whereIn('statut', [StatutEnregistrement::Pret->value, StatutEnregistrement::Enregistrement->value, StatutEnregistrement::Erreur->value])
+                ->whereIn('statut', [StatutEnregistrement::Pret->value, StatutEnregistrement::Erreur->value])
                 ->update(['statut' => StatutEnregistrement::Valide->value, 'valide_le' => now()]);
 
             return $report;
         });
-        InterventionUpdated::dispatch($intervention);
+        SurgeryReport::announce($intervention);
 
         return new SurgeryReportResource($report->load('complements'));
     }
@@ -141,9 +147,17 @@ class SurgeryReportController extends Controller
             'by_id' => $employe?->id,
             'by_name' => $employe->nom ?? $request->user()?->name,
         ]);
-        InterventionUpdated::dispatch($intervention);
+        SurgeryReport::announce($intervention);
 
         return (new SurgeryReportResource($report->load('complements')))->response()->setStatusCode(201);
+    }
+
+    /** Le rapport se rédige, se corrige et se valide une fois l'intervention au réveil ou finie */
+    private function ensureReportable(Intervention $intervention): void
+    {
+        if (! SurgeryReportSources::isReportable($intervention)) {
+            throw ValidationException::withMessages(['report' => 'Le rapport se rédige une fois l’intervention au réveil ou finie.']);
+        }
     }
 
     private function report(Intervention $intervention): SurgeryReport

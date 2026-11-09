@@ -36,8 +36,9 @@ use Illuminate\Database\Eloquent\Builder;
  *   ou téléconsultation finie, sans compte rendu rédigé ;
  * - compte rendu à signer : rédigé, pas signé (seulement pour qui a le
  *   droit de signer ; sans lui, rédigé suffit) ;
- * - rapport de bloc : intervention finie dont la note opératoire est vide,
- *   ou d'un jour d'avant jamais close ;
+ * - rapport de bloc : intervention finie dont le rapport n'est pas
+ *   validé (09.11.2026 : la note seule ne suffit plus), ou d'un jour
+ *   d'avant jamais close ;
  * - consentement : intervention sans consentement recueilli (signé, oral
  *   ou urgence), y compris celles prévues plus tard dans la journée ;
  * - rapport d'hospitalisation : chaque jour d'un séjour dont il est le
@@ -219,6 +220,8 @@ class UnfinishedWork
                 'at' => $surgery->prevu_le->toIso8601String(),
                 'is_earlier' => ! $isToday,
                 'target' => ['type' => 'surgery', 'id' => $surgery->id],
+                // Close ou non : le rapport se rédige dans sa fenêtre, une intervention jamais close se termine au bloc
+                'status' => $surgery->statut->value,
             ];
             if ($surgery->statut === StatutIntervention::Fini) {
                 $isValidated = $surgery->report?->status === 'validated';

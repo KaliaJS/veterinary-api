@@ -6,6 +6,7 @@ use App\Enums\StatutEnregistrement;
 use App\Models\EnregistrementConsultation;
 use App\Models\PartieEnregistrement;
 use App\Services\Bloc\SurgeryReportDrafts;
+use App\Services\Bloc\SurgeryReportSources;
 use App\Services\BudgetAnthropic;
 use App\Services\CompteurMensuel;
 use App\Services\Transcription\BrouillonSoap;
@@ -69,7 +70,7 @@ final class RedigerCompteRendu implements ShouldQueue
             $intervention = $enregistrement->intervention;
             if ($pret === 1) {
                 EnregistrementConsultation::annoncer($enregistrement->id);
-                if ($intervention) {
+                if ($intervention && SurgeryReportSources::isReportable($intervention)) {
                     app(SurgeryReportDrafts::class)->request($intervention);
                 }
             }

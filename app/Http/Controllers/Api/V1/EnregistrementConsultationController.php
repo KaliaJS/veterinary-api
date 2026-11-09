@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\DomainePermission;
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutPartie;
 use App\Http\Controllers\Controller;
@@ -14,11 +15,13 @@ use App\Models\EnregistrementConsultation;
 use App\Models\Intervention;
 use App\Models\Organisation;
 use App\Models\RendezVous;
+use App\Services\Bloc\SurgeryReportSources;
 use App\Services\Transcription\ConsommationTranscription;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
@@ -76,6 +79,9 @@ class EnregistrementConsultationController extends Controller
         if ($intervention->report?->isValidated()) {
             throw ValidationException::withMessages(['enregistrement' => 'Ce rapport est validé : ajoutez un complément.']);
         }
+        if (! SurgeryReportSources::isReportable($intervention)) {
+            throw ValidationException::withMessages(['enregistrement' => 'Le rapport se dicte une fois l’intervention au réveil ou finie.']);
+        }
 
         return $this->ouvrir($request, 'intervention_id', $intervention->id);
     }
@@ -120,6 +126,7 @@ class EnregistrementConsultationController extends Controller
     public function terminer(TerminerEnregistrementRequest $request, EnregistrementConsultation $enregistrement): EnregistrementConsultationResource
     {
         $this->authorize('create', EnregistrementConsultation::class);
+        $this->autoriserCible($enregistrement);
 
         if ($enregistrement->statut !== StatutEnregistrement::Enregistrement) {
             throw ValidationException::withMessages(['enregistrement' => 'Cet enregistrement est déjà terminé.']);
@@ -146,6 +153,7 @@ class EnregistrementConsultationController extends Controller
     public function relancer(EnregistrementConsultation $enregistrement): EnregistrementConsultationResource
     {
         $this->authorize('create', EnregistrementConsultation::class);
+        $this->autoriserCible($enregistrement);
 
         if ($enregistrement->statut !== StatutEnregistrement::Erreur) {
             throw ValidationException::withMessages(['enregistrement' => 'Rien à relancer.']);
@@ -179,6 +187,7 @@ class EnregistrementConsultationController extends Controller
     public function supprimer(EnregistrementConsultation $enregistrement): Response
     {
         $this->authorize('create', EnregistrementConsultation::class);
+        $this->autoriserCible($enregistrement);
 
         $valide = ValidationException::withMessages(['enregistrement' => 'Le compte rendu de cet enregistrement est déjà validé.']);
         if ($enregistrement->statut === StatutEnregistrement::Valide) {
@@ -212,6 +221,14 @@ class EnregistrementConsultationController extends Controller
             ->latest('id')
             ->with('parties')
             ->first();
+    }
+
+    /** La dictée d'un rapport de bloc ne se termine, ne se relance ni ne s'abandonne qu'avec le droit Bloc */
+    private function autoriserCible(EnregistrementConsultation $enregistrement): void
+    {
+        if ($enregistrement->intervention_id !== null) {
+            Gate::authorize(DomainePermission::Bloc->value);
+        }
     }
 
     private function organisation(): Organisation
