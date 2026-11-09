@@ -29,6 +29,12 @@ final class ReceptionAudio
         // des fichiers présents ne suffit pas (24.10.2026). L'enregistrement
         // verrouillé le temps du compte : les premiers morceaux de plusieurs
         // parties envoyés en même temps ne passent pas chacun la borne
+        // Un premier morceau qui n'est pas de l'audio (une copie vide) est refusé
+        // avant de créer la partie : rien ne reste qui bloquerait l'enregistrement (09.11.2026)
+        if ($index === 0 && ! self::estAudio((string) file_get_contents($fichier->getRealPath(), false, null, 0, 16), $format)) {
+            throw ValidationException::withMessages(['fichier' => 'Ce fichier n’est pas un enregistrement audio.']);
+        }
+
         $partie = DB::transaction(function () use ($enregistrement, $numero, $total, $format): PartieEnregistrement {
             $fiche = EnregistrementConsultation::withoutGlobalScopes()->whereKey($enregistrement->id)->lockForUpdate()->first();
             // Abandonné entre-temps (24.10.2026) : plus rien ne s'écrit

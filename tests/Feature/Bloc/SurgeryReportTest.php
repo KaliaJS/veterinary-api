@@ -13,6 +13,7 @@ use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\EnregistrementConsultation;
 use App\Models\Intervention;
+use App\Models\PartieEnregistrement;
 use App\Models\Patient;
 use App\Models\Role;
 use App\Models\Salle;
@@ -570,6 +571,18 @@ class SurgeryReportTest extends TestCase
         SurgeryReport::query()->create(['intervention_id' => $this->intervention->id, 'status' => 'validated', 'sections' => ['technique' => 'x'], 'validated_at' => now()]);
         $kinds = collect($this->getJson('/api/v1/unfinished-work', $this->enTetes($this->jeton))->json('data.groups'))->pluck('kind')->all();
         $this->assertContains('surgery_report', $kinds);
+    }
+
+    /* ————— 14e vérification (09.11.2026) ————— */
+
+    public function test_un_morceau_vide_est_refuse_sans_laisser_de_partie(): void
+    {
+        $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');
+        $this->post("/api/v1/enregistrements/{$id}/parties/2", [
+            'morceau' => 0, 'morceaux' => 1, 'format' => 'audio/mp4',
+            'fichier' => UploadedFile::fake()->createWithContent('morceau', ''),
+        ], [...$this->enTetes($this->jeton), 'Accept' => 'application/json'])->assertUnprocessable();
+        $this->assertSame(0, PartieEnregistrement::query()->where('enregistrement_consultation_id', $id)->count());
     }
 
     private function dicter(): void
