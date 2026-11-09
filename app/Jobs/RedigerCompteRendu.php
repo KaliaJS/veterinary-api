@@ -71,7 +71,7 @@ final class RedigerCompteRendu implements ShouldQueue
             if ($pret === 1) {
                 EnregistrementConsultation::annoncer($enregistrement->id);
                 if ($intervention && SurgeryReportSources::isReportable($intervention)) {
-                    app(SurgeryReportDrafts::class)->request($intervention);
+                    app(SurgeryReportDrafts::class)->request($intervention, isDictation: true);
                 }
             }
 

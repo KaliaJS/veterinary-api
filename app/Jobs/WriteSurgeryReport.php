@@ -70,12 +70,18 @@ final class WriteSurgeryReport implements ShouldQueue
             $report->forceFill([
                 'status' => 'draft',
                 'error' => null,
-                'sections' => SurgeryReportDrafts::merge($report->sections, $report->draft, $draft['sections']),
+                'sections' => SurgeryReportDrafts::merge($report->sections, $report->edited_sections, $draft['sections']),
                 'draft' => $draft,
                 'written_at' => now(),
             ])->save();
         });
         SurgeryReport::announce($intervention);
+
+        // Une dictée arrivée pendant cette rédaction : un nouveau brouillon la prend (2e vérification)
+        $isPending = SurgeryReport::query()->where('intervention_id', $this->interventionId)->where('is_redraft_pending', true)->update(['is_redraft_pending' => false]);
+        if ($isPending === 1) {
+            $drafts->request($intervention);
+        }
     }
 
     public function failed(?Throwable $error): void

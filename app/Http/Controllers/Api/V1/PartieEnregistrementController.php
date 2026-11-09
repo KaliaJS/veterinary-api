@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\DomainePermission;
 use App\Enums\StatutEnregistrement;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Transcription\MorceauAudioRequest;
 use App\Models\EnregistrementConsultation;
 use App\Services\Transcription\ReceptionAudio;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -20,6 +22,10 @@ class PartieEnregistrementController extends Controller
     public function morceau(MorceauAudioRequest $request, EnregistrementConsultation $enregistrement, int $numero, ReceptionAudio $reception): JsonResponse
     {
         $this->authorize('create', EnregistrementConsultation::class);
+        // La dictée d'un rapport de bloc (09.11.2026) : avec le droit Bloc seulement
+        if ($enregistrement->intervention_id !== null) {
+            Gate::authorize(DomainePermission::Bloc->value);
+        }
 
         if (! in_array($enregistrement->statut, [StatutEnregistrement::Enregistrement, StatutEnregistrement::Transcription], true)) {
             throw ValidationException::withMessages(['enregistrement' => 'Cet enregistrement n’attend plus d’audio.']);

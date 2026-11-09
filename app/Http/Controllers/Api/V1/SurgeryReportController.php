@@ -78,6 +78,8 @@ class SurgeryReportController extends Controller
             }
             $report->forceFill([
                 'sections' => SurgeryReport::normalizeSections([...SurgeryReport::normalizeSections($report->sections), ...$data['sections']]),
+                // Corrigées : un nouveau brouillon ne les réécrit plus
+                'edited_sections' => array_values(array_unique([...($report->edited_sections ?? []), ...array_keys($data['sections'])])),
                 'status' => $report->status === 'empty' ? 'draft' : $report->status,
             ])->save();
 
@@ -120,9 +122,14 @@ class SurgeryReportController extends Controller
                 'validated_by_name' => $employe->nom ?? $request->user()?->name,
             ])->save();
             // La dictée est rattachée au rapport validé : une nouvelle repart d'une fiche neuve
-            EnregistrementConsultation::withoutGlobalScopes()->where('intervention_id', $intervention->id)
-                ->whereIn('statut', [StatutEnregistrement::Pret->value, StatutEnregistrement::Erreur->value])
-                ->update(['statut' => StatutEnregistrement::Valide->value, 'valide_le' => now()]);
+            $closing = EnregistrementConsultation::withoutGlobalScopes()->where('intervention_id', $intervention->id)
+                ->whereIn('statut', [StatutEnregistrement::Pret->value, StatutEnregistrement::Erreur->value]);
+            $recordings = $closing->pluck('id')->all();
+            $closing->update(['statut' => StatutEnregistrement::Valide->value, 'valide_le' => now()]);
+            // Les autres postes ferment leur bulle de dictée (2e vérification)
+            foreach ($recordings as $recording) {
+                EnregistrementConsultation::annoncer($recording);
+            }
 
             return $report;
         });

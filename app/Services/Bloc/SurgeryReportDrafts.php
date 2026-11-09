@@ -24,9 +24,9 @@ final class SurgeryReportDrafts
      * Demande un brouillon ; rend la raison d'un refus ('validated',
      * 'writing', 'writings', 'budget'), ou null quand la rédaction part.
      */
-    public function request(Intervention $intervention): ?string
+    public function request(Intervention $intervention, bool $isDictation = false): ?string
     {
-        $refusal = DB::transaction(function () use ($intervention): ?string {
+        $refusal = DB::transaction(function () use ($intervention, $isDictation): ?string {
             self::ensure($intervention);
             $report = SurgeryReport::query()->where('intervention_id', $intervention->id)->lockForUpdate()->firstOrFail();
             $refusal = match (true) {
@@ -38,6 +38,10 @@ final class SurgeryReportDrafts
             };
             if ($refusal === 'writings' || $refusal === 'budget') {
                 $report->forceFill(['error' => $refusal])->save();
+            }
+            // Une dictée prête pendant une rédaction : un nouveau brouillon suit celle en cours (2e vérification)
+            if ($refusal === 'writing' && $isDictation) {
+                $report->forceFill(['is_redraft_pending' => true])->save();
             }
             if ($refusal !== null) {
                 return $refusal;
@@ -70,24 +74,22 @@ final class SurgeryReportDrafts
     }
 
     /**
-     * Les rubriques après un nouveau brouillon (1re vérification) : une
-     * rubrique corrigée par le vétérinaire garde son texte ; seules celles
-     * qu'il n'a pas touchées (telles que le brouillon précédent les avait
-     * écrites, ou vides) prennent le nouveau texte.
+     * Les rubriques après un nouveau brouillon (1re et 2e vérifications) :
+     * une rubrique corrigée par le vétérinaire garde son texte, même vidée
+     * exprès ; seules celles qu'il n'a jamais touchées prennent le nouveau
+     * texte (la fenêtre propose le nouveau texte sous une rubrique gardée).
      *
      * @param  array<string, mixed>|null  $current
-     * @param  array<string, mixed>|null  $previousDraft
+     * @param  list<string>|null  $edited
      * @param  array<string, list<array{text: string, sources: list<string>}>>  $newSections
      * @return array<string, string>
      */
-    public static function merge(?array $current, ?array $previousDraft, array $newSections): array
+    public static function merge(?array $current, ?array $edited, array $newSections): array
     {
         $current = SurgeryReport::normalizeSections($current);
         $out = [];
         foreach (SurgeryReport::SECTIONS as $key) {
-            $before = self::text(is_array($previousDraft['sections'][$key] ?? null) ? $previousDraft['sections'][$key] : []);
-            $isUntouched = $current[$key] === '' || $current[$key] === $before;
-            $out[$key] = $isUntouched ? self::text($newSections[$key] ?? []) : $current[$key];
+            $out[$key] = in_array($key, $edited ?? [], true) ? $current[$key] : self::text($newSections[$key] ?? []);
         }
 
         return $out;

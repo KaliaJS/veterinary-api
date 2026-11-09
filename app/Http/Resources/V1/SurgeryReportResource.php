@@ -29,6 +29,7 @@ class SurgeryReportResource extends JsonResource
             'writings_max' => (int) config('transcription.redactions_max'),
             'draft' => $this->draft,
             'sections' => SurgeryReport::normalizeSections($this->sections),
+            'edited_sections' => array_values($this->edited_sections ?? []),
             'section_labels' => SurgeryReport::SECTION_LABELS,
             'written_at' => $this->written_at?->toIso8601String(),
             'validated_at' => $this->validated_at?->toIso8601String(),

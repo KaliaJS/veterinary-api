@@ -18,7 +18,7 @@ class SurgeryReport extends Model
 {
     protected $table = 'surgery_reports';
 
-    protected $fillable = ['intervention_id', 'status', 'error', 'draft', 'sections', 'writings', 'written_at', 'validated_at', 'validated_by_id', 'validated_by_name'];
+    protected $fillable = ['intervention_id', 'status', 'error', 'draft', 'sections', 'edited_sections', 'writings', 'is_redraft_pending', 'written_at', 'validated_at', 'validated_by_id', 'validated_by_name'];
 
     protected $attributes = ['status' => 'empty'];
 
@@ -40,6 +40,8 @@ class SurgeryReport extends Model
         return [
             'draft' => 'encrypted:array',
             'sections' => 'encrypted:array',
+            'edited_sections' => 'array',
+            'is_redraft_pending' => 'boolean',
             'written_at' => 'datetime',
             'validated_at' => 'datetime',
             'writings' => 'integer',

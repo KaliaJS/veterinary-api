@@ -6,6 +6,8 @@ use App\Auth\ContexteClinique;
 use App\Enums\DomainePermission;
 use App\Enums\StatutEnregistrement;
 use App\Enums\StatutIntervention;
+use App\Events\EnregistrementMisAJour;
+use App\Jobs\WriteSurgeryReport;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\EnregistrementConsultation;
@@ -14,6 +16,8 @@ use App\Models\Patient;
 use App\Models\Role;
 use App\Models\Salle;
 use App\Models\SurgeryReport;
+use App\Services\Bloc\SurgeryReportDrafts;
+use App\Services\Bloc\SurgeryReportSources;
 use App\Services\Bloc\SurgeryReportWriter;
 use App\Services\Bloc\SurgeryReportWriterClaude;
 use App\Services\Transcription\Transcripteur;
@@ -21,6 +25,7 @@ use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Broadcasting\Factory as BroadcastFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\Doubles\SurgeryReportWriterFake;
@@ -363,6 +368,60 @@ class SurgeryReportTest extends TestCase
     {
         $line = collect($this->getJson('/api/v1/unfinished-work', $this->enTetes($this->jeton))->json('data.groups'))->firstWhere('kind', 'surgery_report')['lines'][0];
         $this->assertSame('fini', $line['status']);
+    }
+
+    /* ————— 2e vérification (09.11.2026) ————— */
+
+    public function test_une_rubrique_videe_expres_n_est_pas_remplie_par_le_brouillon_suivant(): void
+    {
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton));
+        $this->patchJson($this->uri(), ['sections' => ['technique' => '']], $this->enTetes($this->jeton))->assertJsonPath('data.edited_sections', ['technique']);
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton));
+
+        $this->getJson($this->uri(), $this->enTetes($this->jeton))
+            ->assertJsonPath('data.sections.technique', '')
+            // Le brouillon garde ce que l'IA propose, pour la fenêtre
+            ->assertJsonPath('data.draft.sections.technique.0.text', 'Abord préscrotal, technique fermée.');
+    }
+
+    public function test_une_dictee_prete_pendant_une_redaction_en_lance_une_nouvelle(): void
+    {
+        SurgeryReport::query()->create(['intervention_id' => $this->intervention->id, 'status' => 'writing', 'writings' => 1]);
+        $this->dicter();
+        $this->assertTrue(SurgeryReport::first()->is_redraft_pending);
+        $this->assertCount(0, $this->writer->calls);
+
+        // La rédaction en cours se termine : la suivante part, avec la dictée
+        (new WriteSurgeryReport($this->intervention->id))->handle($this->writer, app(SurgeryReportSources::class), app(SurgeryReportDrafts::class));
+        $this->assertCount(2, $this->writer->calls);
+        $this->assertNotSame([], collect($this->writer->calls[1])->where('kind', 'dictation')->all());
+        $this->assertFalse(SurgeryReport::first()->is_redraft_pending);
+        $this->assertSame(2, SurgeryReport::first()->writings);
+    }
+
+    public function test_valider_annonce_la_dictee_close_aux_autres_postes(): void
+    {
+        $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton));
+        $this->dicter();
+        Event::fake([EnregistrementMisAJour::class]);
+        $this->postJson($this->uri('/validate'), [], $this->enTetes($this->jeton))->assertOk();
+        Event::assertDispatched(EnregistrementMisAJour::class, fn ($e) => $e->broadcastWith()['statut'] === 'valide' && $e->broadcastWith()['intervention_id'] === $this->intervention->id);
+    }
+
+    public function test_l_audio_d_une_dictee_de_bloc_demande_le_droit_bloc(): void
+    {
+        $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');
+        ['employe' => $sansBloc, 'jeton' => $autre] = $this->employeAvecJeton($this->clinique);
+        $role = Role::withoutGlobalScopes()->create([
+            'organisation_id' => $sansBloc->organisation_id,
+            'nom' => 'Accueil',
+            'domaines' => array_values(array_filter(DomainePermission::cases(), fn (DomainePermission $d) => $d !== DomainePermission::Bloc)),
+        ]);
+        $sansBloc->forceFill(['role_id' => $role->id])->save();
+        $this->post("/api/v1/enregistrements/{$id}/parties/1", [
+            'morceau' => 0, 'morceaux' => 1, 'format' => 'audio/mp4',
+            'fichier' => UploadedFile::fake()->createWithContent('morceau', TranscripteurFactice::ENTETE.'AA'),
+        ], [...$this->enTetes($autre), 'Accept' => 'application/json'])->assertForbidden();
     }
 
     private function dicter(): void
