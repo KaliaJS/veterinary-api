@@ -470,18 +470,41 @@ class SurgeryReportTest extends TestCase
         Event::assertDispatched(InterventionUpdated::class, fn ($e) => $e->intervention->id === $this->intervention->id);
     }
 
-    public function test_abandonner_un_ajout_garde_la_dictee_deja_transcrite(): void
+    public function test_completer_une_dictee_en_ajoute_une_neuve_et_l_abandon_ne_touche_que_l_ajout(): void
     {
         $this->dicter();
-        $id = EnregistrementConsultation::withoutGlobalScopes()->where('intervention_id', $this->intervention->id)->value('id');
-        // Rouverte pour compléter, puis l'ajout abandonné
-        $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->assertOk()->assertJsonPath('data.statut', 'enregistrement');
-        $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
+        $first = EnregistrementConsultation::withoutGlobalScopes()->where('intervention_id', $this->intervention->id)->value('id');
+        // Compléter : une dictée neuve, la première reste prête
+        $second = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.prochaine_partie', 1)
+            ->json('data.id');
+        $this->assertNotSame($first, $second);
+        $this->assertSame(StatutEnregistrement::Pret, EnregistrementConsultation::withoutGlobalScopes()->find($first)->statut);
 
-        $this->assertSame(StatutEnregistrement::Pret, EnregistrementConsultation::withoutGlobalScopes()->find($id)->statut);
+        // L'ajout abandonné : la première dictée est intacte et nourrit encore le brouillon
+        $this->deleteJson("/api/v1/enregistrements/{$second}", [], $this->enTetes($this->jeton))->assertNoContent();
+        $this->assertSame('pret', EnregistrementConsultation::withoutGlobalScopes()->findOrFail($first)->statut->value);
         SurgeryReport::query()->update(['writings' => 0]);
         $this->postJson($this->uri('/draft'), [], $this->enTetes($this->jeton))->assertAccepted();
         $this->assertSame(['D1', 'D2'], collect(collect($this->writer->calls)->last())->where('kind', 'dictation')->pluck('id')->values()->all());
+    }
+
+    public function test_deux_dictees_nourrissent_le_brouillon_dans_l_ordre(): void
+    {
+        $this->dicter();
+        $this->dicter();
+        $dictation = collect(collect($this->writer->calls)->last())->where('kind', 'dictation')->values();
+        $this->assertSame(['D1', 'D2', 'D3', 'D4'], $dictation->pluck('id')->all());
+        $this->assertSame('Dictée 1, 0:00', $dictation[0]['label']);
+        $this->assertSame('Dictée 2, 0:12', $dictation[3]['label']);
+    }
+
+    public function test_supprimer_une_premiere_dictee_l_abandonne_toute(): void
+    {
+        $id = $this->postJson("/api/v1/bloc/interventions/{$this->intervention->id}/enregistrement", [], $this->enTetes($this->jeton))->json('data.id');
+        $this->deleteJson("/api/v1/enregistrements/{$id}", [], $this->enTetes($this->jeton))->assertNoContent();
+        $this->assertSame(StatutEnregistrement::Abandonne, EnregistrementConsultation::withoutGlobalScopes()->find($id)->statut);
     }
 
     public function test_une_taille_de_fil_reste_une_taille(): void

@@ -102,7 +102,11 @@ class EnregistrementConsultationController extends Controller
             throw ValidationException::withMessages(['transcription' => $refus]);
         }
 
-        if ($dernier && $dernier->statut !== StatutEnregistrement::Valide) {
+        // Une dictée de bloc transcrite ne se rouvre pas pour la compléter
+        // (5e vérification) : l'ajout est une dictée neuve, la première reste
+        // telle quelle, et le brouillon les prend toutes, dans l'ordre
+        $isNewDictation = $cible === 'intervention_id' && $dernier?->statut === StatutEnregistrement::Pret;
+        if ($dernier && $dernier->statut !== StatutEnregistrement::Valide && ! $isNewDictation) {
             $dernier->forceFill([
                 'statut' => StatutEnregistrement::Enregistrement,
                 'erreur' => null,
@@ -200,19 +204,6 @@ class EnregistrementConsultationController extends Controller
             $verrouille = EnregistrementConsultation::withoutGlobalScopes()->whereKey($enregistrement->id)->lockForUpdate()->firstOrFail();
             if ($verrouille->statut === StatutEnregistrement::Valide) {
                 throw $valide;
-            }
-
-            // Une dictée de bloc rouverte pour la compléter (09.11.2026, 4e
-            // vérification) : seul l'ajout s'abandonne ; ce qui était déjà
-            // transcrit reste, et la dictée redevient prête
-            $transcrites = $verrouille->intervention_id !== null
-                ? $verrouille->parties()->where('statut', StatutPartie::Transcrite->value)->count()
-                : 0;
-            if ($transcrites > 0) {
-                $verrouille->parties()->where('statut', '!=', StatutPartie::Transcrite->value)->delete();
-                $verrouille->forceFill(['statut' => StatutEnregistrement::Pret, 'erreur' => null, 'parties_attendues' => $transcrites])->save();
-
-                return;
             }
 
             $verrouille->parties()->update(['segments' => null, 'fichier' => null]);

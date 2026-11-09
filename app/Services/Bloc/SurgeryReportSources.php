@@ -8,7 +8,6 @@ use App\Models\EnregistrementConsultation;
 use App\Models\Intervention;
 use App\Models\InterventionChecklistPoint;
 use App\Models\InterventionTransition;
-use App\Models\PartieEnregistrement;
 use Carbon\CarbonInterface;
 
 /**
@@ -88,33 +87,39 @@ final class SurgeryReportSources
     }
 
     /**
-     * Les passages de la dernière dictée transcrite (prête, ou validée avec le rapport)
+     * Les passages des dictées transcrites (prêtes, ou validées avec le
+     * rapport), dans l'ordre : compléter une dictée en ajoute une neuve
+     * (5e vérification)
      *
      * @return list<array{label: string, text: string}>
      */
     private function dictation(Intervention $intervention): array
     {
-        $recording = EnregistrementConsultation::withoutGlobalScopes()
+        $recordings = EnregistrementConsultation::withoutGlobalScopes()
             ->where('intervention_id', $intervention->id)
             ->whereIn('statut', [StatutEnregistrement::Pret->value, StatutEnregistrement::Valide->value])
-            ->latest('id')
+            ->orderBy('id')
             ->with('parties')
-            ->first();
-        if (! $recording) {
-            return [];
+            ->get();
+        $isManyRecordings = $recordings->count() > 1;
+
+        $out = [];
+        foreach ($recordings->values() as $index => $recording) {
+            $isManyParts = $recording->parties->count() > 1;
+            foreach ($recording->parties as $part) {
+                foreach ($part->segments ?? [] as $segment) {
+                    $text = trim((string) ($segment['texte'] ?? ''));
+                    if ($text === '') {
+                        continue;
+                    }
+                    $seconds = (int) ($segment['debut'] ?? 0);
+                    $prefix = ($isManyRecordings ? 'Dictée '.($index + 1).', ' : '').($isManyParts ? 'partie '.$part->numero.', ' : '');
+                    $out[] = ['label' => ucfirst($prefix.sprintf('%d:%02d', intdiv($seconds, 60), $seconds % 60)), 'text' => $text];
+                }
+            }
         }
-        $isMany = $recording->parties->count() > 1;
 
-        return $recording->parties
-            ->flatMap(fn (PartieEnregistrement $part) => collect($part->segments ?? [])->map(function (array $segment) use ($part, $isMany): array {
-                $seconds = (int) ($segment['debut'] ?? 0);
-                $at = sprintf('%d:%02d', intdiv($seconds, 60), $seconds % 60);
-
-                return ['label' => ($isMany ? 'Partie '.$part->numero.', ' : '').$at, 'text' => trim((string) ($segment['texte'] ?? ''))];
-            }))
-            ->filter(fn (array $s) => $s['text'] !== '')
-            ->values()
-            ->all();
+        return $out;
     }
 
     /** Une intervention se rapporte une fois finie, ou au réveil */
