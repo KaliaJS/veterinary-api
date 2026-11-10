@@ -242,6 +242,8 @@ class PatientController extends Controller
             'relevesDentaires',
             'courbePoids',
             'rendezVousAVenir',
+            // Référé par une autre clinique dans Veterinary : la fiche le dit (10.11.2026)
+            'referencesRecues.clinique',
         ])->loadMin(['vaccinations' => fn ($requete) => $requete->nonRenouvelees()], 'echeance_le')->loadMax('visites', 'visite_le');
 
         return new PatientResource($patient);

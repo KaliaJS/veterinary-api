@@ -459,6 +459,27 @@ class ReferralInvitationTest extends TestCase
         $this->assertNull(ReferralReturn::query()->findOrFail($other['id'])->revoked_at);
     }
 
+    /** Jim, 10.11.2026 : « quand c'est référé on ne voit pas que ça l'est » ; la fiche le dit, tant que l'accès est ouvert */
+    public function test_la_fiche_de_l_animal_refere_dit_qui_l_a_refere_tant_que_l_acces_est_ouvert(): void
+    {
+        [$id, $rocky] = $this->acceptedAndLinked();
+
+        $this->as($this->kellerJeton, 'GET', "/api/v1/patients/{$rocky->id}")
+            ->assertOk()
+            ->assertJsonCount(1, 'data.refere_par')
+            ->assertJsonPath('data.refere_par.0.invitation_id', $id)
+            ->assertJsonPath('data.refere_par.0.clinique', 'Clinique des Deux Rives')
+            ->assertJsonPath('data.refere_par.0.par', 'Dre Anna Meyer')
+            ->assertJsonPath('data.refere_par.0.le', now()->toIso8601String());
+
+        // La clinique qui réfère : son animal n'est pas « référé »
+        $this->as($this->jeton, 'GET', "/api/v1/patients/{$this->patient->id}")->assertOk()->assertJsonPath('data.refere_par', []);
+
+        // L'accès coupé : la fiche ne le dit plus (comme le filtre « Référés »)
+        $this->as($this->jeton, 'POST', "/api/v1/referral-invitations/{$id}/revoke")->assertOk();
+        $this->as($this->kellerJeton, 'GET', "/api/v1/patients/{$rocky->id}")->assertOk()->assertJsonPath('data.refere_par', []);
+    }
+
     /** @return array{0: int, 1: Patient, 2: ReferralLetter} */
     private function acceptedAndLinked(): array
     {

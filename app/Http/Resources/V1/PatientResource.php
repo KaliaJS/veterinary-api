@@ -4,6 +4,7 @@ namespace App\Http\Resources\V1;
 
 use App\Models\Patient;
 use App\Models\Pesee;
+use App\Models\ReferralInvitation;
 use App\Models\ReleveDentaire;
 use App\Services\Isabv\Declarations;
 use Illuminate\Http\Request;
@@ -41,6 +42,14 @@ class PatientResource extends JsonResource
                 'id' => $this->referringVet->id,
                 'nom' => $this->referringVet->nom,
             ]),
+            // Qui l'a référé, tant que l'accès est ouvert (Jim, 10.11.2026 : « quand c'est référé on ne voit pas que ça l'est ») ; fiche seulement
+            'refere_par' => $this->whenLoaded('referencesRecues', fn (): array => $this->referencesRecues->map(fn (ReferralInvitation $i): array => [
+                'invitation_id' => $i->id,
+                'clinique' => $i->clinique?->nom,
+                'ville' => $i->clinique?->ville,
+                'par' => $i->sent_by_name,
+                'le' => $i->accepted_at?->toIso8601String(),
+            ])->values()->all()),
             'sexe' => $this->sexe,
             'ne_le' => $this->ne_le?->toDateString(),
             'decede_le' => $this->decede_le?->toDateString(),

@@ -185,6 +185,17 @@ class Patient extends Model
         return $this->hasOne(Pesee::class)->ofMany(['pesee_le' => 'max', 'id' => 'max']);
     }
 
+    /**
+     * Les lettres de référence reçues pour cet animal, l'accès encore ouvert
+     * (acceptées, pas coupées) : la fiche dit qui l'a référé (10.11.2026)
+     *
+     * @return HasMany<ReferralInvitation, $this>
+     */
+    public function referencesRecues(): HasMany
+    {
+        return $this->hasMany(ReferralInvitation::class, 'target_patient_id')->where('status', 'accepted')->latest('accepted_at');
+    }
+
     /** @return HasMany<Pesee, $this> */
     public function pesees(): HasMany
     {
