@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\Espece;
+use App\Enums\Sexe;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Patients\EnregistrerPatientRequest;
 use App\Http\Requests\V1\Patients\ModifierPatientRequest;
@@ -23,7 +24,8 @@ use Illuminate\Support\Carbon;
  * organisation, partagés entre les cliniques du jeton). Jamais de
  * suppression de fiche. Filtres et tris de l'écran Patients :
  * `filtre` tous|chien|chat|nac|alertes|rappels|referes (référés par une
- * autre clinique dans Veterinary, 09.11.2026), `tri` nom|proprietaire|
+ * autre clinique dans Veterinary, 09.11.2026), `sexe` male|femelle qui
+ * s'y ajoute (10.11.2026), `tri` nom|proprietaire|
  * alertes|rappels|visite|poids et `sens` asc|desc (16.10.2026 : tri par
  * clic sur les en-têtes de colonnes),
  * `q` sur nom, race, puce et propriétaire ; `meta.facettes` porte les
@@ -41,28 +43,47 @@ class PatientController extends Controller
             ->withMin(['vaccinations' => fn ($requete) => $requete->nonRenouvelees()], 'echeance_le')
             ->withMax('visites', 'visite_le')
             ->tap(fn (Builder $requete) => $this->rechercher($requete, $request))
-            ->when($request->string('filtre')->toString(), fn (Builder $requete, string $filtre) => match ($filtre) {
-                'chien' => $requete->where('espece', Espece::Chien),
-                'chat' => $requete->where('espece', Espece::Chat),
-                'nac' => $requete->whereNotIn('espece', [Espece::Chien, Espece::Chat]),
-                'alertes' => $requete->where(fn (Builder $clause) => $clause
-                    ->where('est_agressif', true)
-                    ->orWhere('a_allergies', true)
-                    ->orWhere('dette', '>', 0)),
-                // Les patients référés par une autre clinique dans Veterinary (envoi C, 09.11.2026)
-                'referes' => $requete->whereIn('patients.id', ReferralInvitation::query()->select('target_patient_id')->where('status', 'accepted')->whereNotNull('target_patient_id')),
-                'rappels' => $requete->whereHas(
-                    'vaccinations',
-                    fn (Builder $vaccination) => $vaccination->nonRenouvelees()->where('echeance_le', '<=', $this->horizonRappels()),
-                ),
-                default => $requete,
-            })
+            ->tap(fn (Builder $requete) => $this->filtrer($requete, $request))
+            ->tap(fn (Builder $requete) => $this->filtrerSexe($requete, $request))
             ->tap(fn (Builder $requete) => $this->trier($requete, $request))
             ->paginate($this->parPage($request));
 
         return PatientResource::collection($patients)->additional([
             'meta' => ['facettes' => $this->facettes($request)],
         ]);
+    }
+
+    /** Le filtre d'espèce ou d'état de l'écran (`filtre`). */
+    private function filtrer(Builder $requete, Request $request): void
+    {
+        match ($request->string('filtre')->toString()) {
+            'chien' => $requete->where('espece', Espece::Chien),
+            'chat' => $requete->where('espece', Espece::Chat),
+            'nac' => $requete->whereNotIn('espece', [Espece::Chien, Espece::Chat]),
+            'alertes' => $requete->where(fn (Builder $clause) => $clause
+                ->where('est_agressif', true)
+                ->orWhere('a_allergies', true)
+                ->orWhere('dette', '>', 0)),
+            // Les patients référés par une autre clinique dans Veterinary (envoi C, 09.11.2026)
+            'referes' => $requete->whereIn('patients.id', ReferralInvitation::query()->select('target_patient_id')->where('status', 'accepted')->whereNotNull('target_patient_id')),
+            'rappels' => $requete->whereHas(
+                'vaccinations',
+                fn (Builder $vaccination) => $vaccination->nonRenouvelees()->where('echeance_le', '<=', $this->horizonRappels()),
+            ),
+            default => $requete,
+        };
+    }
+
+    /** Le sexe (`sexe` male|femelle, Jim, 10.11.2026), qui se combine au `filtre` ; une autre valeur ne filtre pas. */
+    private function filtrerSexe(Builder $requete, Request $request): void
+    {
+        $sexe = match ($request->string('sexe')->toString()) {
+            'male' => Sexe::Male,
+            'femelle' => Sexe::Femelle,
+            default => null,
+        };
+
+        $requete->when($sexe, fn (Builder $requete, Sexe $sexe) => $requete->where('sexe', $sexe));
     }
 
     /** Recherche `q` sur nom, race, puce et propriétaire. */
@@ -121,10 +142,12 @@ class PatientController extends Controller
 
     /**
      * Compteurs des filtres de l'écran, sur la recherche courante mais
-     * indépendants du filtre actif (chaque onglet affiche le sien) —
-     * une seule requête d'agrégats conditionnels.
+     * indépendants du filtre actif (chaque onglet affiche le sien) — une
+     * requête d'agrégats conditionnels. Les deux groupes se croisent :
+     * l'espèce et l'état comptent avec le sexe choisi, le sexe avec
+     * l'espèce ou l'état choisi.
      *
-     * @return array{tous: int, chien: int, chat: int, nac: int, alertes: int, rappels: int}
+     * @return array{tous: int, chien: int, chat: int, nac: int, alertes: int, rappels: int, referes: int, male: int, femelle: int}
      */
     private function facettes(Request $request): array
     {
@@ -132,6 +155,7 @@ class PatientController extends Controller
 
         $ligne = Patient::query()
             ->tap(fn (Builder $requete) => $this->rechercher($requete, $request))
+            ->tap(fn (Builder $requete) => $this->filtrerSexe($requete, $request))
             ->selectRaw(implode(', ', [
                 'count(*) as tous',
                 $compte('patients.espece = ?').' as chien',
@@ -150,6 +174,13 @@ class PatientController extends Controller
             ->toBase()
             ->first();
 
+        $sexes = Patient::query()
+            ->tap(fn (Builder $requete) => $this->rechercher($requete, $request))
+            ->tap(fn (Builder $requete) => $this->filtrer($requete, $request))
+            ->selectRaw($compte('patients.sexe = ?').' as male, '.$compte('patients.sexe = ?').' as femelle', [Sexe::Male->value, Sexe::Femelle->value])
+            ->toBase()
+            ->first();
+
         return [
             'tous' => (int) ($ligne->tous ?? 0),
             'chien' => (int) ($ligne->chien ?? 0),
@@ -158,6 +189,8 @@ class PatientController extends Controller
             'alertes' => (int) ($ligne->alertes ?? 0),
             'rappels' => (int) ($ligne->rappels ?? 0),
             'referes' => (int) ($ligne->referes ?? 0),
+            'male' => (int) ($sexes->male ?? 0),
+            'femelle' => (int) ($sexes->femelle ?? 0),
         ];
     }
 

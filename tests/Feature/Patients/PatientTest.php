@@ -189,7 +189,7 @@ class PatientTest extends TestCase
     {
         // La recherche couvre aussi race, puce et propriétaire : neutralisés.
         $this->client->update(['nom' => 'Dupont']);
-        $neutre = ['race' => null, 'puce' => null, 'est_agressif' => false, 'a_allergies' => false, 'dette' => 0];
+        $neutre = ['race' => null, 'puce' => null, 'est_agressif' => false, 'a_allergies' => false, 'dette' => 0, 'sexe' => 'Femelle'];
 
         $chien = Patient::factory()->for($this->client)->create([...$neutre, 'espece' => 'CH', 'nom' => 'Rex', 'est_agressif' => true]);
         Patient::factory()->for($this->client)->create([...$neutre, 'espece' => 'CH', 'nom' => 'Rocky', 'dette' => 12]);
@@ -206,6 +206,8 @@ class PatientTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('meta.facettes', [
                 'tous' => 4, 'chien' => 2, 'chat' => 1, 'nac' => 1, 'alertes' => 3, 'rappels' => 1, 'referes' => 0,
+                // Le sexe compte avec le filtre d'espèce ou d'état choisi (ici les chats)
+                'male' => 0, 'femelle' => 1,
             ]);
 
         // … mais suivent la recherche.
@@ -216,6 +218,35 @@ class PatientTest extends TestCase
             ->assertJsonPath('meta.facettes.chat', 0)
             ->assertJsonPath('meta.facettes.alertes', 2)
             ->assertJsonPath('meta.facettes.rappels', 0);
+    }
+
+    /** Le sexe, un filtre de plus (Jim, 10.11.2026) : il se combine au filtre d'espèce ou d'état, avec ses compteurs. */
+    public function test_le_filtre_par_sexe_se_combine_aux_autres_et_a_ses_facettes(): void
+    {
+        $neutre = ['race' => null, 'puce' => null, 'est_agressif' => false, 'a_allergies' => false, 'dette' => 0];
+        $rex = Patient::factory()->for($this->client)->create([...$neutre, 'espece' => 'CH', 'nom' => 'Rex', 'sexe' => 'Mâle']);
+        $bella = Patient::factory()->for($this->client)->create([...$neutre, 'espece' => 'CH', 'nom' => 'Bella', 'sexe' => 'Femelle']);
+        $mimi = Patient::factory()->for($this->client)->create([...$neutre, 'espece' => 'CT', 'nom' => 'Mimi', 'sexe' => 'Femelle']);
+
+        $ids = fn (string $requete): array => array_column($this->getJson("/api/v1/patients?{$requete}", $this->enTetes($this->jeton))->assertOk()->json('data'), 'id');
+
+        $this->assertSame([$rex->id], $ids('sexe=male'));
+        $this->assertSame([$bella->id, $mimi->id], $ids('sexe=femelle'));
+        // Avec l'espèce : les chiennes
+        $this->assertSame([$bella->id], $ids('sexe=femelle&filtre=chien'));
+        // Une valeur inconnue ne filtre pas
+        $this->assertCount(3, $ids('sexe=autre'));
+
+        // Les compteurs du sexe suivent l'espèce choisie, comme ceux de l'espèce suivent le sexe : chaque groupe compte avec l'autre
+        $this->getJson('/api/v1/patients?filtre=chien', $this->enTetes($this->jeton))
+            ->assertJsonPath('meta.facettes.male', 1)
+            ->assertJsonPath('meta.facettes.femelle', 1);
+        $this->getJson('/api/v1/patients?sexe=femelle', $this->enTetes($this->jeton))
+            ->assertJsonPath('meta.facettes.tous', 2)
+            ->assertJsonPath('meta.facettes.chien', 1)
+            ->assertJsonPath('meta.facettes.chat', 1)
+            ->assertJsonPath('meta.facettes.male', 1)
+            ->assertJsonPath('meta.facettes.femelle', 2);
     }
 
     public function test_le_prochain_rendez_vous_sort_en_liste_et_en_fiche_toutes_cliniques_confondues(): void
