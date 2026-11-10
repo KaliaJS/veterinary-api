@@ -17,11 +17,12 @@ class StaffPreference extends Model
 {
     use AppartientAUneClinique;
 
-    protected $fillable = ['user_id', 'tool_favorites', 'hide_non_favorite_tools', 'dental_chart_view', 'stats_chart_style'];
+    protected $fillable = ['user_id', 'tool_favorites', 'hide_non_favorite_tools', 'dental_chart_view', 'stats_chart_style', 'waiting_room'];
 
     protected $attributes = [
         'tool_favorites' => '[]',
         'hide_non_favorite_tools' => false,
+        'waiting_room' => false,
     ];
 
     protected function casts(): array
@@ -29,6 +30,7 @@ class StaffPreference extends Model
         return [
             'tool_favorites' => 'array',
             'hide_non_favorite_tools' => 'boolean',
+            'waiting_room' => 'boolean',
         ];
     }
 

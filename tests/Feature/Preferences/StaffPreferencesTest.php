@@ -41,7 +41,7 @@ class StaffPreferencesTest extends TestCase
     {
         $this->getJson('/api/v1/preferences', $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertExactJson(['data' => ['tool_favorites' => [], 'hide_non_favorite_tools' => false]]);
+            ->assertExactJson(['data' => ['tool_favorites' => [], 'hide_non_favorite_tools' => false, 'waiting_room' => false]]);
     }
 
     public function test_un_outil_se_met_en_favori_puis_s_en_retire_dans_l_ordre_des_ajouts(): void
@@ -69,7 +69,7 @@ class StaffPreferencesTest extends TestCase
         // Afficher de nouveau tous les outils ne touche pas aux favoris
         $this->patchJson('/api/v1/preferences', ['hide_non_favorite_tools' => false], $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertExactJson(['data' => ['tool_favorites' => ['cert'], 'hide_non_favorite_tools' => false]]);
+            ->assertExactJson(['data' => ['tool_favorites' => ['cert'], 'hide_non_favorite_tools' => false, 'waiting_room' => false]]);
     }
 
     public function test_les_preferences_se_retrouvent_sur_un_autre_appareil(): void
@@ -82,7 +82,7 @@ class StaffPreferencesTest extends TestCase
 
         $this->getJson('/api/v1/preferences', $this->enTetes($iphone))
             ->assertOk()
-            ->assertExactJson(['data' => ['tool_favorites' => ['amicus', 'dent'], 'hide_non_favorite_tools' => true]]);
+            ->assertExactJson(['data' => ['tool_favorites' => ['amicus', 'dent'], 'hide_non_favorite_tools' => true, 'waiting_room' => false]]);
     }
 
     public function test_chacun_ne_voit_et_ne_change_que_les_siennes(): void
@@ -94,7 +94,7 @@ class StaffPreferencesTest extends TestCase
         // La collègue ne voit rien des choix de l'autre
         $this->getJson('/api/v1/preferences', $this->enTetes($collegue))
             ->assertOk()
-            ->assertExactJson(['data' => ['tool_favorites' => [], 'hide_non_favorite_tools' => false]]);
+            ->assertExactJson(['data' => ['tool_favorites' => [], 'hide_non_favorite_tools' => false, 'waiting_room' => false]]);
 
         // Et ses propres choix ne changent pas ceux de l'autre
         $this->patchJson('/api/v1/preferences', ['tool_favorites' => ['gesta'], 'hide_non_favorite_tools' => false], $this->enTetes($collegue))
@@ -102,7 +102,7 @@ class StaffPreferencesTest extends TestCase
             ->assertJsonPath('data.tool_favorites', ['gesta']);
         $this->getJson('/api/v1/preferences', $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertExactJson(['data' => ['tool_favorites' => ['dose'], 'hide_non_favorite_tools' => true]]);
+            ->assertExactJson(['data' => ['tool_favorites' => ['dose'], 'hide_non_favorite_tools' => true, 'waiting_room' => false]]);
     }
 
     public function test_chaque_clinique_a_les_siennes(): void
@@ -116,13 +116,13 @@ class StaffPreferencesTest extends TestCase
 
         $this->getJson('/api/v1/preferences', $this->enTetes($jetonSoeur))
             ->assertOk()
-            ->assertExactJson(['data' => ['tool_favorites' => [], 'hide_non_favorite_tools' => false]]);
+            ->assertExactJson(['data' => ['tool_favorites' => [], 'hide_non_favorite_tools' => false, 'waiting_room' => false]]);
 
         $this->patchJson('/api/v1/preferences', ['tool_favorites' => ['antidote']], $this->enTetes($jetonSoeur))
             ->assertOk();
         $this->getJson('/api/v1/preferences', $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertExactJson(['data' => ['tool_favorites' => ['bcs'], 'hide_non_favorite_tools' => true]]);
+            ->assertExactJson(['data' => ['tool_favorites' => ['bcs'], 'hide_non_favorite_tools' => true, 'waiting_room' => false]]);
     }
 
     public function test_seules_les_cles_d_outils_connues_sont_acceptees(): void
@@ -140,7 +140,7 @@ class StaffPreferencesTest extends TestCase
             ->assertJsonValidationErrors(['hide_non_favorite_tools']);
 
         $this->getJson('/api/v1/preferences', $this->enTetes($this->jeton))
-            ->assertExactJson(['data' => ['tool_favorites' => [], 'hide_non_favorite_tools' => false]]);
+            ->assertExactJson(['data' => ['tool_favorites' => [], 'hide_non_favorite_tools' => false, 'waiting_room' => false]]);
     }
 
     /**
@@ -169,7 +169,7 @@ class StaffPreferencesTest extends TestCase
 
         $this->patchJson('/api/v1/preferences', ['tool_favorites' => ['dose']], $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertExactJson(['data' => ['tool_favorites' => ['dose'], 'hide_non_favorite_tools' => true]]);
+            ->assertExactJson(['data' => ['tool_favorites' => ['dose'], 'hide_non_favorite_tools' => true, 'waiting_room' => false]]);
 
         $this->assertTrue($isInserted);
         $this->assertSame(1, DB::table('staff_preferences')->where('user_id', $this->user->id)->count());

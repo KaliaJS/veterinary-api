@@ -19,6 +19,8 @@ class StaffPreferenceResource extends JsonResource
             'dental_chart_view' => $this->when($this->dental_chart_view !== null, fn () => $this->dental_chart_view),
             // Le graphique des statistiques de la Caisse (06.11.2026), seulement une fois choisi
             'stats_chart_style' => $this->when($this->stats_chart_style !== null, fn () => $this->stats_chart_style),
+            // La salle d'attente à gauche du planning (10.11.2026)
+            'waiting_room' => (bool) $this->waiting_room,
         ];
     }
 }

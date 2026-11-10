@@ -23,6 +23,8 @@ class UpdateStaffPreferencesRequest extends FormRequest
             'dental_chart_view' => ['sometimes', 'string', Rule::in(['A', 'B', 'C', 'D'])],
             // Statistiques de la Caisse (06.11.2026) : barres ou courbe
             'stats_chart_style' => ['sometimes', 'string', Rule::in(['bars', 'line'])],
+            // La salle d'attente à gauche du planning (10.11.2026)
+            'waiting_room' => ['sometimes', 'boolean'],
         ];
     }
 
@@ -37,6 +39,7 @@ class UpdateStaffPreferencesRequest extends FormRequest
             'hide_non_favorite_tools.boolean' => 'Choisissez oui ou non.',
             'dental_chart_view' => 'Cette vue du schéma dentaire n’existe pas.',
             'stats_chart_style' => 'Choisissez les barres ou la courbe.',
+            'waiting_room' => 'Choisissez oui ou non.',
         ];
     }
 }
