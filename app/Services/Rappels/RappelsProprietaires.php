@@ -424,32 +424,41 @@ class RappelsProprietaires
             ];
         }
 
-        $devis = Devis::query()->with(['patient' => fn ($p) => $p->withoutGlobalScopes(), 'patient.client' => fn ($c) => $c->withoutGlobalScopes()])
+        $devis = Devis::query()->with(['patient' => fn ($p) => $p->withoutGlobalScopes(), 'patient.client' => fn ($c) => $c->withoutGlobalScopes(), 'patient.client.user'])
             ->where('clinique_id', $clinique->id)->where('statut', StatutDevis::Envoye)->whereNotNull('patient_id')->whereNotNull('envoye_le')
             ->get()
             ->reject(fn (Devis $d): bool => $d->estExpire());
         foreach ($devis as $d) {
             $jours = (int) $d->envoye_le->diffInDays(now());
-            $seuil = $d->canal === CanalDevis::Papier ? self::JOURS_RELANCE : 2 * self::JOURS_RELANCE;
+            $client = $d->patient?->client;
+            // Un devis en ligne dont la relance ne peut pas partir (pas d'adresse e-mail) : dès le septième jour, comme un devis papier (sans trou, 11.11.2026)
+            $sansAdresse = $d->canal !== CanalDevis::Papier && blank($client?->user?->email ?: $client?->email);
+            $seuil = $d->canal === CanalDevis::Papier || $sansAdresse ? self::JOURS_RELANCE : 2 * self::JOURS_RELANCE;
             if ($jours < $seuil) {
                 continue;
             }
-            $client = $d->patient?->client;
             $lignes[] = [
                 'type' => 'devis',
                 'id' => $d->id,
                 'patient' => ['id' => $d->patient_id, 'nom' => $d->patient?->nom],
                 'proprietaire' => $client ? self::nomDe($client) : null,
                 'telephone' => $client?->tel,
-                'quoi' => ($d->canal === CanalDevis::Papier ? 'Devis papier ' : 'Devis ').$d->numero.' sans réponse depuis '.$jours.' jours',
+                'quoi' => ($d->canal === CanalDevis::Papier ? 'Devis papier ' : 'Devis ').$d->numero.' sans réponse depuis '.$jours.' jours'
+                    .($sansAdresse ? ', la relance ne part pas : '.($client === null ? 'pas de propriétaire sur la fiche' : 'pas d’adresse e-mail') : ''),
                 'depuis_le' => $d->envoye_le->toDateString(),
             ];
         }
 
         // Un rappel qui ne partira pas faute de moyen de joindre le client : l'équipe l'appelle (Jim, 11.11.2026),
         // le jour où il aurait dû partir, pas avant (rien de ce qui n'est « pas encore à faire »). Pas ceux qu'un
-        // choix bloque (rappels coupés, animal décédé) : on ne rappelle pas qui n'en veut pas.
-        foreach ($this->aVenir($clinique) as $ligne) {
+        // choix bloque (rappels coupés, animal décédé) : on ne rappelle pas qui n'en veut pas. Sans trou : un vaccin
+        // reste là après l'échéance jusqu'à rejoindre les vaccins en retard (quatorzième jour) ; la relance d'un vaccin
+        // et celle d'un devis n'y font pas une deuxième ligne (le devis sans adresse est déjà là dès le septième jour).
+        $injoignables = array_filter($this->aVenir($clinique), fn (array $ligne): bool => ! in_array($ligne['objet'], ['vaccin_retard', 'devis'], true));
+        foreach ($this->vaccinsEchusInjoignables($clinique, $aujourdhui) as $ligne) {
+            $injoignables[] = $ligne;
+        }
+        foreach ($injoignables as $ligne) {
             // Le jour prévu, pas le prochain passage : après 19 h, celui-ci tombe demain (vérification du 11.11.2026)
             if (! isset(self::INJOIGNABLE[$ligne['bloque']]) || $ligne['prevu_le'] > $aujourdhui->toDateString()) {
                 continue;
@@ -468,6 +477,40 @@ class RappelsProprietaires
         }
 
         usort($lignes, fn (array $a, array $b): int => ($a['depuis_le'] ?? '') <=> ($b['depuis_le'] ?? ''));
+
+        return $lignes;
+    }
+
+    /**
+     * Les vaccins échus depuis un à treize jours, encore dus, dont le rappel
+     * n'a pas pu partir faute de moyen de joindre le client : ils restent dans
+     * « À faire » jusqu'au quatorzième jour, où les vaccins en retard prennent
+     * le relais (Jim, 11.11.2026 : « sans trou »).
+     *
+     * @return list<array{objet: string, source_id: ?int, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, telephone: ?string, echeance_le: string, prevu_le: string, envoi_le: string, canaux: list<string>, bloque: ?string}>
+     */
+    private function vaccinsEchusInjoignables(Clinique $clinique, CarbonImmutable $aujourdhui): array
+    {
+        $reglages = self::reglages($clinique);
+        if (! $reglages['vaccins']) {
+            return [];
+        }
+        $prochain = $this->prochainEnvoiPossible($clinique);
+        $echus = $this->dernieresInjections($aujourdhui->subDays(13), $aujourdhui->subDay(), $clinique->societe->organisation_id);
+        $references = $this->cliniquesDeReference($echus->pluck('patient'));
+        $this->lireLesRefus($echus->map(fn (Vaccination $v): ?Client => $v->patient?->client));
+        $lignes = [];
+        foreach ($echus as $vaccination) {
+            if (($references[$vaccination->patient_id] ?? null)?->id !== $clinique->id) {
+                continue;
+            }
+            $echeance = $vaccination->echeance_le->toDateString();
+            $dernier = CarbonImmutable::parse($echeance.' 23:59:59', $clinique->fuseau_horaire ?: 'Europe/Zurich');
+            $ligne = $this->ligneAVenir($clinique, 'vaccin', $vaccination->nom, $vaccination->patient, $echeance, $reglages, $prochain, $dernier, $vaccination->id);
+            if (isset(self::INJOIGNABLE[$ligne['bloque']])) {
+                $lignes[] = $ligne;
+            }
+        }
 
         return $lignes;
     }

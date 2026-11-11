@@ -155,6 +155,50 @@ class RappelsFenetreTest extends TestCase
         $this->assertSame([], $this->lire('rappels/a-faire')['data']);
     }
 
+    /** « Sans trou » (Jim, 11.11.2026) : après l'échéance, une seule ligne chaque jour, jusqu'aux vaccins en retard */
+    public function test_sans_trou_apres_l_echeance(): void
+    {
+        $sansEmail = $this->client(['email' => null]);
+        // Échus depuis 3, 8 (la relance aurait dû partir) et 12 jours ; puis 15 jours : la ligne des vaccins en retard
+        $this->animal($sansEmail, 'Pilou', [['Rage', '2026-10-30']]);
+        $this->animal($sansEmail, 'Moka', [['Rage', '2026-10-25']]);
+        $this->animal($sansEmail, 'Nala', [['Rage', '2026-10-21']]);
+        $this->animal($sansEmail, 'Zia', [['Rage', '2026-10-18']]);
+        // Un client joignable : sa relance part, rien n'attend l'équipe avant le quatorzième jour
+        $this->animal($this->client(['email' => 'lea@example.ch']), 'Rex', [['Rage', '2026-10-30']]);
+
+        $data = $this->lire('rappels/a-faire', ['type' => 'vaccin'])['data'];
+        $lignes = collect($data)->keyBy('patient.nom');
+
+        $this->assertCount(4, $data);
+        $this->assertCount(4, $lignes, 'une ligne chacun, pas de deuxième pour la relance');
+        $this->assertSame(['Moka', 'Nala', 'Pilou', 'Zia'], $lignes->keys()->sort()->values()->all(), 'Rex, joignable, n’y est pas');
+        $this->assertSame('Le rappel Rage du 30.10.2026 ne part pas : pas d’adresse e-mail', $lignes['Pilou']['quoi']);
+        $this->assertSame('Le rappel Rage du 25.10.2026 ne part pas : pas d’adresse e-mail', $lignes['Moka']['quoi']);
+        $this->assertSame('Rage en retard depuis le 18.10.2026', $lignes['Zia']['quoi']);
+    }
+
+    /** Un devis en ligne sans adresse e-mail : dès le septième jour, comme un devis papier, sans deuxième ligne */
+    public function test_un_devis_en_ligne_sans_adresse_des_le_septieme_jour(): void
+    {
+        $sansEmail = $this->client(['email' => null]);
+        $pilou = $this->animal($sansEmail, 'Pilou', []);
+        foreach (['DV-2026-031' => 8, 'DV-2026-032' => 11] as $numero => $jours) {
+            $devis = Devis::factory()->create([
+                'organisation_id' => $this->clinique->societe->organisation_id, 'clinique_id' => $this->clinique->id, 'patient_id' => $pilou->id,
+                'statut' => StatutDevis::Envoye, 'canal' => CanalDevis::Portail, 'numero' => $numero, 'envoye_le' => now()->subDays($jours), 'valide_jusquau' => now()->addDays(22),
+            ]);
+            DevisLigne::factory()->create(['devis_id' => $devis->id]);
+        }
+
+        $lignes = $this->lire('rappels/a-faire', ['type' => 'devis'])['data'];
+
+        $this->assertSame([
+            'Devis DV-2026-032 sans réponse depuis 11 jours, la relance ne part pas : pas d’adresse e-mail',
+            'Devis DV-2026-031 sans réponse depuis 8 jours, la relance ne part pas : pas d’adresse e-mail',
+        ], array_column($lignes, 'quoi'));
+    }
+
     /** Vérification du 11.11.2026 : le soir, le prochain passage tombe demain ; la ligne reste */
     public function test_le_soir_la_ligne_reste(): void
     {
