@@ -5,6 +5,7 @@ namespace Tests\Feature\Rappels;
 use App\Enums\CanalDevis;
 use App\Enums\DomainePermission;
 use App\Enums\StatutDevis;
+use App\Enums\TypeRendezVous;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\DerogationPermission;
@@ -152,6 +153,55 @@ class RappelsFenetreTest extends TestCase
         $this->animal($this->client(['email' => 'paul@example.ch', 'rappels_email' => false, 'rappels_sms' => false]), 'Nala', [['Rage', '2026-11-08']]);
 
         $this->assertSame([], $this->lire('rappels/a-faire')['data']);
+    }
+
+    /** Vérification du 11.11.2026 : le soir, le prochain passage tombe demain ; la ligne reste */
+    public function test_le_soir_la_ligne_reste(): void
+    {
+        $this->animal($this->client(['email' => null]), 'Pilou', [['Rage', '2026-11-08']]);
+        $this->travelTo(CarbonImmutable::parse('2026-11-02 19:30', 'Europe/Zurich'));
+
+        $this->assertCount(1, $this->lire('rappels/a-faire')['data']);
+    }
+
+    public function test_un_animal_sans_proprietaire_le_dit(): void
+    {
+        $orphelin = Patient::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'client_id' => null, 'nom' => 'Ourson']);
+        RendezVous::factory()->create(['clinique_id' => $this->clinique->id, 'patient_id' => $orphelin->id, 'client_id' => null, 'patient_name' => 'Ourson', 'owner_name' => '', 'starts_at' => now()->subMonths(6), 'ends_at' => now()->subMonths(6)->addMinutes(20)]);
+        Vaccination::factory()->create(['patient_id' => $orphelin->id, 'nom' => 'Rage', 'injectee_le' => '2025-11-08', 'echeance_le' => '2026-11-08']);
+
+        $lignes = $this->lire('rappels/a-faire')['data'];
+
+        $this->assertCount(1, $lignes);
+        $this->assertSame('Le rappel Rage du 08.11.2026 ne part pas : pas de propriétaire sur la fiche', $lignes[0]['quoi']);
+        $this->assertNull($lignes[0]['telephone']);
+    }
+
+    /** Un client qui a coupé les rappels de vaccins : son choix, pas un oubli */
+    public function test_un_type_coupe_par_le_client_n_attend_pas_l_equipe(): void
+    {
+        $this->animal($this->client(['email' => null, 'muted_reminders' => ['vaccines']]), 'Pilou', [['Rage', '2026-11-08']]);
+
+        $this->assertSame([], $this->lire('rappels/a-faire')['data']);
+    }
+
+    /** Un rendez-vous pris par quelqu'un d'autre que le propriétaire : c'est lui qu'on appelle, comme à l'envoi */
+    public function test_un_rendez_vous_dit_le_client_qui_l_a_pris(): void
+    {
+        $proprietaire = $this->client(['prenom' => 'Léa', 'nom' => 'Rochat', 'email' => 'lea@example.ch', 'tel' => '079 111 22 33']);
+        $pilou = $this->animal($proprietaire, 'Pilou', []);
+        $gardien = $this->client(['prenom' => 'Marc', 'nom' => 'Favre', 'email' => null, 'tel' => '021 601 42 42']);
+        $debut = CarbonImmutable::parse('2026-11-03 10:00', 'Europe/Zurich')->utc();
+        RendezVous::factory()->create([
+            'clinique_id' => $this->clinique->id, 'patient_id' => $pilou->id, 'client_id' => $gardien->id, 'patient_name' => 'Pilou', 'owner_name' => 'Marc Favre',
+            'type' => TypeRendezVous::Consultation, 'starts_at' => $debut, 'ends_at' => $debut->addMinutes(20),
+        ]);
+
+        $lignes = $this->lire('rappels/a-faire', ['type' => 'rdv'])['data'];
+
+        $this->assertCount(1, $lignes);
+        $this->assertSame('021 601 42 42', $lignes[0]['telephone']);
+        $this->assertSame('Le rappel du rendez-vous du 03.11.2026 ne part pas : pas d’adresse e-mail', $lignes[0]['quoi']);
     }
 
     /** Un client qui ne veut que des SMS, sans mobile sur sa fiche (un fixe) : l'équipe l'appelle */

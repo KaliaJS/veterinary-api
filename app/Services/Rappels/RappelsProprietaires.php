@@ -251,7 +251,7 @@ class RappelsProprietaires
     /**
      * Prochains rappels de la clinique (45 jours) : ce qui partira, et quand.
      *
-     * @return list<array{objet: string, source_id: ?int, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, telephone: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string, devis_id?: int}>
+     * @return list<array{objet: string, source_id: ?int, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, telephone: ?string, echeance_le: string, prevu_le: string, envoi_le: string, canaux: list<string>, bloque: ?string, devis_id?: int}>
      */
     public function aVenir(Clinique $clinique): array
     {
@@ -352,6 +352,7 @@ class RappelsProprietaires
                     'proprietaire' => $client ? self::nomDe($client) : null,
                     'telephone' => $client?->tel,
                     'echeance_le' => ($d->valide_jusquau ?? $envoi)->toDateString(),
+                    'prevu_le' => $envoi->toDateString(),
                     'envoi_le' => max($envoi, CarbonImmutable::parse($prochain->toDateString()))->toDateString(),
                     'canaux' => filled($adresse) ? ['email'] : [],
                     'bloque' => match (true) {
@@ -449,7 +450,8 @@ class RappelsProprietaires
         // le jour où il aurait dû partir, pas avant (rien de ce qui n'est « pas encore à faire »). Pas ceux qu'un
         // choix bloque (rappels coupés, animal décédé) : on ne rappelle pas qui n'en veut pas.
         foreach ($this->aVenir($clinique) as $ligne) {
-            if (! isset(self::INJOIGNABLE[$ligne['bloque']]) || $ligne['envoi_le'] > $aujourdhui->toDateString()) {
+            // Le jour prévu, pas le prochain passage : après 19 h, celui-ci tombe demain (vérification du 11.11.2026)
+            if (! isset(self::INJOIGNABLE[$ligne['bloque']]) || $ligne['prevu_le'] > $aujourdhui->toDateString()) {
                 continue;
             }
             $lignes[] = [
@@ -1271,7 +1273,7 @@ class RappelsProprietaires
      * @param  array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool, relance_noshow: bool, messages_recus: bool, messages_reponses_seulement: bool}  $reglages
      * @param  CarbonImmutable  $prochain  le prochain moment où un rappel peut partir
      * @param  CarbonImmutable  $dernier  le dernier moment où ce rappel a encore un sens
-     * @return array{objet: string, source_id: ?int, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, telephone: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string}
+     * @return array{objet: string, source_id: ?int, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, telephone: ?string, echeance_le: string, prevu_le: string, envoi_le: string, canaux: list<string>, bloque: ?string}
      */
     private function ligneAVenir(Clinique $clinique, string $objet, string $libelle, Patient $patient, string $echeance, array $reglages, CarbonImmutable $prochain, CarbonImmutable $dernier, ?int $sourceId = null, ?RendezVous $rendezVous = null): array
     {
@@ -1290,6 +1292,8 @@ class RappelsProprietaires
             // Pour l'appeler, si le rappel ne peut pas partir (« À faire », 11.11.2026)
             'telephone' => $client?->tel,
             'echeance_le' => $echeance,
+            // Le jour prévu, avant d'être reporté au prochain passage (le soir, ce serait demain)
+            'prevu_le' => $envoi->toDateString(),
             'envoi_le' => max($envoi, $aujourdhui)->toDateString(),
             // Par où il partira (e-mail, SMS), dit à l'écran (28.10.2026)
             'canaux' => $client === null ? [] : array_values(array_filter([
