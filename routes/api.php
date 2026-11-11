@@ -191,6 +191,7 @@ use App\Http\Controllers\Api\V1\SiteDomaineController;
 use App\Http\Controllers\Api\V1\SiteLogoController;
 use App\Http\Controllers\Api\V1\SitePublicController;
 use App\Http\Controllers\Api\V1\SiteShopController;
+use App\Http\Controllers\Api\V1\SiteVideosController;
 use App\Http\Controllers\Api\V1\SiteWebController;
 use App\Http\Controllers\Api\V1\SocieteController;
 use App\Http\Controllers\Api\V1\SoinSejourController;
@@ -404,6 +405,8 @@ Route::prefix('v1')->group(function (): void {
         // Site web publié d'une organisation et de toutes ses cliniques.
         Route::get('sites/{slug}', [SitePublicController::class, 'afficher'])->where('slug', '[a-z0-9-]+');
         // Sa page « Boutique » (07.11.2026) : la vitrine de ce site seulement, son compteur à part
+        // La page « Vidéos » du site : les vidéos de la clinique (11.11.2026)
+        Route::get('sites/{slug}/videos', [SiteVideosController::class, 'index'])->where('slug', '[a-z0-9-]+')->withoutMiddleware('throttle:60,1')->middleware('throttle:120,1,public-videos');
         Route::get('sites/{slug}/boutique', [SiteShopController::class, 'index'])->where('slug', '[a-z0-9-]+')->withoutMiddleware('throttle:60,1')->middleware('throttle:60,1,site-boutique');
         // Un article seul, pas encore chargé (« Réserver », adresse partagée) : même compteur
         Route::get('sites/{slug}/boutique/articles/{article}', [SiteShopController::class, 'show'])->where('slug', '[a-z0-9-]+')->whereNumber('article')->withoutMiddleware('throttle:60,1')->middleware('throttle:60,1,site-boutique');
@@ -609,6 +612,7 @@ Route::prefix('v1')->group(function (): void {
         Route::patch('site', [SiteWebController::class, 'modifier']);
         // L'aperçu de la page Boutique dans l'éditeur, même avant publication (07.11.2026)
         Route::get('site/boutique', [SiteShopController::class, 'preview']);
+        Route::get('site/videos', [SiteVideosController::class, 'preview']);
         Route::post('site/logo', [SiteLogoController::class, 'televerser']);
         Route::delete('site/logo', [SiteLogoController::class, 'supprimer']);
         Route::put('site/domaine', [SiteDomaineController::class, 'connecter']);

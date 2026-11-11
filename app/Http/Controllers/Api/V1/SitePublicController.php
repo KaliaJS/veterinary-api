@@ -8,6 +8,7 @@ use App\Models\Organisation;
 use App\Models\SiteWeb;
 use App\Services\HorairesSiteWeb;
 use App\Services\Site\PublicShop;
+use App\Services\Site\SiteVideos;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -21,7 +22,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class SitePublicController extends Controller
 {
-    public function afficher(string $slug, HorairesSiteWeb $horaires, PublicShop $shop): JsonResponse
+    public function afficher(string $slug, HorairesSiteWeb $horaires, PublicShop $shop, SiteVideos $videos): JsonResponse
     {
         $site = SiteWeb::withoutGlobalScopes()->with('organisation')->where('slug', $slug)->where('est_publie', true)->firstOrFail();
         $organisation = Organisation::ouvertes()->findOrFail($site->organisation_id);
@@ -41,6 +42,8 @@ class SitePublicController extends Controller
             'organisation' => ['nom' => $organisation->nom],
             // La page « Boutique » du site : une clinique a coché le service et un article est en vente (07.11.2026)
             'has_shop' => $shop->isOpen($organisation),
+            // La page « Vidéos » : les vidéos de la clinique, sauf si l'éditeur l'a masquée (11.11.2026)
+            'has_videos' => $videos->isOpen($site),
             'cliniques' => $cliniques->map(fn (Clinique $clinique): array => [
                 'id' => $clinique->id,
                 'nom' => $clinique->nom,

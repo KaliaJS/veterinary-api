@@ -36,6 +36,7 @@ class ModifierSiteRequest extends FormRequest
             'equipe_masquee.*' => ['integer'],
             'afficher_tel' => ['sometimes', 'boolean'],
             'afficher_email' => ['sometimes', 'boolean'],
+            'afficher_videos' => ['sometimes', 'boolean'],
             'actualites' => ['sometimes', 'array', 'max:30'],
             'actualites.*.titre' => ['required', 'string', 'max:120'],
             'actualites.*.texte' => ['nullable', 'string', 'max:1500'],

@@ -49,11 +49,12 @@ class SiteWeb extends Model
         'coins' => 'arrondis',
         'afficher_tel' => true,
         'afficher_email' => true,
+        'afficher_videos' => true,
     ];
 
     protected $fillable = [
         'organisation_id', 'slug', 'domaine', 'domaine_statut', 'domaine_erreur', 'domaine_fournisseur_id', 'domaine_verifie_le', 'domaine_jeton', 'domaine_relie_le', 'est_publie', 'couleur', 'mode', 'couleur_perso', 'police', 'coins', 'logo_chemin', 'accroche', 'presentation',
-        'tel_urgences', 'afficher_tel', 'afficher_email', 'services', 'equipe_masquee', 'actualites',
+        'tel_urgences', 'afficher_tel', 'afficher_email', 'afficher_videos', 'services', 'equipe_masquee', 'actualites',
     ];
 
     protected function casts(): array
@@ -66,6 +67,7 @@ class SiteWeb extends Model
             'equipe_masquee' => 'array',
             'afficher_tel' => 'boolean',
             'afficher_email' => 'boolean',
+            'afficher_videos' => 'boolean',
             'actualites' => 'array',
         ];
     }

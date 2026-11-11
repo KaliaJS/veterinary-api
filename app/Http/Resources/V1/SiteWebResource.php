@@ -6,6 +6,7 @@ use App\Models\Clinique;
 use App\Models\SiteWeb;
 use App\Services\HorairesSiteWeb;
 use App\Services\Site\PublicShop;
+use App\Services\Site\SiteVideos;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -33,6 +34,7 @@ class SiteWebResource extends JsonResource
             'tel_urgences' => $this->tel_urgences,
             'afficher_tel' => $this->afficher_tel,
             'afficher_email' => $this->afficher_email,
+            'afficher_videos' => $this->afficher_videos,
             'services' => array_values($this->services ?? []),
             'equipe' => $this->equipe(),
             'equipe_masquee' => array_values(array_map('intval', $this->equipe_masquee ?? [])),
@@ -40,6 +42,8 @@ class SiteWebResource extends JsonResource
             'organisation' => ['nom' => $this->organisation->nom],
             // La page « Boutique » du site, comme le public la verra (aperçu de l'éditeur, 07.11.2026)
             'has_shop' => app(PublicShop::class)->isOpen($this->organisation),
+            // La page « Vidéos » du site, comme le public la verra (11.11.2026)
+            'has_videos' => app(SiteVideos::class)->isOpen($this->resource),
             'cliniques' => $this->organisation->cliniques()->withoutGlobalScopes()->orderBy('cliniques.id')->get()
                 ->map(fn (Clinique $clinique): array => [
                     'id' => $clinique->id,
