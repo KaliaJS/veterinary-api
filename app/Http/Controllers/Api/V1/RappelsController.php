@@ -108,6 +108,7 @@ class RappelsController extends Controller
         Gate::authorize(DomainePermission::Patients->value);
         $request->validate([
             'type' => ['nullable', 'in:vaccin,controle,rdv,noshow,devis'],
+            'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
         $clinique = app(ContexteClinique::class)->clinique();

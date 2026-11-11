@@ -3,9 +3,11 @@
 namespace Tests\Feature\Rappels;
 
 use App\Enums\CanalDevis;
+use App\Enums\DomainePermission;
 use App\Enums\StatutDevis;
 use App\Models\Client;
 use App\Models\Clinique;
+use App\Models\DerogationPermission;
 use App\Models\Devis;
 use App\Models\DevisLigne;
 use App\Models\Patient;
@@ -120,6 +122,30 @@ class RappelsFenetreTest extends TestCase
         $this->assertSame('Le rappel Rage du 10.11.2026 ne part pas : pas d’adresse e-mail', $lignes[0]['quoi']);
         $this->assertSame(['Pilou'], collect($this->lire('rappels/a-faire', ['type' => 'vaccin'])['data'])->pluck('patient.nom')->all());
         $this->assertSame([], $this->lire('rappels/a-faire', ['type' => 'rdv'])['data']);
+    }
+
+    /** Vérification du 11.11.2026 : le droit Patients, la clinique du jeton, des paramètres bornés */
+    public function test_sans_le_droit_patients_rien_ne_se_lit_et_une_autre_clinique_ne_voit_rien(): void
+    {
+        $this->envoye('vaccin', 'Rage', '2026-10-30 09:00');
+        $this->vaccinEnRetard('2026-10-01', 'Rage');
+        ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        DerogationPermission::create(['employe_id' => $employe->id, 'domaine' => DomainePermission::Patients, 'est_accordee' => false]);
+        ['jeton' => $ailleurs] = $this->administrateurAvecJeton(Clinique::factory()->create());
+
+        $this->getJson('/api/v1/rappels/a-faire', $this->enTetes($jeton))->assertForbidden();
+        $this->getJson('/api/v1/rappels/envoyes', $this->enTetes($jeton))->assertForbidden();
+        $this->getJson('/api/v1/rappels/envoyes', $this->enTetes($ailleurs))->assertOk()->assertJsonPath('meta.total', 0);
+        $this->getJson('/api/v1/rappels/a-faire', $this->enTetes($ailleurs))->assertOk()->assertJsonPath('meta.total', 0);
+    }
+
+    public function test_des_parametres_hors_bornes_sont_refuses(): void
+    {
+        foreach (['rappels/a-faire', 'rappels/envoyes'] as $chemin) {
+            $this->getJson('/api/v1/'.$chemin.'?per_page=101', $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('per_page');
+            $this->getJson('/api/v1/'.$chemin.'?page=0', $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('page');
+        }
+        $this->getJson('/api/v1/rappels/envoyes?type=ordonnance', $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('type');
     }
 
     public function test_ce_qui_est_parti_se_lit_page_par_page_le_plus_recent_d_abord(): void
