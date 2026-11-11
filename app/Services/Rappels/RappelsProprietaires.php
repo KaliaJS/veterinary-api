@@ -251,7 +251,7 @@ class RappelsProprietaires
     /**
      * Prochains rappels de la clinique (45 jours) : ce qui partira, et quand.
      *
-     * @return list<array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, telephone: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string, devis_id?: int}>
+     * @return list<array{objet: string, source_id: ?int, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, telephone: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string, devis_id?: int}>
      */
     public function aVenir(Clinique $clinique): array
     {
@@ -276,7 +276,7 @@ class RappelsProprietaires
                 $echeance = $vaccination->echeance_le->toDateString();
                 // Un vaccin se rappelle jusqu'au jour de son échéance compris
                 $dernier = CarbonImmutable::parse($echeance.' 23:59:59', $clinique->fuseau_horaire ?: 'Europe/Zurich');
-                $lignes[] = $this->ligneAVenir($clinique, 'vaccin', $vaccination->nom, $vaccination->patient, $echeance, $reglages, $prochain, $dernier);
+                $lignes[] = $this->ligneAVenir($clinique, 'vaccin', $vaccination->nom, $vaccination->patient, $echeance, $reglages, $prochain, $dernier, $vaccination->id);
             }
         }
         if ($reglages['controles']) {
@@ -289,7 +289,7 @@ class RappelsProprietaires
                 if (! self::dejaParti($envoyes, 'controle', $rendezVous->id, $this->momentLocal($rendezVous, $clinique))) {
                     $jour = substr($this->momentLocal($rendezVous, $clinique), 0, 10);
                     // Un contrôle se rappelle jusqu'à son heure
-                    $lignes[] = $this->ligneAVenir($clinique, 'controle', 'Contrôle', $rendezVous->patient, $jour, $reglages, $prochain, $rendezVous->starts_at->toImmutable());
+                    $lignes[] = $this->ligneAVenir($clinique, 'controle', 'Contrôle', $rendezVous->patient, $jour, $reglages, $prochain, $rendezVous->starts_at->toImmutable(), $rendezVous->id, $rendezVous);
                 }
             }
         }
@@ -308,7 +308,7 @@ class RappelsProprietaires
                     $fuseau = $clinique->fuseau_horaire ?: 'Europe/Zurich';
                     $veille = CarbonImmutable::parse($jour.' '.(self::HEURE_FIN - 1).':59:59', $fuseau)->subDay();
                     $dernier = $this->prisApresLeDernierPassage($r, CarbonImmutable::parse($jour, $fuseau)) ? max($veille, $r->starts_at->toImmutable()->subHours(2)) : $veille;
-                    $lignes[] = $this->ligneAVenir($clinique, 'rdv', $r->type === TypeRendezVous::Teleconsultation ? 'Téléconsultation' : 'Rendez-vous', $r->patient, $jour, $reglagesVeille, $prochain, $dernier);
+                    $lignes[] = $this->ligneAVenir($clinique, 'rdv', $r->type === TypeRendezVous::Teleconsultation ? 'Téléconsultation' : 'Rendez-vous', $r->patient, $jour, $reglagesVeille, $prochain, $dernier, $r->id, $r);
                 }
             }
         }
@@ -327,7 +327,7 @@ class RappelsProprietaires
                 }
                 $echeance = $vaccination->echeance_le->toDateString();
                 $dernier = CarbonImmutable::parse($echeance.' 23:59:59', $clinique->fuseau_horaire ?: 'Europe/Zurich')->addDays(self::JOURS_RELANCE + self::JOURS_RATTRAPAGE);
-                $lignes[] = [...$this->ligneAVenir($clinique, 'vaccin_retard', $vaccination->nom.', en retard', $vaccination->patient, $echeance, $reglagesRetard, $prochain, $dernier)];
+                $lignes[] = [...$this->ligneAVenir($clinique, 'vaccin_retard', $vaccination->nom.', en retard', $vaccination->patient, $echeance, $reglagesRetard, $prochain, $dernier, $vaccination->id)];
             }
         }
         if ($reglages['relance_devis']) {
@@ -346,6 +346,7 @@ class RappelsProprietaires
                 $adresse = $client?->user?->email ?: $client?->email;
                 $lignes[] = [
                     'objet' => 'devis',
+                    'source_id' => $d->id,
                     'libelle' => 'Devis '.$d->numero.' sans réponse',
                     'patient' => ['id' => $d->patient->id, 'nom' => $d->patient->nom],
                     'proprietaire' => $client ? self::nomDe($client) : null,
@@ -444,19 +445,20 @@ class RappelsProprietaires
             ];
         }
 
-        // Un rappel qui ne partira pas faute de moyen de joindre le client : l'équipe l'appelle (Jim, 11.11.2026).
-        // Pas ceux qu'un choix bloque (rappels coupés, animal décédé) : on ne rappelle pas qui n'en veut pas.
+        // Un rappel qui ne partira pas faute de moyen de joindre le client : l'équipe l'appelle (Jim, 11.11.2026),
+        // le jour où il aurait dû partir, pas avant (rien de ce qui n'est « pas encore à faire »). Pas ceux qu'un
+        // choix bloque (rappels coupés, animal décédé) : on ne rappelle pas qui n'en veut pas.
         foreach ($this->aVenir($clinique) as $ligne) {
-            if (! isset(self::INJOIGNABLE[$ligne['bloque']])) {
+            if (! isset(self::INJOIGNABLE[$ligne['bloque']]) || $ligne['envoi_le'] > $aujourdhui->toDateString()) {
                 continue;
             }
             $lignes[] = [
                 'type' => $ligne['objet'] === 'vaccin_retard' ? 'vaccin' : $ligne['objet'],
-                'id' => $ligne['objet'].'-'.$ligne['patient']['id'].'-'.$ligne['echeance_le'],
+                'id' => $ligne['objet'].'-'.($ligne['source_id'] ?? $ligne['patient']['id'].'-'.$ligne['echeance_le']),
                 'patient' => $ligne['patient'],
                 'proprietaire' => $ligne['proprietaire'],
                 'telephone' => $ligne['telephone'],
-                'quoi' => self::rappelQuiNePartPas($ligne).' ne part pas : '.self::INJOIGNABLE[$ligne['bloque']],
+                'quoi' => self::rappelQuiNePartPas($ligne).' ne part pas : '.($ligne['proprietaire'] === null ? 'pas de propriétaire sur la fiche' : self::INJOIGNABLE[$ligne['bloque']]),
                 'depuis_le' => $ligne['envoi_le'],
                 ...(isset($ligne['devis_id']) ? ['devis_id' => $ligne['devis_id']] : []),
             ];
@@ -1269,16 +1271,19 @@ class RappelsProprietaires
      * @param  array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool, relance_noshow: bool, messages_recus: bool, messages_reponses_seulement: bool}  $reglages
      * @param  CarbonImmutable  $prochain  le prochain moment où un rappel peut partir
      * @param  CarbonImmutable  $dernier  le dernier moment où ce rappel a encore un sens
-     * @return array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, telephone: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string}
+     * @return array{objet: string, source_id: ?int, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, telephone: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string}
      */
-    private function ligneAVenir(Clinique $clinique, string $objet, string $libelle, Patient $patient, string $echeance, array $reglages, CarbonImmutable $prochain, CarbonImmutable $dernier): array
+    private function ligneAVenir(Clinique $clinique, string $objet, string $libelle, Patient $patient, string $echeance, array $reglages, CarbonImmutable $prochain, CarbonImmutable $dernier, ?int $sourceId = null, ?RendezVous $rendezVous = null): array
     {
-        $client = $patient->client;
+        // Le client à qui le rappel partirait : pour un rendez-vous, celui qui l'a pris (comme à l'envoi)
+        $client = self::destinataire($patient, $rendezVous);
         $envoi = CarbonImmutable::parse($echeance)->subDays($reglages['delai_jours']);
         $aujourdhui = CarbonImmutable::parse($prochain->toDateString());
 
         return [
             'objet' => $objet,
+            // Le vaccin, le rendez-vous : deux rappels du même animal le même jour restent deux lignes
+            'source_id' => $sourceId,
             'libelle' => $libelle,
             'patient' => ['id' => $patient->id, 'nom' => $patient->nom],
             'proprietaire' => $client ? self::nomDe($client) : null,

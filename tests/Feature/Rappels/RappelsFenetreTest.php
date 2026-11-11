@@ -101,27 +101,69 @@ class RappelsFenetreTest extends TestCase
         $this->getJson('/api/v1/rappels/a-faire?type=anniversaire', $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('type');
     }
 
+    /** Un animal d'un client, connu de la clinique (un rendez-vous passé), et ses vaccins */
+    private function animal(Client $client, string $nom, array $vaccins, array $attributs = []): Patient
+    {
+        $patient = Patient::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'client_id' => $client->id, 'nom' => $nom, ...$attributs]);
+        RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->subMonths(6), 'ends_at' => now()->subMonths(6)->addMinutes(20)]);
+        foreach ($vaccins as [$vaccin, $echeance]) {
+            Vaccination::factory()->create(['patient_id' => $patient->id, 'nom' => $vaccin, 'injectee_le' => CarbonImmutable::parse($echeance)->subYear(), 'echeance_le' => $echeance]);
+        }
+
+        return $patient;
+    }
+
+    private function client(array $attributs): Client
+    {
+        return Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'prenom' => 'Paul', 'nom' => 'Meunier', 'tel' => '021 601 42 42', ...$attributs]);
+    }
+
     /** Jim, 11.11.2026 : un rappel qui ne peut pas partir faute de moyen de joindre le client attend l'équipe, avec son téléphone */
     public function test_un_rappel_qui_ne_peut_pas_partir_faute_de_contact_attend_l_equipe(): void
     {
-        $organisation = $this->clinique->societe->organisation_id;
-        $sansEmail = Client::factory()->create(['organisation_id' => $organisation, 'prenom' => 'Paul', 'nom' => 'Meunier', 'email' => null, 'tel' => '021 601 42 42']);
-        $pilou = Patient::factory()->create(['organisation_id' => $organisation, 'client_id' => $sansEmail->id, 'nom' => 'Pilou']);
-        RendezVous::factory()->pourPatient($pilou)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->subMonths(6), 'ends_at' => now()->subMonths(6)->addMinutes(20)]);
-        Vaccination::factory()->create(['patient_id' => $pilou->id, 'nom' => 'Rage', 'injectee_le' => '2025-11-10', 'echeance_le' => '2026-11-10']);
-        // Un animal décédé : son rappel ne part pas non plus, mais il n'y a personne à appeler
-        $parti = Patient::factory()->create(['organisation_id' => $organisation, 'client_id' => $sansEmail->id, 'nom' => 'Moka', 'decede_le' => '2026-10-01']);
-        RendezVous::factory()->pourPatient($parti)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->subMonths(6), 'ends_at' => now()->subMonths(6)->addMinutes(20)]);
-        Vaccination::factory()->create(['patient_id' => $parti->id, 'nom' => 'Rage', 'injectee_le' => '2025-11-12', 'echeance_le' => '2026-11-12']);
+        // Rage et Leucose le même jour (le 8 : le rappel part 7 jours avant, aujourd'hui)
+        $this->animal($this->client(['email' => null]), 'Pilou', [['Rage', '2026-11-08'], ['Leucose', '2026-11-08']]);
 
         $lignes = collect($this->lire('rappels/a-faire')['data']);
 
-        $this->assertSame(['Pilou'], $lignes->pluck('patient.nom')->all());
+        $this->assertSame(['Pilou', 'Pilou'], $lignes->pluck('patient.nom')->all());
+        $this->assertCount(2, $lignes->pluck('id')->unique(), 'deux rappels du même animal le même jour restent deux lignes');
         $this->assertSame('vaccin', $lignes[0]['type']);
         $this->assertSame('021 601 42 42', $lignes[0]['telephone']);
-        $this->assertSame('Le rappel Rage du 10.11.2026 ne part pas : pas d’adresse e-mail', $lignes[0]['quoi']);
-        $this->assertSame(['Pilou'], collect($this->lire('rappels/a-faire', ['type' => 'vaccin'])['data'])->pluck('patient.nom')->all());
+        $this->assertSame(['Le rappel Leucose du 08.11.2026 ne part pas : pas d’adresse e-mail', 'Le rappel Rage du 08.11.2026 ne part pas : pas d’adresse e-mail'], $lignes->pluck('quoi')->sort()->values()->all());
+        $this->assertCount(2, $this->lire('rappels/a-faire', ['type' => 'vaccin'])['data']);
         $this->assertSame([], $this->lire('rappels/a-faire', ['type' => 'rdv'])['data']);
+    }
+
+    /** Pas avant le jour où il aurait dû partir : rien de ce qui n'est « pas encore à faire » */
+    public function test_pas_avant_le_jour_ou_il_aurait_du_partir(): void
+    {
+        $this->animal($this->client(['email' => null]), 'Pilou', [['Rage', '2026-12-10']]);
+
+        $this->assertSame([], $this->lire('rappels/a-faire')['data']);
+    }
+
+    /** Ce qu'un choix bloque n'attend pas l'équipe : on n'appelle pas qui n'en veut pas */
+    public function test_un_choix_du_client_ou_de_la_clinique_n_attend_pas_l_equipe(): void
+    {
+        // Rappels coupés pour l'animal
+        $this->animal($this->client(['email' => null]), 'Moka', [['Rage', '2026-11-08']], ['rappels_coupes' => true]);
+        // Un client qui a refusé les e-mails de rappel, sans SMS
+        $this->animal($this->client(['email' => 'paul@example.ch', 'rappels_email' => false, 'rappels_sms' => false]), 'Nala', [['Rage', '2026-11-08']]);
+
+        $this->assertSame([], $this->lire('rappels/a-faire')['data']);
+    }
+
+    /** Un client qui ne veut que des SMS, sans mobile sur sa fiche (un fixe) : l'équipe l'appelle */
+    public function test_sms_seulement_sans_mobile_attend_l_equipe(): void
+    {
+        $this->animal($this->client(['email' => 'paul@example.ch', 'rappels_email' => false, 'rappels_sms' => true]), 'Zia', [['Rage', '2026-11-08']]);
+
+        $lignes = $this->lire('rappels/a-faire')['data'];
+
+        $this->assertCount(1, $lignes);
+        $this->assertSame('Le rappel Rage du 08.11.2026 ne part pas : pas de numéro de mobile', $lignes[0]['quoi']);
+        $this->assertSame('021 601 42 42', $lignes[0]['telephone']);
     }
 
     /** Vérification du 11.11.2026 : le droit Patients, la clinique du jeton, des paramètres bornés */
