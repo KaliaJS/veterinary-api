@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Auth\ContexteClinique;
+use App\Enums\DomainePermission;
 use App\Enums\StatutAbsence;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Absences\EnregistrerAbsenceRequest;
@@ -12,6 +14,7 @@ use App\Services\MutationRendezVous;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -29,7 +32,13 @@ class AbsenceController extends Controller
     {
         $this->authorize('viewAny', Absence::class);
 
+        // Sans le droit Équipe (11.11.2026) : les demandes en attente des autres
+        // ne se montrent pas ; leur raison et leur note non plus (AbsenceResource)
+        $moi = app(ContexteClinique::class)->employe()?->id;
         $absences = Absence::query()
+            ->unless(Gate::allows(DomainePermission::Equipe->value), fn ($requete) => $requete->where(fn ($visibles) => $visibles
+                ->where('statut', StatutAbsence::Validee)
+                ->orWhere('employe_id', $moi)))
             ->when($request->integer('employe_id'), fn ($requete, $employe) => $requete->where('employe_id', $employe))
             ->when($request->string('statut')->isNotEmpty(), fn ($requete) => $requete->where('statut', $request->string('statut')))
             ->orderByDesc('debut_le')

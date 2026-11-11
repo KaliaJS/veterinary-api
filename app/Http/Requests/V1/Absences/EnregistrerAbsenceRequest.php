@@ -17,6 +17,16 @@ class EnregistrerAbsenceRequest extends FormRequest
 {
     use ReglesScopees;
 
+    /** Une date envoyée en liste : une erreur de validation, jamais du serveur (11.11.2026) */
+    protected function prepareForValidation(): void
+    {
+        foreach (['debut_le', 'fin_le'] as $champ) {
+            if ($this->has($champ) && ! is_string($this->input($champ))) {
+                $this->merge([$champ => '']);
+            }
+        }
+    }
+
     /** @return array<string, mixed> */
     public function rules(): array
     {

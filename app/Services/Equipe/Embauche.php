@@ -80,8 +80,7 @@ class Embauche
                 'entree_le' => $donnees['entree_le'] ?? aujourdhui(),
                 'tel' => $donnees['tel'] ?? null,
                 'email' => $donnees['email'] ?? $compte->email,
-                'conges_droit' => $donnees['conges_droit'] ?? 25,
-                'conges_pris' => 0,
+                'conges_droit' => $donnees['conges_droit'] ?? $organisation->conges_droit_defaut,
             ]);
             $employe->cliniques()->attach($cliniques);
 

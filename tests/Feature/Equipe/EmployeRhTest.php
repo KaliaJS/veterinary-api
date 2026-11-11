@@ -12,6 +12,7 @@ use App\Models\Absence;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -271,40 +272,23 @@ class EmployeRhTest extends TestCase
         $this->assertTrue($collegue->fresh()->acces_suspendu);
     }
 
-    public function test_le_solde_de_conges_est_derive_du_droit_du_pris_et_du_planifie(): void
+    public function test_le_solde_de_conges_compte_les_jours_ouvres_de_l_annee(): void
     {
-        $this->employe->update(['conges_droit' => 25, 'conges_pris' => 10]);
+        // Un mercredi ; le jeton s'émet au jour choisi
+        $this->travelTo(CarbonImmutable::parse('2026-11-11 10:00', 'Europe/Zurich'));
+        ['jeton' => $jeton] = $this->administrateurAvecJeton($this->clinique);
+        $collegue = Employe::factory()->dans($this->clinique)->create(['conges_droit' => 25, 'entree_le' => '2020-01-01', 'created_at' => '2026-01-05']);
 
-        // 3 jours validés à venir + un congé passé (ignoré) + une
-        // demande en attente (ignorée).
-        Absence::factory()->create([
-            'employe_id' => $this->employe->id,
-            'type' => TypeAbsence::Conge,
-            'statut' => StatutAbsence::Validee,
-            'debut_le' => aujourdhui()->addDays(10),
-            'fin_le' => aujourdhui()->addDays(12),
-        ]);
-        Absence::factory()->create([
-            'employe_id' => $this->employe->id,
-            'type' => TypeAbsence::Conge,
-            'statut' => StatutAbsence::Validee,
-            'debut_le' => aujourdhui()->subDays(20),
-            'fin_le' => aujourdhui()->subDays(18),
-        ]);
-        Absence::factory()->create([
-            'employe_id' => $this->employe->id,
-            'type' => TypeAbsence::Conge,
-            'statut' => StatutAbsence::EnAttente,
-            'debut_le' => aujourdhui()->addDays(20),
-            'fin_le' => aujourdhui()->addDays(24),
-        ]);
+        // Du lundi au mercredi à venir (3 jours), un congé passé du lundi au
+        // mercredi (3 jours) et une demande en attente (ignorée) : rien ne se
+        // saisit à la main, tout vient des absences validées
+        foreach ([['2026-11-23', '2026-11-25', StatutAbsence::Validee], ['2026-10-19', '2026-10-21', StatutAbsence::Validee], ['2026-12-01', '2026-12-04', StatutAbsence::EnAttente]] as [$debut, $fin, $statut]) {
+            Absence::factory()->create(['employe_id' => $collegue->id, 'type' => TypeAbsence::Conge, 'statut' => $statut, 'debut_le' => $debut, 'fin_le' => $fin]);
+        }
 
-        $this->getJson("/api/v1/equipe/employes/{$this->employe->id}", $this->enTetes($this->jeton))
+        $this->getJson("/api/v1/equipe/employes/{$collegue->id}", $this->enTetes($jeton))
             ->assertOk()
-            ->assertJsonPath('data.conges.droit', 25)
-            ->assertJsonPath('data.conges.pris', 10)
-            ->assertJsonPath('data.conges.planifies', 3)
-            ->assertJsonPath('data.conges.solde', 12);
+            ->assertJsonPath('data.conges', ['annee' => 2026, 'droit' => 25, 'report' => 0, 'pris' => 3, 'planifies' => 3, 'solde' => 19]);
     }
 
     public function test_la_modification_de_la_fiche(): void

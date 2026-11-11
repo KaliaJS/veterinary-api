@@ -64,6 +64,8 @@ Schedule::command('alertes:stock')->dailyAt('07:00')->timezone('Europe/Zurich')-
 
 // Contrats terminés : accès suspendu et jetons révoqués ; jetons expirés supprimés
 Schedule::command('equipe:fermer-contrats')->hourlyAt(15)->withoutOverlapping(50)->onOneServer();
+// Le registre des gardes (É27) : chaque matin, la nuit passée telle que l'équipe l'a vue
+Schedule::command('gardes:enregistrer')->dailyAt('08:00')->timezone('Europe/Zurich')->withoutOverlapping(30)->onOneServer();
 // Rappels par e-mail aux propriétaires, en journée à l'heure de chaque clinique (28.10.2026)
 Schedule::command('rappels:envoyer')->hourlyAt(5)->withoutOverlapping(50)->onOneServer();
 // Vidéos de formation : la cagnotte Plus du mois passé, le 1er de chaque mois (31.10.2026)

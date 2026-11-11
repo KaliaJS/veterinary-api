@@ -13,7 +13,9 @@ use Tests\TestCase;
 /**
  * Permissions du domaine équipe, vérifiées en base à chaque requête :
  * sans le domaine, chaque endpoint RH — fiches, embauche, accès,
- * licenciement, gardes — refuse en 403.
+ * licenciement, choix des gardes, congés à traiter et leurs règles —
+ * refuse en 403. Le planning de l'équipe et ses nuits de garde se lisent
+ * sans lui (11.11.2026).
  */
 class EquipePermissionsTest extends TestCase
 {
@@ -46,8 +48,11 @@ class EquipePermissionsTest extends TestCase
             ['postJson', "/api/v1/equipe/employes/{$this->collegue->id}/retablir", []],
             ['postJson', "/api/v1/equipe/employes/{$this->collegue->id}/licencier", ['fin_contrat_le' => aujourdhui()->addMonth()->toDateString()]],
             ['postJson', "/api/v1/equipe/employes/{$this->collegue->id}/annuler-licenciement", []],
-            ['getJson', '/api/v1/equipe/gardes', []],
-            ['putJson', '/api/v1/equipe/gardes', ['samedi_le' => aujourdhui()->toDateString(), 'employe_id' => $this->collegue->id]],
+            ['putJson', '/api/v1/equipe/gardes', ['jour' => aujourdhui()->toDateString(), 'employe_id' => $this->collegue->id]],
+            ['getJson', "/api/v1/equipe/employes/{$this->collegue->id}/conges", []],
+            ['getJson', '/api/v1/equipe/conges/a-traiter', []],
+            ['getJson', '/api/v1/equipe/conges/reglages', []],
+            ['putJson', '/api/v1/equipe/conges/reglages', ['sans_validation' => true]],
         ];
 
         foreach ($appels as [$methode, $uri, $charge]) {
@@ -70,10 +75,15 @@ class EquipePermissionsTest extends TestCase
         ]);
 
         $this->getJson('/api/v1/equipe/employes', $this->enTetes($jeton))->assertForbidden();
-        $this->getJson('/api/v1/equipe/gardes', $this->enTetes($jeton))->assertForbidden();
+        $this->getJson('/api/v1/equipe/conges/a-traiter', $this->enTetes($jeton))->assertForbidden();
+        $this->putJson('/api/v1/equipe/gardes', ['jour' => aujourdhui()->toDateString(), 'employe_id' => $this->collegue->id], $this->enTetes($jeton))->assertForbidden();
 
-        // Le domaine planning, lui, reste ouvert.
+        // Le domaine planning, lui, reste ouvert, comme le planning de
+        // l'équipe et ses nuits de garde, lus par chacun (11.11.2026).
         $this->getJson('/api/v1/rendez-vous', $this->enTetes($jeton))->assertOk();
+        $periode = '?du='.aujourdhui()->toDateString().'&au='.aujourdhui()->addDays(27)->toDateString();
+        $this->getJson('/api/v1/equipe/gardes'.$periode, $this->enTetes($jeton))->assertOk();
+        $this->getJson('/api/v1/equipe/planning'.$periode, $this->enTetes($jeton))->assertOk();
     }
 
     public function test_un_role_avec_le_domaine_equipe_accede_au_domaine(): void
@@ -82,6 +92,7 @@ class EquipePermissionsTest extends TestCase
 
         $this->getJson('/api/v1/equipe/employes', $this->enTetes($jeton))->assertOk();
         $this->getJson("/api/v1/equipe/employes/{$this->collegue->id}", $this->enTetes($jeton))->assertOk();
-        $this->getJson('/api/v1/equipe/gardes', $this->enTetes($jeton))->assertOk();
+        $this->getJson("/api/v1/equipe/employes/{$this->collegue->id}/conges", $this->enTetes($jeton))->assertOk();
+        $this->getJson('/api/v1/equipe/conges/a-traiter', $this->enTetes($jeton))->assertOk();
     }
 }

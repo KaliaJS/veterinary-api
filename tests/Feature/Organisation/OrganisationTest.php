@@ -273,18 +273,22 @@ class OrganisationTest extends TestCase
 
     public function test_le_solde_de_conges_compte_aussi_les_conges_des_employes_des_autres_cliniques(): void
     {
+        // Un mercredi ; le jeton s'émet au jour choisi
+        $this->travelTo(CarbonImmutable::parse('2026-11-11 10:00', 'Europe/Zurich'));
+        ['jeton' => $jeton] = $this->administrateurAvecJeton($this->clinique);
         $autre = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
-        $employe = Employe::factory()->dans($autre)->create(['conges_droit' => 25, 'conges_pris' => 5]);
+        $employe = Employe::factory()->dans($autre)->create(['conges_droit' => 25, 'entree_le' => '2020-01-01']);
+        // Du lundi au vendredi : 5 jours ouvrés
         Absence::factory()->create([
             'employe_id' => $employe->id,
-            'debut_le' => aujourdhui()->addDays(10),
-            'fin_le' => aujourdhui()->addDays(14),
+            'debut_le' => '2026-11-23',
+            'fin_le' => '2026-11-27',
         ]);
 
-        $equipe = collect($this->getJson('/api/v1/organisation/cliniques', $this->enTetes($this->jeton))->assertOk()->json('data'))
+        $equipe = collect($this->getJson('/api/v1/organisation/cliniques', $this->enTetes($jeton))->assertOk()->json('data'))
             ->firstWhere('id', $autre->id)['equipe'];
 
-        $this->assertSame(['droit' => 25, 'pris' => 5, 'planifies' => 5, 'solde' => 15], $equipe[0]['conges']);
+        $this->assertSame(['annee' => 2026, 'droit' => 25, 'report' => 0, 'pris' => 0, 'planifies' => 5, 'solde' => 20], $equipe[0]['conges']);
     }
 
     public function test_le_changement_de_formule_est_bloque_par_les_limites_depassees(): void

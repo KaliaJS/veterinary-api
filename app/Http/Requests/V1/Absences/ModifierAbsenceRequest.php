@@ -28,6 +28,10 @@ class ModifierAbsenceRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
+            // Une date déjà refusée (mal formée, en liste) : rien à comparer
+            if ($validator->errors()->hasAny(['debut_le', 'fin_le'])) {
+                return;
+            }
             /** @var Absence $absence */
             $absence = $this->route('absence');
 

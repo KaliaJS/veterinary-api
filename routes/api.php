@@ -40,6 +40,7 @@ use App\Http\Controllers\Api\V1\ComptePaiementController;
 use App\Http\Controllers\Api\V1\CompteRenduController;
 use App\Http\Controllers\Api\V1\CompteRenduImagerieController;
 use App\Http\Controllers\Api\V1\ConfirmationRadioController;
+use App\Http\Controllers\Api\V1\CongesEquipeController;
 use App\Http\Controllers\Api\V1\ConsentementInterventionController;
 use App\Http\Controllers\Api\V1\ConsentRequestController;
 use App\Http\Controllers\Api\V1\ConsentWithoutSignatureController;
@@ -51,6 +52,7 @@ use App\Http\Controllers\Api\V1\CycleInterventionController;
 use App\Http\Controllers\Api\V1\CycleOrdonnanceController;
 use App\Http\Controllers\Api\V1\DailyReportController;
 use App\Http\Controllers\Api\V1\DecompteAssuranceController;
+use App\Http\Controllers\Api\V1\DemandeCongeController;
 use App\Http\Controllers\Api\V1\DemandeRattachementController;
 use App\Http\Controllers\Api\V1\DemandeRendezVousController;
 use App\Http\Controllers\Api\V1\DevisController;
@@ -92,7 +94,7 @@ use App\Http\Controllers\Api\V1\FacturePrescriptionController;
 use App\Http\Controllers\Api\V1\FacturesOuvertesController;
 use App\Http\Controllers\Api\V1\FinConsultationController;
 use App\Http\Controllers\Api\V1\FinTeleconsultationController;
-use App\Http\Controllers\Api\V1\GardeWeekendController;
+use App\Http\Controllers\Api\V1\GardeController;
 use App\Http\Controllers\Api\V1\HoraireOuvertureController;
 use App\Http\Controllers\Api\V1\IdentiteController;
 use App\Http\Controllers\Api\V1\ImageriePatientController;
@@ -105,6 +107,7 @@ use App\Http\Controllers\Api\V1\Isabv\IsabvConnectionController;
 use App\Http\Controllers\Api\V1\Isabv\IsabvReferenceController;
 use App\Http\Controllers\Api\V1\Isabv\ProductPreparationController;
 use App\Http\Controllers\Api\V1\JournalFacturesController;
+use App\Http\Controllers\Api\V1\JoursFeriesController;
 use App\Http\Controllers\Api\V1\LabSummaryController;
 use App\Http\Controllers\Api\V1\LicenciementEmployeController;
 use App\Http\Controllers\Api\V1\LignePlanningController;
@@ -141,6 +144,7 @@ use App\Http\Controllers\Api\V1\PeseeController;
 use App\Http\Controllers\Api\V1\PhotoCliniqueController;
 use App\Http\Controllers\Api\V1\PhotoEmployeController;
 use App\Http\Controllers\Api\V1\PhotoPatientController;
+use App\Http\Controllers\Api\V1\PlanningEquipeController;
 use App\Http\Controllers\Api\V1\PlanningOccupancyController;
 use App\Http\Controllers\Api\V1\Plateforme\FonctionEssaiPlateformeController;
 use App\Http\Controllers\Api\V1\Plateforme\InvitationAccesPlateformeController;
@@ -1051,6 +1055,17 @@ Route::prefix('v1')->group(function (): void {
         // l'écran Organisation pilote aussi les cliniques sœurs, la
         // résolution se fait sans binding implicite. Les absences,
         // elles, restent aux routes planning/équipe existantes.
+        // Le planning de l'équipe, lu par chacun (11.11.2026) : les nuits de
+        // garde, les absences (celles des autres sans raison, sans le droit
+        // Équipe), et ses propres demandes de congé
+        Route::get('equipe/gardes', [GardeController::class, 'index']);
+        Route::get('equipe/planning', PlanningEquipeController::class);
+        // Les jours fériés de la clinique (É23) : lus par qui règle horaires ou équipe, changés par l'administration ou les RH
+        Route::get('equipe/jours-feries', [JoursFeriesController::class, 'show']);
+        Route::put('equipe/jours-feries', [JoursFeriesController::class, 'update']);
+        Route::post('equipe/demandes-conge', [DemandeCongeController::class, 'store'])->middleware('throttle:30,1');
+        Route::delete('equipe/demandes-conge/{absence}', [DemandeCongeController::class, 'destroy'])->whereNumber('absence');
+
         Route::middleware('can:equipe')->prefix('equipe')->group(function (): void {
             Route::get('employes', [EquipeEmployeController::class, 'index']);
             Route::get('employes/{employe}', [EquipeEmployeController::class, 'show'])->whereNumber('employe');
@@ -1073,8 +1088,11 @@ Route::prefix('v1')->group(function (): void {
                 Route::delete('invitations/{invitation}', [InvitationEquipeController::class, 'annuler'])->whereNumber('invitation');
             });
 
-            Route::get('gardes', [GardeWeekendController::class, 'index']);
-            Route::put('gardes', [GardeWeekendController::class, 'modifier']);
+            Route::put('gardes', [GardeController::class, 'modifier']);
+            Route::get('employes/{employe}/conges', [EquipeEmployeController::class, 'conges'])->whereNumber('employe');
+            Route::get('conges/a-traiter', [CongesEquipeController::class, 'aTraiter']);
+            Route::get('conges/reglages', [CongesEquipeController::class, 'reglages']);
+            Route::put('conges/reglages', [CongesEquipeController::class, 'modifierReglages']);
         });
 
         // Domaine stocks. Catalogue d'organisation, quantités par

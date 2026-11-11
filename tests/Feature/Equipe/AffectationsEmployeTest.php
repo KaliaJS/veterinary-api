@@ -7,6 +7,7 @@ use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\LignePlanning;
 use App\Models\RendezVous;
+use App\Services\Equipe\SoldesConges;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -127,7 +128,7 @@ class AffectationsEmployeTest extends TestCase
 
     public function test_une_personne_de_deux_cliniques_a_un_seul_solde_et_son_absence_vide_ses_deux_colonnes(): void
     {
-        $collegue = Employe::factory()->dans($this->clinique, $this->soeur)->create(['conges_droit' => 25, 'conges_pris' => 5]);
+        $collegue = Employe::factory()->dans($this->clinique, $this->soeur)->create(['conges_droit' => 25, 'entree_le' => '2020-01-01']);
         $demain = CarbonImmutable::tomorrow();
         $rendezVous = collect([$this->clinique, $this->soeur])->map(function (Clinique $clinique) use ($collegue, $demain): RendezVous {
             $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id, 'employe_id' => $collegue->id]);
@@ -155,7 +156,8 @@ class AffectationsEmployeTest extends TestCase
 
         $this->getJson("/api/v1/equipe/employes/{$collegue->id}", $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonPath('data.conges', ['droit' => 25, 'pris' => 5, 'planifies' => 1, 'solde' => 19]);
+            // Un jour de congé demain : un jour de semaine qui n'est pas férié pour sa clinique (É23)
+            ->assertJsonPath('data.conges.solde', $demain->year === aujourdhui()->year ? 25 - SoldesConges::joursOuvres($demain, $demain, $this->clinique) : 25);
     }
 
     public function test_la_colonne_d_un_employe_retire_de_la_clinique_ne_s_affiche_plus_et_n_offre_plus_de_creneaux(): void

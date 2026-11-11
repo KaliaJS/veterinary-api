@@ -5,11 +5,14 @@ namespace App\Models;
 use App\Auth\ContexteClinique;
 use App\Enums\StatutAbsence;
 use App\Enums\TypeAbsence;
+use App\Events\GardesModifiees;
+use App\Support\TempsReel;
 use Database\Factories\AbsenceFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 
 class Absence extends Model
 {
@@ -29,6 +32,14 @@ class Absence extends Model
                 $builder->whereHas('employe');
             }
         });
+        // Une absence fait passer son tour à un vétérinaire : les nuits de garde de ses cliniques changent (11.11.2026)
+        $prevenir = function (Absence $absence): void {
+            foreach (DB::table('clinique_employe')->where('employe_id', $absence->employe_id)->pluck('clinique_id') as $cliniqueId) {
+                TempsReel::diffuser(fn () => GardesModifiees::dispatch((int) $cliniqueId));
+            }
+        };
+        static::saved($prevenir);
+        static::deleted($prevenir);
     }
 
     protected $fillable = [

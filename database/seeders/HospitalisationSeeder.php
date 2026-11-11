@@ -82,7 +82,6 @@ class HospitalisationSeeder extends Seeder
             'tel' => '079 605 44 18',
             'email' => 't.favre@laveyre.ch',
             'conges_droit' => 25,
-            'conges_pris' => 10,
         ]);
         $favre->cliniques()->attach($leLac->id);
 

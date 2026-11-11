@@ -26,7 +26,8 @@ class ModifierEmployeRequest extends FormRequest
             'tel' => ['sometimes', 'nullable', 'string', 'max:30'],
             'email' => ['sometimes', 'nullable', 'email', 'max:255', new AdresseSansAccent],
             'conges_droit' => ['sometimes', 'integer', 'between:0,60'],
-            'conges_pris' => ['sometimes', 'integer', 'between:0,60'],
+            // Les jours d'avant Veterinary, à la demi-journée (É22)
+            'conges_report_arrivee' => ['sometimes', 'numeric', 'between:-60,60', 'multiple_of:0.5'],
         ];
     }
 }

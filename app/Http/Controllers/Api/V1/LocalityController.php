@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\DomainePermission;
 use App\Http\Controllers\Controller;
+use App\Support\Localites;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -24,12 +25,9 @@ class LocalityController extends Controller
 
         $npa = $request->validate(['npa' => ['required', 'digits:4']])['npa'];
 
-        /** @var array<string, list<array{0: string, 1: string|null}>> $directory */
-        $directory = once(fn (): array => json_decode((string) file_get_contents(resource_path('data/localites.json')), true, flags: JSON_THROW_ON_ERROR));
-
         return response()->json(['data' => array_map(
             fn (array $locality): array => ['npa' => (string) $npa, 'localite' => $locality[0], 'canton' => $locality[1]],
-            $directory[(string) $npa] ?? [],
+            Localites::duNpa((string) $npa),
         )]);
     }
 }

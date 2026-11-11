@@ -2,7 +2,9 @@
 
 namespace App\Policies;
 
+use App\Auth\ContexteClinique;
 use App\Enums\DomainePermission;
+use App\Enums\StatutAbsence;
 use App\Models\Absence;
 use App\Models\User;
 use Illuminate\Support\Facades\Gate;
@@ -20,9 +22,16 @@ class AbsencePolicy
         return Gate::allows(DomainePermission::Planning->value);
     }
 
+    /**
+     * Une à une comme en liste (11.11.2026) : sans le droit Équipe, la
+     * demande en attente ou refusée d'un autre ne se lit pas.
+     */
     public function view(User $user, Absence $absence): bool
     {
-        return Gate::allows(DomainePermission::Planning->value);
+        return Gate::allows(DomainePermission::Planning->value)
+            && (Gate::allows(DomainePermission::Equipe->value)
+                || $absence->statut === StatutAbsence::Validee
+                || $absence->employe_id === app(ContexteClinique::class)->employe()?->id);
     }
 
     public function create(User $user): bool

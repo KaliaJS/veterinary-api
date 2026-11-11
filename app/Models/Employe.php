@@ -9,6 +9,7 @@ use App\Enums\TypeAbsence;
 use App\Enums\TypeAlerte;
 use App\Models\Concerns\AppartientAUneOrganisation;
 use App\Models\Concerns\AUnePhoto;
+use App\Services\Equipe\SoldesConges;
 use Database\Factories\EmployeFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -38,7 +39,7 @@ class Employe extends Model
 
     protected $fillable = [
         'organisation_id', 'user_id', 'nom', 'initiales', 'role_libelle', 'role_id',
-        'taux', 'contrat', 'entree_le', 'tel', 'email', 'photo_chemin', 'conges_droit', 'conges_pris',
+        'taux', 'contrat', 'entree_le', 'tel', 'email', 'photo_chemin', 'conges_droit', 'conges_report_arrivee',
         'acces_suspendu', 'contrat_statut', 'salaire_mensuel',
         'licenciement_notifie_le', 'fin_contrat_le', 'licenciement_motif',
         'alertes_email_coupees', 'alertes_lues',
@@ -52,7 +53,7 @@ class Employe extends Model
             'entree_le' => 'date',
             'taux' => 'integer',
             'conges_droit' => 'integer',
-            'conges_pris' => 'integer',
+            'conges_report_arrivee' => 'float',
             'acces_suspendu' => 'boolean',
             'accord_site_le' => 'datetime',
             'contrat_statut' => StatutContrat::class,
@@ -146,7 +147,7 @@ class Employe extends Model
     }
 
     /**
-     * Congés validés en cours ou à venir, la part qui pèse sur le solde.
+     * Les congés validés, de toutes les années : ils dessinent les soldes.
      * Sans le scope de clinique des absences : l'employé est déjà
      * autorisé, et l'écran Organisation montre aussi les employés qui ne
      * travaillent pas dans la clinique du jeton, dont les congés seraient
@@ -154,37 +155,25 @@ class Employe extends Model
      *
      * @return HasMany<Absence, $this>
      */
-    public function congesAVenir(): HasMany
+    public function congesValides(): HasMany
     {
         return $this->hasMany(Absence::class)
             ->withoutGlobalScope('clinique')
             ->where('type', TypeAbsence::Conge)
             ->where('statut', StatutAbsence::Validee)
-            ->whereDate('fin_le', '>=', aujourdhui());
+            ->orderBy('debut_le');
     }
 
     /**
-     * Solde de congés — DÉRIVÉ, jamais stocké (docs/data-model.md §1) :
-     * le droit annuel moins les jours pris et les congés validés à
-     * venir (la part restante d'un congé en cours compte).
+     * Solde de congés de l'année — DÉRIVÉ, jamais stocké (SoldesConges) :
+     * le droit et le report de l'année d'avant, moins les jours ouvrés
+     * pris et planifiés.
      *
-     * @return array{droit: int, pris: int, planifies: int, solde: int}
+     * @return array{annee: int, droit: int|float, report: int|float, pris: int|float, planifies: int|float, solde: int|float}
      */
     public function soldeConges(): array
     {
-        $planifies = (int) $this->congesAVenir
-            ->sum(function (Absence $absence): int {
-                $depart = $absence->debut_le->greaterThan(aujourdhui()) ? $absence->debut_le : aujourdhui();
-
-                return (int) $depart->diffInDays($absence->fin_le) + 1;
-            });
-
-        return [
-            'droit' => $this->conges_droit,
-            'pris' => $this->conges_pris,
-            'planifies' => $planifies,
-            'solde' => $this->conges_droit - $this->conges_pris - $planifies,
-        ];
+        return app(SoldesConges::class)->anneeEnCours($this);
     }
 
     /**

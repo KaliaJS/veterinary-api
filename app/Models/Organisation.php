@@ -45,6 +45,11 @@ class Organisation extends Model
         'quota_extra_stockage_go' => 0,
         'plafond_transcription' => 20000,
         'plafond_diagnostic' => 5000,
+        'conges_droit_defaut' => 20,
+        'conges_seuil_report' => 5,
+        'conges_planifier_avant' => '03-31',
+        'conges_rappel_deux_semaines' => true,
+        'conges_sans_validation' => false,
     ];
 
     protected function casts(): array
@@ -73,6 +78,10 @@ class Organisation extends Model
             // mots rares à faire reconnaître (médicaments, races, marques)
             'plafond_transcription' => 'integer',
             'plafond_diagnostic' => 'integer',
+            'conges_droit_defaut' => 'integer',
+            'conges_seuil_report' => 'integer',
+            'conges_rappel_deux_semaines' => 'boolean',
+            'conges_sans_validation' => 'boolean',
             'termes_transcription' => 'array',
             'premiers_pas' => 'array',
         ];

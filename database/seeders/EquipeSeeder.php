@@ -34,7 +34,7 @@ class EquipeSeeder extends Seeder
         $anna = User::where('email', 'a.meyer@deuxrives.ch')->first();
 
         $staff = [
-            // [clé, cliniques, user, nom, initiales, rôle, taux, contrat, entrée, tel, mail, droit, pris]
+            // [clé, cliniques, user, nom, initiales, rôle, taux, contrat, entrée, tel, mail, droit, jours pris cette année]
             // Rachel Solal consulte dans les deux cliniques : une seule fiche
             ['st1', [$deuxRives], $anna?->id, 'Dr Anna Meyer', 'AM', 'Vétérinaire', 100, 'CDI', '03.2019', '079 412 88 31', 'a.meyer@deuxrives.ch', 25, 12],
             ['st2', [$deuxRives, $leLac], null, 'Dr Rachel Solal', 'RS', 'Vétérinaire', 80, 'CDI', '09.2021', '078 233 90 12', 'r.solal@deuxrives.ch', 20, 9],
@@ -70,8 +70,23 @@ class EquipeSeeder extends Seeder
                 'tel' => $tel,
                 'email' => $mail,
                 'conges_droit' => $droit,
-                'conges_pris' => $pris,
             ]);
+            // Dans Veterinary depuis le début de l'an passé : les congés de
+            // l'an passé (le reste passe sur cette année) et ceux déjà pris
+            // cette année, posés comme absences (rien ne se saisit à la main)
+            $employes[$cle]->forceFill(['created_at' => today()->subYear()->startOfYear()])->save();
+            $rang = count($employes);
+            foreach ([[today()->subYear()->startOfYear(), $droit - [2, 2, 8, 0, 2, 1][$rang - 1]], [today()->startOfYear(), $pris]] as [$debutAnnee, $jours]) {
+                $debut = $debutAnnee->copy()->addWeeks(6 + $rang * 4)->startOfWeek();
+                Absence::create([
+                    'employe_id' => $employes[$cle]->id,
+                    'type' => TypeAbsence::Conge,
+                    'debut_le' => $debut,
+                    'fin_le' => $debut->copy()->addDays(intdiv($jours, 5) * 7 + ($jours % 5 ? $jours % 5 - 1 : -3)),
+                    'statut' => StatutAbsence::Validee,
+                    'valide_par_user_id' => $anna?->id,
+                ]);
+            }
             $employes[$cle]->cliniques()->attach(array_map(fn (Clinique $clinique): int => $clinique->id, $cliniques));
         }
 

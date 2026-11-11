@@ -35,7 +35,7 @@ class OrganisationCliniqueController extends Controller
     {
         $cliniques = $this->organisation()
             ->cliniques()
-            ->with(['societe', 'employes' => fn ($requete) => $requete->withoutGlobalScope('clinique')->orderBy('id'), 'employes.congesAVenir', 'employes.cliniques', 'employes.user.specialites', 'services', 'especes'])
+            ->with(['societe', 'employes' => fn ($requete) => $requete->withoutGlobalScope('clinique')->orderBy('id'), 'employes.congesValides', 'employes.cliniques', 'employes.user.specialites', 'services', 'especes'])
             ->orderBy('cliniques.id')
             ->get();
 
@@ -122,7 +122,7 @@ class OrganisationCliniqueController extends Controller
         // La carte garde son nombre de patients (une clinique neuve : 0)
         $clinique->setAttribute('patients_douze_mois', (int) ($this->patientsDesDouzeMois([$clinique->id])[$clinique->id] ?? 0));
 
-        return new CliniqueResource($clinique->load(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'employes.congesAVenir', 'employes.cliniques', 'employes.user.specialites', 'services', 'especes']));
+        return new CliniqueResource($clinique->load(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'employes.congesValides', 'employes.cliniques', 'employes.user.specialites', 'services', 'especes']));
     }
 
     public function update(ModifierCliniqueRequest $request, int $clinique): CliniqueResource
@@ -149,7 +149,7 @@ class OrganisationCliniqueController extends Controller
 
         $fiche->setAttribute('patients_douze_mois', (int) ($this->patientsDesDouzeMois([$fiche->id])[$fiche->id] ?? 0));
 
-        return new CliniqueResource($fiche->load(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'employes.congesAVenir', 'employes.cliniques', 'employes.user.specialites', 'services', 'especes']));
+        return new CliniqueResource($fiche->load(['employes' => fn ($requete) => $requete->withoutGlobalScope('clinique'), 'employes.congesValides', 'employes.cliniques', 'employes.user.specialites', 'services', 'especes']));
     }
 
     public function destroy(int $clinique): Response

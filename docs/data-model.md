@@ -83,7 +83,7 @@ planning, désormais complet avec les champs RH du proto :
 | `contrat` | string | « CDI » / « CDD → 12.2026 » |
 | `entree` | mois | Mois d'entrée (« 03.2019 ») |
 | `tel`, `mail` | string | Contact |
-| `droit`, `taken` | tinyint | Jours de congé annuels / déjà pris ; le solde affiché déduit aussi les congés validés à venir (dérivé des absences) |
+| `droit` | tinyint | Jours de congé annuels ; les jours pris ne se saisissent plus (11.11.2026), les soldes année par année sont dérivés des absences (ci-dessous) |
 
 **Divergence à réconcilier en base** : l'écran Organisation (section
 2 bis) porte **une seconde représentation d'équipe** (`org.clinics[].team`)
@@ -143,12 +143,56 @@ mêmes annulations), **modification** (période/type/note) et
 colonne (à ajouter aux « suppressions tolérées »). Les RDV annulés ne
 sont pas restaurés par la suppression de l'absence.
 
-**Gardes de week-end** : la rotation affichée (6 week-ends à venir,
-échanges possibles) est **dérivée** (numéro de semaine modulo l'effectif
-vétérinaire + échanges mémorisés). En base, seule l'absence de type
-`garde` est une donnée ; si l'échange de rotation doit survivre à la
-session, prévoir une petite table `gardes_weekend` (date du samedi,
-employé) — sinon état d'UI.
+**Gardes, chaque nuit** (11.11.2026, `RotationGardes`) : table `gardes`
+(clinique, `jour` unique, employé, `est_choisie`, `enregistree_le`,
+`choisie_par_user_id`). Le registre (É26, É27, OLT 1 art. 73) : chaque
+matin, `gardes:enregistrer` (08:00, Zurich) enregistre les nuits passées
+de chaque clinique qui ne le sont pas encore (les quatre semaines d'avant
+au plus) telles qu'elles se montraient (`enregistree_le`) ; un choix fait
+d'avance devient l'enregistrement de sa nuit, ou le nom de qui l'a
+remplacé. Regarder n'écrit rien. Un manager corrige une nuit des 30
+derniers jours (É28, seule, sans son week-end, sans pouvoir l'effacer) :
+elle entre au registre, avec qui l'a corrigée. Une nuit du registre ne
+change plus ; un choix d'avance tient tant que son vétérinaire est là (ni
+absent ni hors contrat, avec son accès) ; sinon la suggestion,
+**dérivée** (É24, « Balanced suggestion ») : le vétérinaire présent qui a
+eu le moins de nuits sur les quatre semaines d'avant, puis celui qui se
+repose depuis le plus longtemps ; le samedi et le dimanche au même. Le
+calcul part toujours de huit semaines avant aujourd'hui, avec les nuits
+enregistrées des quatre semaines d'avant : une nuit à venir montre le même
+vétérinaire quelle que soit la période demandée (une période plus ancienne
+se calcule à part, pour être montrée). Le dimanche suit le vétérinaire du
+samedi s'il est là. Une période se lit dans les trois ans autour
+d'aujourd'hui, 100 jours au plus. Le samedi et le dimanche se choisissent d'un bloc,
+jamais une nuit passée. Un choix ou une absence diffuse
+`gardes.modifiees` sur `clinique.{id}.planning`.
+`GET equipe/gardes?du&au` (100 jours au plus, lu par toute l'équipe) rend
+les nuits et, pour chaque semaine, les nuits de chacun sur les quatre
+semaines qui finissent ce dimanche (OLT 2 art. 8b : 7 au plus).
+L'ancienne table `gardes_weekend` est reprise (samedi et dimanche) puis
+supprimée.
+
+**Congés année par année** (11.11.2026, `SoldesConges`), dérivés : les
+jours ouvrés (lundi à vendredi) des congés validés, pris avant
+aujourd'hui ou planifiés ensuite ; le droit de la fiche, au prorata
+l'année d'entrée et celle de la fin du contrat (à la demi-journée, les
+années s'arrêtant à celle de la fin) ; le reste de chaque année reporté
+sur la suivante, toujours (CO 329d al. 2 et 341). La première année est
+celle de l'arrivée dans Veterinary (ou de l'entrée, si plus tard) ; les
+congés déjà pris cette année-là se posent comme absences (la colonne
+`conges_pris`, saisie à la main, est retirée) ; seul le report d'avant se
+pose une fois, `employes.conges_report_arrivee` (É22). Les jours fériés de
+la clinique ne comptent pas (É23, `App\Support\JoursFeries`) : ceux du
+canton d'après le NPA (répertoire swisstopo), selon l'annexe du SECO
+« Jours fériés en Suisse » (état au 12.12.2024, LTr art. 20a), la région
+(`cliniques.jours_feries_variante`) et les ajustements
+(`jours_feries_retires`, `jours_feries_ajoutes`) ; pour une personne de
+deux cliniques, celle de sa plus ancienne affectation.
+Règles de l'organisation (`organisations.conges_*`) : droit des nouvelles
+fiches (20 jours au moins, CO 329a), seuil et date des jours reportés à
+planifier, rappel des deux semaines de suite (CO 329c, dès le 1er
+septembre), congés posés sans validation (coupé de base ; des rendez-vous
+pris ces jours-là laissent la demande en attente).
 
 Codes couleur (`ABSENCE_TYPES`) : congés bleu `#5aa7f5`, maladie rouge
 (`--urgent`), formation violet `#a78bfa`, récupération ambre (`--warn`),

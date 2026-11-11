@@ -14,6 +14,7 @@ use App\Models\Employe;
 use App\Models\Role;
 use App\Services\Equipe\Embauche;
 use App\Services\Equipe\InvitationsEquipe;
+use App\Services\Equipe\SoldesConges;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -38,7 +39,7 @@ class EquipeEmployeController extends Controller
         $this->authorize('viewAny', Employe::class);
 
         $employes = Employe::query()
-            ->with(['cliniques', 'lignePlanning', 'congesAVenir', 'user.specialites'])
+            ->with(['cliniques', 'lignePlanning', 'congesValides', 'user.specialites'])
             ->orderBy('id')
             ->paginate($this->parPage($request));
 
@@ -51,6 +52,15 @@ class EquipeEmployeController extends Controller
         $this->authorize('view', $fiche);
 
         return new EmployeResource($fiche->load(['cliniques', 'lignePlanning']));
+    }
+
+    /** Les congés année par année, la plus récente d'abord (Jim, 11.11.2026, É12). */
+    public function conges(int $employe, SoldesConges $soldes): JsonResponse
+    {
+        $fiche = $this->employeDeLOrganisation($employe);
+        $this->authorize('view', $fiche);
+
+        return response()->json(['data' => $soldes->annees($fiche->load('congesValides'))]);
     }
 
     public function store(EmbaucherEmployeRequest $request, Embauche $embauche): JsonResponse
@@ -81,7 +91,7 @@ class EquipeEmployeController extends Controller
 
         // Son propre contrat (salaire, taux, congés…) : réglé par quelqu'un
         // d'autre, sauf par un administrateur, qui tient l'organisation (24.10.2026)
-        $contrat = ['taux', 'contrat', 'contrat_statut', 'salaire_mensuel', 'conges_droit', 'conges_pris'];
+        $contrat = ['taux', 'contrat', 'contrat_statut', 'salaire_mensuel', 'conges_droit', 'conges_report_arrivee'];
         if (app(GardeEquipe::class)->estSoiMeme($fiche) && ! Gate::allows(DomainePermission::Organisation->value)
             && array_intersect($contrat, array_keys($request->validated())) !== []) {
             throw new AuthorizationException('Votre contrat se règle par une autre personne qui a le droit RH.');

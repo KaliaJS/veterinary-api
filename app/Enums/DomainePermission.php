@@ -79,7 +79,7 @@ enum DomainePermission: string
             self::Facturation => 'Factures, devis, encaissements.',
             self::Stocks => 'Produits, lots, commandes, vente au comptoir.',
             self::Bloc => 'Interventions chirurgicales.',
-            self::Equipe => 'Liste de l’équipe et gardes du week-end.',
+            self::Equipe => 'Fiches de l’équipe, absences à valider, gardes de chaque nuit et congés à traiter.',
             self::Organisation => 'Cliniques, abonnement, compte de paiement, rôles et droits.',
             self::Rh => 'Embaucher, modifier les rôles et les salaires, suspendre, licencier.',
             self::Prescrire => 'Signer et renouveler une ordonnance ; le médicament sort du stock.',

@@ -3,6 +3,7 @@
 namespace Tests\Feature\Planning;
 
 use App\Enums\DomainePermission;
+use App\Enums\StatutAbsence;
 use App\Models\Absence;
 use App\Models\Clinique;
 use App\Models\DerogationPermission;
@@ -85,9 +86,21 @@ class AbsenceParcoursTest extends TestCase
         $this->getJson("/api/v1/absences/{$id}", $entetes)->assertNotFound();
     }
 
+    public function test_des_dates_mal_formees_sont_une_erreur_de_validation(): void
+    {
+        $absence = Absence::factory()->create(['employe_id' => $this->ligne->employe_id]);
+        $entetes = $this->enTetes($this->jeton);
+
+        $this->postJson('/api/v1/absences', ['employe_id' => $this->ligne->employe_id, 'type' => 'conge', 'debut_le' => ['2026-12-01'], 'fin_le' => '2026-12-02'], $entetes)->assertUnprocessable()->assertJsonValidationErrors('debut_le');
+        $this->putJson("/api/v1/absences/{$absence->id}", ['debut_le' => '2026-13-01'], $entetes)->assertUnprocessable()->assertJsonValidationErrors('debut_le');
+        $this->putJson("/api/v1/absences/{$absence->id}", ['fin_le' => ['x']], $entetes)->assertUnprocessable()->assertJsonValidationErrors('fin_le');
+    }
+
     public function test_la_fiche_se_lit_avec_le_seul_domaine_planning(): void
     {
-        $absence = Absence::factory()->enAttente()->create(['employe_id' => $this->ligne->employe_id]);
+        // Validée : elle se lit (sans sa raison) ; en attente, plus depuis le 11.11.2026 (É20)
+        $absence = Absence::factory()->create(['employe_id' => $this->ligne->employe_id, 'statut' => StatutAbsence::Validee]);
+        $demande = Absence::factory()->enAttente()->create(['employe_id' => $this->ligne->employe_id]);
         ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
         DerogationPermission::create([
             'employe_id' => $employe->id,
@@ -98,6 +111,7 @@ class AbsenceParcoursTest extends TestCase
         $this->getJson("/api/v1/absences/{$absence->id}", $this->enTetes($jeton))
             ->assertOk()
             ->assertJsonPath('data.id', $absence->id);
+        $this->getJson("/api/v1/absences/{$demande->id}", $this->enTetes($jeton))->assertForbidden();
     }
 
     public function test_un_refus_est_definitif_et_garde_qui_l_a_decide(): void

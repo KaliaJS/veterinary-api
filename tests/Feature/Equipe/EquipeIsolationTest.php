@@ -95,7 +95,7 @@ class EquipeIsolationTest extends TestCase
         $soeur = Employe::factory()->dans($this->cliniqueSoeur)->create();
 
         $this->putJson('/api/v1/equipe/gardes', [
-            'samedi_le' => aujourdhui()->next('saturday')->toDateString(),
+            'jour' => aujourdhui()->next('saturday')->toDateString(),
             'employe_id' => $soeur->id,
         ], $this->enTetes($this->jeton))
             ->assertUnprocessable()
@@ -106,7 +106,8 @@ class EquipeIsolationTest extends TestCase
     {
         Employe::factory()->dans($this->cliniqueSoeur)->create();
 
-        $reponse = $this->getJson('/api/v1/equipe/gardes', $this->enTetes($this->jeton));
+        $reponse = $this->getJson('/api/v1/equipe/gardes?du='.aujourdhui()->toDateString().'&au='.aujourdhui()->addDays(27)->toDateString(), $this->enTetes($this->jeton))->assertOk();
+        $this->assertCount(28, $reponse->json('data'));
 
         $veterinaireLocal = Employe::withoutGlobalScopes()
             ->whereRelation('cliniques', 'cliniques.id', $this->clinique->id)

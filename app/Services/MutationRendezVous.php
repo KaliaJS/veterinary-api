@@ -15,6 +15,7 @@ use App\Services\Paiements\AcomptesRendezVous;
 use BackedEnum;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
@@ -155,35 +156,9 @@ class MutationRendezVous
             return ['annules' => 0, 'restants' => 0];
         }
 
-        $motif = 'Absence praticien : '.mb_strtolower($absence->type->libelle());
-
-        $lignes = LignePlanning::withoutGlobalScope('clinique')
-            ->with('clinique')
-            ->where('employe_id', $absence->employe_id)
-            ->get();
-
-        // Les jours d'absence sont des jours calendaires de chaque
-        // clinique : les bornes se posent à minuit local, puis se
-        // comparent aux datetimes UTC des rendez-vous.
-        $rendezVous = $lignes->flatMap(function (LignePlanning $ligne) use ($absence) {
-            $fuseau = $ligne->clinique->fuseau_horaire ?? 'Europe/Zurich';
-            $debut = CarbonImmutable::parse($absence->debut_le->toDateString(), $fuseau);
-            $fin = CarbonImmutable::parse($absence->fin_le->copy()->addDay()->toDateString(), $fuseau);
-
-            // Seulement ce qui est encore à venir et prévu (24.10.2026) : un
-            // rendez-vous commencé, fini ou noté absent n'est jamais annulé
-            return RendezVous::withoutGlobalScope('clinique')
-                ->where('ligne_planning_id', $ligne->id)
-                ->where('status', StatutRendezVous::Prevu)
-                ->where('starts_at', '>', now())
-                ->where('starts_at', '<', $fin->utc())
-                ->where('ends_at', '>', $debut->utc())
-                ->orderBy('starts_at')
-                ->orderBy('id')
-                ->get();
-        });
-        // Dans l'ordre de leur heure, toutes colonnes confondues (24.10.2026)
-        $rendezVous = $rendezVous->sortBy([['starts_at', 'asc'], ['id', 'asc']])->values();
+        // Sans la raison : l'historique du rendez-vous se lit avec le seul droit Planning, une maladie est une donnée de santé (11.11.2026)
+        $motif = 'Absence du praticien';
+        $rendezVous = $this->rendezVousPendant($absence);
 
         $annules = 0;
         $restants = 0;
@@ -224,6 +199,45 @@ class MutationRendezVous
         }
 
         return ['annules' => $annules, 'restants' => $restants];
+    }
+
+    /**
+     * Les rendez-vous encore prévus du praticien pendant l'absence, dans
+     * chacune de ses cliniques, dans l'ordre de leur heure (une demande
+     * de congé les compte sans les annuler, 11.11.2026).
+     *
+     * @return Collection<int, RendezVous>
+     */
+    public function rendezVousPendant(Absence $absence): Collection
+    {
+        $lignes = LignePlanning::withoutGlobalScope('clinique')
+            ->with('clinique')
+            ->where('employe_id', $absence->employe_id)
+            ->get();
+
+        // Les jours d'absence sont des jours calendaires de chaque
+        // clinique : les bornes se posent à minuit local, puis se
+        // comparent aux datetimes UTC des rendez-vous.
+        $rendezVous = $lignes->flatMap(function (LignePlanning $ligne) use ($absence) {
+            $fuseau = $ligne->clinique->fuseau_horaire ?? 'Europe/Zurich';
+            $debut = CarbonImmutable::parse($absence->debut_le->toDateString(), $fuseau);
+            $fin = CarbonImmutable::parse($absence->fin_le->copy()->addDay()->toDateString(), $fuseau);
+
+            // Seulement ce qui est encore à venir et prévu (24.10.2026) : un
+            // rendez-vous commencé, fini ou noté absent n'est jamais annulé
+            return RendezVous::withoutGlobalScope('clinique')
+                ->where('ligne_planning_id', $ligne->id)
+                ->where('status', StatutRendezVous::Prevu)
+                ->where('starts_at', '>', now())
+                ->where('starts_at', '<', $fin->utc())
+                ->where('ends_at', '>', $debut->utc())
+                ->orderBy('starts_at')
+                ->orderBy('id')
+                ->get();
+        });
+
+        // Dans l'ordre de leur heure, toutes colonnes confondues (24.10.2026)
+        return $rendezVous->sortBy([['starts_at', 'asc'], ['id', 'asc']])->values();
     }
 
     /** @param array<string, array{mixed, mixed}> $changements */

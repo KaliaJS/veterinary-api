@@ -4,6 +4,8 @@ namespace App\Models;
 
 use App\Enums\ServiceClinique;
 use App\Models\Concerns\AUnePhoto;
+use App\Support\JoursFeries;
+use App\Support\Localites;
 use App\Support\LogosOrganisation;
 use Database\Factories\CliniqueFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -33,11 +35,17 @@ class Clinique extends Model
         'latitude', 'longitude', 'tel', 'email', 'fuseau_horaire', 'nombre_boxes', 'affiche_veterinaires', 'rdv_sans_compte', 'rdv_a_valider', 'urgences_a_valider',
         'acompte_centimes', 'paiements_integres', 'responsable_stupefiants_id',
         'stripe_location_id', 'photo_chemin', 'photo_apercu',
+        'jours_feries_variante', 'jours_feries_retires', 'jours_feries_ajoutes',
     ];
+
+    /** @var array<int, array<string, array{cle: string, nom: string, part: float}>> Les jours fériés déjà calculés, par année */
+    private array $joursFeriesParAnnee = [];
 
     protected function casts(): array
     {
         return [
+            'jours_feries_retires' => 'array',
+            'jours_feries_ajoutes' => 'array',
             'latitude' => 'decimal:5',
             'longitude' => 'decimal:5',
             'nombre_boxes' => 'integer',
@@ -200,5 +208,29 @@ class Clinique extends Model
     public function rendezVous(): HasMany
     {
         return $this->hasMany(RendezVous::class);
+    }
+
+    /** Le canton de la clinique, d'après son NPA (répertoire de swisstopo), ou null. */
+    public function canton(): ?string
+    {
+        return Localites::canton($this->npa);
+    }
+
+    /**
+     * Ses jours fériés d'une année (É23) : ceux de son canton et de sa
+     * région (annexe du SECO), moins les jours qu'elle travaille, plus
+     * ceux qu'elle chôme en plus.
+     *
+     * @return array<string, array{cle: string, nom: string, part: float}>
+     */
+    public function joursFeries(int $annee): array
+    {
+        return $this->joursFeriesParAnnee[$annee] ??= JoursFeries::annee(
+            $this->canton(),
+            $this->jours_feries_variante,
+            $annee,
+            $this->jours_feries_retires ?? [],
+            $this->jours_feries_ajoutes ?? [],
+        );
     }
 }

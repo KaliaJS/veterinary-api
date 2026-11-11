@@ -36,7 +36,6 @@ class EmployeFactory extends Factory
             'tel' => '07'.fake()->numerify('# ### ## ##'),
             'email' => Str::lower(Str::substr($prenom, 0, 1).'.'.Str::ascii($nom)).'@clinique.ch',
             'conges_droit' => fake()->randomElement([20, 25]),
-            'conges_pris' => fake()->numberBetween(0, 15),
         ];
     }
 

@@ -6,6 +6,7 @@ use App\Enums\DomainePermission;
 use App\Enums\Specialite;
 use App\Models\Employe;
 use App\Models\SpecialiteVeterinaire;
+use App\Services\Equipe\SoldesConges;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Gate;
@@ -58,6 +59,8 @@ class EmployeResource extends JsonResource
             ]),
             'ligne_planning_id' => $this->whenLoaded('lignePlanning', fn (): ?int => $this->lignePlanning?->id),
             'conges' => $this->when((bool) $request->boolean('avec_soldes', true), fn (): array => $this->soldeConges()),
+            // Les jours d'avant Veterinary, ajoutés à la première année (É22)
+            'conges_report_arrivee' => SoldesConges::nombre((float) $this->conges_report_arrivee),
         ];
     }
 }

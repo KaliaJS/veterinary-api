@@ -59,6 +59,9 @@ class ProtectionRoutesTest extends TestCase
         'GET api/v1/vaccins' => 'Catalogue Swissmedic, données publiques de la plateforme.',
         'GET api/v1/vaccins/gtin/{gtin}' => 'Catalogue Swissmedic, données publiques de la plateforme.',
         'GET api/v1/rappels/reglages' => 'Réglages des rappels de la clinique (oui ou non, délai) : lus par toute l’équipe, modifiés avec le droit organisation.',
+        'GET api/v1/equipe/gardes' => 'Nuits de garde de la clinique (qui, quelle nuit) : le planning les montre à chacun, les choisir demande le droit équipe.',
+        'POST api/v1/equipe/demandes-conge' => 'Congé demandé par la personne du jeton pour elle-même.',
+        'DELETE api/v1/equipe/demandes-conge/{absence}' => 'Sa propre demande de congé, retirée par la personne du jeton (le contrôleur refuse celle d’un autre).',
     ];
 
     /**
