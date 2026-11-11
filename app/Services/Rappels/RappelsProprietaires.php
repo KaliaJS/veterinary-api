@@ -241,10 +241,17 @@ class RappelsProprietaires
         ];
     }
 
+    /** Les blocages qui disent que personne ne peut joindre le client, et leur fin de phrase dans « À faire » */
+    private const INJOIGNABLE = [
+        'Pas d’adresse e-mail' => 'pas d’adresse e-mail',
+        'Pas de numéro de mobile' => 'pas de numéro de mobile',
+        'SMS seulement, pas encore disponibles' => 'le client ne veut que des SMS, pas encore disponibles',
+    ];
+
     /**
      * Prochains rappels de la clinique (45 jours) : ce qui partira, et quand.
      *
-     * @return list<array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string}>
+     * @return list<array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, telephone: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string, devis_id?: int}>
      */
     public function aVenir(Clinique $clinique): array
     {
@@ -342,6 +349,7 @@ class RappelsProprietaires
                     'libelle' => 'Devis '.$d->numero.' sans réponse',
                     'patient' => ['id' => $d->patient->id, 'nom' => $d->patient->nom],
                     'proprietaire' => $client ? self::nomDe($client) : null,
+                    'telephone' => $client?->tel,
                     'echeance_le' => ($d->valide_jusquau ?? $envoi)->toDateString(),
                     'envoi_le' => max($envoi, CarbonImmutable::parse($prochain->toDateString()))->toDateString(),
                     'canaux' => filled($adresse) ? ['email'] : [],
@@ -436,9 +444,42 @@ class RappelsProprietaires
             ];
         }
 
+        // Un rappel qui ne partira pas faute de moyen de joindre le client : l'équipe l'appelle (Jim, 11.11.2026).
+        // Pas ceux qu'un choix bloque (rappels coupés, animal décédé) : on ne rappelle pas qui n'en veut pas.
+        foreach ($this->aVenir($clinique) as $ligne) {
+            if (! isset(self::INJOIGNABLE[$ligne['bloque']])) {
+                continue;
+            }
+            $lignes[] = [
+                'type' => $ligne['objet'] === 'vaccin_retard' ? 'vaccin' : $ligne['objet'],
+                'id' => $ligne['objet'].'-'.$ligne['patient']['id'].'-'.$ligne['echeance_le'],
+                'patient' => $ligne['patient'],
+                'proprietaire' => $ligne['proprietaire'],
+                'telephone' => $ligne['telephone'],
+                'quoi' => self::rappelQuiNePartPas($ligne).' ne part pas : '.self::INJOIGNABLE[$ligne['bloque']],
+                'depuis_le' => $ligne['envoi_le'],
+                ...(isset($ligne['devis_id']) ? ['devis_id' => $ligne['devis_id']] : []),
+            ];
+        }
+
         usort($lignes, fn (array $a, array $b): int => ($a['depuis_le'] ?? '') <=> ($b['depuis_le'] ?? ''));
 
         return $lignes;
+    }
+
+    /** « Le rappel Rage du 10.11.2026 », « La relance du devis DV-2026-018 » : ce qui ne part pas, en mots */
+    private static function rappelQuiNePartPas(array $ligne): string
+    {
+        $le = CarbonImmutable::parse($ligne['echeance_le'])->format('d.m.Y');
+
+        return match ($ligne['objet']) {
+            'vaccin' => 'Le rappel '.$ligne['libelle'].' du '.$le,
+            'vaccin_retard' => 'La relance '.str_replace(', en retard', '', $ligne['libelle']).' du '.$le,
+            'rdv' => 'Le rappel du rendez-vous du '.$le,
+            'controle' => 'Le rappel du contrôle du '.$le,
+            'devis' => 'La relance du '.lcfirst(str_replace(' sans réponse', '', $ligne['libelle'])),
+            default => 'Le rappel du '.$le,
+        };
     }
 
     /**
@@ -1228,7 +1269,7 @@ class RappelsProprietaires
      * @param  array{email: bool, sms: bool, sms_disponible: bool, delai_jours: int, vaccins: bool, controles: bool, relance_noshow: bool, messages_recus: bool, messages_reponses_seulement: bool}  $reglages
      * @param  CarbonImmutable  $prochain  le prochain moment où un rappel peut partir
      * @param  CarbonImmutable  $dernier  le dernier moment où ce rappel a encore un sens
-     * @return array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string}
+     * @return array{objet: string, libelle: string, patient: array{id: int, nom: string}, proprietaire: ?string, telephone: ?string, echeance_le: string, envoi_le: string, canaux: list<string>, bloque: ?string}
      */
     private function ligneAVenir(Clinique $clinique, string $objet, string $libelle, Patient $patient, string $echeance, array $reglages, CarbonImmutable $prochain, CarbonImmutable $dernier): array
     {
@@ -1241,6 +1282,8 @@ class RappelsProprietaires
             'libelle' => $libelle,
             'patient' => ['id' => $patient->id, 'nom' => $patient->nom],
             'proprietaire' => $client ? self::nomDe($client) : null,
+            // Pour l'appeler, si le rappel ne peut pas partir (« À faire », 11.11.2026)
+            'telephone' => $client?->tel,
             'echeance_le' => $echeance,
             'envoi_le' => max($envoi, $aujourdhui)->toDateString(),
             // Par où il partira (e-mail, SMS), dit à l'écran (28.10.2026)

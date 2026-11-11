@@ -99,6 +99,29 @@ class RappelsFenetreTest extends TestCase
         $this->getJson('/api/v1/rappels/a-faire?type=anniversaire', $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('type');
     }
 
+    /** Jim, 11.11.2026 : un rappel qui ne peut pas partir faute de moyen de joindre le client attend l'équipe, avec son téléphone */
+    public function test_un_rappel_qui_ne_peut_pas_partir_faute_de_contact_attend_l_equipe(): void
+    {
+        $organisation = $this->clinique->societe->organisation_id;
+        $sansEmail = Client::factory()->create(['organisation_id' => $organisation, 'prenom' => 'Paul', 'nom' => 'Meunier', 'email' => null, 'tel' => '021 601 42 42']);
+        $pilou = Patient::factory()->create(['organisation_id' => $organisation, 'client_id' => $sansEmail->id, 'nom' => 'Pilou']);
+        RendezVous::factory()->pourPatient($pilou)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->subMonths(6), 'ends_at' => now()->subMonths(6)->addMinutes(20)]);
+        Vaccination::factory()->create(['patient_id' => $pilou->id, 'nom' => 'Rage', 'injectee_le' => '2025-11-10', 'echeance_le' => '2026-11-10']);
+        // Un animal décédé : son rappel ne part pas non plus, mais il n'y a personne à appeler
+        $parti = Patient::factory()->create(['organisation_id' => $organisation, 'client_id' => $sansEmail->id, 'nom' => 'Moka', 'decede_le' => '2026-10-01']);
+        RendezVous::factory()->pourPatient($parti)->create(['clinique_id' => $this->clinique->id, 'starts_at' => now()->subMonths(6), 'ends_at' => now()->subMonths(6)->addMinutes(20)]);
+        Vaccination::factory()->create(['patient_id' => $parti->id, 'nom' => 'Rage', 'injectee_le' => '2025-11-12', 'echeance_le' => '2026-11-12']);
+
+        $lignes = collect($this->lire('rappels/a-faire')['data']);
+
+        $this->assertSame(['Pilou'], $lignes->pluck('patient.nom')->all());
+        $this->assertSame('vaccin', $lignes[0]['type']);
+        $this->assertSame('021 601 42 42', $lignes[0]['telephone']);
+        $this->assertSame('Le rappel Rage du 10.11.2026 ne part pas : pas d’adresse e-mail', $lignes[0]['quoi']);
+        $this->assertSame(['Pilou'], collect($this->lire('rappels/a-faire', ['type' => 'vaccin'])['data'])->pluck('patient.nom')->all());
+        $this->assertSame([], $this->lire('rappels/a-faire', ['type' => 'rdv'])['data']);
+    }
+
     public function test_ce_qui_est_parti_se_lit_page_par_page_le_plus_recent_d_abord(): void
     {
         $this->envoye('vaccin', 'Rage', '2026-10-30 09:00');

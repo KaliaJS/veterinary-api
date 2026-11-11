@@ -80,7 +80,7 @@ class RappelsController extends Controller
     {
         Gate::authorize(DomainePermission::Patients->value);
         $request->validate([
-            'type' => ['nullable', 'in:vaccin,ordonnance,devis'],
+            'type' => ['nullable', 'in:vaccin,ordonnance,devis,rdv,controle'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
