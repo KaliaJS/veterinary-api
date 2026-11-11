@@ -53,7 +53,11 @@ class PatientController extends Controller
         ]);
     }
 
-    /** Le filtre d'espèce ou d'état de l'écran (`filtre`). */
+    /**
+     * Le filtre d'espèce ou d'état de l'écran (`filtre`).
+     *
+     * @param  Builder<Patient>  $requete
+     */
     private function filtrer(Builder $requete, Request $request): void
     {
         match ($request->string('filtre')->toString()) {
