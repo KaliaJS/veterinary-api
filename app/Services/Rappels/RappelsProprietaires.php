@@ -461,7 +461,8 @@ class RappelsProprietaires
                 'proprietaire' => $ligne['proprietaire'],
                 'telephone' => $ligne['telephone'],
                 'quoi' => self::rappelQuiNePartPas($ligne).' ne part pas : '.($ligne['proprietaire'] === null ? 'pas de propriétaire sur la fiche' : self::INJOIGNABLE[$ligne['bloque']]),
-                'depuis_le' => $ligne['envoi_le'],
+                // Depuis le jour où il aurait dû partir
+                'depuis_le' => $ligne['prevu_le'],
                 ...(isset($ligne['devis_id']) ? ['devis_id' => $ligne['devis_id']] : []),
             ];
         }
