@@ -31,7 +31,13 @@ class SiteVideos
     /** La page « Vidéos » paraît : l'éditeur ne l'a pas masquée et la clinique a une vidéo à montrer */
     public function isOpen(SiteWeb $site): bool
     {
-        return $site->afficher_videos && $this->query($site->organisation)->exists();
+        return $site->afficher_videos && $this->exist($site->organisation);
+    }
+
+    /** La clinique a une vidéo à montrer (l'éditeur le sait, même la page masquée) */
+    public function exist(Organisation $organisation): bool
+    {
+        return $this->query($organisation)->exists();
     }
 
     /**

@@ -114,6 +114,8 @@ class SiteVideosTest extends TestCase
 
         $this->getJson('/api/v1/public/sites/deux-rives')->assertOk()->assertJsonPath('data.has_videos', false);
         $this->getJson('/api/v1/public/sites/deux-rives/videos')->assertNotFound();
+        // L'éditeur sait toujours que la clinique en a, pour son aperçu
+        $this->getJson('/api/v1/site', $this->enTetes($jeton))->assertOk()->assertJsonPath('data.has_clinic_videos', true);
     }
 
     // Case 4 : l'aperçu de l'éditeur lit la même page, même avant publication

@@ -44,6 +44,8 @@ class SiteWebResource extends JsonResource
             'has_shop' => app(PublicShop::class)->isOpen($this->organisation),
             // La page « Vidéos » du site, comme le public la verra (11.11.2026)
             'has_videos' => app(SiteVideos::class)->isOpen($this->resource),
+            // L'aperçu suit l'interrupteur avant l'enregistrement : la clinique a-t-elle des vidéos ?
+            'has_clinic_videos' => app(SiteVideos::class)->exist($this->organisation),
             'cliniques' => $this->organisation->cliniques()->withoutGlobalScopes()->orderBy('cliniques.id')->get()
                 ->map(fn (Clinique $clinique): array => [
                     'id' => $clinique->id,
