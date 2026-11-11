@@ -724,6 +724,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('rappels', [RappelsController::class, 'index']);
         Route::get('rappels/reglages', [RappelsController::class, 'reglages']);
         Route::get('rappels/a-faire', [RappelsController::class, 'aFaire']);
+        Route::get('rappels/envoyes', [RappelsController::class, 'envoyes']);
         Route::get('rappels/apercu/{objet}', [RappelsController::class, 'apercu']);
         // Messagerie de la clinique (décision de Jim, 28.10.2026)
         Route::middleware('can:patients')->prefix('messages')->group(function (): void {

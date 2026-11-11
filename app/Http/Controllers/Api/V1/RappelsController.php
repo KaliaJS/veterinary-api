@@ -52,19 +52,7 @@ class RappelsController extends Controller
 
         $envoyes = RappelEnvoye::query()->with(['patient' => fn ($patient) => $patient->withoutGlobalScopes(), 'client' => fn ($client) => $client->withoutGlobalScopes()])
             ->where('clinique_id', $clinique->id)->latest('id')->limit(50)->get()
-            ->map(fn (RappelEnvoye $rappel): array => [
-                'id' => $rappel->id,
-                'objet' => $rappel->objet,
-                'libelle' => $rappel->libelle,
-                'patient' => ['id' => $rappel->patient_id, 'nom' => $rappel->patient?->nom],
-                'proprietaire' => $rappel->client ? RappelsProprietaires::nomDe($rappel->client) : null,
-                'echeance_le' => $rappel->echeance_le->toDateString(),
-                'canal' => $rappel->canal,
-                'statut' => $rappel->statut,
-                'manuel' => $rappel->manuel,
-                'envoye_le' => $rappel->envoye_le?->toIso8601String(),
-                'tente_le' => $rappel->updated_at?->toIso8601String(),
-            ]);
+            ->map(fn (RappelEnvoye $rappel): array => $this->envoye($rappel));
 
         $depuis = now()->subDays(30);
         $aVenir = $this->rappels->aVenir($clinique);
@@ -88,12 +76,72 @@ class RappelsController extends Controller
      * (01.11.2026) : un vaccin toujours en retard malgré la relance, un
      * renouvellement d'ordonnance demandé, un devis resté sans réponse.
      */
-    public function aFaire(): JsonResponse
+    public function aFaire(Request $request): JsonResponse
     {
         Gate::authorize(DomainePermission::Patients->value);
+        $request->validate([
+            'type' => ['nullable', 'in:vaccin,ordonnance,devis'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
         $clinique = app(ContexteClinique::class)->clinique();
 
-        return response()->json(['data' => $this->rappels->aFaire($clinique)]);
+        // Page par page, filtré par type (Jim, 11.11.2026 : tout ce qui est à faire, au fil du défilement)
+        $lignes = collect($this->rappels->aFaire($clinique))
+            ->when($request->input('type'), fn ($lignes, string $type) => $lignes->where('type', $type))
+            ->values();
+        $parPage = $request->integer('per_page') ?: 25;
+        $page = $request->integer('page') ?: 1;
+
+        return response()->json([
+            'data' => $lignes->forPage($page, $parPage)->values(),
+            'meta' => ['current_page' => $page, 'last_page' => max(1, (int) ceil($lignes->count() / $parPage)), 'per_page' => $parPage, 'total' => $lignes->count()],
+        ]);
+    }
+
+    /**
+     * Ce qui est parti, le plus récent d'abord, page par page (11.11.2026) ;
+     * « vaccin » compte aussi ses relances de retard.
+     */
+    public function envoyes(Request $request): JsonResponse
+    {
+        Gate::authorize(DomainePermission::Patients->value);
+        $request->validate([
+            'type' => ['nullable', 'in:vaccin,controle,rdv,noshow,devis'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+        $clinique = app(ContexteClinique::class)->clinique();
+        $type = $request->input('type');
+
+        $page = RappelEnvoye::query()
+            ->with(['patient' => fn ($patient) => $patient->withoutGlobalScopes(), 'client' => fn ($client) => $client->withoutGlobalScopes()])
+            ->where('clinique_id', $clinique->id)
+            ->when($type, fn ($requete) => $requete->whereIn('objet', $type === 'vaccin' ? ['vaccin', 'vaccin_retard'] : [$type]))
+            ->orderByRaw('coalesce(envoye_le, updated_at) desc')->orderByDesc('id')
+            ->paginate($request->integer('per_page') ?: 25);
+
+        return response()->json([
+            'data' => collect($page->items())->map(fn (RappelEnvoye $rappel): array => $this->envoye($rappel))->values(),
+            'meta' => ['current_page' => $page->currentPage(), 'last_page' => $page->lastPage(), 'per_page' => $page->perPage(), 'total' => $page->total()],
+        ]);
+    }
+
+    /** Un rappel parti, tel que l'écran le montre */
+    private function envoye(RappelEnvoye $rappel): array
+    {
+        return [
+            'id' => $rappel->id,
+            'objet' => $rappel->objet,
+            'libelle' => $rappel->libelle,
+            'patient' => ['id' => $rappel->patient_id, 'nom' => $rappel->patient?->nom],
+            'proprietaire' => $rappel->client ? RappelsProprietaires::nomDe($rappel->client) : null,
+            'echeance_le' => $rappel->echeance_le->toDateString(),
+            'canal' => $rappel->canal,
+            'statut' => $rappel->statut,
+            'manuel' => $rappel->manuel,
+            'envoye_le' => $rappel->envoye_le?->toIso8601String(),
+            'tente_le' => $rappel->updated_at?->toIso8601String(),
+        ];
     }
 
     /**
