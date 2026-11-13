@@ -87,6 +87,5 @@ class AdressesSansAccentTest extends TestCase
         $entetes = $this->enTetes($jeton);
         $client = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id]);
         $this->patchJson("/api/v1/clients/{$client->id}", ['email' => 'paul@gmaíl.com'], $entetes)->assertJsonValidationErrors(['email' => self::REFUS]);
-        $this->postJson("/api/v1/clients/{$client->id}/compte", ['email' => 'paul@gmaíl.com'], $entetes)->assertJsonValidationErrors(['email' => self::REFUS]);
     }
 }

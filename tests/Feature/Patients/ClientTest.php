@@ -12,8 +12,6 @@ use App\Models\Patient;
 use App\Models\RendezVous;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Hashing\BcryptHasher;
-use Illuminate\Support\Facades\Hash;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -183,97 +181,45 @@ class ClientTest extends TestCase
         );
     }
 
-    public function test_le_compte_espace_client_s_ouvre_avec_l_email_de_la_fiche(): void
+    /**
+     * Audit C01 (13.11.2026) : la clinique n'ouvre plus de compte sur une
+     * adresse tapée. Un compte existant ne se rattache plus sans l'accord de
+     * son titulaire, et ses coordonnées ne sont plus recopiées dans la fiche ;
+     * l'invitation, que le titulaire accepte, remplace cette route.
+     */
+    public function test_ouvrir_un_compte_depuis_la_fiche_repond_405_sans_rattacher_ni_recopier(): void
     {
-        $this->postJson("/api/v1/clients/{$this->client->id}/compte", [], $this->enTetes($this->jeton))
-            ->assertOk()
-            ->assertJsonPath('data.a_un_compte', true);
+        $titulaire = User::factory()->create(['email' => 'pris@exemple.ch', 'tel' => '079 000 00 00', 'rue' => 'Rue du Lac 1', 'npa' => '1201', 'localite' => 'Genève']);
+        $fiche = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'tel' => null, 'rue' => null, 'npa' => null, 'localite' => null]);
 
-        $utilisateur = User::where('email', 'martin.famille@bluewin.ch')->sole();
-        $this->assertSame($utilisateur->id, $this->client->fresh()->user_id);
-    }
+        $this->postJson("/api/v1/clients/{$fiche->id}/compte", ['email' => $titulaire->email], $this->enTetes($this->jeton))->assertMethodNotAllowed();
 
-    public function test_ouvrir_un_second_compte_est_refuse(): void
-    {
-        $this->postJson("/api/v1/clients/{$this->client->id}/compte", [], $this->enTetes($this->jeton))->assertOk();
-
-        $this->postJson("/api/v1/clients/{$this->client->id}/compte", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('client');
-    }
-
-    /** Une adresse qui a déjà un compte : la fiche s'y rattache, la clinique ne voit pas la différence (24.10.2026). */
-    public function test_une_adresse_qui_a_deja_un_compte_y_rattache_la_fiche_sans_le_dire(): void
-    {
-        $existant = User::factory()->create(['email' => 'pris@exemple.ch', 'email_verified_at' => now()]);
-        $neuve = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
-
-        $avecCompte = $this->postJson("/api/v1/clients/{$this->client->id}/compte", ['email' => 'Pris@Exemple.ch'], $this->enTetes($this->jeton))
-            ->assertOk()->json('data');
-        $sansCompte = $this->postJson("/api/v1/clients/{$neuve->id}/compte", ['email' => 'libre@exemple.ch'], $this->enTetes($this->jeton))
-            ->assertOk()->json('data');
-
-        $this->assertSame($existant->id, $this->client->fresh()->user_id);
-        $this->assertSame(array_keys($avecCompte), array_keys($sansCompte));
-        $this->assertTrue($avecCompte['a_un_compte']);
-        $this->assertSame(1, User::query()->where('email', 'pris@exemple.ch')->count());
-
-        // Révoquée, la fiche se détache ; le compte, prouvé par son titulaire, reste
-        $this->deleteJson("/api/v1/clients/{$this->client->id}/compte", [], $this->enTetes($this->jeton))->assertNoContent();
-        $this->assertModelExists($existant);
-    }
-
-    /** Avec ou sans compte existant, le même travail : un hachage de mot de passe, rien de plus (pas de différence de temps de réponse). */
-    public function test_l_ouverture_fait_le_meme_travail_que_le_compte_existe_ou_non(): void
-    {
-        User::factory()->create(['email' => 'pris@exemple.ch']);
-        $neuve = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id]);
-        // Un hacheur qui compte ses hachages
-        $compteur = new class(['rounds' => 4]) extends BcryptHasher
-        {
-            public int $hachages = 0;
-
-            public function make(#[\SensitiveParameter] $value, array $options = []): string
-            {
-                $this->hachages++;
-
-                return parent::make($value, $options);
-            }
-        };
-        Hash::extend('compteur', fn () => $compteur);
-        config(['hashing.driver' => 'compteur']);
-        Hash::forgetDrivers();
-
-        $this->postJson("/api/v1/clients/{$this->client->id}/compte", ['email' => 'pris@exemple.ch'], $this->enTetes($this->jeton))->assertOk();
-        $avecCompte = $compteur->hachages;
-        $this->postJson("/api/v1/clients/{$neuve->id}/compte", ['email' => 'libre@exemple.ch'], $this->enTetes($this->jeton))->assertOk();
-
-        $this->assertSame(1, $avecCompte);
-        $this->assertSame(2, $compteur->hachages);
-    }
-
-    public function test_une_fiche_sans_email_est_refusee(): void
-    {
-        $sansEmail = Client::factory()->create([
-            'organisation_id' => $this->clinique->societe->organisation_id,
-            'email' => null,
-        ]);
-
-        $this->postJson("/api/v1/clients/{$sansEmail->id}/compte", [], $this->enTetes($this->jeton))
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('email');
+        $fiche->refresh();
+        $this->assertSame([null, null, null, null, null], [$fiche->user_id, $fiche->tel, $fiche->rue, $fiche->npa, $fiche->localite]);
     }
 
     public function test_revoquer_le_compte_detache_et_supprime_l_utilisateur_portail(): void
     {
-        $this->postJson("/api/v1/clients/{$this->client->id}/compte", [], $this->enTetes($this->jeton))->assertOk();
-        $utilisateurId = $this->client->fresh()->user_id;
+        $portail = User::factory()->unverified()->create();
+        $this->client->update(['user_id' => $portail->id]);
 
         $this->deleteJson("/api/v1/clients/{$this->client->id}/compte", [], $this->enTetes($this->jeton))
             ->assertNoContent();
 
         $this->assertNull($this->client->fresh()->user_id);
-        $this->assertDatabaseMissing('users', ['id' => $utilisateurId]);
+        $this->assertModelMissing($portail);
+    }
+
+    /** Révoquée, la fiche se détache ; le compte, prouvé par son titulaire, reste. */
+    public function test_revoquer_ne_supprime_pas_un_compte_prouve_par_son_titulaire(): void
+    {
+        $titulaire = User::factory()->create(['email' => 'pris@exemple.ch']);
+        $this->client->update(['user_id' => $titulaire->id]);
+
+        $this->deleteJson("/api/v1/clients/{$this->client->id}/compte", [], $this->enTetes($this->jeton))->assertNoContent();
+
+        $this->assertNull($this->client->fresh()->user_id);
+        $this->assertModelExists($titulaire);
     }
 
     public function test_revoquer_ne_supprime_jamais_un_compte_employe(): void

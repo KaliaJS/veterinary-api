@@ -3,46 +3,22 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\V1\Clients\CreerCompteClientRequest;
-use App\Http\Resources\V1\ClientResource;
 use App\Models\Client;
 use App\Models\User;
-use App\Services\Clients\OwnerAccount;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 
 /**
  * Compte espace client (0..1 par propriétaire) — conditionne le canal
  * d'envoi des devis (portail vs papier) et les notifications. Aucun
  * mot de passe communiqué : l'espace client s'authentifie comme le
- * reste (passkey ou code e-mail).
+ * reste (passkey ou code e-mail). La clinique n'ouvre plus de compte
+ * sur une adresse tapée (audit C01, 13.11.2026) : elle invite, et le
+ * titulaire accepte (ClientSpaceInvitationController) ; ici, seulement
+ * le retrait.
  */
 class CompteClientController extends Controller
 {
-    public function creer(CreerCompteClientRequest $request, Client $client): ClientResource
-    {
-        $this->authorize('update', $client);
-
-        if ($client->user_id !== null) {
-            throw ValidationException::withMessages([
-                'client' => 'Ce propriétaire a déjà un compte espace client.',
-            ]);
-        }
-
-        $email = $request->validated('email') ?? $client->email;
-
-        if ($email === null) {
-            throw ValidationException::withMessages([
-                'email' => 'Un e-mail est requis pour ouvrir un compte espace client.',
-            ]);
-        }
-
-        OwnerAccount::open($client, $email);
-
-        return new ClientResource($client);
-    }
-
     /**
      * Révocation : le compte est détaché de la fiche. Il n'est supprimé
      * que s'il ne servait qu'à cette fiche (23.10.2026) : ni employé, ni

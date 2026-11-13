@@ -2,10 +2,13 @@
 
 namespace Tests\Feature\Espace;
 
+use App\Auth\ContexteClinique;
+use App\Mail\OwnerSpaceInvitation;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Services\Comptes\SuppressionCompte;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -120,16 +123,29 @@ class ConfigurationProprietaireTest extends TestCase
         $this->assertFalse($this->etat($jeton)['ouvrir']);
     }
 
-    /** Les coordonnées gardées sur le compte arrivent dans une fiche rattachée plus tard (le SMS lit la fiche) */
+    /**
+     * Les coordonnées gardées sur le compte arrivent dans une fiche rattachée
+     * plus tard (le SMS lit la fiche), quand son titulaire prend l'invitation
+     * de la clinique (la clinique n'ouvre plus de compte elle-même, audit C01).
+     */
     public function test_les_coordonnees_du_compte_arrivent_dans_une_fiche_rattachee_plus_tard(): void
     {
+        Mail::fake();
         ['jeton' => $jeton, 'user' => $user] = $this->proprietaireAvecJeton(['email' => 'lea.martin@example.ch']);
         $this->putJson('/api/v1/espace/coordonnees', ['prenom' => 'Léa', 'nom' => 'Martin', 'tel' => '079 123 45 67', 'rue' => 'Rue du Lac 1', 'npa' => '2502', 'localite' => 'Bienne'], $this->enTetes($jeton))->assertOk();
         $clinique = Clinique::factory()->create();
         ['jeton' => $accueil] = $this->administrateurAvecJeton($clinique);
-        $fiche = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'prenom' => 'Léa', 'nom' => 'Martin', 'tel' => null, 'rue' => null, 'npa' => null, 'localite' => null]);
+        $fiche = Client::factory()->create(['organisation_id' => $clinique->societe->organisation_id, 'prenom' => 'Léa', 'nom' => 'Martin', 'email' => 'lea.martin@example.ch', 'tel' => null, 'rue' => null, 'npa' => null, 'localite' => null]);
+        $this->postJson("/api/v1/clients/{$fiche->id}/invitation", [], $this->enTetes($accueil))->assertOk();
+        app(ContexteClinique::class)->oublier();
+        $lien = null;
+        Mail::assertQueued(OwnerSpaceInvitation::class, function (OwnerSpaceInvitation $mail) use (&$lien): bool {
+            $lien = $mail->token;
 
-        $this->postJson("/api/v1/clients/{$fiche->id}/compte", ['email' => 'lea.martin@example.ch'], $this->enTetes($accueil))->assertOk();
+            return true;
+        });
+
+        $this->postJson('/api/v1/espace/invitations-fiche/accepter', ['jeton' => $lien], $this->enTetes($jeton))->assertOk();
 
         $fiche->refresh();
         $this->assertSame([$user->id, '079 123 45 67', 'Rue du Lac 1', '2502', 'Bienne'], [$fiche->user_id, $fiche->tel, $fiche->rue, $fiche->npa, $fiche->localite]);

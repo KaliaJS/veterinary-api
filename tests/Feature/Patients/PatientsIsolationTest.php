@@ -96,7 +96,6 @@ class PatientsIsolationTest extends TestCase
         $appels = [
             ['getJson', "/api/v1/clients/{$clientB}", []],
             ['patchJson', "/api/v1/clients/{$clientB}", ['nom' => 'Piraté']],
-            ['postJson', "/api/v1/clients/{$clientB}/compte", []],
             ['deleteJson', "/api/v1/clients/{$clientB}/compte", []],
             ['getJson', "/api/v1/patients/{$patientB}", []],
             ['patchJson', "/api/v1/patients/{$patientB}", ['nom' => 'Piraté']],

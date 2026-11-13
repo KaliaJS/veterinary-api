@@ -342,11 +342,11 @@ class OwnerCreationTest extends TestCase
         $this->assertNotNull($fiche->refresh()->space_invitation_token_hash);
     }
 
-    public function test_ouvrir_puis_retirer_un_compte_annule_l_invitation(): void
+    public function test_rattacher_puis_retirer_un_compte_annule_l_invitation(): void
     {
         [$fiche, $jeton] = $this->inviter();
 
-        $this->postJson("/api/v1/clients/{$fiche->id}/compte", [], $this->staff())->assertOk();
+        $fiche->update(['user_id' => User::factory()->unverified()->create()->id]);
         $this->assertNull($fiche->refresh()->space_invitation_token_hash);
         $this->deleteJson("/api/v1/clients/{$fiche->id}/compte", [], $this->staff())->assertNoContent();
 

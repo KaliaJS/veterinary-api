@@ -695,7 +695,6 @@ Route::prefix('v1')->group(function (): void {
         // L'invitation dans l'espace : la renvoyer (nouveau lien) ou l'annuler (03.11.2026)
         Route::post('clients/{client}/invitation', [ClientSpaceInvitationController::class, 'store'])->middleware(['can:patients', 'throttle:30,1,invitation-espace']);
         Route::delete('clients/{client}/invitation', [ClientSpaceInvitationController::class, 'destroy'])->middleware('can:patients');
-        Route::post('clients/{client}/compte', [CompteClientController::class, 'creer']);
         Route::delete('clients/{client}/compte', [CompteClientController::class, 'supprimer']);
 
         // Demandes de rattachement (un client réclame un animal par sa

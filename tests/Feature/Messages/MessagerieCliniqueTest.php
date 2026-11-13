@@ -242,16 +242,17 @@ class MessagerieCliniqueTest extends TestCase
     }
 
     /**
-     * « Nouveau message » à un client sans espace client (01.11.2026) : la
-     * clinique lui ouvre son compte, puis écrit ; le premier e-mail dit
-     * comment entrer dans l'espace pour répondre, les suivants non.
+     * « Nouveau message » à un client qui n'est jamais entré dans son espace
+     * (01.11.2026) : le premier e-mail dit comment entrer dans l'espace pour
+     * répondre, les suivants non. Le compte est rattaché à la fiche par le
+     * test : la clinique n'ouvre plus de compte elle-même (audit C01).
      */
     public function test_ecrire_a_un_client_sans_compte_le_premier_e_mail_dit_comment_entrer(): void
     {
         Mail::fake();
         $client = Client::factory()->create(['organisation_id' => $this->clinique->societe->organisation_id, 'prenom' => 'Paul', 'nom' => 'Meunier', 'email' => 'paul.meunier@example.ch', 'user_id' => null]);
-        $compte = $this->postJson("/api/v1/clients/{$client->id}/compte", [], $this->enTetes($this->accueil))->assertOk()->json('data.compte_id');
-        $this->assertNotNull($compte);
+        $compte = User::factory()->unverified()->create(['email' => 'paul.meunier@example.ch'])->id;
+        $client->update(['user_id' => $compte]);
 
         $this->postJson("/api/v1/messages/u{$compte}", ['texte' => 'Les résultats de Rex sont arrivés.'], $this->enTetes($this->accueil))->assertCreated();
         $this->postJson("/api/v1/messages/u{$compte}", ['texte' => 'Rappelez-nous quand vous voulez.'], $this->enTetes($this->accueil))->assertCreated();

@@ -5,6 +5,7 @@ namespace Tests\Feature\Patients;
 use App\Auth\ContexteClinique;
 use App\Auth\EmetteurJetons;
 use App\Enums\StatutDemandeRattachement;
+use App\Mail\OwnerSpaceInvitation;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\DemandeRattachement;
@@ -12,6 +13,7 @@ use App\Models\Patient;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
@@ -71,24 +73,47 @@ class OneAccountPerPetTest extends TestCase
         $this->assertNull($felix->refresh()->proprietaire_id);
     }
 
-    public function test_ouvrir_l_espace_d_une_fiche_est_refuse_si_un_de_ses_animaux_appartient_a_un_autre_compte(): void
+    /** L'invitation de la fiche par la clinique ; rend le jeton du lien, lu dans l'e-mail comme le titulaire l'ouvre */
+    private function inviter(Client $fiche, string $jetonEquipe): string
+    {
+        Mail::fake();
+        $this->postJson("/api/v1/clients/{$fiche->id}/invitation", [], $this->enTetes($jetonEquipe))->assertOk();
+        app(ContexteClinique::class)->oublier();
+        $lien = null;
+        Mail::assertQueued(OwnerSpaceInvitation::class, function (OwnerSpaceInvitation $mail) use (&$lien): bool {
+            $lien = $mail->token;
+
+            return true;
+        });
+
+        return (string) $lien;
+    }
+
+    /**
+     * La fiche rejoint un espace seulement par l'invitation que son titulaire
+     * prend (la clinique n'ouvre plus de compte elle-même, audit C01).
+     */
+    public function test_prendre_l_invitation_d_une_fiche_est_refuse_si_un_de_ses_animaux_appartient_a_un_autre_compte(): void
     {
         $clinique = Clinique::factory()->create();
         $felix = $this->felix($clinique);
         $marc = User::factory()->create();
         $felix->forceFill(['proprietaire_id' => $marc->id])->save();
         ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        $fiche = Client::withoutGlobalScopes()->findOrFail($felix->client_id);
+        $lea = User::factory()->create(['email' => $fiche->email]);
+        $lien = $this->inviter($fiche, $jeton);
 
-        $comptes = User::query()->count();
-        $this->postJson("/api/v1/clients/{$felix->client_id}/compte", ['email' => 'lea@exemple.ch'], $this->enTetes($jeton))
+        $this->postJson('/api/v1/espace/invitations-fiche/accepter', ['jeton' => $lien], $this->enTetes(app(EmetteurJetons::class)->emettreSansClinique($lea)->plainTextToken))
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['client' => 'Félix est déjà dans l’espace d’un autre compte (réclamé par sa puce). Un animal n’appartient qu’à un seul compte.']);
-        $this->assertNull(Client::withoutGlobalScopes()->find($felix->client_id)->user_id);
-        // Aucun compte créé pour rien (refusé avant la création)
-        $this->assertSame($comptes, User::query()->count());
+        $this->assertNull($fiche->refresh()->user_id);
 
         // Le même compte que celui de la puce : permis
-        $this->postJson("/api/v1/clients/{$felix->client_id}/compte", ['email' => $marc->email], $this->enTetes($jeton))->assertOk();
+        $fiche->update(['email' => $marc->email]);
+        $lien = $this->inviter($fiche, $jeton);
+        $this->postJson('/api/v1/espace/invitations-fiche/accepter', ['jeton' => $lien], $this->enTetes(app(EmetteurJetons::class)->emettreSansClinique($marc)->plainTextToken))->assertOk();
+        $this->assertSame($marc->id, $fiche->refresh()->user_id);
     }
 
     /**

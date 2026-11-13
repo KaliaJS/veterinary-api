@@ -136,9 +136,11 @@ serveur, paginés), `POST/PATCH/DELETE /patients/{id}/pesees`,
   `solde` dérivée de `debt` (l'API sert les dérivés : alertes, solde
   dû, no-shows, `client_depuis`).
 
-**`owners.js`** → `GET/POST/PUT/PATCH /clients`, `POST/DELETE
-/clients/{id}/compte` (compte espace client — remplace le
-`hasAccount()` par hash du nom utilisé par les devis).
+**`owners.js`** → `GET/POST/PUT/PATCH /clients`, `DELETE
+/clients/{id}/compte` (retrait du compte espace client — remplace le
+`hasAccount()` par hash du nom utilisé par les devis). La clinique
+n'ouvre plus de compte (`POST /clients/{id}/compte` supprimé, audit
+C01 du 13.11.2026) : elle invite, `POST/DELETE /clients/{id}/invitation`.
 
 - La construction des propriétaires par agrégation des patients
   (`ownerIndex`, index de tableau, négatif pour les créés) disparaît :
@@ -301,7 +303,7 @@ local) : `GET /auth/moi`, `POST /auth/rafraichir`, `GET
 /planning/disponibilites`, `POST /rendez-vous/prochain-creneau`, `POST
 /rendez-vous/{id}/fin-de-consultation`, `GET /facturation/prestations`,
 `GET /facturation/statistiques`, `GET /boutique/statistiques`,
-`GET/PUT /equipe/gardes`, `GET/PUT /horaires`, `POST/DELETE
+`GET/PUT /equipe/gardes`, `GET/PUT /horaires`, `DELETE
 /clients/{id}/compte`, `GET /rendez-vous/{id}/audits` (le front garde
 son propre journal en mémoire).
 
