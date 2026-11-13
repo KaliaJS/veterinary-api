@@ -24,9 +24,10 @@ class RadioDossierController extends Controller
     {
         $this->authorize('view', $patient);
         $radio = RadiosDuDossier::cliche($patient, $examen, $cliche);
-        abort_if($radio->taille_octets === null || $radio->chemin === null || ! Storage::disk('prive')->exists($radio->chemin), 404);
+        $chemin = $radio->cheminDeLOriginal($patient->organisation_id);
+        abort_if($chemin === null || ! Storage::disk('prive')->exists($chemin), 404);
 
-        return Storage::disk('prive')->download($radio->chemin, $radio->sop_instance_uid.'.dcm', ['Content-Type' => 'application/dicom', 'Cache-Control' => 'private, max-age=86400']);
+        return Storage::disk('prive')->download($chemin, $radio->sop_instance_uid.'.dcm', ['Content-Type' => 'application/dicom', 'Cache-Control' => 'private, max-age=86400']);
     }
 
     public function reperes(ReperesRadioRequest $request, Patient $patient, int $examen, int $cliche): ClicheDicomResource

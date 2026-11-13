@@ -149,11 +149,12 @@ final class RecordShareItems
         if ($type === 'imaging') {
             $exam = $this->imagingQuery($patient)->find($id);
             $cliche = $exam?->cliches()->orderBy('id')->get()->values()->get($n);
-            if (! $cliche instanceof ClicheDicom || ! $cliche->chemin || ! Storage::disk('prive')->exists($cliche->chemin)) {
+            $chemin = $cliche instanceof ClicheDicom ? $cliche->cheminDeLOriginal($patient->organisation_id) : null;
+            if ($chemin === null || ! Storage::disk('prive')->exists($chemin)) {
                 return null;
             }
 
-            return ['path' => $cliche->chemin, 'name' => ($n + 1).'-'.$cliche->sop_instance_uid.'.dcm', 'mime' => 'application/dicom'];
+            return ['path' => $chemin, 'name' => ($n + 1).'-'.$cliche->sop_instance_uid.'.dcm', 'mime' => 'application/dicom'];
         }
 
         return null;

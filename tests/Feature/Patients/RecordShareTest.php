@@ -93,8 +93,10 @@ class RecordShareTest extends TestCase
 
         // Une radiographie interprétée, avec son cliché
         $this->imaging = ExamenImagerie::factory()->signe()->create(['clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id, 'libelle' => 'Radiographies du genou gauche', 'realise_le' => now()->subDays(6)]);
-        Storage::disk('prive')->put('radios/1.dcm', 'DICM-cliche');
-        ClicheDicom::query()->create(['examen_imagerie_id' => $this->imaging->id, 'sop_instance_uid' => '1.2.3', 'study_instance_uid' => '1.2', 'series_instance_uid' => '1.2.9', 'nom_fichier' => 'genou.dcm', 'chemin' => 'radios/1.dcm', 'taille_octets' => 11]);
+        // Rangé comme RadioController le range : imagerie/{organisation}/{examen}/{sop}.dcm
+        $chemin = "imagerie/{$organisationId}/{$this->imaging->id}/1.2.3.dcm";
+        Storage::disk('prive')->put($chemin, 'DICM-cliche');
+        ClicheDicom::query()->create(['examen_imagerie_id' => $this->imaging->id, 'sop_instance_uid' => '1.2.3', 'study_instance_uid' => '1.2', 'series_instance_uid' => '1.2.9', 'nom_fichier' => 'genou.dcm', 'chemin' => $chemin, 'taille_octets' => 11]);
 
         // Un document ajouté au dossier, avec son fichier ; un vieux, hors des 6 mois
         Storage::disk('prive')->put('documents/bilan.pdf', '%PDF-1.4 bilan');
@@ -419,6 +421,54 @@ class RecordShareTest extends TestCase
         $this->get("/api/v1/public/record-shares/{$token}/items/document/{$this->document->id}/files/0", ['Accept' => 'application/json'])->assertForbidden();
         // La page elle-même s'ouvre encore, et dit la suite
         $this->getJson("/api/v1/public/record-shares/{$token}")->assertOk();
+    }
+
+    /**
+     * Audit C03 (13.11.2026) : un cliché dont le chemin mène hors du dossier
+     * de son examen (ici, la page d'un import d'une autre organisation) ne
+     * sert rien, ni à la clinique ni par un lien.
+     */
+    public function test_un_cliche_dont_le_fichier_est_hors_du_dossier_de_son_examen_repond_404(): void
+    {
+        $autreOrganisation = Clinique::factory()->create()->societe->organisation_id;
+        $ailleurs = "imports/{$autreOrganisation}/1.json";
+        Storage::disk('prive')->put($ailleurs, '{"pages":["Propriétaire : Mme Dupont, 079 000 00 00"]}');
+        ClicheDicom::query()->create(['examen_imagerie_id' => $this->imaging->id, 'sop_instance_uid' => '9.9.9', 'chemin' => $ailleurs, 'taille_octets' => 54]);
+
+        $this->get("/api/v1/patients/{$this->patient->id}/share-items/imaging/{$this->imaging->id}/files/1", $this->enTetes($this->jeton))->assertNotFound();
+    }
+
+    /** Un chemin qui commence dans le dossier de l'examen puis en remonte (« .. ») ne sert rien. */
+    public function test_un_cliche_dont_le_chemin_remonte_hors_du_dossier_de_son_examen_repond_404(): void
+    {
+        $autreOrganisation = Clinique::factory()->create()->societe->organisation_id;
+        Storage::disk('prive')->put("imports/{$autreOrganisation}/1.json", '{"pages":["Propriétaire : Mme Dupont"]}');
+        $chemin = "imagerie/{$this->clinique->societe->organisation_id}/{$this->imaging->id}/../../../imports/{$autreOrganisation}/1.json";
+        ClicheDicom::query()->create(['examen_imagerie_id' => $this->imaging->id, 'sop_instance_uid' => '9.9.9', 'chemin' => $chemin, 'taille_octets' => 40]);
+
+        $this->get("/api/v1/patients/{$this->patient->id}/share-items/imaging/{$this->imaging->id}/files/1", $this->enTetes($this->jeton))->assertNotFound();
+    }
+
+    /** Par le lien sans compte aussi : l'original part, le fichier d'ailleurs non. */
+    public function test_le_lien_sans_compte_ne_sert_pas_un_cliche_hors_du_dossier_de_son_examen(): void
+    {
+        $autreOrganisation = Clinique::factory()->create()->societe->organisation_id;
+        Storage::disk('prive')->put("imports/{$autreOrganisation}/1.json", '{"pages":["Propriétaire : Mme Dupont"]}');
+        ClicheDicom::query()->create(['examen_imagerie_id' => $this->imaging->id, 'sop_instance_uid' => '9.9.9', 'chemin' => "imports/{$autreOrganisation}/1.json", 'taille_octets' => 40]);
+        [$token] = $this->share([['type' => 'imaging', 'id' => $this->imaging->id]]);
+
+        $this->get("/api/v1/public/record-shares/{$token}/items/imaging/{$this->imaging->id}/files/0")->assertOk();
+        $this->get("/api/v1/public/record-shares/{$token}/items/imaging/{$this->imaging->id}/files/1")->assertNotFound();
+    }
+
+    /** Un cliché sans fichier envoyé (taille inconnue) ne sert rien, même rangé dans le dossier de son examen. */
+    public function test_un_cliche_sans_fichier_envoye_repond_404(): void
+    {
+        $chemin = "imagerie/{$this->clinique->societe->organisation_id}/{$this->imaging->id}/9.9.9.dcm";
+        Storage::disk('prive')->put($chemin, 'DICM-autre');
+        ClicheDicom::query()->create(['examen_imagerie_id' => $this->imaging->id, 'sop_instance_uid' => '9.9.9', 'chemin' => $chemin, 'taille_octets' => null]);
+
+        $this->get("/api/v1/patients/{$this->patient->id}/share-items/imaging/{$this->imaging->id}/files/1", $this->enTetes($this->jeton))->assertNotFound();
     }
 
     public function test_un_gros_dossier_permet_huit_lectures_completes(): void

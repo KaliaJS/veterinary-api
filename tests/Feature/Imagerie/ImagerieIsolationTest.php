@@ -78,7 +78,7 @@ class ImagerieIsolationTest extends TestCase
 
         $this->getJson("/api/v1/imagerie/examens/{$ailleurs->id}", $entetes)->assertNotFound();
         $this->postJson("/api/v1/imagerie/examens/{$ailleurs->id}/compte-rendu", ['constatations' => 'x'], $entetes)->assertNotFound();
-        $this->postJson("/api/v1/imagerie/examens/{$ailleurs->id}/cliches", ['sop_instance_uid' => '1.2.3'], $entetes)->assertNotFound();
+        $this->postJson("/api/v1/imagerie/examens/{$ailleurs->id}/cliches/fichier", [], $entetes)->assertNotFound();
     }
 
     public function test_l_examen_est_rattache_a_la_clinique_du_jeton(): void

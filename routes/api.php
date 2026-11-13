@@ -26,7 +26,6 @@ use App\Http\Controllers\Api\V1\CarnetSanteController;
 use App\Http\Controllers\Api\V1\CashStatisticsController;
 use App\Http\Controllers\Api\V1\CatalogueSearchController;
 use App\Http\Controllers\Api\V1\ChecklistInterventionController;
-use App\Http\Controllers\Api\V1\ClicheDicomController;
 use App\Http\Controllers\Api\V1\ClientController;
 use App\Http\Controllers\Api\V1\ClientHistoryController;
 use App\Http\Controllers\Api\V1\ClientSpaceInvitationController;
@@ -1314,7 +1313,6 @@ Route::prefix('v1')->group(function (): void {
             Route::patch('examens/{examen}', [ExamenImagerieController::class, 'update']);
 
             Route::post('examens/{examen}/compte-rendu', CompteRenduImagerieController::class);
-            Route::post('examens/{examen}/cliches', ClicheDicomController::class);
             // Radio DICOM envoyée depuis l'examen : l'original, tel quel (28.10.2026)
             Route::post('examens/{examen}/cliches/fichier', RadioController::class)->middleware('throttle:120,1,radios');
         });

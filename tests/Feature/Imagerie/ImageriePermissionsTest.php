@@ -42,7 +42,7 @@ class ImageriePermissionsTest extends TestCase
         $this->getJson("/api/v1/imagerie/examens/{$examen->id}", $entetes)->assertForbidden();
         $this->patchJson("/api/v1/imagerie/examens/{$examen->id}", [], $entetes)->assertForbidden();
         $this->postJson("/api/v1/imagerie/examens/{$examen->id}/compte-rendu", [], $entetes)->assertForbidden();
-        $this->postJson("/api/v1/imagerie/examens/{$examen->id}/cliches", [], $entetes)->assertForbidden();
+        $this->postJson("/api/v1/imagerie/examens/{$examen->id}/cliches/fichier", [], $entetes)->assertForbidden();
     }
 
     public function test_une_derogation_retirant_le_domaine_patients_ferme_l_imagerie(): void

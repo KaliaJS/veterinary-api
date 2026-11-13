@@ -98,6 +98,25 @@ class RadiosAnnoteesTest extends TestCase
         $this->assertSame(strlen($octets), $cliche['taille_octets']);
     }
 
+    /** Audit C03 (13.11.2026) : l'emplacement du fichier sur le disque ne part jamais au navigateur. */
+    public function test_l_emplacement_du_fichier_n_est_pas_servi_au_navigateur(): void
+    {
+        $envoi = $this->envoyer($this->dicom());
+
+        $envoi->assertCreated()->assertJsonMissingPath('data.chemin');
+        $this->getJson($this->base().'/cliches', $this->en())->assertOk()->assertJsonMissingPath('data.0.chemin');
+    }
+
+    /** Audit C03 (13.11.2026) : la visionneuse ne lit que l'original rangé dans le dossier de son examen. */
+    public function test_la_visionneuse_ne_lit_pas_un_fichier_hors_du_dossier_de_son_examen(): void
+    {
+        $autreOrganisation = Clinique::factory()->create()->societe->organisation_id;
+        Storage::disk('prive')->put("imports/{$autreOrganisation}/1.json", '{"pages":["Propriétaire : Mme Dupont"]}');
+        $forge = ClicheDicom::query()->create(['examen_imagerie_id' => $this->examen->id, 'sop_instance_uid' => '9.9.9', 'chemin' => "imports/{$autreOrganisation}/1.json", 'taille_octets' => 40]);
+
+        $this->get($this->base()."/cliches/{$forge->id}/fichier", $this->en())->assertNotFound();
+    }
+
     public function test_un_fichier_qui_n_est_pas_un_dicom_est_refuse(): void
     {
         $this->envoyer('ceci n’est pas une radio', 'photo.dcm')->assertUnprocessable()->assertJsonValidationErrors('fichier');

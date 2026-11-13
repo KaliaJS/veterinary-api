@@ -8,9 +8,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * Cliché DICOM d'un examen d'imagerie — métadonnées du flux poussé
- * par la modalité (identifiants DICOM, chemin du fichier). Enfant sans
- * scope propre, résolu via l'examen. Idempotent par SOP Instance UID.
+ * Cliché DICOM d'un examen d'imagerie. Il n'arrive que par son fichier
+ * (RadioController), rangé par le serveur sous imagerie/{organisation}/
+ * {examen}/ ; jamais un chemin venu du client (audit C03, 13.11.2026).
+ * Enfant sans scope propre, résolu via l'examen. Idempotent par SOP
+ * Instance UID.
  *
  * Radios annotées (28.10.2026) : l'original envoyé est gardé tel quel
  * (empreinte SHA-256), avec l'espèce du jour, la région et l'incidence en
@@ -41,6 +43,24 @@ class ClicheDicom extends Model
             'images' => 'integer',
             'poids_kg' => 'float',
         ];
+    }
+
+    /**
+     * Le chemin de l'original envoyé, seulement s'il est rangé dans le
+     * dossier de son examen comme RadioController le range ; null sinon
+     * (cliché sans fichier, ou chemin qui mène ailleurs). Tout service qui
+     * sert le fichier d'un cliché passe par ici (audit C03, 13.11.2026).
+     */
+    public function cheminDeLOriginal(int $organisationId): ?string
+    {
+        $dossier = "imagerie/{$organisationId}/{$this->examen_imagerie_id}/";
+
+        if ($this->taille_octets === null || $this->chemin === null
+            || ! str_starts_with($this->chemin, $dossier) || str_contains($this->chemin, '..')) {
+            return null;
+        }
+
+        return $this->chemin;
     }
 
     /** @return HasMany<AnnotationImagerie, $this> */

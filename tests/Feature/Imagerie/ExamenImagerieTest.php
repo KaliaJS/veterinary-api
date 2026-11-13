@@ -4,6 +4,7 @@ namespace Tests\Feature\Imagerie;
 
 use App\Enums\StatutRendezVous;
 use App\Enums\TypeRendezVous;
+use App\Models\ClicheDicom;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\Employe;
@@ -230,13 +231,23 @@ class ExamenImagerieTest extends TestCase
         $this->patchJson("/api/v1/imagerie/examens/{$examen->id}", [
             'libelle' => 'Autre libellé',
         ], $this->jeton())->assertUnprocessable()->assertJsonValidationErrors(['signe_le' => 'Un examen au compte rendu signé ne se modifie plus.']);
+    }
 
-        // Ni de nouveau cliché
+    /**
+     * Audit C03 (13.11.2026) : un cliché ne se déclare plus avec un chemin
+     * fourni par l'appelant (lecture de n'importe quel fichier du disque
+     * privé) ; une radio n'arrive que par son fichier (cliches/fichier).
+     */
+    public function test_declarer_un_cliche_avec_un_chemin_repond_404_et_n_enregistre_rien(): void
+    {
+        $examen = $this->examen();
+
         $this->postJson("/api/v1/imagerie/examens/{$examen->id}/cliches", [
-            'sop_instance_uid' => '1.2.840.113619.2.55.3.604688.9',
-            'study_instance_uid' => '1.2.840.113619.2.55.3.604688',
-            'nom_fichier' => 'ajout.dcm',
-        ], $this->jeton())->assertUnprocessable()->assertJsonValidationErrors('sop_instance_uid');
+            'sop_instance_uid' => '9.9.9',
+            'chemin' => 'radios/apercus/1.jpg',
+        ], $this->jeton())->assertNotFound();
+
+        $this->assertSame(0, ClicheDicom::query()->count());
     }
 
     public function test_la_signature_clot_le_rdv_lie_et_facture_l_acte_d_imagerie(): void
@@ -270,30 +281,6 @@ class ExamenImagerieTest extends TestCase
             ->assertJsonMissingPath('facture');
 
         $this->assertDatabaseCount('factures', 0);
-    }
-
-    public function test_le_flux_dicom_est_idempotent_par_sop_instance_uid(): void
-    {
-        $examen = $this->examen();
-
-        $cliche = [
-            'sop_instance_uid' => '1.2.840.113619.2.55.3.604688.1',
-            'study_instance_uid' => '1.2.840.113619.2.55.3.604688',
-            'nom_fichier' => 'thorax_profil.dcm',
-            'metadonnees' => ['kvp' => 68, 'mas' => 4.5],
-        ];
-
-        $this->postJson("/api/v1/imagerie/examens/{$examen->id}/cliches", $cliche, $this->jeton())
-            ->assertOk()
-            ->assertJsonCount(1, 'data.cliches')
-            ->assertJsonPath('data.cliches.0.metadonnees.kvp', 68);
-
-        // La modalité ré-émet : pas de doublon.
-        $this->postJson("/api/v1/imagerie/examens/{$examen->id}/cliches", $cliche, $this->jeton())
-            ->assertOk()
-            ->assertJsonCount(1, 'data.cliches');
-
-        $this->assertDatabaseCount('cliches_dicom', 1);
     }
 
     public function test_la_worklist_filtre_par_modalite_et_compte_rendu(): void

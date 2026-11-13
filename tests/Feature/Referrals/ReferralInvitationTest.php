@@ -6,10 +6,12 @@ use App\Auth\ContexteClinique;
 use App\Auth\EmetteurJetons;
 use App\Enums\Espece;
 use App\Mail\ReferralInvitationMail;
+use App\Models\ClicheDicom;
 use App\Models\Client;
 use App\Models\Clinique;
 use App\Models\CompteRendu;
 use App\Models\Employe;
+use App\Models\ExamenImagerie;
 use App\Models\Patient;
 use App\Models\ReferralInvitation;
 use App\Models\ReferralLetter;
@@ -83,10 +85,11 @@ class ReferralInvitationTest extends TestCase
         app(ContexteClinique::class)->oublier();
     }
 
-    private function signedLetter(): ReferralLetter
+    /** @param  list<array{type: string, id: int}>|null  $items  les pièces jointes ; la consultation par défaut */
+    private function signedLetter(?array $items = null): ReferralLetter
     {
         $id = $this->postJson("/api/v1/patients/{$this->patient->id}/referral-letters", [
-            'items' => [['type' => 'consultation', 'id' => $this->consultation->id]],
+            'items' => $items ?? [['type' => 'consultation', 'id' => $this->consultation->id]],
             'recipient_name' => 'Dr Marc Keller',
         ], $this->enTetes($this->jeton))->assertCreated()->json('data.id');
         $this->patchJson("/api/v1/referral-letters/{$id}", ['sections' => ['reason' => 'Boiterie postérieure gauche.', 'request' => 'Avis orthopédique.']], $this->enTetes($this->jeton))->assertOk();
@@ -223,6 +226,24 @@ class ReferralInvitationTest extends TestCase
         $this->as($this->kellerJeton, 'GET', "/api/v1/referral-invitations/{$id}/items/consultation/{$other->id}")->assertNotFound();
         // Rien n'est copié dans son dossier
         $this->assertSame(0, $rocky->documents()->count());
+    }
+
+    /** Audit C03 (13.11.2026) : par la lettre, un cliché ne sert que l'original rangé dans le dossier de son examen. */
+    public function test_la_lettre_ne_sert_pas_un_cliche_hors_du_dossier_de_son_examen(): void
+    {
+        $examen = ExamenImagerie::factory()->signe()->create(['clinique_id' => $this->clinique->id, 'patient_id' => $this->patient->id, 'realise_le' => now()->subDays(6)]);
+        $original = "imagerie/{$this->clinique->societe->organisation_id}/{$examen->id}/1.2.3.dcm";
+        Storage::disk('prive')->put($original, 'DICM-original');
+        ClicheDicom::query()->create(['examen_imagerie_id' => $examen->id, 'sop_instance_uid' => '1.2.3', 'chemin' => $original, 'taille_octets' => 13]);
+        $autreOrganisation = Clinique::factory()->create()->societe->organisation_id;
+        Storage::disk('prive')->put("imports/{$autreOrganisation}/1.json", '{"pages":["Propriétaire : Mme Dupont"]}');
+        ClicheDicom::query()->create(['examen_imagerie_id' => $examen->id, 'sop_instance_uid' => '9.9.9', 'chemin' => "imports/{$autreOrganisation}/1.json", 'taille_octets' => 40]);
+        [$id] = $this->acceptedAndLinked([['type' => 'imaging', 'id' => $examen->id]]);
+        app(ContexteClinique::class)->oublier();
+
+        $this->get("/api/v1/referral-invitations/{$id}/items/imaging/{$examen->id}/files/0", $this->enTetes($this->kellerJeton))->assertOk();
+        app(ContexteClinique::class)->oublier();
+        $this->get("/api/v1/referral-invitations/{$id}/items/imaging/{$examen->id}/files/1", $this->enTetes($this->kellerJeton))->assertNotFound();
     }
 
     public function test_l_acces_dure_jusqu_a_ce_que_la_clinique_qui_refere_le_coupe(): void
@@ -480,10 +501,13 @@ class ReferralInvitationTest extends TestCase
         $this->as($this->kellerJeton, 'GET', "/api/v1/patients/{$rocky->id}")->assertOk()->assertJsonPath('data.refere_par', []);
     }
 
-    /** @return array{0: int, 1: Patient, 2: ReferralLetter} */
-    private function acceptedAndLinked(): array
+    /**
+     * @param  list<array{type: string, id: int}>|null  $items
+     * @return array{0: int, 1: Patient, 2: ReferralLetter}
+     */
+    private function acceptedAndLinked(?array $items = null): array
     {
-        $letter = $this->signedLetter();
+        $letter = $this->signedLetter($items);
         $id = $this->send($letter, ['kind' => 'vet', 'user_id' => $this->keller->id]);
         $this->as($this->kellerJeton, 'POST', "/api/v1/referral-invitations/{$id}/accept")->assertOk();
         $owner = Client::factory()->create(['organisation_id' => $this->bern->societe->organisation_id, 'nom' => 'Favre']);

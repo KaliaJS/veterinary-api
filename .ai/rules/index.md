@@ -13,7 +13,7 @@ Before planning or editing, find the row whose globs match the file's path and r
 | app/Services/{FactureSejour,PrestationsParDefaut}.php,app/Enums/StatutSejour.php | .ai/rules/enums.md |
 | app/Models/{Sejour,SejourSoin,SejourConstante}*.php,app/Services/FactureSejour.php,app/Http/Controllers/Api/V1/{Sejour,SoinSejour,ConstanteSejour,SortieSejour}*.php,app/Http/Requests/V1/Hospitalisation/** | .ai/rules/hospitalisation.md |
 | routes/api.php,app/Http/** | .ai/rules/http.md |
-| app/Models/{ExamenImagerie,ClicheDicom}*.php,app/Services/ProjectionPlanningImagerie.php,app/Http/Controllers/Api/V1/{ExamenImagerie,CompteRenduImagerie,ClicheDicom,TrameImagerie,ImageriePatient}*.php,app/Http/Requests/V1/Imagerie/** | .ai/rules/imagerie.md |
+| app/Models/{ExamenImagerie,ClicheDicom}*.php,app/Services/ProjectionPlanningImagerie.php,app/Http/Controllers/Api/V1/{ExamenImagerie,CompteRenduImagerie,Radio,TrameImagerie,ImageriePatient}*.php,app/Http/Requests/V1/Imagerie/**,app/Services/Patients/RecordShareItems.php | .ai/rules/imagerie.md |
 | app/Models/{Analyse,AnalysePanel,AnalyseResultat,PanelLabo,PanelParametre}*.php,app/Http/Controllers/Api/V1/{Analyse,CycleAnalyse,ResultatAnalyse,PanelLabo}*.php,app/Http/Requests/V1/Laboratoire/**,app/Services/PanelsLaboParDefaut.php | .ai/rules/laboratoire-services.md |
 | database/migrations/** | .ai/rules/migrations.md |
 | app/Models/** | .ai/rules/models.md |

@@ -19,7 +19,6 @@ class ClicheDicomResource extends JsonResource
             'study_instance_uid' => $this->study_instance_uid,
             'series_instance_uid' => $this->series_instance_uid,
             'nom_fichier' => $this->nom_fichier,
-            'chemin' => $this->chemin,
             'metadonnees' => $this->metadonnees,
             // L'original envoyé, gardé tel quel (28.10.2026)
             'a_fichier' => $this->taille_octets !== null,
