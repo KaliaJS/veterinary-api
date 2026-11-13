@@ -60,7 +60,7 @@ class ClientHistoryController extends Controller
             ...($veut('rdv') ? $this->rendezVous($client, $animaux, $cliniques, $avant, $limite) : []),
             ...($veut('facture') ? $this->factures($client, $avant, $limite) : []),
             ...($veut('rappel') ? $this->rappels($client, $animaux, $avant, $limite) : []),
-            ...($veut('demande') ? $this->demandes($client, $animaux, $avant, $limite) : []),
+            ...($veut('demande') ? $this->demandes($client, $animaux, $cliniques, $avant, $limite) : []),
             ...($veut('message') ? $this->messages($client, $cliniques, $avant, $limite) : []),
         ])
             ->map(fn (array $x): array => [...$x, '_t' => CarbonImmutable::parse($x['date'])->utc()->getTimestamp()])
@@ -226,12 +226,18 @@ class ClientHistoryController extends Controller
     }
 
     /**
+     * Les cliniques de l'organisation seulement (audit C02, 13.11.2026) :
+     * l'espace dépose aussi, dans une autre organisation, des demandes qui
+     * gardent l'animal suivi ici sans fiche client.
+     *
      * @param  Collection<int, string>  $animaux
+     * @param  Collection<int, int>  $cliniques
      * @return list<array<string, mixed>>
      */
-    private function demandes(Client $client, Collection $animaux, ?CarbonImmutable $avant, int $limite): array
+    private function demandes(Client $client, Collection $animaux, Collection $cliniques, ?CarbonImmutable $avant, int $limite): array
     {
         return DemandeRendezVous::withoutGlobalScopes()
+            ->whereIn('clinique_id', $cliniques)
             ->where(fn ($q) => $q->where('client_id', $client->id)->orWhere(fn ($q) => $q->whereIn('patient_id', $animaux->keys())->whereNull('client_id')))
             ->when($avant, fn ($q) => $q->where('created_at', '<=', $avant))
             ->orderByDesc('created_at')

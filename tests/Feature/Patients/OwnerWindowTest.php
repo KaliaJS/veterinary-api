@@ -177,6 +177,35 @@ class OwnerWindowTest extends TestCase
         $this->getJson("/api/v1/clients/{$this->client->id}/historique?type=lune", $this->enTetes($this->jeton))->assertStatus(422);
     }
 
+    /**
+     * Audit C02 (13.11.2026) : l'espace dépose, dans la clinique d'une autre
+     * organisation, une demande qui garde l'animal suivi ici mais sans fiche
+     * client (aucune fiche de cette organisation-là). Son motif ne remonte
+     * jamais dans l'historique de cette organisation-ci.
+     */
+    public function test_l_historique_ne_montre_pas_une_demande_deposee_dans_une_autre_organisation(): void
+    {
+        $rex = $this->animal(['nom' => 'Rex']);
+        $concurrente = Clinique::factory()->create();
+        DemandeRendezVous::factory()->create(['clinique_id' => $concurrente->id, 'client_id' => null, 'patient_id' => $rex->id, 'reason' => 'Deuxième avis pour la boiterie']);
+
+        $data = $this->getJson("/api/v1/clients/{$this->client->id}/historique", $this->enTetes($this->jeton))->assertOk()->json('data');
+
+        $this->assertSame([], collect($data)->where('type', 'demande')->values()->all());
+    }
+
+    /** Les cliniques sœurs partagent le dossier : leurs demandes restent dans l'historique. */
+    public function test_l_historique_montre_une_demande_deposee_dans_une_clinique_soeur(): void
+    {
+        $rex = $this->animal(['nom' => 'Rex']);
+        $soeur = Clinique::factory()->create(['societe_id' => $this->clinique->societe_id]);
+        DemandeRendezVous::factory()->create(['clinique_id' => $soeur->id, 'client_id' => null, 'patient_id' => $rex->id, 'reason' => 'Vaccin annuel']);
+
+        $data = $this->getJson("/api/v1/clients/{$this->client->id}/historique", $this->enTetes($this->jeton))->assertOk()->json('data');
+
+        $this->assertSame(['Demande en ligne : « Vaccin annuel »'], collect($data)->where('type', 'demande')->pluck('titre')->values()->all());
+    }
+
     public function test_chaque_animal_a_son_etat(): void
     {
         $traite = $this->animal(['nom' => 'Cannelle']);
