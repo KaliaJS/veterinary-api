@@ -169,6 +169,33 @@ class RolesEtDroitsTest extends TestCase
         ], $this->enTetes($this->jeton))->assertOk();
     }
 
+    public function test_recevoir_l_administration_par_son_role_efface_ses_refus_des_droits_du_manager(): void
+    {
+        // Paul, vétérinaire, s'est vu refuser « Gérer les absences » ; il devient administrateur
+        ['employe' => $paul] = $this->employeAvecJeton($this->clinique);
+        $this->putJson("/api/v1/organisation/employes/{$paul->id}/exceptions", ['droits' => [['droit' => 'gerer_absences', 'accorde' => false], ['droit' => 'stocks', 'accorde' => false]]], $this->enTetes($this->jeton))->assertOk();
+        $this->patchJson("/api/v1/equipe/employes/{$paul->id}", ['role_id' => $this->role(RolesParDefaut::ADMINISTRATEUR)->id], $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertSame([['employe_id' => $paul->id, 'droits' => [['droit' => 'stocks', 'accorde' => false]]]], $this->exceptionsDe($paul->id));
+
+        // Julie, en « Réception », s'est vu refuser « Voir les chiffres » ; la Réception reçoit l'administration
+        $reception = $this->postJson('/api/v1/organisation/roles', ['nom' => 'Réception', 'droits' => ['planning']], $this->enTetes($this->jeton))->json('data.id');
+        ['employe' => $julie] = $this->employeAvecJeton($this->clinique, ['role_id' => $reception]);
+        $this->putJson("/api/v1/organisation/employes/{$julie->id}/exceptions", ['droits' => [['droit' => 'voir_chiffres', 'accorde' => false]]], $this->enTetes($this->jeton))->assertOk();
+        $this->putJson("/api/v1/organisation/roles/{$reception}", ['droits' => ['planning', 'organisation']], $this->enTetes($this->jeton))->assertOk();
+
+        $this->assertSame([], $this->exceptionsDe($julie->id));
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function exceptionsDe(int $employeId): array
+    {
+        return collect($this->getJson('/api/v1/organisation/roles', $this->enTetes($this->jeton))->assertOk()->json('exceptions'))
+            ->where('employe_id', $employeId)
+            ->values()
+            ->all();
+    }
+
     private function role(string $nom): Role
     {
         return Role::withoutGlobalScopes()

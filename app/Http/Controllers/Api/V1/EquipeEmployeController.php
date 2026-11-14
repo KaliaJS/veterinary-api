@@ -103,6 +103,10 @@ class EquipeEmployeController extends Controller
         }
 
         $fiche->update($request->validated());
+        // Un rôle avec l'administration : ses refus des droits du manager ne s'appliquent plus
+        if ($fiche->wasChanged('role_id')) {
+            app(GardeEquipe::class)->oublierLesRefusComprisDansLAdministration($fiche->organisation_id);
+        }
 
         return new EmployeResource($fiche->load('cliniques'));
     }

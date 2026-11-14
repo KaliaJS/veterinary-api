@@ -75,6 +75,7 @@ class VisibiliteEquipeTest extends TestCase
             $this->assertSame([$this->maladie->id], array_column($liste, 'id'));
             $this->assertNull($liste[0]['type']);
             $this->assertNull($liste[0]['note']);
+            $this->assertNull($liste[0]['valide_par_user_id']);
 
             $this->getJson("/api/v1/absences/{$this->maladie->id}", $this->enTetes($jeton))->assertOk()
                 ->assertJsonPath('data.type', null)

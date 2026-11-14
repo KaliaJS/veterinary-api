@@ -84,6 +84,7 @@ class OrganisationRoleController extends Controller
             ...isset($donnees['nom']) ? ['nom' => $donnees['nom']] : [],
             ...isset($donnees['droits']) ? ['domaines' => $this->avecLesDroitsDuManager($donnees['droits'], $role)] : [],
         ]));
+        app(GardeEquipe::class)->oublierLesRefusComprisDansLAdministration($this->organisationId());
 
         return response()->json(['data' => $this->role($role->loadCount('employes'))]);
     }

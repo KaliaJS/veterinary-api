@@ -3,6 +3,7 @@
 namespace App\Auth;
 
 use App\Enums\DomainePermission;
+use App\Models\DerogationPermission;
 use App\Models\Employe;
 use App\Models\Role;
 use Illuminate\Database\Eloquent\Collection;
@@ -71,6 +72,27 @@ class GardeEquipe
 
         return ! $this->administrateursActifs($employe->organisation_id)
             ->contains(fn (Employe $autre): bool => $autre->id !== $employe->id);
+    }
+
+    /**
+     * L'administration emporte les droits du manager (14.11.2026) : une
+     * exception qui refuse « gérer les absences » ou « voir les chiffres »
+     * à quelqu'un qui a l'administration ne s'appliquerait pas, et l'écran
+     * Rôles et droits la montrerait à tort. Effacée quand la personne
+     * reçoit l'administration par son rôle (rôle attribué, rôle modifié).
+     */
+    public function oublierLesRefusComprisDansLAdministration(int $organisationId): void
+    {
+        $employes = Employe::withoutGlobalScopes()->where('organisation_id', $organisationId)->pluck('id');
+
+        DerogationPermission::query()
+            ->whereIn('employe_id', $employes)
+            ->whereIn('domaine', [DomainePermission::GererAbsences, DomainePermission::VoirChiffres])
+            ->where('est_accordee', false)
+            ->with(['employe' => fn ($employe) => $employe->withoutGlobalScopes()->with('role', 'derogations')])
+            ->get()
+            ->filter(fn (DerogationPermission $refus): bool => in_array(DomainePermission::Organisation->value, $this->calculateur->pour($refus->employe), true))
+            ->each(fn (DerogationPermission $refus) => $refus->delete());
     }
 
     /**
