@@ -21,8 +21,14 @@ class CongesATraiter
 {
     public function __construct(private SoldesConges $soldes) {}
 
-    /** @return array{a_valider: list<array<string, mixed>>, a_planifier: list<array<string, mixed>>, deux_semaines: list<array<string, mixed>>} */
-    public function pour(Organisation $organisation): array
+    /**
+     * `$sansLesDemandesDe` : l'employé dont les demandes ne sont pas à
+     * valider ici (la personne qui regarde, sauf un administrateur, audit
+     * C04 du 14.11.2026).
+     *
+     * @return array{a_valider: list<array<string, mixed>>, a_planifier: list<array<string, mixed>>, deux_semaines: list<array<string, mixed>>}
+     */
+    public function pour(Organisation $organisation, ?int $sansLesDemandesDe = null): array
     {
         $aujourdhui = aujourdhui()->toImmutable();
         $employes = Employe::query()
@@ -33,18 +39,19 @@ class CongesATraiter
             ->get();
 
         return [
-            'a_valider' => $this->aValider(),
+            'a_valider' => $this->aValider($sansLesDemandesDe),
             'a_planifier' => $this->aPlanifier($employes, $organisation, $aujourdhui),
             'deux_semaines' => $this->deuxSemaines($employes, $organisation, $aujourdhui),
         ];
     }
 
     /** @return list<array<string, mixed>> */
-    private function aValider(): array
+    private function aValider(?int $sansLesDemandesDe): array
     {
         return Absence::query()
             ->with(['employe.congesValides', 'employe.cliniques'])
             ->where('statut', StatutAbsence::EnAttente)
+            ->when($sansLesDemandesDe, fn ($requete, int $employe) => $requete->where('employe_id', '!=', $employe))
             ->orderBy('debut_le')
             ->orderBy('id')
             ->get()

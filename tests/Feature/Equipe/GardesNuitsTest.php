@@ -253,8 +253,10 @@ class GardesNuitsTest extends TestCase
         $this->putJson('/api/v1/equipe/gardes', ['jour' => '2026-11-12', 'employe_id' => $this->vets[0]->id], $this->enTetes($this->jeton))->assertOk();
         Event::assertDispatched(GardesModifiees::class, fn (GardesModifiees $e): bool => $e->broadcastOn()[0]->name === $canal && $e->broadcastAs() === 'gardes.modifiees');
 
+        // Une absence se pose avec le droit « Gérer les absences » (audit C04, 14.11.2026)
+        ['jeton' => $jetonManager] = $this->employeAvecJeton($this->clinique, [], 'manager');
         Event::fake([GardesModifiees::class]);
-        $this->postJson('/api/v1/absences', ['employe_id' => $this->vets[1]->id, 'type' => 'conge', 'debut_le' => '2026-11-20', 'fin_le' => '2026-11-20', 'statut' => 'ok'], $this->enTetes($this->jeton))->assertCreated();
+        $this->postJson('/api/v1/absences', ['employe_id' => $this->vets[1]->id, 'type' => 'conge', 'debut_le' => '2026-11-20', 'fin_le' => '2026-11-20', 'statut' => 'ok'], $this->enTetes($jetonManager))->assertCreated();
         Event::assertDispatched(GardesModifiees::class, fn (GardesModifiees $e): bool => $e->broadcastOn()[0]->name === $canal);
     }
 

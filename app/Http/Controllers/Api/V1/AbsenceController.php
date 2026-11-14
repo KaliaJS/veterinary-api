@@ -18,6 +18,9 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
+ * Droits (audit C04, 14.11.2026) : AbsencePolicy — « Gérer les absences »,
+ * jamais sur sa propre absence sauf un administrateur.
+ *
  * Cycle : demande `att` → validation (la colonne du praticien est vidée
  * sur la période : rendez-vous annulés et audités avec motif) ou refus.
  * La saisie directe en `ok` vide la colonne pareillement. La
@@ -50,10 +53,9 @@ class AbsenceController extends Controller
 
     public function store(EnregistrerAbsenceRequest $request): AbsenceResource
     {
-        $this->authorize('create', Absence::class);
-
         $donnees = $request->validated();
         $statut = StatutAbsence::from($donnees['statut'] ?? StatutAbsence::EnAttente->value);
+        $this->authorize('create', [Absence::class, (int) $donnees['employe_id'], $statut]);
 
         $absence = Absence::create([
             ...$donnees,

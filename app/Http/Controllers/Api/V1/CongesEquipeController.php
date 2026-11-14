@@ -12,15 +12,21 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * Les congés vus par qui gère l'équipe (droit Équipe) : la cloche (ce
- * qui est à traiter) et les règles de l'organisation, que seul le droit
- * Ressources humaines change (Jim, 11.11.2026, É10 et É11).
+ * Les congés vus par qui gère l'équipe : la cloche (ce qui est à traiter,
+ * droit « Gérer les absences » depuis l'audit C04 du 14.11.2026) et les
+ * règles de l'organisation, lues avec le droit Équipe et changées par le
+ * seul droit Ressources humaines (Jim, 11.11.2026, É10 et É11).
  */
 class CongesEquipeController extends Controller
 {
     public function aTraiter(CongesATraiter $conges): JsonResponse
     {
-        $aTraiter = $conges->pour($this->organisation());
+        Gate::authorize(DomainePermission::GererAbsences->value);
+        // Sa propre demande ne se valide pas soi-même, sauf un administrateur
+        $aTraiter = $conges->pour(
+            $this->organisation(),
+            Gate::allows(DomainePermission::Organisation->value) ? null : app(ContexteClinique::class)->employe()?->id,
+        );
 
         return response()->json([
             'data' => $aTraiter,

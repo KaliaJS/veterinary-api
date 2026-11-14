@@ -38,7 +38,8 @@ class AbsenceTest extends TestCase
         $this->clinique = Clinique::factory()->create();
         $this->ligne = LignePlanning::factory()->create(['clinique_id' => $this->clinique->id]);
 
-        ['user' => $this->user, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        // Qui gère les absences : le manager (audit C04, 14.11.2026)
+        ['user' => $this->user, 'jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique, [], 'manager');
     }
 
     public function test_une_demande_se_cree_en_attente_sans_toucher_au_planning(): void

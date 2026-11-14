@@ -35,7 +35,8 @@ class CongesATraiterTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-11 10:00', 'Europe/Zurich'));
         // Lausanne : les jours fériés vaudois (É23)
         $this->clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich', 'npa' => '1003']);
-        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique, ['entree_le' => '2020-01-01', 'created_at' => '2026-01-01']);
+        // La cloche : le droit « Gérer les absences » (audit C04, 14.11.2026)
+        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique, ['entree_le' => '2020-01-01', 'created_at' => '2026-01-01'], 'manager');
     }
 
     private function employe(): Employe
@@ -98,7 +99,7 @@ class CongesATraiterTest extends TestCase
         $this->assertSame([], $this->aTraiter()['data']['deux_semaines']);
         $this->clinique->societe->organisation->forceFill(['conges_rappel_deux_semaines' => true])->save();
         $this->travelTo(CarbonImmutable::parse('2026-08-20 10:00', 'Europe/Zurich'));
-        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique, [], 'manager');
         $this->assertSame([], $this->aTraiter($jeton)['data']['deux_semaines']);
     }
 
@@ -108,7 +109,7 @@ class CongesATraiterTest extends TestCase
         $reponse = $this->aTraiter();
         $this->assertSame(count($reponse['data']['a_valider']) + count($reponse['data']['a_planifier']) + count($reponse['data']['deux_semaines']), $reponse['meta']['total']);
 
-        ['employe' => $moi, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        ['employe' => $moi, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique, [], 'manager');
         DerogationPermission::create(['employe_id' => $moi->id, 'domaine' => DomainePermission::Equipe, 'est_accordee' => false]);
         $this->getJson('/api/v1/equipe/conges/a-traiter', $this->enTetes($jeton))->assertForbidden();
     }

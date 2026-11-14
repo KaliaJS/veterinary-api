@@ -324,7 +324,7 @@ class PushNotificationsTest extends TestCase
         Queue::fake([SendPush::class]);
         $clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
         $ligne = LignePlanning::factory()->create(['clinique_id' => $clinique->id]);
-        ['jeton' => $jeton] = $this->employeAvecJeton($clinique);
+        ['jeton' => $jeton] = $this->employeAvecJeton($clinique, [], 'manager');
         [$proprietaire, $patient] = $this->animalDUnProprietaire($clinique);
         RendezVous::factory()->pourPatient($patient)->create(['clinique_id' => $clinique->id, 'ligne_planning_id' => $ligne->id, 'starts_at' => aujourdhui()->addDay()->setTime(9, 0), 'ends_at' => aujourdhui()->addDay()->setTime(9, 30)]);
         $absence = Absence::factory()->enAttente()->create(['employe_id' => $ligne->employe_id, 'debut_le' => aujourdhui()->addDay(), 'fin_le' => aujourdhui()->addDays(2)]);

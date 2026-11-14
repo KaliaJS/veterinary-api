@@ -9,9 +9,10 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Demande (`att`, défaut) ou saisie directe admin (`ok`, qui vide la
- * colonne du praticien comme une validation). `ref` ne se crée pas :
- * c'est l'issue d'un refus.
+ * Demande (`att`, défaut) ou saisie directe (`ok`, qui vide la colonne du
+ * praticien comme une validation) ; pour soi, la saisie directe est
+ * réservée à l'administrateur (AbsencePolicy::create, audit C04). `ref`
+ * ne se crée pas : c'est l'issue d'un refus.
  */
 class EnregistrerAbsenceRequest extends FormRequest
 {
