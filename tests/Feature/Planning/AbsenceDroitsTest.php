@@ -186,6 +186,22 @@ class AbsenceDroitsTest extends TestCase
             ->assertJsonPath('data.statut', 'ok');
     }
 
+    public function test_un_conge_valide_par_quelqu_un_d_autre_ne_se_retire_pas_soi_meme_meme_sans_validation(): void
+    {
+        $this->clinique->societe->organisation->forceFill(['conges_sans_validation' => true])->save();
+        ['employe' => $moi, 'user' => $user, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique, [], 'assistant');
+        ['user' => $manager] = $this->employeAvecJeton($this->clinique, [], 'manager');
+        $valideParLeManager = $this->absenceDe($moi, StatutAbsence::Validee);
+        $valideParLeManager->forceFill(['valide_par_user_id' => $manager->id])->save();
+        $poseParMoi = $this->absenceDe($moi, StatutAbsence::Validee, decalage: 20);
+        $poseParMoi->forceFill(['valide_par_user_id' => $user->id])->save();
+
+        $this->deleteJson("/api/v1/equipe/demandes-conge/{$valideParLeManager->id}", [], $this->enTetes($jeton))->assertForbidden();
+        $this->assertModelExists($valideParLeManager);
+        // Celui qu'elle a posé elle-même sans validation, pas encore commencé, se retire
+        $this->deleteJson("/api/v1/equipe/demandes-conge/{$poseParMoi->id}", [], $this->enTetes($jeton))->assertNoContent();
+    }
+
     private function absenceDe(Employe $employe, StatutAbsence $statut, int $decalage = 0): Absence
     {
         return Absence::factory()->create([

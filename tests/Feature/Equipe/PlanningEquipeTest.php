@@ -57,7 +57,7 @@ class PlanningEquipeTest extends TestCase
         $absences = collect($reponse['data']['absences'])->keyBy('id');
         $this->assertCount(2, $absences);
         $autre = $absences->firstWhere('employe_id', $this->collegue->id);
-        $this->assertSame(['id' => $autre['id'], 'employe_id' => $this->collegue->id, 'type' => null, 'debut_le' => '2026-11-16', 'fin_le' => '2026-11-18', 'statut' => 'ok', 'note' => null], $autre);
+        $this->assertSame(['id' => $autre['id'], 'employe_id' => $this->collegue->id, 'type' => null, 'debut_le' => '2026-11-16', 'fin_le' => '2026-11-18', 'statut' => 'ok', 'note' => null, 'valide_par_user_id' => null], $autre);
         $this->assertSame('conge', $absences[$mienne->id]['type']);
         $this->assertSame('Mariage', $absences[$mienne->id]['note']);
         $this->assertFalse($reponse['data']['peut_gerer']);

@@ -55,6 +55,8 @@ class PlanningEquipeController extends Controller
                     'fin_le' => $absence->fin_le->toDateString(),
                     'statut' => $absence->statut->value,
                     'note' => $voitTout ? $absence->note : null,
+                    // Qui l'a validée : un congé posé par soi-même sans validation se retire, pas celui qu'un autre a validé
+                    'valide_par_user_id' => $voitTout ? $absence->valide_par_user_id : null,
                 ];
             })
             ->values();

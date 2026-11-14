@@ -17,6 +17,7 @@ use App\Services\MutationRendezVous;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Validation\ValidationException;
 
@@ -69,13 +70,19 @@ class DemandeCongeController extends Controller
             ->setStatusCode(Response::HTTP_CREATED);
     }
 
-    public function destroy(Absence $absence): Response
+    /**
+     * Sa demande en attente se retire ; un congé validé, seulement celui
+     * qu'on a posé soi-même sans validation et pas encore commencé —
+     * jamais celui qu'un autre a validé (audit C04, 14.11.2026).
+     */
+    public function destroy(Request $request, Absence $absence): Response
     {
         $moi = $this->moi();
         $peutRetirer = $absence->employe_id === $moi->id
             && $absence->type === TypeAbsence::Conge
             && ($absence->statut === StatutAbsence::EnAttente
-                || ($absence->statut === StatutAbsence::Validee && $this->sansValidation() && $absence->debut_le->gt(aujourdhui())));
+                || ($absence->statut === StatutAbsence::Validee && $this->sansValidation()
+                    && $absence->valide_par_user_id === $request->user()->id && $absence->debut_le->gt(aujourdhui())));
         if (! $peutRetirer) {
             throw new AuthorizationException('Seule sa propre demande se retire.');
         }

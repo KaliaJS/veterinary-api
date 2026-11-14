@@ -99,7 +99,8 @@ class DemandesCongeTest extends TestCase
         $mienne = $this->demander()->json('data.id');
         $collegue = Employe::factory()->dans($this->clinique)->create();
         $autre = Absence::factory()->create(['employe_id' => $collegue->id, 'type' => TypeAbsence::Conge, 'statut' => StatutAbsence::EnAttente, 'debut_le' => '2026-12-21', 'fin_le' => '2026-12-21']);
-        $validee = Absence::factory()->create(['employe_id' => $this->moi->id, 'type' => TypeAbsence::Conge, 'statut' => StatutAbsence::Validee, 'debut_le' => '2027-01-11', 'fin_le' => '2027-01-15']);
+        // Posé par la personne elle-même (un congé validé par un autre ne se retire pas, audit C04)
+        $validee = Absence::factory()->create(['employe_id' => $this->moi->id, 'type' => TypeAbsence::Conge, 'statut' => StatutAbsence::Validee, 'debut_le' => '2027-01-11', 'fin_le' => '2027-01-15', 'valide_par_user_id' => $this->moi->user_id]);
 
         $this->deleteJson("/api/v1/equipe/demandes-conge/{$autre->id}", [], $this->enTetes($this->jeton))->assertForbidden();
         $this->deleteJson("/api/v1/equipe/demandes-conge/{$validee->id}", [], $this->enTetes($this->jeton))->assertForbidden();
