@@ -118,6 +118,17 @@ class PermissionsTest extends TestCase
             ->assertJsonPath('data.statut', 'ok');
     }
 
+    public function test_un_role_avec_l_administration_emporte_les_droits_du_manager(): void
+    {
+        ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton();
+        // Un rôle écrit tel quel en base, sans les droits du manager
+        Role::withoutGlobalScopes()->findOrFail($employe->role_id)->update(['domaines' => [DomainePermission::Planning, DomainePermission::Organisation]]);
+
+        $permissions = $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk()->json('data.permissions');
+        $this->assertContains('gerer_absences', $permissions);
+        $this->assertContains('voir_chiffres', $permissions);
+    }
+
     public function test_les_droits_du_manager_se_donnent_a_titre_personnel(): void
     {
         ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton();

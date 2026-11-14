@@ -25,10 +25,16 @@ use Illuminate\Validation\ValidationException;
  * rôle). Les défauts (RolesParDefaut) ne sont qu'un point de départ.
  * Garde-fou : l'organisation garde toujours au moins un administrateur
  * actif (droit `organisation`) ; un rôle porté par quelqu'un ne se
- * supprime pas.
+ * supprime pas. L'administration emporte les droits du manager
+ * (CalculateurPermissions, 14.11.2026) : un rôle qui la reçoit reçoit
+ * aussi « gérer les absences » et « voir les chiffres », et ni un rôle ni
+ * une exception ne les retire à qui la garde — l'écran ne dit jamais
+ * « Non » à ce qui s'applique quand même.
  */
 class OrganisationRoleController extends Controller
 {
+    private const string COMPRIS_DANS_L_ADMINISTRATION = 'Gérer les absences et Voir les chiffres sont compris dans l’Administration : retirez d’abord l’Administration.';
+
     public function __construct(private CalculateurPermissions $calculateur) {}
 
     public function index(): JsonResponse
@@ -65,7 +71,7 @@ class OrganisationRoleController extends Controller
     {
         $donnees = $this->valider($request);
 
-        $role = Role::create(['nom' => $donnees['nom'], 'domaines' => $donnees['droits']]);
+        $role = Role::create(['nom' => $donnees['nom'], 'domaines' => $this->avecLesDroitsDuManager($donnees['droits'], null)]);
 
         return response()->json(['data' => $this->role($role->loadCount('employes'))], 201);
     }
@@ -76,7 +82,7 @@ class OrganisationRoleController extends Controller
 
         $this->gardantUnAdministrateur(fn () => $role->update([
             ...isset($donnees['nom']) ? ['nom' => $donnees['nom']] : [],
-            ...isset($donnees['droits']) ? ['domaines' => $donnees['droits']] : [],
+            ...isset($donnees['droits']) ? ['domaines' => $this->avecLesDroitsDuManager($donnees['droits'], $role)] : [],
         ]));
 
         return response()->json(['data' => $this->role($role->loadCount('employes'))]);
@@ -103,6 +109,18 @@ class OrganisationRoleController extends Controller
             'droits.*.accorde' => ['required', 'boolean'],
         ]);
 
+        // Garder l'administration (par le rôle ou par une exception) garde les droits du manager
+        $exceptions = collect($donnees['droits']);
+        $administration = $exceptions->firstWhere('droit', DomainePermission::Organisation->value);
+        $gardeLAdministration = $administration !== null
+            ? (bool) $administration['accorde']
+            : (bool) $fiche->role?->domaines->contains(DomainePermission::Organisation);
+        $retireUnDroitDuManager = $exceptions->contains(fn (array $ligne): bool => ! $ligne['accorde']
+            && in_array($ligne['droit'], [DomainePermission::GererAbsences->value, DomainePermission::VoirChiffres->value], true));
+        if ($gardeLAdministration && $retireUnDroitDuManager) {
+            throw ValidationException::withMessages(['droits' => self::COMPRIS_DANS_L_ADMINISTRATION]);
+        }
+
         $this->gardantUnAdministrateur(function () use ($fiche, $donnees): void {
             $fiche->derogations()->delete();
             foreach ($donnees['droits'] as $ligne) {
@@ -117,6 +135,29 @@ class OrganisationRoleController extends Controller
             'droits' => $fiche->derogations->map(fn (DerogationPermission $d): array => ['droit' => $d->domaine->value, 'accorde' => $d->est_accordee])->values(),
             'effectifs' => $this->calculateur->pour($fiche->load('role')),
         ]]);
+    }
+
+    /**
+     * Un rôle avec l'administration a les droits du manager : ajoutés quand
+     * il la reçoit, refusés s'il la garde en les retirant.
+     *
+     * @param  list<string>  $droits
+     * @return list<string>
+     */
+    private function avecLesDroitsDuManager(array $droits, ?Role $role): array
+    {
+        if (! in_array(DomainePermission::Organisation->value, $droits, true)) {
+            return $droits;
+        }
+        $manquants = array_values(array_diff([DomainePermission::GererAbsences->value, DomainePermission::VoirChiffres->value], $droits));
+        if ($manquants === []) {
+            return $droits;
+        }
+        if ($role?->domaines->contains(DomainePermission::Organisation)) {
+            throw ValidationException::withMessages(['droits' => self::COMPRIS_DANS_L_ADMINISTRATION]);
+        }
+
+        return [...$droits, ...$manquants];
     }
 
     /** @return array<string, mixed> */

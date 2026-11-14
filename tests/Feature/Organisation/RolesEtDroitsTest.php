@@ -129,6 +129,46 @@ class RolesEtDroitsTest extends TestCase
         $this->getJson('/api/v1/organisation/roles', $this->enTetes($jetonVeterinaire))->assertForbidden();
     }
 
+    /**
+     * L'administration emporte les droits du manager (14.11.2026) : l'écran
+     * ne peut pas dire « Non » à ce que l'administration donne quand même.
+     */
+    public function test_un_role_qui_recoit_l_administration_recoit_aussi_les_droits_du_manager(): void
+    {
+        $this->postJson('/api/v1/organisation/roles', ['nom' => 'Direction', 'droits' => ['planning', 'organisation']], $this->enTetes($this->jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.droits', ['planning', 'organisation', 'gerer_absences', 'voir_chiffres']);
+
+        $reception = $this->postJson('/api/v1/organisation/roles', ['nom' => 'Réception', 'droits' => ['planning']], $this->enTetes($this->jeton))->json('data.id');
+        $this->putJson("/api/v1/organisation/roles/{$reception}", ['droits' => ['planning', 'organisation']], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.droits', ['planning', 'organisation', 'gerer_absences', 'voir_chiffres']);
+    }
+
+    public function test_les_droits_du_manager_ne_se_retirent_pas_a_qui_garde_l_administration(): void
+    {
+        $administrateur = $this->role(RolesParDefaut::ADMINISTRATEUR);
+        $sansLesAbsences = collect($administrateur->domaines)->map->value->reject(fn (string $droit): bool => $droit === 'gerer_absences')->values()->all();
+
+        $this->putJson("/api/v1/organisation/roles/{$administrateur->id}", ['droits' => $sansLesAbsences], $this->enTetes($this->jeton))
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['droits' => 'Gérer les absences et Voir les chiffres sont compris dans l’Administration : retirez d’abord l’Administration.']);
+        $this->assertTrue($administrateur->refresh()->domaines->contains(DomainePermission::GererAbsences));
+
+        // Une exception non plus : refusée pour qui a l'administration, permise pour un autre
+        ['employe' => $associee] = $this->administrateurAvecJeton($this->clinique);
+        $this->putJson("/api/v1/organisation/employes/{$associee->id}/exceptions", [
+            'droits' => [['droit' => 'voir_chiffres', 'accorde' => false]],
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('droits');
+        ['employe' => $veterinaire] = $this->employeAvecJeton($this->clinique);
+        $this->putJson("/api/v1/organisation/employes/{$veterinaire->id}/exceptions", [
+            'droits' => [['droit' => 'organisation', 'accorde' => true], ['droit' => 'gerer_absences', 'accorde' => false]],
+        ], $this->enTetes($this->jeton))->assertUnprocessable()->assertJsonValidationErrors('droits');
+        $this->putJson("/api/v1/organisation/employes/{$veterinaire->id}/exceptions", [
+            'droits' => [['droit' => 'gerer_absences', 'accorde' => false]],
+        ], $this->enTetes($this->jeton))->assertOk();
+    }
+
     private function role(string $nom): Role
     {
         return Role::withoutGlobalScopes()

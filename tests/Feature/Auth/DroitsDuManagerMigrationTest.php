@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\Auth;
 
-use App\Auth\RolesParDefaut;
 use App\Models\Clinique;
 use App\Models\Employe;
 use App\Models\Role;
@@ -50,22 +49,22 @@ class DroitsDuManagerMigrationTest extends TestCase
         $organisation = $clinique->societe->organisation_id;
         Employe::factory()->dans($clinique)->administrateur()->create();
         // Une organisation d'avant le lot : l'administrateur sans les droits du manager, pas de rôle Manager
-        DB::table('roles')->where('organisation_id', $organisation)->where('nom', RolesParDefaut::ADMINISTRATEUR)->update(['domaines' => json_encode(self::AVANT)]);
-        DB::table('roles')->where('organisation_id', $organisation)->where('nom', RolesParDefaut::MANAGER)->delete();
-        $veterinaire = DB::table('roles')->where('organisation_id', $organisation)->where('nom', RolesParDefaut::VETERINAIRE)->value('domaines');
+        DB::table('roles')->where('organisation_id', $organisation)->where('nom', 'Administrateur')->update(['domaines' => json_encode(self::AVANT)]);
+        DB::table('roles')->where('organisation_id', $organisation)->where('nom', 'Manager')->delete();
+        $veterinaire = DB::table('roles')->where('organisation_id', $organisation)->where('nom', 'Vétérinaire')->value('domaines');
 
         $this->migration('2026_11_14_000838_manager_rights_for_existing_organisations.php')->up();
 
         $roles = Role::withoutGlobalScopes()->where('organisation_id', $organisation)->get()->keyBy('nom');
         $valeurs = fn (string $nom): array => $roles[$nom]->domaines->map->value->all();
-        $this->assertContains('gerer_absences', $valeurs(RolesParDefaut::ADMINISTRATEUR));
-        $this->assertContains('voir_chiffres', $valeurs(RolesParDefaut::ADMINISTRATEUR));
+        $this->assertContains('gerer_absences', $valeurs('Administrateur'));
+        $this->assertContains('voir_chiffres', $valeurs('Administrateur'));
         $this->assertEqualsCanonicalizing(
             ['planning', 'patients', 'facturation', 'stocks', 'equipe', 'gerer_absences', 'voir_chiffres'],
-            $valeurs(RolesParDefaut::MANAGER),
+            $valeurs('Manager'),
         );
         // Les autres rôles ne bougent pas
-        $this->assertSame($veterinaire, DB::table('roles')->where('organisation_id', $organisation)->where('nom', RolesParDefaut::VETERINAIRE)->value('domaines'));
+        $this->assertSame($veterinaire, DB::table('roles')->where('organisation_id', $organisation)->where('nom', 'Vétérinaire')->value('domaines'));
     }
 
     public function test_un_role_deja_nomme_manager_n_est_pas_remplace(): void
@@ -73,11 +72,11 @@ class DroitsDuManagerMigrationTest extends TestCase
         $clinique = Clinique::factory()->create();
         $organisation = $clinique->societe->organisation_id;
         Employe::factory()->dans($clinique)->create();
-        DB::table('roles')->where('organisation_id', $organisation)->where('nom', RolesParDefaut::MANAGER)->update(['domaines' => json_encode(['planning'])]);
+        DB::table('roles')->where('organisation_id', $organisation)->where('nom', 'Manager')->update(['domaines' => json_encode(['planning'])]);
 
         $this->migration('2026_11_14_000838_manager_rights_for_existing_organisations.php')->up();
 
-        $this->assertSame(['planning'], json_decode(DB::table('roles')->where('organisation_id', $organisation)->where('nom', RolesParDefaut::MANAGER)->value('domaines'), true));
+        $this->assertSame(['planning'], json_decode(DB::table('roles')->where('organisation_id', $organisation)->where('nom', 'Manager')->value('domaines'), true));
     }
 
     public function test_le_retour_en_arriere_retire_les_droits_sans_effacer_aucun_role(): void
@@ -93,6 +92,8 @@ class DroitsDuManagerMigrationTest extends TestCase
         foreach (DB::table('roles')->where('organisation_id', $organisation)->pluck('domaines') as $domaines) {
             $this->assertEmpty(array_intersect(['gerer_absences', 'voir_chiffres'], json_decode($domaines, true)));
         }
+        // Seulement ces deux-là : l'administrateur garde tout le reste
+        $this->assertEqualsCanonicalizing(self::AVANT, json_decode(DB::table('roles')->where('organisation_id', $organisation)->where('nom', 'Administrateur')->value('domaines'), true));
     }
 
     private function migration(string $fichier): object

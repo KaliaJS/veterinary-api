@@ -32,7 +32,8 @@ class AbsenceResource extends JsonResource
             'fin_le' => $this->fin_le->toDateString(),
             'statut' => $this->statut,
             'note' => $estMasquee ? null : $this->note,
-            'valide_par_user_id' => $this->valide_par_user_id,
+            // Qui l'a validée : comme la raison, pas pour l'absence d'un autre sans le droit
+            'valide_par_user_id' => $estMasquee ? null : $this->valide_par_user_id,
         ];
     }
 }

@@ -7,6 +7,7 @@ use App\Enums\TypeAbsence;
 use App\Models\Absence;
 use App\Models\Clinique;
 use App\Models\Employe;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\EmetDesJetonsApi;
@@ -55,7 +56,7 @@ class VisibiliteEquipeTest extends TestCase
             'fin_contrat_le' => '2026-12-31',
             'licenciement_motif' => 'Réorganisation',
         ]);
-        $this->maladie = Absence::factory()->create(['employe_id' => $this->collegue->id, 'type' => TypeAbsence::Maladie, 'statut' => StatutAbsence::Validee, 'debut_le' => '2026-11-16', 'fin_le' => '2026-11-18', 'note' => 'Burn-out, arrêt médical']);
+        $this->maladie = Absence::factory()->create(['employe_id' => $this->collegue->id, 'type' => TypeAbsence::Maladie, 'statut' => StatutAbsence::Validee, 'debut_le' => '2026-11-16', 'fin_le' => '2026-11-18', 'note' => 'Burn-out, arrêt médical', 'valide_par_user_id' => User::factory()->create()->id]);
         $this->demande = Absence::factory()->create(['employe_id' => $this->collegue->id, 'type' => TypeAbsence::Conge, 'statut' => StatutAbsence::EnAttente, 'debut_le' => '2026-11-23', 'fin_le' => '2026-11-27', 'note' => 'Voyage']);
     }
 
@@ -77,7 +78,8 @@ class VisibiliteEquipeTest extends TestCase
 
             $this->getJson("/api/v1/absences/{$this->maladie->id}", $this->enTetes($jeton))->assertOk()
                 ->assertJsonPath('data.type', null)
-                ->assertJsonPath('data.note', null);
+                ->assertJsonPath('data.note', null)
+                ->assertJsonPath('data.valide_par_user_id', null);
             $this->getJson("/api/v1/absences/{$this->demande->id}", $this->enTetes($jeton))->assertForbidden();
         }
     }
