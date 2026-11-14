@@ -38,7 +38,8 @@ class CongesParAnneeTest extends TestCase
         $this->travelTo(CarbonImmutable::parse('2026-11-11 10:00', 'Europe/Zurich'));
         // Lausanne : les jours fériés vaudois (É23)
         $this->clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich', 'npa' => '1003']);
-        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        // Les congés d'un autre : le droit « Gérer les absences » (audit C29, 14.11.2026)
+        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique, [], 'manager');
     }
 
     private function conge(Employe $employe, string $debut, string $fin, StatutAbsence $statut = StatutAbsence::Validee): void

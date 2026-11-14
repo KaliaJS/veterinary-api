@@ -18,10 +18,10 @@ class AbsenceResource extends JsonResource
     /** @return array<string, mixed> */
     public function toArray(Request $request): array
     {
-        // Sans le droit Équipe, l'absence d'un autre se dit sans sa raison ni
-        // sa note (une maladie est une donnée de santé, 11.11.2026) ; une garde
-        // n'est pas une raison et reste dite
-        $estMasquee = ! Gate::allows(DomainePermission::Equipe->value)
+        // Sans le droit « Gérer les absences » (audit C29, 14.11.2026), l'absence
+        // d'un autre se dit sans sa raison ni sa note (une maladie est une donnée
+        // de santé, 11.11.2026) ; une garde n'est pas une raison et reste dite
+        $estMasquee = ! Gate::allows(DomainePermission::GererAbsences->value)
             && $this->employe_id !== app(ContexteClinique::class)->employe()?->id;
 
         return [

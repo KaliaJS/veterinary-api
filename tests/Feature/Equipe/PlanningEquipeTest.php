@@ -16,7 +16,8 @@ use Tests\TestCase;
 
 /**
  * Le planning de l'équipe, vu par chacun (Jim, 11.11.2026, É10 : « Team
- * planning, read-only ») : sans le droit Équipe, les autres ne sont
+ * planning, read-only ») : sans le droit Équipe (et, depuis l'audit C29,
+ * sans « Gérer les absences »), les autres ne sont
  * qu'« absents », jamais la raison ni la note, et leurs demandes en
  * attente ne se montrent pas ; ses propres absences se lisent en entier.
  */
@@ -65,9 +66,10 @@ class PlanningEquipeTest extends TestCase
         $this->assertArrayHasKey('solde', $reponse['data']['moi']['conges']);
     }
 
-    public function test_avec_le_droit_equipe_tout_se_lit(): void
+    public function test_avec_le_droit_de_gerer_les_absences_tout_se_lit(): void
     {
-        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        // « Voir l'équipe » ne suffit plus (audit C29, 14.11.2026)
+        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique, [], 'manager');
 
         $reponse = $this->planning($jeton);
 

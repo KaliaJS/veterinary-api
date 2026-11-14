@@ -27,13 +27,14 @@ class AbsencePolicy
     }
 
     /**
-     * Une à une comme en liste (11.11.2026) : sans le droit Équipe, la
-     * demande en attente ou refusée d'un autre ne se lit pas.
+     * Une à une comme en liste (11.11.2026) : sans le droit « Gérer les
+     * absences » (audit C29), la demande en attente ou refusée d'un autre
+     * ne se lit pas.
      */
     public function view(User $user, Absence $absence): bool
     {
         return Gate::allows(DomainePermission::Planning->value)
-            && (Gate::allows(DomainePermission::Equipe->value)
+            && (Gate::allows(DomainePermission::GererAbsences->value)
                 || $absence->statut === StatutAbsence::Validee
                 || $absence->employe_id === app(ContexteClinique::class)->employe()?->id);
     }

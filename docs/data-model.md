@@ -538,7 +538,13 @@ donne jamais un rôle plus large que le sien ; on ne suspend ni ne
 licencie quelqu'un qui a plus de droits que soi ; la fiche d'un
 administrateur ne se modifie qu'entre administrateurs ; l'organisation
 garde toujours un administrateur actif (rôles et exceptions compris).
-Salaire et motif de licenciement ne sont lus qu'avec `rh`. Le signataire
+Salaire et motif de licenciement ne sont lus qu'avec `rh`. Ce que la
+fiche d'un collègue montre suit les droits (14.11.2026) : `equipe` le nom,
+le rôle, la présence (« absent » sans la raison), le téléphone et
+l'e-mail ; `gerer_absences` en plus la raison et la note des absences,
+les demandes en attente et les soldes de congés ; `rh` le contrat, le
+taux, l'entrée et le licenciement. Sa propre fiche se lit en entier, sauf
+le salaire et le motif. Le signataire
 d'une visite, d'une vaccination ou d'un mouvement de stupéfiant est
 toujours la personne connectée.
 

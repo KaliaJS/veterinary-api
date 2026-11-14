@@ -58,7 +58,7 @@ class EquipeEmployeController extends Controller
     public function conges(int $employe, SoldesConges $soldes): JsonResponse
     {
         $fiche = $this->employeDeLOrganisation($employe);
-        $this->authorize('view', $fiche);
+        $this->authorize('viewConges', $fiche);
 
         return response()->json(['data' => $soldes->annees($fiche->load('congesValides'))]);
     }

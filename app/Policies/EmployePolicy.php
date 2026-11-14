@@ -41,6 +41,17 @@ class EmployePolicy
         return Gate::allows(DomainePermission::Equipe->value);
     }
 
+    /**
+     * Les congés année par année d'une personne (audit C29, 14.11.2026) :
+     * les siens, ou avec « Gérer les absences » ou « Gérer l'équipe ».
+     */
+    public function viewConges(User $user, Employe $employe): bool
+    {
+        return $this->view($user, $employe)
+            && ($this->garde->estSoiMeme($employe)
+                || Gate::any([DomainePermission::GererAbsences->value, DomainePermission::Rh->value]));
+    }
+
     /** Gardes du week-end : entre collègues (voir l'équipe suffit) */
     public function organiserGardes(User $user): bool
     {

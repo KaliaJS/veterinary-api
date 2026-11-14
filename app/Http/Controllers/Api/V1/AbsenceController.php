@@ -35,11 +35,11 @@ class AbsenceController extends Controller
     {
         $this->authorize('viewAny', Absence::class);
 
-        // Sans le droit Équipe (11.11.2026) : les demandes en attente des autres
-        // ne se montrent pas ; leur raison et leur note non plus (AbsenceResource)
+        // Sans le droit « Gérer les absences » (audit C29, 14.11.2026) : les demandes en
+        // attente des autres ne se montrent pas ; leur raison et leur note non plus (AbsenceResource)
         $moi = app(ContexteClinique::class)->employe()?->id;
         $absences = Absence::query()
-            ->unless(Gate::allows(DomainePermission::Equipe->value), fn ($requete) => $requete->where(fn ($visibles) => $visibles
+            ->unless(Gate::allows(DomainePermission::GererAbsences->value), fn ($requete) => $requete->where(fn ($visibles) => $visibles
                 ->where('statut', StatutAbsence::Validee)
                 ->orWhere('employe_id', $moi)))
             ->when($request->integer('employe_id'), fn ($requete, $employe) => $requete->where('employe_id', $employe))

@@ -82,7 +82,8 @@ class PlanningIsolationTest extends TestCase
             $this->{'inscription'.$suffixe} = ListeAttente::factory()->create(['clinique_id' => $clinique->id]);
         }
 
-        ['jeton' => $this->jetonA] = $this->employeAvecJeton($this->cliniqueA);
+        // Le manager voit aussi les demandes en attente des autres (audit C29, 14.11.2026)
+        ['jeton' => $this->jetonA] = $this->employeAvecJeton($this->cliniqueA, [], 'manager');
     }
 
     public function test_les_listes_ne_montrent_que_la_clinique_du_jeton(): void

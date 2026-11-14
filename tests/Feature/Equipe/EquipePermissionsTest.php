@@ -92,10 +92,11 @@ class EquipePermissionsTest extends TestCase
 
         $this->getJson('/api/v1/equipe/employes', $this->enTetes($jeton))->assertOk();
         $this->getJson("/api/v1/equipe/employes/{$this->collegue->id}", $this->enTetes($jeton))->assertOk();
-        $this->getJson("/api/v1/equipe/employes/{$this->collegue->id}/conges", $this->enTetes($jeton))->assertOk();
-        // Les congés à traiter : le droit « Gérer les absences » (audit C04, 14.11.2026)
+        // Les congés d'un autre et les congés à traiter : le droit « Gérer les absences » (audit C04 et C29, 14.11.2026)
+        $this->getJson("/api/v1/equipe/employes/{$this->collegue->id}/conges", $this->enTetes($jeton))->assertForbidden();
         $this->getJson('/api/v1/equipe/conges/a-traiter', $this->enTetes($jeton))->assertForbidden();
         ['jeton' => $jetonManager] = $this->employeAvecJeton($this->clinique, [], 'manager');
+        $this->getJson("/api/v1/equipe/employes/{$this->collegue->id}/conges", $this->enTetes($jetonManager))->assertOk();
         $this->getJson('/api/v1/equipe/conges/a-traiter', $this->enTetes($jetonManager))->assertOk();
     }
 }

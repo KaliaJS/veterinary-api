@@ -18,10 +18,11 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * Le planning de l'équipe, lu par chacun (Jim, 11.11.2026, É10 : « Team
- * planning, read-only ») : sans le droit Équipe, les autres ne sont
- * qu'absents, sans la raison ni la note (une maladie est une donnée de
- * santé), et leurs demandes en attente ne se montrent pas ; ses propres
- * absences se lisent en entier. Les gardes ont leur propre ligne
+ * planning, read-only ») : sans le droit « Gérer les absences » (audit
+ * C29, 14.11.2026 : le droit Équipe, donné à tous, ne protégeait
+ * personne), les autres ne sont qu'absents, sans la raison ni la note
+ * (une maladie est une donnée de santé), et leurs demandes en attente ne
+ * se montrent pas ; ses propres absences se lisent en entier. Les gardes ont leur propre ligne
  * (`/equipe/gardes`) : une absence « garde » n'y figure pas.
  */
 class PlanningEquipeController extends Controller
@@ -30,7 +31,7 @@ class PlanningEquipeController extends Controller
     {
         $contexte = app(ContexteClinique::class);
         $moi = $contexte->employe();
-        $peutGerer = Gate::allows(DomainePermission::Equipe->value);
+        $peutGerer = Gate::allows(DomainePermission::GererAbsences->value);
 
         $absences = Absence::query()
             ->whereIn('statut', [StatutAbsence::Validee, StatutAbsence::EnAttente])
