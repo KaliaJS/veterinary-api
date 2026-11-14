@@ -3,17 +3,20 @@
 namespace App\Http\Resources\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\DomainePermission;
 use App\Models\Client;
 use App\Services\Clients\AnimalStates;
 use App\Services\Clients\OwnerPreferences;
 use App\Services\Clients\OwnerSpaceInvitations;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Les champs agrégés (nombre d'animaux, solde dû = reste à payer de ses factures dues,
  * no-shows, client depuis = min des fiches) ne sortent que lorsque le
- * contrôleur les a chargés — jamais recalculés ici.
+ * contrôleur les a chargés — jamais recalculés ici. Le solde dû, seulement
+ * avec le droit de la facturation (audit C10, 14.11.2026).
  *
  * @mixin Client
  */
@@ -52,7 +55,7 @@ class ClientResource extends JsonResource
                     ->values()
                     ->all(),
             ),
-            'solde_du' => $this->whenHas('solde_du', fn () => round((float) $this->solde_du, 2)),
+            'solde_du' => $this->when(Gate::allows(DomainePermission::Facturation->value), fn () => $this->whenHas('solde_du', fn () => round((float) $this->solde_du, 2))),
             'no_shows' => $this->whenHas('no_shows_count'),
             'client_depuis' => $this->whenHas('patients_min_client_depuis'),
             'patients' => PatientResource::collection($this->whenLoaded('patients')),

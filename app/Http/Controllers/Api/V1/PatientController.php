@@ -64,10 +64,11 @@ class PatientController extends Controller
             'chien' => $requete->where('espece', Espece::Chien),
             'chat' => $requete->where('espece', Espece::Chat),
             'nac' => $requete->whereNotIn('espece', [Espece::Chien, Espece::Chat]),
+            // La dette ne compte qu'avec le droit de la facturation (audit C10, 14.11.2026)
             'alertes' => $requete->where(fn (Builder $clause) => $clause
                 ->where('est_agressif', true)
                 ->orWhere('a_allergies', true)
-                ->orWhere('dette', '>', 0)),
+                ->when(PatientResource::voitLaFacturation(), fn (Builder $avecDette) => $avecDette->orWhere('dette', '>', 0))),
             // Les patients référés par une autre clinique dans Veterinary (envoi C, 09.11.2026)
             'referes' => $requete->whereIn('patients.id', ReferralInvitation::query()->select('target_patient_id')->where('status', 'accepted')->whereNotNull('target_patient_id')),
             'rappels' => $requete->whereHas(
@@ -108,7 +109,7 @@ class PatientController extends Controller
                 $sens,
             )->orderBy('nom'),
             'alertes' => $requete
-                ->orderByRaw('(case when est_agressif then 1 else 0 end) + (case when a_allergies then 1 else 0 end) + (case when dette > 0 then 1 else 0 end) '.($sens === 'asc' ? 'desc' : 'asc'))
+                ->orderByRaw('(case when est_agressif then 1 else 0 end) + (case when a_allergies then 1 else 0 end)'.(PatientResource::voitLaFacturation() ? ' + (case when dette > 0 then 1 else 0 end)' : '').' '.($sens === 'asc' ? 'desc' : 'asc'))
                 ->orderBy('nom'),
             'rappels' => $requete
                 ->orderByRaw('vaccinations_min_echeance_le is null')
@@ -165,7 +166,7 @@ class PatientController extends Controller
                 $compte('patients.espece = ?').' as chien',
                 $compte('patients.espece = ?').' as chat',
                 $compte('patients.espece not in (?, ?)').' as nac',
-                $compte('patients.est_agressif = 1 or patients.a_allergies = 1 or patients.dette > 0').' as alertes',
+                $compte('patients.est_agressif = 1 or patients.a_allergies = 1'.(PatientResource::voitLaFacturation() ? ' or patients.dette > 0' : '')).' as alertes',
                 $compte('exists (select 1 from vaccinations where vaccinations.patient_id = patients.id and vaccinations.echeance_le <= ? and '.Vaccination::SQL_NON_RENOUVELEE.')').' as rappels',
                 $compte("exists (select 1 from referral_invitations where referral_invitations.target_patient_id = patients.id and referral_invitations.status = 'accepted')").' as referes',
             ]), [

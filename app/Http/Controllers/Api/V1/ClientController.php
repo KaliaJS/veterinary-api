@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Auth\ContexteClinique;
+use App\Enums\DomainePermission;
 use App\Enums\StatutRendezVous;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\V1\Clients\EnregistrerClientRequest;
@@ -17,6 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -144,8 +146,9 @@ class ClientController extends Controller
     {
         return $requete
             ->withCount('patients')
-            // Le solde dû : le reste à payer de ses factures dues, factures sans animal comprises (03.11.2026)
-            ->selectRaw(PatientDebts::ownerBalanceSql().' as solde_du')
+            // Le solde dû : le reste à payer de ses factures dues, factures sans animal comprises (03.11.2026) ;
+            // seulement avec le droit de la facturation (audit C10, 14.11.2026)
+            ->when(Gate::allows(DomainePermission::Facturation->value), fn (Builder $avecSolde) => $avecSolde->selectRaw(PatientDebts::ownerBalanceSql().' as solde_du'))
             ->withMin('patients', 'client_depuis')
             ->withCount(['rendezVous as no_shows_count' => fn (Builder $rendezVous) => $rendezVous
                 ->withoutGlobalScope('clinique')

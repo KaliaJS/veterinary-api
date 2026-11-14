@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\V1;
 
+use App\Enums\DomainePermission;
 use App\Models\Patient;
 use App\Models\Pesee;
 use App\Models\ReferralInvitation;
@@ -9,10 +10,12 @@ use App\Models\ReleveDentaire;
 use App\Services\Isabv\Declarations;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Gate;
 
 /**
  * Les alertes sont dérivées (`agressif`, `allergies`, `solde` si dette)
- * comme au front — jamais stockées. Les sous-collections du dossier ne
+ * comme au front — jamais stockées. La dette et l'alerte « solde » ne
+ * sortent qu'avec le droit de la facturation (audit C10, 14.11.2026). Les sous-collections du dossier ne
  * sortent que chargées (show) ; l'odontogramme est rendu en map
  * « n° Triadan → état », l'absence de clé vaut sain. La liste porte
  * le dernier poids, la courbe des douze dernières pesées (sparkline)
@@ -57,7 +60,7 @@ class PatientResource extends JsonResource
             'puce' => $this->puce,
             'assurance' => $this->assurance,
             'photo_url' => $this->photoUrl(),
-            'dette' => (float) $this->dette,
+            'dette' => $this->when(self::voitLaFacturation(), fn (): float => (float) $this->dette),
             'alertes' => $this->alertes(),
             'est_agressif' => $this->est_agressif,
             'a_allergies' => $this->a_allergies,
@@ -128,8 +131,14 @@ class PatientResource extends JsonResource
         return array_values(array_filter([
             $this->est_agressif ? 'agressif' : null,
             $this->a_allergies ? 'allergies' : null,
-            $this->aSoldeDu() ? 'solde' : null,
+            self::voitLaFacturation() && $this->aSoldeDu() ? 'solde' : null,
         ]));
+    }
+
+    /** La dette et son alerte : le droit de la facturation (audit C10) */
+    public static function voitLaFacturation(): bool
+    {
+        return Gate::allows(DomainePermission::Facturation->value);
     }
 
     /** La dernière pesée face au poids de forme saisi (03.11.2026) */
