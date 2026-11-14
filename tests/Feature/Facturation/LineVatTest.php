@@ -297,7 +297,8 @@ class LineVatTest extends TestCase
         $this->assertSame([2.6, 8.1], array_column($pdf['vat_breakdown'], 'rate'));
         $this->assertSame([8.1, 2.6], array_column($pdf['lignes'], 'taux_tva'));
 
-        $journal = $this->getJson('/api/v1/facturation/factures/journal?mois=2026-11', $this->enTetes($this->jeton))->assertOk()->json('data');
+        // Le journal du mois : « Voir les chiffres » (Jim, 14.11.2026)
+        $journal = $this->getJson('/api/v1/facturation/factures/journal?mois=2026-11', $this->enTetes($this->employeAvecJeton($this->clinique, [], 'manager')['jeton']))->assertOk()->json('data');
         $this->assertSame([
             ['rate' => 2.6, 'excl_vat' => 51.27, 'vat' => 1.33, 'incl_vat' => 52.6],
             ['rate' => 8.1, 'excl_vat' => 100, 'vat' => 8.1, 'incl_vat' => 108.1],

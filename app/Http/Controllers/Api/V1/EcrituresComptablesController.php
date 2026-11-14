@@ -24,6 +24,8 @@ class EcrituresComptablesController extends Controller
     public function index(Request $request, AccountingEntries $entries): JsonResponse
     {
         $this->authorize('viewAny', Facture::class);
+        // Les totaux du mois : l'administrateur et « Voir les chiffres » (Jim, 14.11.2026)
+        $this->authorize('viewChiffres', Facture::class);
         $mois = $this->mois((string) $request->query('mois'));
         $societe = $this->societe();
         $verrou = $this->actif($societe, $mois);
@@ -41,6 +43,8 @@ class EcrituresComptablesController extends Controller
     public function verrouiller(Request $request, string $mois, AccountingEntries $entries): JsonResponse
     {
         $this->authorize('create', ClotureCaisse::class);
+        // Les totaux du mois : l'administrateur et « Voir les chiffres » (Jim, 14.11.2026)
+        $this->authorize('viewChiffres', Facture::class);
         $mois = $this->mois($mois);
         if ($mois >= $this->moisCourant()) {
             throw ValidationException::withMessages(['mois' => 'Seul un mois terminé se remet à la fiduciaire.']);
@@ -60,6 +64,8 @@ class EcrituresComptablesController extends Controller
     public function rouvrir(Request $request, string $mois): JsonResponse
     {
         $this->authorize('create', ClotureCaisse::class);
+        // Les totaux du mois : l'administrateur et « Voir les chiffres » (Jim, 14.11.2026)
+        $this->authorize('viewChiffres', Facture::class);
         $mois = $this->mois($mois);
         $societe = $this->societe();
         // Rouvert, pas effacé : qui et quand restent

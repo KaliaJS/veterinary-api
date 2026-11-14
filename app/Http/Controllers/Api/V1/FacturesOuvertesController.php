@@ -23,6 +23,8 @@ class FacturesOuvertesController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Facture::class);
+        // Les totaux du mois : l'administrateur et « Voir les chiffres » (Jim, 14.11.2026)
+        $this->authorize('viewChiffres', Facture::class);
 
         $date = $request->validate(['date' => ['required', 'date_format:Y-m-d']])['date'];
         $contexte = app(ContexteClinique::class);

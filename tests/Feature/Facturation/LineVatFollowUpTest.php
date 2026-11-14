@@ -238,7 +238,8 @@ class LineVatFollowUpTest extends TestCase
 
     public function test_le_journal_sert_les_taux_en_vigueur_pour_un_import_stable(): void
     {
-        $this->getJson('/api/v1/facturation/factures/journal?mois=2026-11', $this->enTetes($this->jeton))
+        // Le journal du mois : « Voir les chiffres » (Jim, 14.11.2026)
+        $this->getJson('/api/v1/facturation/factures/journal?mois=2026-11', $this->enTetes($this->employeAvecJeton($this->clinique, [], 'manager')['jeton']))
             ->assertOk()->assertJsonPath('data.vat_rates', [2.6, 8.1]);
     }
 }

@@ -9,6 +9,7 @@ use App\Models\Facture;
 use App\Models\Produit;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Tests\Concerns\EmetDesJetonsApi;
 use Tests\TestCase;
 
@@ -110,6 +111,39 @@ class ChiffresReservesTest extends TestCase
 
         ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique, [], 'manager');
         $this->getJson('/api/v1/facturation/statistics'.$periode, $this->enTetes($jeton))->assertOk();
+    }
+
+    /**
+     * Les exports pour la fiduciaire contiennent les totaux du mois (Jim,
+     * 14.11.2026, choix A) : journal des ventes et des encaissements, TVA,
+     * écritures comptables, factures ouvertes à une date, et le mois remis.
+     */
+    public function test_les_exports_pour_la_fiduciaire_demandent_voir_les_chiffres(): void
+    {
+        $exports = [
+            ['getJson', '/api/v1/facturation/factures/journal?mois=2026-11'],
+            ['getJson', '/api/v1/facturation/factures/ouvertes?date=2026-11-14'],
+            ['getJson', '/api/v1/facturation/ecritures?mois=2026-10'],
+            ['postJson', '/api/v1/facturation/ecritures/2026-10/verrou'],
+            ['deleteJson', '/api/v1/facturation/ecritures/2026-10/verrou'],
+        ];
+
+        foreach (['asv', null] as $role) {
+            ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique, [], $role);
+            foreach ($exports as [$methode, $uri]) {
+                $this->appel($methode, $uri, $jeton)->assertForbidden();
+            }
+        }
+
+        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique, [], 'manager');
+        foreach (array_slice($exports, 0, 3) as [$methode, $uri]) {
+            $this->appel($methode, $uri, $jeton)->assertOk();
+        }
+    }
+
+    private function appel(string $methode, string $uri, string $jeton): TestResponse
+    {
+        return $methode === 'getJson' ? $this->getJson($uri, $this->enTetes($jeton)) : $this->{$methode}($uri, [], $this->enTetes($jeton));
     }
 
     private function facturePayee(bool $venteComptoir, float $prix): Facture
