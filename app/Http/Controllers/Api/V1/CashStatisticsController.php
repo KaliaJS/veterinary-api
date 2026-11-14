@@ -20,13 +20,16 @@ use Illuminate\Http\JsonResponse;
  * Les factures se lisent pour toute l'organisation avec le droit de la
  * caisse (elles suivent le patient) : toute l'organisation par défaut, ou
  * une de ses cliniques. Les jours se comptent dans le fuseau de la clinique
- * choisie, sinon celui de la clinique du jeton.
+ * choisie, sinon celui de la clinique du jeton. C'est le chiffre d'affaires
+ * de l'organisation : réservé à l'administrateur et au droit « Voir les
+ * chiffres » (audit C11, 14.11.2026).
  */
 class CashStatisticsController extends Controller
 {
     public function __invoke(CashStatisticsRequest $request, CashStatistics $statistics): JsonResponse
     {
         $this->authorize('viewAny', Facture::class);
+        $this->authorize('viewChiffres', Facture::class);
 
         $contexte = app(ContexteClinique::class);
         $organisationClinics = $contexte->clinique()->societe->organisation->cliniques()->orderBy('cliniques.id')->get();

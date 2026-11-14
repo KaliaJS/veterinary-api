@@ -7,6 +7,7 @@ use App\Enums\StatutFacture;
 use App\Enums\TypeLigneFacture;
 use App\Http\Controllers\Controller;
 use App\Models\CommandeBoutique;
+use App\Models\Facture;
 use App\Models\FactureLigne;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,9 +16,11 @@ use Illuminate\Support\Collection;
 
 /**
  * Chiffres de la boutique — DÉRIVÉS des lignes produit des factures payées
- * (comptoir, caisse, fin de consultation), la cible de docs/data-model.md
- * §14 : pas de table « ventes » parallèle. Périmètre organisation par
- * défaut, filtrable par clinique.
+ * du comptoir (audit C11, 14.11.2026 : les consultations et la caisse n'en
+ * sont plus, conformément à docs/data-model.md §14) : pas de table
+ * « ventes » parallèle. Périmètre organisation par défaut, filtrable par
+ * clinique. Réservés à l'administrateur et au droit « Voir les chiffres »
+ * (FacturePolicy::viewChiffres), en plus du droit Stocks de la boutique.
  *
  * La période (Jim, 11.11.2026, maquette /ui/boutique-refonte, choix B) :
  * 7 jours (par défaut) ou 30 jours, jour par jour ; 12 mois, mois par mois
@@ -31,6 +34,7 @@ class StatistiquesBoutiqueController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $this->authorize('viewAny', CommandeBoutique::class);
+        $this->authorize('viewChiffres', Facture::class);
         $request->validate(['periode' => ['nullable', 'integer', 'in:7,30,365']]);
 
         $periode = $request->integer('periode') ?: 7;
@@ -44,6 +48,7 @@ class StatistiquesBoutiqueController extends Controller
             ->where('type', TypeLigneFacture::Medicament)
             ->whereNotNull('produit_id')
             ->whereHas('facture', fn ($requete) => $requete
+                ->where('vente_comptoir', true)
                 ->where('statut', StatutFacture::Payee)
                 ->where('payee_le', '>=', minuitLocal($debutAvant))
                 ->when($request->integer('clinique_id'), fn ($facture, int $clinique) => $facture->where('clinique_id', $clinique)))

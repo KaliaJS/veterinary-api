@@ -15,7 +15,10 @@ use Illuminate\Http\Request;
  * Statistiques de caisse — toutes dérivées, rien de stocké : les
  * encaissements « du jour » suivent le fuseau de la clinique du jeton,
  * le CA du mois se ventile par clinique de l'organisation (champ `clin`
- * du front).
+ * du front). Le CA du mois ne sort que pour l'administrateur et le droit
+ * « Voir les chiffres » (audit C11, 14.11.2026) ; l'encaissé du jour et
+ * les factures en attente restent à la facturation (la clôture en a
+ * besoin).
  */
 class StatistiquesCaisseController extends Controller
 {
@@ -42,15 +45,6 @@ class StatistiquesCaisseController extends Controller
             ->with(['lignes', 'settlements'])
             ->get();
 
-        $duMois = Facture::query()
-            ->where('statut', StatutFacture::Payee)
-            ->where('payee_le', '>=', now($fuseau)->startOfMonth()->utc())
-            ->with('lignes')
-            ->get();
-
-        $cliniques = $contexte->clinique()->societe->organisation
-            ->cliniques()->pluck('cliniques.nom', 'cliniques.id');
-
         return response()->json(['data' => [
             'du_jour' => [
                 // Les factures qui ont reçu un paiement ce jour
@@ -68,16 +62,36 @@ class StatistiquesCaisseController extends Controller
                 'nombre' => $enAttente->count(),
                 'total' => round((float) $enAttente->sum(fn (Facture $facture): float => $facture->resteAPayer()), 2),
             ],
-            'mois' => [
-                'ca_par_clinique' => $duMois
-                    ->groupBy('clinique_id')
-                    ->map(fn ($factures, int $cliniqueId): array => [
-                        'clinique_id' => $cliniqueId,
-                        'nom' => $cliniques[$cliniqueId] ?? null,
-                        'total' => round((float) $factures->sum(fn (Facture $facture): float => $facture->totalTtc()), 2),
-                    ])
-                    ->values(),
-            ],
+            ...$request->user()->can('viewChiffres', Facture::class) ? ['mois' => $this->duMois($fuseau)] : [],
         ]]);
+    }
+
+    /**
+     * Le CA du mois, par clinique de l'organisation : `ca_par_clinique`
+     * (clinique_id, nom, total).
+     *
+     * @return array<string, mixed>
+     */
+    private function duMois(string $fuseau): array
+    {
+        $duMois = Facture::query()
+            ->where('statut', StatutFacture::Payee)
+            ->where('payee_le', '>=', now($fuseau)->startOfMonth()->utc())
+            ->with('lignes')
+            ->get();
+
+        $cliniques = app(ContexteClinique::class)->clinique()->societe->organisation
+            ->cliniques()->pluck('cliniques.nom', 'cliniques.id');
+
+        return [
+            'ca_par_clinique' => $duMois
+                ->groupBy('clinique_id')
+                ->map(fn ($factures, int $cliniqueId): array => [
+                    'clinique_id' => $cliniqueId,
+                    'nom' => $cliniques[$cliniqueId] ?? null,
+                    'total' => round((float) $factures->sum(fn (Facture $facture): float => $facture->totalTtc()), 2),
+                ])
+                ->values(),
+        ];
     }
 }

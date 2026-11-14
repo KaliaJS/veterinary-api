@@ -32,7 +32,8 @@ class ChiffresBoutiqueTest extends TestCase
 
         $this->clinique = Clinique::factory()->create(['fuseau_horaire' => 'Europe/Zurich']);
         $this->travelTo(CarbonImmutable::parse('2026-11-14 12:00', 'Europe/Zurich'));
-        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique);
+        // Les chiffres : l'administrateur et « Voir les chiffres » (audit C11, 14.11.2026)
+        ['jeton' => $this->jeton] = $this->employeAvecJeton($this->clinique, [], 'manager');
     }
 
     private function produit(string $categorie, float $cout = 10): Produit
@@ -47,12 +48,13 @@ class ChiffresBoutiqueTest extends TestCase
         ]);
     }
 
-    /** Une facture payée à cette heure de la clinique, une ligne de ce produit */
+    /** Une vente du comptoir payée à cette heure de la clinique, une ligne de ce produit */
     private function vente(string $quand, Produit $produit, int $quantite, float $prix = 30): void
     {
         $facture = Facture::factory()->payee()->create([
             'clinique_id' => $this->clinique->id,
             'payee_le' => CarbonImmutable::parse($quand, 'Europe/Zurich')->utc(),
+            'vente_comptoir' => true,
         ]);
         $facture->lignes()->create(['produit_id' => $produit->id, 'libelle' => $produit->nom, 'quantite' => $quantite, 'prix_chf' => $prix, 'type' => 'med']);
     }

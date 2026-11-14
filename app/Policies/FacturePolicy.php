@@ -39,4 +39,14 @@ class FacturePolicy
     {
         return Gate::allows(DomainePermission::Facturation->value);
     }
+
+    /**
+     * Le chiffre d'affaires et la marge de l'organisation (audit C11, Jim,
+     * 14.11.2026) : l'administrateur et le droit « Voir les chiffres »,
+     * pas toute personne qui encaisse ou tient la boutique.
+     */
+    public function viewChiffres(User $user): bool
+    {
+        return Gate::any([DomainePermission::Organisation->value, DomainePermission::VoirChiffres->value]);
+    }
 }

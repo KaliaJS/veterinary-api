@@ -329,7 +329,7 @@ class BoutiqueTest extends TestCase
         $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'cash', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 1], ['produit_id' => $shampooing->id, 'quantite' => 1]]], $entetes)->assertCreated();
         $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'cash', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 2]]], $entetes)->assertCreated();
 
-        $totaux = $this->getJson('/api/v1/boutique/statistiques', $entetes)->assertOk()->json('data.totaux');
+        $totaux = $this->getJson('/api/v1/boutique/statistiques', $this->enTetesDesChiffres())->assertOk()->json('data.totaux');
 
         $this->assertSame(2, $totaux['tickets']);
         $this->assertEquals(round($totaux['chiffre_affaires'] / 2, 2), $totaux['panier_moyen']);
@@ -343,7 +343,7 @@ class BoutiqueTest extends TestCase
         $entetes = $this->enTetes($this->jeton);
         $this->postJson('/api/v1/boutique/vente', ['moyen_paiement' => 'cash', 'lignes' => [['produit_id' => $croquettes->id, 'quantite' => 3], ['produit_id' => $shampooing->id, 'quantite' => 1]]], $entetes)->assertCreated();
 
-        $data = $this->getJson('/api/v1/boutique/statistiques', $entetes)->assertOk()->json('data');
+        $data = $this->getJson('/api/v1/boutique/statistiques', $this->enTetesDesChiffres())->assertOk()->json('data');
 
         $ca = $data['totaux']['chiffre_affaires'];
         $this->assertEquals(round(($ca - $data['totaux']['cout']) / $ca * 100), $data['totaux']['marge_pct']);
@@ -441,10 +441,10 @@ class BoutiqueTest extends TestCase
     {
         $this->clinique->update(['fuseau_horaire' => 'Europe/Zurich']);
         $this->travelTo(CarbonImmutable::parse('2026-11-14 12:00', 'Europe/Zurich'));
-        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique);
+        ['jeton' => $jeton] = $this->employeAvecJeton($this->clinique, [], 'manager');
         $produit = $this->produitEnRayon(10, ['prix' => 30, 'cout' => 12]);
         $vente = function (string $quand, int $quantite) use ($produit): void {
-            $facture = Facture::factory()->payee()->create(['clinique_id' => $this->clinique->id, 'payee_le' => CarbonImmutable::parse($quand, 'Europe/Zurich')->utc()]);
+            $facture = Facture::factory()->payee()->create(['clinique_id' => $this->clinique->id, 'payee_le' => CarbonImmutable::parse($quand, 'Europe/Zurich')->utc(), 'vente_comptoir' => true]);
             $facture->lignes()->create(['produit_id' => $produit->id, 'libelle' => $produit->nom, 'quantite' => $quantite, 'prix_chf' => 30, 'type' => 'med']);
         };
         // Le premier jour de la période, juste après minuit (encore la veille en UTC)
@@ -469,10 +469,11 @@ class BoutiqueTest extends TestCase
             'lignes' => [['produit_id' => $produit->id, 'quantite' => 2]],
         ], $entetes)->assertCreated();
 
-        // Une facture payée il y a dix jours reste hors période.
+        // Une vente du comptoir payée il y a dix jours reste hors période.
         $ancienne = Facture::factory()->payee()->create([
             'clinique_id' => $this->clinique->id,
             'payee_le' => now()->subDays(10),
+            'vente_comptoir' => true,
         ]);
         $ancienne->lignes()->create([
             'produit_id' => $produit->id,
@@ -482,7 +483,7 @@ class BoutiqueTest extends TestCase
             'type' => 'med',
         ]);
 
-        $this->getJson('/api/v1/boutique/statistiques', $entetes)
+        $this->getJson('/api/v1/boutique/statistiques', $this->enTetesDesChiffres())
             ->assertOk()
             ->assertJsonCount(1, 'data.ventes')
             ->assertJsonPath('data.ventes.0.quantite', 2)
@@ -490,5 +491,11 @@ class BoutiqueTest extends TestCase
             ->assertJsonPath('data.ventes.0.cout', 24)
             ->assertJsonPath('data.totaux.chiffre_affaires', 60)
             ->assertJsonPath('data.totaux.marge', 36);
+    }
+
+    /** Les chiffres : l'administrateur et « Voir les chiffres » (audit C11, 14.11.2026) */
+    private function enTetesDesChiffres(): array
+    {
+        return $this->enTetes($this->employeAvecJeton($this->clinique, [], 'manager')['jeton']);
     }
 }
