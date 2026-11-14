@@ -527,7 +527,7 @@ sont de deux sortes :
 | `stupefiants` | actes | inscrire au registre des stupéfiants |
 | `cloturer_caisse` | caisse | clôture Z |
 | `rembourser` | caisse | rembourser et répondre aux litiges (composant Stripe) |
-| `voir_chiffres` | caisse | chiffre d'affaires et marge de l'organisation : statistiques de la caisse et de la boutique (14.11.2026) |
+| `voir_chiffres` | caisse | chiffre d'affaires et marge de l'organisation : statistiques de la caisse et de la boutique, exports pour la fiduciaire (journal du mois, TVA, écritures, factures ouvertes ; remettre le mois demande en plus `cloturer_caisse`) (14.11.2026) |
 
 Défauts (`RolesParDefaut`, modifiables par l'organisation dans Réglages,
 Rôles et droits) : Administrateur tout ; Manager `planning`, `patients`,

@@ -96,7 +96,7 @@ enum DomainePermission: string
             self::CloturerCaisse => 'Arrêter la caisse du jour (clôture Z).',
             self::Rembourser => 'Rembourser un paiement et répondre aux litiges.',
             self::GererAbsences => 'Valider ou refuser les congés, poser une absence pour un autre, voir la raison des absences et les soldes de congés.',
-            self::VoirChiffres => 'Chiffre d’affaires et marge de l’organisation : statistiques de la caisse et de la boutique.',
+            self::VoirChiffres => 'Chiffre d’affaires et marge de l’organisation : statistiques de la caisse et de la boutique, exports pour la fiduciaire (avec « Clôturer la caisse », remettre le mois).',
         };
     }
 }

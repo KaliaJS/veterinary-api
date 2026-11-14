@@ -139,6 +139,18 @@ class ChiffresReservesTest extends TestCase
         foreach (array_slice($exports, 0, 3) as [$methode, $uri]) {
             $this->appel($methode, $uri, $jeton)->assertOk();
         }
+
+        // Le mois remis : « Clôturer la caisse » ne suffit pas sans « Voir les chiffres », et l'inverse non plus
+        ['employe' => $asvEnChef, 'jeton' => $jetonAsv] = $this->employeAvecJeton($this->clinique, [], 'asv');
+        DerogationPermission::create(['employe_id' => $asvEnChef->id, 'domaine' => DomainePermission::CloturerCaisse, 'est_accordee' => true]);
+        ['employe' => $manager, 'jeton' => $jetonManager] = $this->employeAvecJeton($this->clinique, [], 'manager');
+        foreach (array_slice($exports, 3) as [$methode, $uri]) {
+            $this->appel($methode, $uri, $jetonAsv)->assertForbidden();
+            $this->appel($methode, $uri, $jetonManager)->assertForbidden();
+        }
+        DerogationPermission::create(['employe_id' => $manager->id, 'domaine' => DomainePermission::CloturerCaisse, 'est_accordee' => true]);
+        $this->appel('postJson', '/api/v1/facturation/ecritures/2026-10/verrou', $jetonManager)->assertSuccessful();
+        $this->appel('deleteJson', '/api/v1/facturation/ecritures/2026-10/verrou', $jetonManager)->assertSuccessful();
     }
 
     private function appel(string $methode, string $uri, string $jeton): TestResponse
