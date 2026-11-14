@@ -163,4 +163,19 @@ class VisibiliteEquipeTest extends TestCase
         $this->assertNull($fiche['licenciement']['motif']);
         $this->getJson("/api/v1/equipe/employes/{$moi->id}/conges", $this->enTetes($jeton))->assertOk();
     }
+
+    public function test_le_planning_dit_qui_a_valide_ses_propres_absences_pas_celles_des_autres(): void
+    {
+        $this->clinique->societe->organisation->forceFill(['conges_sans_validation' => true])->save();
+        ['employe' => $moi, 'user' => $user, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique, [], 'assistant');
+        $this->maladie->forceFill(['valide_par_user_id' => $user->id])->save();
+        $this->postJson('/api/v1/equipe/demandes-conge', ['debut_le' => '2026-11-30', 'fin_le' => '2026-12-01'], $this->enTetes($jeton))
+            ->assertCreated()
+            ->assertJsonPath('data.statut', 'ok');
+
+        $absences = collect($this->getJson('/api/v1/equipe/planning?du=2026-11-09&au=2026-12-06', $this->enTetes($jeton))->assertOk()->json('data.absences'));
+
+        $this->assertSame($user->id, $absences->firstWhere('employe_id', $moi->id)['valide_par_user_id']);
+        $this->assertNull($absences->firstWhere('id', $this->maladie->id)['valide_par_user_id']);
+    }
 }

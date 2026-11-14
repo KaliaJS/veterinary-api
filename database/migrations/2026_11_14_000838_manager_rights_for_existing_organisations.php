@@ -45,12 +45,8 @@ return new class extends Migration
 
     public function down(): void
     {
-        // Le rôle Manager que personne ne porte s'en va ; les droits du manager quittent tous les rôles
-        DB::table('roles')
-            ->where('nom', 'Manager')
-            ->whereNotExists(fn ($employes) => $employes->selectRaw('1')->from('employes')->whereColumn('employes.role_id', 'roles.id'))
-            ->delete();
-
+        // Les droits du manager quittent tous les rôles ; aucun rôle ne s'efface (un « Manager » a pu
+        // exister avant, créé par l'organisation : rien ne dit lequel vient d'ici)
         foreach (DB::table('roles')->get(['id', 'domaines']) as $role) {
             $domaines = json_decode($role->domaines, true) ?? [];
             if (array_intersect(self::DROITS_DU_MANAGER, $domaines) !== []) {

@@ -4,6 +4,7 @@ namespace Tests\Feature\Auth;
 
 use App\Auth\RolesParDefaut;
 use App\Enums\DomainePermission;
+use App\Models\Absence;
 use App\Models\DerogationPermission;
 use App\Models\Employe;
 use App\Models\Role;
@@ -90,6 +91,31 @@ class PermissionsTest extends TestCase
             DomainePermission::CloturerCaisse, DomainePermission::Rembourser] as $exclu) {
             $this->assertNotContains($exclu, $roles[RolesParDefaut::MANAGER]);
         }
+    }
+
+    /**
+     * L'administration emporte les droits du manager (vérification du
+     * 14.11.2026) : un administrateur par exception (rôle Vétérinaire et
+     * « Administration » accordée à titre personnel) gère les absences et
+     * voit les chiffres, comme le rôle Administrateur.
+     */
+    public function test_l_administration_emporte_les_droits_du_manager_meme_par_exception(): void
+    {
+        ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton();
+        DerogationPermission::create(['employe_id' => $employe->id, 'domaine' => DomainePermission::Organisation, 'est_accordee' => true]);
+        $collegue = Employe::factory()->create(['organisation_id' => $employe->organisation_id]);
+        $demande = Absence::factory()->enAttente()->create([
+            'employe_id' => $collegue->id,
+            'debut_le' => aujourdhui()->addDays(10),
+            'fin_le' => aujourdhui()->addDays(11),
+        ]);
+
+        $permissions = $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk()->json('data.permissions');
+        $this->assertContains('gerer_absences', $permissions);
+        $this->assertContains('voir_chiffres', $permissions);
+        $this->postJson("/api/v1/absences/{$demande->id}/valider", [], $this->enTetes($jeton))
+            ->assertOk()
+            ->assertJsonPath('data.statut', 'ok');
     }
 
     public function test_les_droits_du_manager_se_donnent_a_titre_personnel(): void

@@ -61,7 +61,7 @@ class DroitsDuManagerMigrationTest extends TestCase
         $this->assertContains('gerer_absences', $valeurs(RolesParDefaut::ADMINISTRATEUR));
         $this->assertContains('voir_chiffres', $valeurs(RolesParDefaut::ADMINISTRATEUR));
         $this->assertEqualsCanonicalizing(
-            collect(RolesParDefaut::droits()[RolesParDefaut::MANAGER])->map->value->all(),
+            ['planning', 'patients', 'facturation', 'stocks', 'equipe', 'gerer_absences', 'voir_chiffres'],
             $valeurs(RolesParDefaut::MANAGER),
         );
         // Les autres rôles ne bougent pas
@@ -78,6 +78,21 @@ class DroitsDuManagerMigrationTest extends TestCase
         $this->migration('2026_11_14_000838_manager_rights_for_existing_organisations.php')->up();
 
         $this->assertSame(['planning'], json_decode(DB::table('roles')->where('organisation_id', $organisation)->where('nom', RolesParDefaut::MANAGER)->value('domaines'), true));
+    }
+
+    public function test_le_retour_en_arriere_retire_les_droits_sans_effacer_aucun_role(): void
+    {
+        $clinique = Clinique::factory()->create();
+        $organisation = $clinique->societe->organisation_id;
+        Employe::factory()->dans($clinique)->create();
+        $roles = DB::table('roles')->where('organisation_id', $organisation)->count();
+
+        $this->migration('2026_11_14_000838_manager_rights_for_existing_organisations.php')->down();
+
+        $this->assertSame($roles, DB::table('roles')->where('organisation_id', $organisation)->count());
+        foreach (DB::table('roles')->where('organisation_id', $organisation)->pluck('domaines') as $domaines) {
+            $this->assertEmpty(array_intersect(['gerer_absences', 'voir_chiffres'], json_decode($domaines, true)));
+        }
     }
 
     private function migration(string $fichier): object

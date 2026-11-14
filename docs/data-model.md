@@ -144,6 +144,8 @@ colonne (à ajouter aux « suppressions tolérées »). Les RDV annulés ne
 sont pas restaurés par la suppression de l'absence. Ces gestes demandent
 `gerer_absences` (14.11.2026) ; personne ne décide de sa propre absence,
 sauf un administrateur (sa demande en attente se corrige ou se retire).
+Sans validation (réglage de l'organisation), on retire soi-même un congé
+validé pas encore commencé seulement si on l'a posé soi-même.
 
 **Gardes, chaque nuit** (11.11.2026, `RotationGardes`) : table `gardes`
 (clinique, `jour` unique, employé, `est_choisie`, `enregistree_le`,
@@ -534,7 +536,9 @@ Vétérinaire tout sauf `organisation`, `rh`, `cloturer_caisse`,
 `rembourser`, `gerer_absences`, `voir_chiffres` ; ASV `planning`,
 `patients`, `facturation`, `stocks`, `bloc`, `equipe` ; Assistant
 `planning`, `patients`, `stocks`, `equipe`. Les droits du manager se
-donnent aussi à titre personnel (un vétérinaire ou une ASV en chef).
+donnent aussi à titre personnel (un vétérinaire ou une ASV en chef), et
+l'administration (`organisation`, par le rôle ou une exception) les
+emporte.
 
 Garde-fous : personne ne change son propre rôle ni ne se suspend ; on ne
 donne jamais un rôle plus large que le sien ; on ne suspend ni ne
