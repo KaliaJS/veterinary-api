@@ -189,6 +189,13 @@ class RolesEtDroitsTest extends TestCase
         $this->putJson("/api/v1/organisation/roles/{$reception}", ['droits' => ['planning', 'organisation']], $this->enTetes($this->jeton))->assertOk();
 
         $this->assertSame([], $this->exceptionsDe($julie->id));
+
+        // Sophie a le rôle Administrateur, mais l'Administration lui est retirée : son refus reste
+        ['employe' => $sophie] = $this->administrateurAvecJeton($this->clinique);
+        $refus = [['droit' => 'organisation', 'accorde' => false], ['droit' => 'gerer_absences', 'accorde' => false]];
+        $this->putJson("/api/v1/organisation/employes/{$sophie->id}/exceptions", ['droits' => $refus], $this->enTetes($this->jeton))->assertOk();
+        $this->patchJson("/api/v1/equipe/employes/{$paul->id}", ['role_id' => $this->role(RolesParDefaut::VETERINAIRE)->id], $this->enTetes($this->jeton))->assertOk();
+        $this->assertEqualsCanonicalizing($refus, $this->exceptionsDe($sophie->id)[0]['droits'] ?? []);
     }
 
     /** @return list<array<string, mixed>> */
