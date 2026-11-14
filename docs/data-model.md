@@ -538,7 +538,9 @@ Vétérinaire tout sauf `organisation`, `rh`, `cloturer_caisse`,
 `planning`, `patients`, `stocks`, `equipe`. Les droits du manager se
 donnent aussi à titre personnel (un vétérinaire ou une ASV en chef), et
 l'administration (`organisation`, par le rôle ou une exception) les
-emporte.
+emporte : un rôle qui la reçoit les reçoit aussi, ni un rôle ni une
+exception ne les retire à qui la garde, et un refus devenu sans effet
+s'efface quand la personne la reçoit par son rôle.
 
 Garde-fous : personne ne change son propre rôle ni ne se suspend ; on ne
 donne jamais un rôle plus large que le sien ; on ne suspend ni ne

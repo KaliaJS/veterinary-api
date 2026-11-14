@@ -152,7 +152,7 @@ class RolesEtDroitsTest extends TestCase
 
         $this->putJson("/api/v1/organisation/roles/{$administrateur->id}", ['droits' => $sansLesAbsences], $this->enTetes($this->jeton))
             ->assertUnprocessable()
-            ->assertJsonValidationErrors(['droits' => 'Gérer les absences et Voir les chiffres sont compris dans l’Administration : retirez d’abord l’Administration.']);
+            ->assertJsonValidationErrors(['droits' => 'Gérer les absences et Voir les chiffres sont compris dans l’Administration : ils ne se retirent pas tant qu’elle est donnée.']);
         $this->assertTrue($administrateur->refresh()->domaines->contains(DomainePermission::GererAbsences));
 
         // Une exception non plus : refusée pour qui a l'administration, permise pour un autre
@@ -171,12 +171,16 @@ class RolesEtDroitsTest extends TestCase
 
     public function test_recevoir_l_administration_par_son_role_efface_ses_refus_des_droits_du_manager(): void
     {
-        // Paul, vétérinaire, s'est vu refuser « Gérer les absences » ; il devient administrateur
+        // Paul, vétérinaire, s'est vu refuser « Gérer les absences » ; il devient administrateur.
+        // Marc, vétérinaire aussi, garde son refus : il n'a pas l'administration
         ['employe' => $paul] = $this->employeAvecJeton($this->clinique);
+        ['employe' => $marc] = $this->employeAvecJeton($this->clinique);
+        $this->putJson("/api/v1/organisation/employes/{$marc->id}/exceptions", ['droits' => [['droit' => 'gerer_absences', 'accorde' => false]]], $this->enTetes($this->jeton))->assertOk();
         $this->putJson("/api/v1/organisation/employes/{$paul->id}/exceptions", ['droits' => [['droit' => 'gerer_absences', 'accorde' => false], ['droit' => 'stocks', 'accorde' => false]]], $this->enTetes($this->jeton))->assertOk();
         $this->patchJson("/api/v1/equipe/employes/{$paul->id}", ['role_id' => $this->role(RolesParDefaut::ADMINISTRATEUR)->id], $this->enTetes($this->jeton))->assertOk();
 
         $this->assertSame([['employe_id' => $paul->id, 'droits' => [['droit' => 'stocks', 'accorde' => false]]]], $this->exceptionsDe($paul->id));
+        $this->assertSame([['employe_id' => $marc->id, 'droits' => [['droit' => 'gerer_absences', 'accorde' => false]]]], $this->exceptionsDe($marc->id));
 
         // Julie, en « Réception », s'est vu refuser « Voir les chiffres » ; la Réception reçoit l'administration
         $reception = $this->postJson('/api/v1/organisation/roles', ['nom' => 'Réception', 'droits' => ['planning']], $this->enTetes($this->jeton))->json('data.id');

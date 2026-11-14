@@ -33,7 +33,7 @@ use Illuminate\Validation\ValidationException;
  */
 class OrganisationRoleController extends Controller
 {
-    private const string COMPRIS_DANS_L_ADMINISTRATION = 'Gérer les absences et Voir les chiffres sont compris dans l’Administration : retirez d’abord l’Administration.';
+    private const string COMPRIS_DANS_L_ADMINISTRATION = 'Gérer les absences et Voir les chiffres sont compris dans l’Administration : ils ne se retirent pas tant qu’elle est donnée.';
 
     public function __construct(private CalculateurPermissions $calculateur) {}
 
