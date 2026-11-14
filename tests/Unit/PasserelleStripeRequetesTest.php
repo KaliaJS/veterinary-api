@@ -101,6 +101,31 @@ class PasserelleStripeRequetesTest extends TestCase
         $this->assertSame('false', $session['params']['components']['payments']['features']['dispute_management']);
     }
 
+    /**
+     * Audit C20 (14.11.2026) : sans la gestion du compte (droit
+     * Administration), les virements, le solde et la bannière se lisent
+     * seulement — ni virement manuel, ni calendrier, ni compte bancaire.
+     */
+    public function test_sans_la_gestion_du_compte_les_virements_le_solde_et_la_banniere_se_lisent_seulement(): void
+    {
+        $plateforme = $this->passerelle(null);
+
+        $plateforme->creerSessionCompte('acct_autre', ['payouts', 'balances', 'notification_banner'], remboursements: false, gestionDuCompte: false);
+        $plateforme->creerSessionCompte('acct_autre', ['payouts', 'balances', 'notification_banner'], remboursements: false, gestionDuCompte: true);
+
+        [$lecture, $gestion] = $this->http->requetes;
+        foreach (['payouts', 'balances'] as $composant) {
+            foreach (['standard_payouts', 'edit_payout_schedule', 'external_account_collection', 'instant_payouts'] as $geste) {
+                $this->assertSame('false', $lecture['params']['components'][$composant]['features'][$geste], $composant.' '.$geste);
+            }
+            foreach (['standard_payouts', 'edit_payout_schedule', 'external_account_collection'] as $geste) {
+                $this->assertSame('true', $gestion['params']['components'][$composant]['features'][$geste], $composant.' '.$geste);
+            }
+        }
+        $this->assertSame('false', $lecture['params']['components']['notification_banner']['features']['external_account_collection']);
+        $this->assertSame('true', $gestion['params']['components']['notification_banner']['features']['external_account_collection']);
+    }
+
     public function test_la_commission_part_en_frais_d_application_sur_les_trois_intentions(): void
     {
         $societe = $this->passerelle();

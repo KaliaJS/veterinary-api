@@ -138,9 +138,13 @@ interface PasserellePaiement
      * Session des composants intégrés (inscription, gestion du compte,
      * paiements, virements, notifications) : le secret pour le navigateur.
      * Sans `$remboursements`, le composant des paiements ne permet ni de
-     * rembourser ni de répondre à un litige (droit `rembourser`).
+     * rembourser ni de répondre à un litige (droit `rembourser`). Sans
+     * `$gestionDuCompte` (audit C20, 14.11.2026 : droit `organisation`, ou
+     * le vendeur sur son propre compte), les virements, le solde et la
+     * bannière se lisent seulement : ni virement manuel, ni calendrier des
+     * virements, ni compte bancaire.
      *
      * @param  list<string>  $composants
      */
-    public function creerSessionCompte(string $compte, array $composants, bool $remboursements = false): string;
+    public function creerSessionCompte(string $compte, array $composants, bool $remboursements = false, bool $gestionDuCompte = false): string;
 }

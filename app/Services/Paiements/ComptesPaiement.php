@@ -24,7 +24,11 @@ use Illuminate\Validation\ValidationException;
  */
 class ComptesPaiement
 {
-    /** Composants intégrés : ceux qui touchent le compte demandent le domaine organisation. */
+    /**
+     * Composants intégrés : ceux qui touchent le compte demandent le domaine
+     * organisation ; ceux de la facturation se lisent seulement sans lui
+     * (virements, solde et bannière, audit C20).
+     */
     public const COMPOSANTS_ORGANISATION = ['account_onboarding', 'account_management'];
 
     public const COMPOSANTS_FACTURATION = ['notification_banner', 'payments', 'payouts', 'balances'];
@@ -170,15 +174,18 @@ class ComptesPaiement
 
     /**
      * Secret de session pour les composants intégrés demandés.
+     * `$gestionDuCompte` : virements manuels, calendrier des virements et
+     * compte bancaire (droit `organisation`, audit C20) ; sans elle, ces
+     * composants se lisent seulement.
      *
      * @param  array<string>  $composants  tels que validés (tableau, pas forcément une liste)
      */
-    public function session(Societe $societe, array $composants, bool $remboursements = false): string
+    public function session(Societe $societe, array $composants, bool $remboursements = false, bool $gestionDuCompte = false): string
     {
         if (! $societe->stripe_compte_id) {
             throw ValidationException::withMessages(['composants' => 'Le compte de paiement n’est pas encore ouvert.']);
         }
 
-        return $this->passerelle->pourCompte(null)->creerSessionCompte($societe->stripe_compte_id, array_values($composants), $remboursements);
+        return $this->passerelle->pourCompte(null)->creerSessionCompte($societe->stripe_compte_id, array_values($composants), $remboursements, $gestionDuCompte);
     }
 }

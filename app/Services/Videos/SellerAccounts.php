@@ -66,6 +66,7 @@ class SellerAccounts
             throw ValidationException::withMessages(['account' => 'Le compte de paiement n’est pas encore ouvert.']);
         }
 
-        return $this->gateway->pourCompte(null)->creerSessionCompte($user->stripe_account_id, self::COMPONENTS);
+        // Son propre compte : il en gère les virements et le compte bancaire
+        return $this->gateway->pourCompte(null)->creerSessionCompte($user->stripe_account_id, self::COMPONENTS, gestionDuCompte: true);
     }
 }

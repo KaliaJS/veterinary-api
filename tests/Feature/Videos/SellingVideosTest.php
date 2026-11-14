@@ -84,6 +84,8 @@ class SellingVideosTest extends TestCase
         $this->assertNotNull($vet['user']->refresh()->stripe_account_id);
         // Sans quitter l'app : l'inscription du prestataire s'ouvre en composant intégré
         $this->assertContains('account_onboarding', $this->gateway->sessions[0]['composants']);
+        // Le vendeur gère son propre compte : virements et compte bancaire compris (audit C20, 14.11.2026)
+        $this->assertTrue($this->gateway->sessions[0]['gestion']);
         $this->assertSame('individual', collect($this->gateway->appels)->isNotEmpty() ? $this->comptesCreesType() : null);
         // Une seconde ouverture ne crée pas un second compte
         $compte = $vet['user']->stripe_account_id;

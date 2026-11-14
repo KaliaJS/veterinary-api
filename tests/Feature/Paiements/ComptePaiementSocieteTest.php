@@ -111,7 +111,7 @@ class ComptePaiementSocieteTest extends TestCase
         $this->postJson('/api/v1/facturation/compte-paiement/session', ['composants' => ['account_onboarding']], $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonPath('data.client_secret', fn ($secret) => str_starts_with($secret, 'accs_secret_'));
-        $this->assertSame(['compte' => 'acct_1', 'composants' => ['account_onboarding'], 'remboursements' => true], $this->stripe->sessions[0]);
+        $this->assertSame(['compte' => 'acct_1', 'composants' => ['account_onboarding'], 'remboursements' => true, 'gestion' => true], $this->stripe->sessions[0]);
 
         // Un vétérinaire (facturation sans organisation) voit paiements et virements, pas l'inscription
         $this->employe->update(['role_id' => Role::withoutGlobalScope('organisation')
@@ -122,6 +122,10 @@ class ComptePaiementSocieteTest extends TestCase
         $this->postJson('/api/v1/facturation/compte-paiement/session', ['composants' => ['payments', 'payouts', 'notification_banner']], $this->enTetes($this->jeton))->assertOk();
         // Sans le droit `rembourser`, le composant des paiements ne rembourse pas
         $this->assertFalse($this->stripe->sessions[1]['remboursements']);
+        // Sans le droit `organisation`, virements et bannière en lecture seule (audit C20, 14.11.2026)
+        $this->assertFalse($this->stripe->sessions[1]['gestion']);
+        $this->postJson('/api/v1/facturation/compte-paiement/session', ['composants' => ['balances']], $this->enTetes($this->jeton))->assertOk();
+        $this->assertFalse($this->stripe->sessions[2]['gestion']);
     }
 
     public function test_le_terminal_encaisse_sur_le_compte_de_la_societe_avec_la_commission(): void

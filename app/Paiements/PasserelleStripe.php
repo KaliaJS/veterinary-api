@@ -312,12 +312,26 @@ class PasserelleStripe implements PasserellePaiement
         ];
     }
 
-    public function creerSessionCompte(string $compte, array $composants, bool $remboursements = false): string
+    public function creerSessionCompte(string $compte, array $composants, bool $remboursements = false, bool $gestionDuCompte = false): string
     {
         $choisis = array_intersect_key(self::COMPOSANTS, array_flip($composants));
         if (isset($choisis['payments'])) {
             $choisis['payments']['features']['refund_management'] = $remboursements;
             $choisis['payments']['features']['dispute_management'] = $remboursements;
+        }
+        // Virements, solde et bannière : en lecture seule sans la gestion du compte (audit C20, 14.11.2026)
+        foreach (['payouts', 'balances'] as $virements) {
+            if (isset($choisis[$virements])) {
+                $choisis[$virements]['features'] = [
+                    ...$choisis[$virements]['features'],
+                    'standard_payouts' => $gestionDuCompte,
+                    'edit_payout_schedule' => $gestionDuCompte,
+                    'external_account_collection' => $gestionDuCompte,
+                ];
+            }
+        }
+        if (isset($choisis['notification_banner'])) {
+            $choisis['notification_banner']['features']['external_account_collection'] = $gestionDuCompte;
         }
 
         $session = $this->appel(fn () => $this->client->accountSessions->create([

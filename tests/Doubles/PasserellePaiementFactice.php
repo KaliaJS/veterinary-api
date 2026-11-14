@@ -69,7 +69,7 @@ class PasserellePaiementFactice implements PasserellePaiement
     /** @var array<string, array{paiements: bool, virements: bool, a_completer: bool}> */
     public array $etatsComptes = [];
 
-    /** @var list<array{compte: string, composants: list<string>}> */
+    /** @var list<array{compte: string, composants: list<string>, remboursements: bool, gestion: bool}> */
     public array $sessions = [];
 
     private int $sequence = 0;
@@ -324,10 +324,10 @@ class PasserellePaiementFactice implements PasserellePaiement
         return $this->etatsComptes[$compte] ?? ['paiements' => true, 'virements' => true, 'a_completer' => false];
     }
 
-    public function creerSessionCompte(string $compte, array $composants, bool $remboursements = false): string
+    public function creerSessionCompte(string $compte, array $composants, bool $remboursements = false, bool $gestionDuCompte = false): string
     {
         $this->noter(__FUNCTION__, $compte, null, plateforme: true);
-        $this->sessions[] = ['compte' => $compte, 'composants' => $composants, 'remboursements' => $remboursements];
+        $this->sessions[] = ['compte' => $compte, 'composants' => $composants, 'remboursements' => $remboursements, 'gestion' => $gestionDuCompte];
 
         return 'accs_secret_'.(++$this->sequence);
     }
