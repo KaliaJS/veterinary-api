@@ -140,21 +140,25 @@ class OrganisationRoleController extends Controller
 
     /**
      * Un rôle avec l'administration a les droits du manager : ajoutés quand
-     * il la reçoit, refusés s'il la garde en les retirant.
+     * il la reçoit, refusés s'il la garde en les retirant, retirés avec elle.
      *
      * @param  list<string>  $droits
      * @return list<string>
      */
     private function avecLesDroitsDuManager(array $droits, ?Role $role): array
     {
+        $avaitLAdministration = (bool) $role?->domaines->contains(DomainePermission::Organisation);
         if (! in_array(DomainePermission::Organisation->value, $droits, true)) {
-            return $droits;
+            // L'Administration retirée emporte les droits du manager (Jim, 14.11.2026, choix A)
+            return $avaitLAdministration
+                ? array_values(array_diff($droits, [DomainePermission::GererAbsences->value, DomainePermission::VoirChiffres->value]))
+                : $droits;
         }
         $manquants = array_values(array_diff([DomainePermission::GererAbsences->value, DomainePermission::VoirChiffres->value], $droits));
         if ($manquants === []) {
             return $droits;
         }
-        if ($role?->domaines->contains(DomainePermission::Organisation)) {
+        if ($avaitLAdministration) {
             throw ValidationException::withMessages(['droits' => self::COMPRIS_DANS_L_ADMINISTRATION]);
         }
 

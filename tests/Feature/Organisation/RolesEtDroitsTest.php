@@ -143,6 +143,16 @@ class RolesEtDroitsTest extends TestCase
         $this->putJson("/api/v1/organisation/roles/{$reception}", ['droits' => ['planning', 'organisation']], $this->enTetes($this->jeton))
             ->assertOk()
             ->assertJsonPath('data.droits', ['planning', 'organisation', 'gerer_absences', 'voir_chiffres']);
+
+        // L'Administration retirée (Jim, 14.11.2026, choix A) : les droits du manager s'en vont avec elle,
+        // même quand l'écran renvoie la liste complète
+        $this->putJson("/api/v1/organisation/roles/{$reception}", ['droits' => ['planning', 'gerer_absences', 'voir_chiffres']], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.droits', ['planning']);
+        // Ensuite, sans l'Administration, ils se donnent un à un
+        $this->putJson("/api/v1/organisation/roles/{$reception}", ['droits' => ['planning', 'gerer_absences']], $this->enTetes($this->jeton))
+            ->assertOk()
+            ->assertJsonPath('data.droits', ['planning', 'gerer_absences']);
     }
 
     public function test_les_droits_du_manager_ne_se_retirent_pas_a_qui_garde_l_administration(): void
