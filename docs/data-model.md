@@ -136,12 +136,14 @@ Dr Meyer + Bloc — c'est un filtre de vue, pas une donnée.
 
 Cycle implémenté (écran Équipe) : demande `att` → **validation**
 (passe `ok` et vide la colonne du praticien sur la période : RDV passés
-en `annule`, audités avec motif « Absence praticien — … ») ou **refus**
-(`ref`, notification). Saisie directe admin (créée directement `ok`,
-mêmes annulations), **modification** (période/type/note) et
-**suppression** d'une absence sont permises — la suppression rouvre la
+en `annule`, audités avec le motif « Absence du praticien », sans la
+raison) ou **refus** (`ref`, notification). Saisie directe (créée
+directement `ok`, mêmes annulations), **modification** (période/type/note)
+et **suppression** d'une absence sont permises — la suppression rouvre la
 colonne (à ajouter aux « suppressions tolérées »). Les RDV annulés ne
-sont pas restaurés par la suppression de l'absence.
+sont pas restaurés par la suppression de l'absence. Ces gestes demandent
+`gerer_absences` (14.11.2026) ; personne ne décide de sa propre absence,
+sauf un administrateur (sa demande en attente se corrige ou se retire).
 
 **Gardes, chaque nuit** (11.11.2026, `RotationGardes`) : table `gardes`
 (clinique, `jour` unique, employé, `est_choisie`, `enregistree_le`,
@@ -197,8 +199,9 @@ pris ces jours-là laissent la demande en attente).
 Codes couleur (`ABSENCE_TYPES`) : congés bleu `#5aa7f5`, maladie rouge
 (`--urgent`), formation violet `#a78bfa`, récupération ambre (`--warn`),
 garde vert `#22a06b`. Une absence **validée** couvre la colonne de
-l'ouverture à la fermeture (zone hachurée « TYPE — Nom · RETOUR date »)
-et interdit la création de RDV sur la ligne. La `garde` ne bloque pas :
+l'ouverture à la fermeture (zone hachurée « TYPE — Nom · RETOUR date » ;
+sans `gerer_absences`, le type des absences des autres ne se dit pas :
+« Absent ») et interdit la création de RDV sur la ligne. La `garde` ne bloque pas :
 badge « DE GARDE » sur la ligne.
 
 ---

@@ -145,15 +145,22 @@ class VisibiliteEquipeTest extends TestCase
             ->assertJsonStructure(['data' => ['taux', 'entree_le', 'conges', 'conges_report_arrivee']]);
     }
 
-    public function test_sa_propre_fiche_se_lit_en_entier_sauf_le_salaire(): void
+    public function test_sa_propre_fiche_se_lit_en_entier_sauf_le_salaire_et_le_motif(): void
     {
-        ['employe' => $moi, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique, ['salaire_mensuel' => 5100], 'assistant');
+        ['employe' => $moi, 'jeton' => $jeton] = $this->employeAvecJeton($this->clinique, [
+            'salaire_mensuel' => 5100,
+            'licenciement_notifie_le' => '2026-10-30',
+            'fin_contrat_le' => '2026-12-31',
+            'licenciement_motif' => 'Réorganisation',
+        ], 'assistant');
 
         $fiche = $this->getJson("/api/v1/equipe/employes/{$moi->id}", $this->enTetes($jeton))->assertOk()->json('data');
         foreach (['taux', 'contrat', 'contrat_statut', 'entree_le', ...self::CHAMPS_DES_CONGES] as $champ) {
             $this->assertArrayHasKey($champ, $fiche, $champ);
         }
         $this->assertArrayNotHasKey('salaire_mensuel', $fiche);
+        $this->assertSame('2026-12-31', $fiche['licenciement']['fin_contrat_le']);
+        $this->assertNull($fiche['licenciement']['motif']);
         $this->getJson("/api/v1/equipe/employes/{$moi->id}/conges", $this->enTetes($jeton))->assertOk();
     }
 }

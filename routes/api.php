@@ -1059,7 +1059,7 @@ Route::prefix('v1')->group(function (): void {
         // elles, restent aux routes planning/équipe existantes.
         // Le planning de l'équipe, lu par chacun (11.11.2026) : les nuits de
         // garde, les absences (celles des autres sans raison, sans le droit
-        // Équipe), et ses propres demandes de congé
+        // « Gérer les absences », audit C29), et ses propres demandes de congé
         Route::get('equipe/gardes', [GardeController::class, 'index']);
         Route::get('equipe/planning', PlanningEquipeController::class);
         // Les jours fériés de la clinique (É23) : lus par qui règle horaires ou équipe, changés par l'administration ou les RH

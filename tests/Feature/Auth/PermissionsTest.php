@@ -85,7 +85,9 @@ class PermissionsTest extends TestCase
             $this->assertContains(DomainePermission::Equipe, $domaines, $nom);
         }
         // Le manager organise, il ne gère ni l'organisation ni les contrats, et ne signe aucun acte
-        foreach ([DomainePermission::Organisation, DomainePermission::Rh, DomainePermission::Prescrire, DomainePermission::Stupefiants] as $exclu) {
+        foreach ([DomainePermission::Organisation, DomainePermission::Rh, DomainePermission::Prescrire, DomainePermission::Stupefiants,
+            DomainePermission::ValiderAnalyses, DomainePermission::SignerComptesRendus, DomainePermission::Bloc,
+            DomainePermission::CloturerCaisse, DomainePermission::Rembourser] as $exclu) {
             $this->assertNotContains($exclu, $roles[RolesParDefaut::MANAGER]);
         }
     }
