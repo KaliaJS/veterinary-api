@@ -512,7 +512,8 @@ sont de deux sortes :
 | `facturation` | caisse | factures, devis, encaissements, fin de consultation |
 | `stocks` | accès | produits, lots, commandes, boutique |
 | `bloc` | accès | interventions |
-| `equipe` | équipe | voir l'équipe, gardes du week-end |
+| `equipe` | équipe | voir l'équipe (nom, rôle, présence, « absent » sans la raison, téléphone, e-mail), gardes de chaque nuit |
+| `gerer_absences` | équipe | valider ou refuser les congés, poser une absence pour un autre, raison et note des absences, soldes de congés (14.11.2026) |
 | `organisation` | équipe | cliniques, abonnement, compte de paiement, rôles et droits |
 | `rh` | équipe | embaucher, rôles, salaires, suspendre, licencier, affectations, invitations |
 | `prescrire` | actes | signer et renouveler une ordonnance |
@@ -521,12 +522,16 @@ sont de deux sortes :
 | `stupefiants` | actes | inscrire au registre des stupéfiants |
 | `cloturer_caisse` | caisse | clôture Z |
 | `rembourser` | caisse | rembourser et répondre aux litiges (composant Stripe) |
+| `voir_chiffres` | caisse | chiffre d'affaires et marge de l'organisation : statistiques de la caisse et de la boutique (14.11.2026) |
 
 Défauts (`RolesParDefaut`, modifiables par l'organisation dans Réglages,
-Rôles et droits) : Administrateur tout ; Vétérinaire tout sauf
-`organisation`, `rh`, `cloturer_caisse`, `rembourser` ; ASV `planning`,
+Rôles et droits) : Administrateur tout ; Manager `planning`, `patients`,
+`facturation`, `stocks`, `equipe`, `gerer_absences`, `voir_chiffres` ;
+Vétérinaire tout sauf `organisation`, `rh`, `cloturer_caisse`,
+`rembourser`, `gerer_absences`, `voir_chiffres` ; ASV `planning`,
 `patients`, `facturation`, `stocks`, `bloc`, `equipe` ; Assistant
-`planning`, `patients`, `stocks`, `equipe`.
+`planning`, `patients`, `stocks`, `equipe`. Les droits du manager se
+donnent aussi à titre personnel (un vétérinaire ou une ASV en chef).
 
 Garde-fous : personne ne change son propre rôle ni ne se suspend ; on ne
 donne jamais un rôle plus large que le sien ; on ne suspend ni ne

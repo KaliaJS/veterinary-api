@@ -137,18 +137,18 @@ class IsolationCliniqueTest extends TestCase
 
     public function test_les_roles_sont_isoles_par_organisation(): void
     {
-        // Chaque organisation a ses quatre rôles par défaut ; sous le
+        // Chaque organisation a ses cinq rôles par défaut ; sous le
         // contexte de la clinique A, seuls les siens existent.
         app(ContexteClinique::class)->definir($this->cliniqueA);
 
-        $this->assertSame(4, Role::count());
+        $this->assertSame(5, Role::count());
         $this->assertSame(
             [$this->cliniqueA->societe->organisation_id],
             Role::pluck('organisation_id')->unique()->values()->all(),
         );
 
         app(ContexteClinique::class)->oublier();
-        $this->assertSame(8, Role::count());
+        $this->assertSame(10, Role::count());
     }
 
     public function test_un_rattachement_revoque_coupe_l_acces(): void

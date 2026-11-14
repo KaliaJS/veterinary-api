@@ -40,10 +40,14 @@ class RolesEtDroitsTest extends TestCase
     {
         $this->getJson('/api/v1/organisation/roles', $this->enTetes($this->jeton))
             ->assertOk()
-            ->assertJsonCount(4, 'data')
+            // Administrateur, Manager (14.11.2026), Vétérinaire, ASV, Assistant
+            ->assertJsonCount(5, 'data')
             ->assertJsonCount(count(DomainePermission::cases()), 'droits')
             ->assertJsonPath('droits.7.valeur', 'rh')
-            ->assertJsonPath('droits.7.libelle', 'Gérer l’équipe');
+            ->assertJsonPath('droits.7.libelle', 'Gérer l’équipe')
+            ->assertJsonPath('droits.14.libelle', 'Gérer les absences')
+            ->assertJsonPath('droits.14.groupe', 'equipe')
+            ->assertJsonPath('droits.15.libelle', 'Voir les chiffres');
     }
 
     public function test_un_role_cree_puis_donne_ouvre_exactement_ses_droits(): void

@@ -14,7 +14,9 @@ namespace App\Enums;
  *   sensibles d'un domaine, séparés pour qu'une organisation choisisse
  *   qui les fait (gérer l'équipe, signer une ordonnance, valider une
  *   analyse, signer un compte rendu, tenir le registre des stupéfiants,
- *   clôturer la caisse, rembourser).
+ *   clôturer la caisse, rembourser) ; depuis le 14.11.2026, les droits du
+ *   manager (gérer les absences, voir les chiffres), donnés au rôle
+ *   Manager ou à titre personnel.
  */
 enum DomainePermission: string
 {
@@ -34,6 +36,9 @@ enum DomainePermission: string
     case CloturerCaisse = 'cloturer_caisse';
     case Rembourser = 'rembourser';
 
+    case GererAbsences = 'gerer_absences';
+    case VoirChiffres = 'voir_chiffres';
+
     /** @return list<string> */
     public static function valeurs(): array
     {
@@ -45,8 +50,8 @@ enum DomainePermission: string
     {
         return match ($this) {
             self::Prescrire, self::ValiderAnalyses, self::SignerComptesRendus, self::Stupefiants => 'actes',
-            self::Facturation, self::CloturerCaisse, self::Rembourser => 'caisse',
-            self::Equipe, self::Rh, self::Organisation => 'equipe',
+            self::Facturation, self::CloturerCaisse, self::Rembourser, self::VoirChiffres => 'caisse',
+            self::Equipe, self::GererAbsences, self::Rh, self::Organisation => 'equipe',
             default => 'acces',
         };
     }
@@ -68,6 +73,8 @@ enum DomainePermission: string
             self::Stupefiants => 'Registre des stupéfiants',
             self::CloturerCaisse => 'Clôturer la caisse',
             self::Rembourser => 'Rembourser',
+            self::GererAbsences => 'Gérer les absences',
+            self::VoirChiffres => 'Voir les chiffres',
         };
     }
 
@@ -79,7 +86,7 @@ enum DomainePermission: string
             self::Facturation => 'Factures, devis, encaissements.',
             self::Stocks => 'Produits, lots, commandes, vente au comptoir.',
             self::Bloc => 'Interventions chirurgicales.',
-            self::Equipe => 'Fiches de l’équipe, absences à valider, gardes de chaque nuit et congés à traiter.',
+            self::Equipe => 'Qui est dans l’équipe, présent ou absent, son téléphone et son e-mail ; les gardes de chaque nuit.',
             self::Organisation => 'Cliniques, abonnement, compte de paiement, rôles et droits.',
             self::Rh => 'Embaucher, modifier les rôles et les salaires, suspendre, licencier.',
             self::Prescrire => 'Signer et renouveler une ordonnance ; le médicament sort du stock.',
@@ -88,6 +95,8 @@ enum DomainePermission: string
             self::Stupefiants => 'Enregistrer les entrées et sorties de stupéfiants.',
             self::CloturerCaisse => 'Arrêter la caisse du jour (clôture Z).',
             self::Rembourser => 'Rembourser un paiement et répondre aux litiges.',
+            self::GererAbsences => 'Valider ou refuser les congés, poser une absence pour un autre, voir la raison des absences et les soldes de congés.',
+            self::VoirChiffres => 'Chiffre d’affaires et marge de l’organisation : statistiques de la caisse et de la boutique.',
         };
     }
 }

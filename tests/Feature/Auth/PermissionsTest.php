@@ -42,7 +42,7 @@ class PermissionsTest extends TestCase
             ->pluck('domaines', 'nom');
 
         $this->assertEqualsCanonicalizing(
-            [RolesParDefaut::ADMINISTRATEUR, RolesParDefaut::VETERINAIRE, RolesParDefaut::ASV, RolesParDefaut::ASSISTANT],
+            [RolesParDefaut::ADMINISTRATEUR, RolesParDefaut::MANAGER, RolesParDefaut::VETERINAIRE, RolesParDefaut::ASV, RolesParDefaut::ASSISTANT],
             $roles->keys()->all(),
         );
         // Défauts du 23.10.2026 : l'ASV encaisse, le vétérinaire signe,
@@ -59,6 +59,48 @@ class PermissionsTest extends TestCase
             $this->assertNotContains($geste, $roles[RolesParDefaut::VETERINAIRE]);
             $this->assertContains($geste, $roles[RolesParDefaut::ADMINISTRATEUR]);
         }
+    }
+
+    /**
+     * Les droits du manager (Jim, 14.11.2026, audit C04, C11, C29) : gérer
+     * les absences et voir les chiffres, à l'administrateur et au rôle
+     * Manager seulement ; « Voir l'équipe » reste à tous.
+     */
+    public function test_seuls_l_administrateur_et_le_manager_gerent_les_absences_et_voient_les_chiffres(): void
+    {
+        ['employe' => $employe] = $this->employeAvecJeton();
+
+        $roles = Role::withoutGlobalScopes()
+            ->where('organisation_id', $employe->organisation_id)
+            ->pluck('domaines', 'nom');
+
+        foreach ([DomainePermission::GererAbsences, DomainePermission::VoirChiffres] as $droit) {
+            $this->assertContains($droit, $roles[RolesParDefaut::ADMINISTRATEUR]);
+            $this->assertContains($droit, $roles[RolesParDefaut::MANAGER]);
+            foreach ([RolesParDefaut::VETERINAIRE, RolesParDefaut::ASV, RolesParDefaut::ASSISTANT] as $autre) {
+                $this->assertNotContains($droit, $roles[$autre], $autre);
+            }
+        }
+        foreach ($roles as $nom => $domaines) {
+            $this->assertContains(DomainePermission::Equipe, $domaines, $nom);
+        }
+        // Le manager organise, il ne gère ni l'organisation ni les contrats, et ne signe aucun acte
+        foreach ([DomainePermission::Organisation, DomainePermission::Rh, DomainePermission::Prescrire, DomainePermission::Stupefiants] as $exclu) {
+            $this->assertNotContains($exclu, $roles[RolesParDefaut::MANAGER]);
+        }
+    }
+
+    public function test_les_droits_du_manager_se_donnent_a_titre_personnel(): void
+    {
+        ['employe' => $employe, 'jeton' => $jeton] = $this->employeAvecJeton();
+
+        foreach ([DomainePermission::GererAbsences, DomainePermission::VoirChiffres] as $droit) {
+            DerogationPermission::create(['employe_id' => $employe->id, 'domaine' => $droit, 'est_accordee' => true]);
+        }
+
+        $permissions = $this->getJson('/api/v1/auth/moi', $this->enTetes($jeton))->assertOk()->json('data.permissions');
+        $this->assertContains('gerer_absences', $permissions);
+        $this->assertContains('voir_chiffres', $permissions);
     }
 
     public function test_modifier_un_role_prend_effet_immediatement_sans_reemettre_le_jeton(): void

@@ -48,6 +48,15 @@ class EmployeFactory extends Factory
         ]);
     }
 
+    /** Rôle Manager : il organise, gère les absences et voit les chiffres, sans l'administration. */
+    public function manager(): static
+    {
+        return $this->state(fn (): array => [
+            'role_libelle' => 'Manager',
+            'role_id' => fn (array $attributes) => $this->roleParDefaut($attributes['organisation_id'], RolesParDefaut::MANAGER),
+        ]);
+    }
+
     /** Rôle Assistant : planning, dossiers, stocks, voir l'équipe. */
     public function assistant(): static
     {
